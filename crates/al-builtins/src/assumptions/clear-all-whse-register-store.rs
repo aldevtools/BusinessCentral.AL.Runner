@@ -1,0 +1,13 @@
+ClearAllWhseRegisterStore => {
+    id: "clear-all-whse-register-store",
+    assumed: "ClearAll() in a codeunit with a TableNo resets in place a global codeunit instance another variable shares, when that store is a codeunit with a TableNo that is no register of clear-all-register-single-instance only because of one of these shapes. At the register level, besides the kinds of clear-all-register-single-instance, a Label with text and a Comment, a Label with text and no property, a Label with text and Locked = true, Text, Code, Decimal, Date, BigInteger, Option and Char. Three levels below the register in a codeunit that is not SingleInstance, records that are not temporary and Labels with text and a Comment. Two levels below the register in a SingleInstance codeunit, a codeunit global that is a SingleInstance codeunit with no TableNo whose globals are Booleans and Integers, or a codeunit that is not SingleInstance, has no TableNo and holds records that are not temporary, Integers and Labels with text and a Comment. The store's scalars go back to their defaults, an Option to its first value and a record filter to empty; Labels keep their text; a nested codeunit that is not SingleInstance is reset in place the same way and stays shared; a SingleInstance codeunit is not reset: it keeps its state, the codeunits it holds keep theirs, and it stays the session's one instance. The store was written before the ClearAll. Its records and the records of its nested codeunits read or wrote no row, no other variable shares any of its nested codeunit instances at any depth, no routine of the store runs, and no BindSubscription binds it.",
+    tests: "Microsoft's SCM tests (codeunits 137156, 137294, 137062) reach this shape through \"Sales-Post\".ClearAll with the shared \"Whse. Jnl.-Register Line\", which holds \"Item Tracking Management\", which holds the SingleInstance \"Confirm Management\" and the SingleInstance \"Confirm Management Impl.\" (al-runner issue 9194).",
+    probe: "Open corpus pull request 1619, tests/al-language/codeunits/clear-instance/ClearSharedCodeunitWhseStore.al (test codeunit 86734: a TableNo register with a record filter, Labels and a codeunit that holds a SingleInstance codeunit holding a SingleInstance codeunit; a register with the scalar kinds and Labels beside a SingleInstance codeunit; a codeunit three levels below the register under a plain and under a SingleInstance branch; owner with a TableNo), green on every BC major the corpus runs. Not yet merged.",
+    awaiting: Awaiting {
+        issues: &[9194, 9176],
+        files: &[
+            "tests/al-language/codeunits/clear-instance/ClearSharedCodeunitWhseStore.al",
+        ],
+        since: "2026-11-27",
+    },
+}

@@ -111,6 +111,7 @@ impl Session {
                         Some(Store::Kinds) => Assumption::ClearAllStoreGlobalKinds,
                         Some(Store::TableNoKinds) => Assumption::ClearAllTableNoRegister,
                         Some(Store::TableNoSingle) => Assumption::ClearAllRegisterSingleInstance,
+                        Some(Store::TableNoWhse) => Assumption::ClearAllWhseRegisterStore,
                         _ => Assumption::ClearSharedCodeunit,
                     });
                     self.reset_keeping_rows(rc);
@@ -368,12 +369,14 @@ impl Session {
             return match (
                 holder && self.register_kinds(object),
                 holder && self.tableno_unpinned(object).is_none(),
-                holder && self.single_register_unpinned(object).is_none(),
+                holder && self.single_register_unpinned(object, false).is_none(),
+                holder && self.single_register_unpinned(object, true).is_none(),
             ) {
-                (true, _, _) => Some(Store::Register),
-                (false, true, _) => Some(Store::TableNoKinds),
-                (false, false, true) => Some(Store::TableNoSingle),
-                (false, false, false) => None,
+                (true, ..) => Some(Store::Register),
+                (false, true, ..) => Some(Store::TableNoKinds),
+                (false, false, true, _) => Some(Store::TableNoSingle),
+                (false, false, false, true) => Some(Store::TableNoWhse),
+                (false, false, false, false) => None,
             };
         }
         if matches!(o.globals.as_slice(), [t, e, i, l]
@@ -488,12 +491,15 @@ impl Session {
     /// temporary, codeunits, an Integer and a Boolean, and every other register of the probe ("CKS R D1PW" :155 to "CKS R
     /// KU") declares the same kinds; the register level admits only these. Each codeunit global is a
     /// [`Session::single_nested_unpinned`] codeunit. A Label or another scalar kind of merged corpus PR 1587 at the
-    /// register level refuses: no probe cell measures it beside a SingleInstance codeunit (al-runner issue 9176).
-    fn single_register_unpinned(&self, object: usize) -> Option<Unpinned> {
-        let nested = |c: u32| self.single_nested_unpinned(c as usize, 1).is_none();
-        let kind =
-            |g: &al_ir::Slot| !g.label && matches!(g.ty, RtType::Record(_, false) | RtType::Integer | RtType::Boolean);
-        self.tableno_globals_unpinned(object, &kind, &nested, &|c| self.single_nested_unpinned(c, 1))
+    /// register level refuses: no probe cell measures it beside a SingleInstance codeunit (al-runner issue 9176), unless
+    /// `wide` ([`Store::TableNoWhse`]): then the register level also admits the kinds of [`whse_register_kind`].
+    fn single_register_unpinned(&self, object: usize, wide: bool) -> Option<Unpinned> {
+        let nested = |c: u32| self.single_nested_unpinned(c as usize, 1, wide).is_none();
+        let kind = |g: &al_ir::Slot| {
+            !g.label && matches!(g.ty, RtType::Record(_, false) | RtType::Integer | RtType::Boolean)
+                || wide && whse_register_kind(g)
+        };
+        self.tableno_globals_unpinned(object, &kind, &nested, &|c| self.single_nested_unpinned(c, 1, wide))
     }
 
     /// The register-level part of [`Session::tableno_unpinned`] and [`Session::single_register_unpinned`]: the first
@@ -532,8 +538,10 @@ impl Session {
     /// :1683-1688, Kinds_* :2301, :2331). Three levels below the register 1599 has only SingleInstance codeunits ("CKS SI
     /// D3U" :1043), and merged corpus PR 1596 a codeunit of Integers (ClearSharedCodeunitTableNoRegister.al "CKT M3" :30;
     /// its codeunit global sits four levels deep, which refuses here): any other one holds Integers only, and a record or
-    /// a Label there refuses (al-runner issue 9176).
-    fn single_nested_unpinned(&self, object: usize, depth: u8) -> Option<Unpinned> {
+    /// a Label there refuses (al-runner issue 9176), unless `wide`: open corpus PR 1619 (ClearSharedCodeunitWhseStore.al
+    /// "CSW D3" :228-232 below "CSW D2P", Deep_OwnerClearAll :451, assumption clear-all-whse-register-store) measures a
+    /// record that is not temporary and a `Label 'text', Comment = 'text'` there too.
+    fn single_nested_unpinned(&self, object: usize, depth: u8, wide: bool) -> Option<Unpinned> {
         let o = &self.engine.program.objects[object];
         if depth > 3 {
             return Some(Unpinned::Deep { object, depth });
@@ -542,20 +550,21 @@ impl Session {
             return Some(Unpinned::TableNo { object, depth });
         }
         if self.engine.object_facts[object].single_instance {
-            return self.single_instance_unpinned(object, depth);
+            return self.single_instance_unpinned(object, depth, wide);
         }
         let first = depth == 1;
         (o.globals.iter().enumerate()).find_map(|(slot, g)| {
             let own = Some(Unpinned::Global { object, slot, depth });
             let deepest = depth == 3;
             if g.label {
-                let measured = !deepest && (g.comment_label || first && (g.plain_label || g.locked_label));
+                let measured = g.comment_label && (!deepest || wide) || first && (g.plain_label || g.locked_label);
                 return if measured { None } else { own };
             }
             match &g.ty {
                 RtType::Integer => None,
                 RtType::Record(..) if !deepest => None,
-                RtType::Codeunit(c) => self.single_nested_unpinned(*c as usize, depth + 1),
+                RtType::Record(_, false) if wide => None,
+                RtType::Codeunit(c) => self.single_nested_unpinned(*c as usize, depth + 1, wide),
                 RtType::List(e) if first && matches!(**e, RtType::Text(_)) => None,
                 RtType::Dictionary(k, v)
                     if first && matches!(**k, RtType::Text(_)) && matches!(**v, RtType::Integer) =>
@@ -572,13 +581,28 @@ impl Session {
     /// every global is an Integer, a temporary record, a `Label 'text', Comment = 'text'`, a `Label 'text', Locked = true`
     /// or a codeunit that is not SingleInstance, has no TableNo and holds only Integers ("CKS SI RU" :340-347 with "CKS
     /// Leaf" :20-21; "CKS SI PU" :37-40). Its state, these globals included, survives the owner's ClearAll (D1_Written_OwnerClearAll
-    /// :2025, Chain_Written_OwnerClearAll :2270).
-    fn single_instance_unpinned(&self, object: usize, depth: u8) -> Option<Unpinned> {
+    /// :2025, Chain_Written_OwnerClearAll :2270). When `wide` and two levels below the register, open corpus PR 1619
+    /// (assumption clear-all-whse-register-store) measures two more codeunit globals that keep their state too: a
+    /// SingleInstance codeunit with no TableNo whose globals are Booleans and Integers ("CSW Impl" :14-20 in "CSW Confirm"
+    /// :34-40, Whse_OwnerClearAll_EveryLevel :356, Whse_DirectSiWrite_OwnerClearAll :412) and a codeunit that is not
+    /// SingleInstance, has no TableNo and holds records that are not temporary, Integers and `Label 'text', Comment =
+    /// 'text'` ("CSW D3" :228-232 in "CSW D2Si" :246-252, Deep_OwnerClearAll :451).
+    fn single_instance_unpinned(&self, object: usize, depth: u8, wide: bool) -> Option<Unpinned> {
         let objects = &self.engine.program.objects;
-        let leaf = |c: usize| {
-            self.plain_codeunit(c)
+        let leaf_of = |c: usize, single: bool, kind: &dyn Fn(&al_ir::Slot) -> bool| {
+            objects[c].kind == al_ir::ObjKind::Codeunit
+                && self.engine.object_facts[c].single_instance == single
                 && objects[c].rec_slot.is_none()
-                && (objects[c].globals.iter()).all(|g| !g.label && matches!(g.ty, RtType::Integer))
+                && objects[c].globals.iter().all(kind)
+        };
+        let leaf = |c: usize| leaf_of(c, false, &|g| !g.label && matches!(g.ty, RtType::Integer));
+        let whse = wide && depth == 2;
+        let whse_leaf = |c: usize| {
+            leaf_of(c, true, &|g| {
+                !g.label && matches!(g.ty, RtType::Integer | RtType::Boolean)
+            }) || leaf_of(c, false, &|g| {
+                g.comment_label || !g.label && matches!(g.ty, RtType::Integer | RtType::Record(_, false))
+            })
         };
         let (slot, _) = (objects[object].globals.iter().enumerate()).find(|(_, g)| {
             !(g.comment_label
@@ -586,7 +610,7 @@ impl Session {
                 || !g.label
                     && match g.ty {
                         RtType::Integer | RtType::Record(_, true) => true,
-                        RtType::Codeunit(c) => leaf(c as usize),
+                        RtType::Codeunit(c) => leaf(c as usize) || whse && whse_leaf(c as usize),
                         _ => false,
                     })
         })?;
@@ -639,7 +663,7 @@ impl Session {
             (_, None) => match (objects[store].rec_slot, self.kinds_unpinned(store, 0)) {
                 (Some(_), _) if self.plain_codeunit(store) => match self.tableno_unpinned(store) {
                     // A register with a SingleInstance codeunit is named by what 1599 does not measure in it.
-                    Some(Unpinned::NotPlain { .. }) => (self.single_register_unpinned(store))
+                    Some(Unpinned::NotPlain { .. }) => (self.single_register_unpinned(store, true))
                         .map_or("no measured store shape".to_string(), |u| u.describe(objects)),
                     Some(u) => u.describe(objects),
                     None => "no measured store shape".to_string(),
@@ -655,7 +679,7 @@ impl Session {
                 o.describe(),
                 s.describe()
             ),
-            (_, Some(Store::Register | Store::TableNoKinds | Store::TableNoSingle)) if !self.register_as_measured(rc) => {
+            (_, Some(Store::Register | Store::TableNoKinds | Store::TableNoSingle | Store::TableNoWhse)) if !self.register_as_measured(rc) => {
                 "the register or a codeunit nested in it read or wrote a row, another variable shares one of its nested \
                  codeunits, Lists or Dictionaries, or a back link holds another register instance"
                     .to_string()
@@ -709,7 +733,7 @@ impl Session {
             return false;
         };
         measured(o, s, holding, hold)
-            && (!matches!(s, Store::Register | Store::TableNoKinds | Store::TableNoSingle) || self.register_as_measured(rc))
+            && (!matches!(s, Store::Register | Store::TableNoKinds | Store::TableNoSingle | Store::TableNoWhse) || self.register_as_measured(rc))
             && ((o, s) != (Owner::Plain, Store::TableNoKinds) || self.plain_owner_register(rc.borrow().object as usize))
             && (s != Store::Kinds || self.kinds_instances(rc, 0))
             // The store with one more Integer that no call made is measured for "CLQ Store Plus" only
@@ -812,7 +836,7 @@ impl Session {
     fn kinds_shape(&self, rc: &Rc<RefCell<Instance>>) -> bool {
         matches!(
             self.store_kind(rc.borrow().object as usize),
-            Some(Store::Kinds | Store::TableNoKinds | Store::TableNoSingle)
+            Some(Store::Kinds | Store::TableNoKinds | Store::TableNoSingle | Store::TableNoWhse)
         )
     }
 
@@ -1194,6 +1218,11 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // *_WrittenByOtherVar_* cells :1964, :2056, :2148, which write the SingleInstance codeunit through another variable).
         // Only read and the plain owner are not measured: refused.
         (TableNo, TableNoSingle, Shared | SharedUncalled) => true,
+        // Open corpus PR 1619 (assumption clear-all-whse-register-store), ClearSharedCodeunitWhseStore.al: the owner with a
+        // TableNo, the register written before the ClearAll (Whse_OwnerClearAll_EveryLevel :356,
+        // Whse_OwnerPrimes_OwnerClearAll :386, Whse_DirectSiWrite_OwnerClearAll :412, Kinds_OwnerClearAll :431,
+        // Deep_OwnerClearAll :451). Never called, only read and the plain owner are not measured: refused.
+        (TableNo, TableNoWhse, Shared) => true,
         _ => false,
     }
 }
@@ -1269,6 +1298,28 @@ fn store_global_kind(t: &RtType, store: &dyn Fn(u32) -> bool) -> bool {
         }
         _ => false,
     }
+}
+
+/// Whether register global `g` is one more kind open corpus PR 1619 (assumption clear-all-whse-register-store) measures at
+/// the level of a [`Store::TableNoWhse`] register: ClearSharedCodeunitWhseStore.al "CSW Reg" :82-83 (a `Label 'text',
+/// Comment = 'text'` and a `Label 'text'` beside a codeunit that holds a SingleInstance codeunit) and "CSW KReg" :165-176
+/// (Text, Text[30], Code[20], Decimal, Date, BigInteger, Option, Char and the three Labels beside a SingleInstance codeunit,
+/// Kinds_OwnerClearAll :431): the scalars go back to their defaults, the Labels keep their text.
+fn whse_register_kind(g: &al_ir::Slot) -> bool {
+    g.comment_label
+        || g.plain_label
+        || g.locked_label
+        || !g.label
+            && matches!(
+                g.ty,
+                RtType::Text(_)
+                    | RtType::Code(_)
+                    | RtType::Decimal
+                    | RtType::Date
+                    | RtType::BigInteger
+                    | RtType::Option(_)
+                    | RtType::Char
+            )
 }
 
 /// Whether `t` is one of the scalars of ClearSharedCodeunitGlobalKinds.al "CKK Store" :107-122 (merged corpus PR 1587,
@@ -1392,6 +1443,10 @@ enum Store {
     /// ([`Session::single_register_unpinned`], assumption clear-all-register-single-instance), SingleInstance ones among
     /// them, that is no [`Store::TableNoKinds`].
     TableNoSingle,
+    /// A codeunit with a TableNo of [`Session::single_register_unpinned`] when `wide` (open corpus PR 1619, assumption
+    /// clear-all-whse-register-store, the shape of "Whse. Jnl.-Register Line" with "Confirm Management") that is no
+    /// [`Store::TableNoSingle`].
+    TableNoWhse,
 }
 
 /// How the instance of a store global is held when `ClearAll()` runs in its owner.
@@ -1440,6 +1495,7 @@ impl Store {
             Store::Kinds => "a global kinds",
             Store::TableNoKinds => "a TableNo register",
             Store::TableNoSingle => "a TableNo register with nested SingleInstance codeunits",
+            Store::TableNoWhse => "a TableNo register in the shape of Whse. Jnl.-Register Line",
         }
     }
 }
