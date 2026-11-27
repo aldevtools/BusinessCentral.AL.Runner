@@ -15,8 +15,9 @@ use al_builtins::value_codec::{Reader, put_i64, put_str, put_u8, put_u32, put_u6
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-/// The first bytes of a file: what it is and which layout it has.
-const MAGIC: &[u8; 8] = b"ALBRUN\0\x07";
+/// The first bytes of a file: what it is and which layout it has. Layout 8: a Text or Code with half of a surrogate
+/// pair has a form of its own (al-builtins `value_codec`, issue 9202).
+const MAGIC: &[u8; 8] = b"ALBRUN\0\x08";
 
 /// The extension of the entry files (the layers have `alcc`, the source index `alci`).
 pub const EXTENSION: &str = "albr";
@@ -572,5 +573,28 @@ mod tests {
         part(&mut h, "day", b"1");
         part(&mut h, "source", b"one");
         assert_eq!(key, hex(&h));
+    }
+
+    /// Issue 9202 changed the byte form of a Text or Code that holds half of a surrogate pair (al-builtins
+    /// `value_codec`): a file written in the layout before it held such a text as U+FFFD. It is a miss, under its key
+    /// (MAGIC is part of the key) and when read as a file, never a run read wrong.
+    #[test]
+    fn a_file_of_the_layout_before_the_exact_lone_halves_is_a_miss() {
+        const BEFORE: &[u8; 8] = b"ALBRUN\0\x07";
+        assert_ne!(MAGIC, BEFORE);
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "k1", &run(), 0);
+        let path = file(dir.path(), "k1");
+        let mut bytes = std::fs::read(&path).unwrap();
+        bytes[..8].copy_from_slice(BEFORE);
+        std::fs::write(&path, bytes).unwrap();
+        assert!(read(dir.path(), "k1").is_none());
+        assert!(!path.exists(), "the file of the earlier layout is gone");
+        let mut h = Sha256::new();
+        h.update(BEFORE);
+        part(&mut h, "day", b"1");
+        let mut b = KeyBuilder::new();
+        b.text("day", "1");
+        assert_ne!(b.finish(), hex(&h), "the key of the earlier layout is another key");
     }
 }
