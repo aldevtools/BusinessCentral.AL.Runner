@@ -46,10 +46,13 @@ impl OrderMode {
 
     /// `<property name="orderMode" value="..." />` on every `testsuite` of a JUnit file.
     pub fn junit(self, xml: &str) -> String {
-        crate::seed::with_properties(
-            xml,
-            &format!("<property name=\"orderMode\" value=\"{}\" />", self.text()),
-        )
+        crate::seed::with_properties(xml, &self.property())
+    }
+
+    /// The JUnit property: [`junit`](Self::junit) and each variant's `testsuite` of a stability run, which has the mode
+    /// that variant ran in (`stability::junit`, ADR-070 decision 7).
+    pub fn property(self) -> String {
+        format!("<property name=\"orderMode\" value=\"{}\" />", self.text())
     }
 }
 

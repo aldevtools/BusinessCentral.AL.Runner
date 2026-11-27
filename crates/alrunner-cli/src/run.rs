@@ -1403,10 +1403,15 @@ fn test_inner(
             .has(al_version::Gate::TestRunnerHubRequiredIsolationFrom28);
     // ADR-074: BcContainerHelper runs every test codeunit through the runner codeunit; it has no TestRunnerHub.
     let driver = a.test_driver.unwrap_or_default();
+    // `--stability-replay` (ADR-058): one variant as a normal run, in the order of its stability run (ADR-070 decision 7).
+    let cell = format!("{}.{}-{}", chosen.target.bc.major, chosen.target.bc.minor, country);
+    let replayed = crate::stability::replay(a, &cell)?;
     // `--strict-order` (ADR-070); BcContainerHelper runs in one session (`TestDriver::one_session`).
-    let bc_order = a.strict_order || driver.one_session();
+    let bc_order = replayed
+        .as_ref()
+        .map_or(a.strict_order || driver.one_session(), |v| v.perturb.in_bc_order());
     // ADR-070: the mode the run states; a stability run's base variant runs in BC's order.
-    let order_mode = crate::order_mode::OrderMode::of(bc_order || a.stability.is_some());
+    let order_mode = crate::order_mode::OrderMode::of(bc_order || (a.stability.is_some() && replayed.is_none()));
     if a.required_isolation && driver == al_testrun::runtime::TestDriver::BcContainerHelper {
         return Err("--isolation required follows the TestRunnerHub of the bc-linux driver; --test-driver bccontainerhelper has no hub".into());
     }
@@ -1719,9 +1724,8 @@ fn test_inner(
     };
     // `--stability` (ADR-058): the variants of the config, run over one compile; `--stability-replay`: one variant as a
     // normal run.
-    let cell = format!("{}.{}-{}", chosen.target.bc.major, chosen.target.bc.minor, country);
     let stability_plan = crate::stability::plan(a, &cell)?;
-    if let Some(v) = crate::stability::replay(a, &cell)? {
+    if let Some(v) = replayed {
         opts.perturb = v.perturb;
     }
     if (stability_plan.is_some() || a.stability_replay.is_some()) && warm.is_some() {
@@ -2152,10 +2156,11 @@ fn test_inner(
     if let (Some(path), Some((plan, per_variant, _, out))) = (&a.junit, &stability) {
         write_file(
             path,
-            &order_mode.junit(&crate::seed::junit_license(
+            // Each variant's testsuite has the order mode it ran in (`stability::junit`).
+            &crate::seed::junit_license(
                 &crate::seed::junit(&crate::stability::junit(plan, per_variant, out), run_seed),
                 &license,
-            )),
+            ),
         )?;
     } else if let Some(path) = &a.junit {
         let mut with_skipped: Vec<&TestResult> = results.iter().copied().chain(&skipped_results).collect();

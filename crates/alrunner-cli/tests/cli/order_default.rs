@@ -332,6 +332,49 @@ fn stability_compares_two_plain_runs_and_names_the_cause_of_each_flip() {
     );
     let x = std::fs::read_to_string(&junit).unwrap();
     assert!(x.contains("(cause not known)"), "{x}");
+    // Each variant's testsuite states the mode it ran in: the base in BC's order, the fresh variant isolated (review of
+    // al-runner PR 9321, Copilot, run.rs JUnit).
+    let mode = |m: &str| format!("<property name=\"orderMode\" value=\"{m}\" />");
+    for suite in x.split("<testsuite ").skip(1) {
+        let fresh = suite.contains("<property name=\"isolation.singleInstance\" value=\"fresh\"/>");
+        let (yes, no) = if fresh { ("isolated", "bc") } else { ("bc", "isolated") };
+        assert!(suite.contains(&mode(yes)) && !suite.contains(&mode(no)), "{suite}");
+    }
+    assert!(x.contains(&mode("isolated")) && x.contains(&mode("bc")), "{x}");
+}
+
+/// `--stability-replay` runs the variant in the order the stability run gave it (ADR-070 decision 7): a carried variant
+/// in BC's order, the fresh one isolated, whatever `--strict-order` says; the header states that mode (review of
+/// al-runner PR 9321, Copilot, run.rs replay).
+#[test]
+fn a_replayed_variant_runs_and_states_the_order_of_its_stability_run() {
+    let d = tempfile::tempdir().unwrap();
+    let app = one_file_app(
+        d.path(),
+        "orderreplay",
+        "11111111-0000-0000-0000-000000007510",
+        "OrderReplay",
+        "src/Tests.al",
+        SRC,
+    );
+    let a = app.to_str().unwrap();
+    let replay = |value: &str, extra: &[&str]| {
+        let mut args = vec!["test", a, "--no-download", "--stability-replay", value];
+        args.extend_from_slice(extra);
+        text(&alrunner(&args))
+    };
+    let carried = replay("isolation.singleInstance=carried", &[]);
+    assert!(carried.contains("Order mode: bc"), "{carried}");
+    assert!(
+        !carried.contains("flag is empty"),
+        "the reader runs after the setter: {carried}"
+    );
+    let fresh = replay("isolation.singleInstance=fresh", &["--strict-order"]);
+    assert!(fresh.contains("Order mode: isolated"), "{fresh}");
+    assert!(
+        fresh.contains("flag is empty"),
+        "the reader runs with fresh state: {fresh}"
+    );
 }
 
 /// ADR-070 step 4: under `--strict-order` a test refused while it ran stops the session being BC's, and a later codeunit
