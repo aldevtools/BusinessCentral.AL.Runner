@@ -12,10 +12,11 @@
 //!
 //! ADR-065, the lists of the cases the runtime does not pass yet and the CI rule over them
 //! (regressions, stale lines, cases without an outcome), `--list-new-cases`, `--list-changes`,
-//! `--baseline-diff`. Entry points: `check`, `decide`, `new_cases`, `list_change`, `render_diff`.
+//! `--baseline-diff`. Entry points: `check`, `decide`, `new_cases`, `list_change`, `render_diff`, `RenderNote`.
 
 use crate::oracle::{CaseId, OracleCase};
 use crate::report::{DOTNET_UNAVAILABLE, Outcome};
+use al_host::render::RenderUnavailable;
 use al_testrun::refusals::clip;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -226,6 +227,29 @@ pub fn render_diff(label: &str, c: &Check, area_of: &dyn Fn(u32) -> Option<Strin
         }
     }
     s
+}
+
+/// The `--baseline-diff` warning that this machine cannot render reports: the baselines are cut on CI, which renders the
+/// Html of Word layouts, so here those cases end at the placeholder and show as regressions that are not the change's. One
+/// line a version, however many of its passes found the renderer unavailable.
+#[derive(Debug, Default)]
+pub struct RenderNote {
+    said: bool,
+}
+
+impl RenderNote {
+    /// The line for BC `label` when a pass's probe answered `probed` (the renderer's own reason), the first time only;
+    /// `None` when the probe was not asked or the renderer is available.
+    pub fn line(&mut self, label: &str, probed: Option<Result<(), RenderUnavailable>>) -> Option<String> {
+        let why = probed?.err()?;
+        if std::mem::replace(&mut self.said, true) {
+            return None;
+        }
+        Some(format!(
+            "warning: {label}: report renderer unavailable ({why}): Word-layout report cases below can show as \
+             regressions on this machine"
+        ))
+    }
 }
 
 /// How one list file changed against the base branch (`--list-changes`).
@@ -474,5 +498,24 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("Still listed, by area (1):\n  area1: 1"), "{text}");
+    }
+
+    #[test]
+    fn an_unavailable_renderer_is_named_once_a_version_and_an_available_or_unasked_one_not_at_all() {
+        let missing = RenderUnavailable {
+            piece: "libharfbuzz.so.0".into(),
+            detail: "install the distribution's HarfBuzz package".into(),
+        };
+        let mut note = RenderNote::default();
+        assert_eq!(note.line("BC 27", None), None);
+        assert_eq!(note.line("BC 27", Some(Ok(()))), None);
+        assert_eq!(
+            note.line("BC 27", Some(Err(missing.clone()))).as_deref(),
+            Some(
+                "warning: BC 27: report renderer unavailable (libharfbuzz.so.0 not found (install the distribution's \
+                 HarfBuzz package)): Word-layout report cases below can show as regressions on this machine"
+            )
+        );
+        assert_eq!(note.line("BC 27", Some(Err(missing))), None);
     }
 }

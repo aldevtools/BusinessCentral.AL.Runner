@@ -75,7 +75,7 @@ pub fn run_renderer(
     build: Option<al_deps::build::BuildId>,
     cache_root: &Path,
     download: bool,
-) -> Arc<dyn al_host::render::ReportRenderer> {
+) -> Arc<crate::report_render::RenderHost> {
     let src = run_sources(cfg.assembly_dirs.clone(), build, cache_root, download);
     // The render process runs on the .NET major of the build whose sets it fetches (crate::dotnet_runtime).
     let cfg = match &src.tier {
