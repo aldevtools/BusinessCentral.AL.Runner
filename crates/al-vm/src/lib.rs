@@ -921,6 +921,10 @@ pub struct Session {
     /// The `Engine::demo_tables` the running test's own code (not install code) wrote to (`records/op_inner.rs`): a read of
     /// one of the others is refused before the session's own code wrote it.
     demo_written: std::collections::HashSet<u32>,
+    /// Code of this session wrote the demo table G/L Entry, in any scope (install code, a test method, a background
+    /// session run on it): `start_test_method` does not clear it, since BC keeps an earlier test's delete until the
+    /// codeunit ends (`records/op_inner.rs` `demo_gl_entry_is_empty`).
+    gl_entry_written: bool,
     /// The running test's own code (not install code) wrote General Ledger Setup (table 98), before any caption of areas 1 or 101
     /// was resolved (`setup_caption_read_early`): such captions read the test's row (`refuse_setup_caption`).
     pub(crate) gl_setup_written: bool,
@@ -1518,6 +1522,7 @@ impl Session {
             install_without_client: false,
             company_built: false,
             demo_written: Default::default(),
+            gl_entry_written: false,
             gl_setup_written: false,
             setup_caption_read_early: false,
             sequences,

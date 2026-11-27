@@ -103,6 +103,7 @@ impl Session {
             // Carried: `Baseline::company_built`.
             company_built: _,
             demo_written: _,
+            gl_entry_written: _,
             gl_setup_written: _,
             setup_caption_read_early: _,
             table_connections: _,
@@ -334,6 +335,7 @@ impl Session {
                 (self.last_error == al_builtins::native::AlError::default(), "last_error"),
                 (self.isolated_committed == self.isolated_storage, "isolated_committed"),
                 (self.demo_written.is_empty(), "demo_written"),
+                (!self.gl_entry_written, "gl_entry_written"),
                 (!self.gl_setup_written, "gl_setup_written"),
                 (!self.setup_caption_read_early, "setup_caption_read_early"),
                 (self.table_connections.is_empty(), "table_connections"),

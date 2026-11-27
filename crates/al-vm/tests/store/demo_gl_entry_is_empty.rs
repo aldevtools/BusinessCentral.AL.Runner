@@ -61,6 +61,20 @@ codeunit 69989 R
         GLEntry.Insert();
         exit(Format(GLEntry.IsEmpty()));
     end;
+    procedure DeleteAllEntries(): Text
+    var GLEntry: Record "G/L Entry";
+    begin
+        GLEntry.DeleteAll();
+        exit('');
+    end;
+    procedure InsertThenDeleteOne(): Text
+    var GLEntry: Record "G/L Entry";
+    begin
+        GLEntry."Entry No." := 1;
+        GLEntry.Insert();
+        GLEntry.Delete();
+        exit('');
+    end;
 }
 "#;
 
@@ -82,6 +96,35 @@ fn session(demo: bool) -> impl Fn(&str) -> Result<al_builtins::value::Value, Sig
         let inst = s.instance(oi);
         s.call(oi, ri, inst, vec![]).map(|(v, _)| v)
     }
+}
+
+/// One session that runs `steps` in order: a routine name, `start` (the runner's `start_test_method`), `install` and
+/// `end-install` (install scope on and off); the result of the last routine.
+fn one_session(steps: &[&str]) -> Result<al_builtins::value::Value, Signal> {
+    let l = al_testkit::compile(SRC);
+    let mut engine = al_testkit::engine(&l);
+    let t = l.program.objects.iter().position(|o| o.name == "G/L Entry").unwrap();
+    std::sync::Arc::get_mut(&mut engine).unwrap().demo_tables.insert(t);
+    let oi = l.program.objects.iter().position(|o| o.name == "R").unwrap();
+    let mut s = al_vm::Session::new(engine.clone());
+    let mut last = Ok(al_builtins::value::Value::Text(String::new().into()));
+    for step in steps {
+        match *step {
+            "start" => s.start_test_method(),
+            "install" => s.set_install_scope(true),
+            "end-install" => s.set_install_scope(false),
+            routine => {
+                let ri = l.program.objects[oi]
+                    .routines
+                    .iter()
+                    .position(|r| r.name == routine)
+                    .unwrap();
+                let inst = s.instance(oi);
+                last = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
+            }
+        }
+    }
+    last
 }
 
 fn refused(r: Result<al_builtins::value::Value, Signal>) {
@@ -131,4 +174,40 @@ fn a_temporary_record_or_one_after_a_write_answers_from_the_runtime_rows() {
 #[test]
 fn without_demo_tables_is_empty_of_gl_entry_answers_from_the_runtime_rows() {
     assert_eq!(text(session(false)("Plain")), "Yes");
+}
+
+// A delete in an earlier test method of the same session stands in BC until the codeunit ends (default codeunit
+// isolation): the demo rows may be gone, so a later test's IsEmpty keeps main's refusal.
+#[test]
+fn a_delete_all_in_an_earlier_test_method_keeps_the_refusal() {
+    refused(one_session(&["start", "DeleteAllEntries", "start", "Plain"]));
+}
+
+#[test]
+fn a_delete_of_one_row_in_an_earlier_test_method_keeps_the_refusal() {
+    refused(one_session(&["start", "InsertThenDeleteOne", "start", "Plain"]));
+}
+
+// Install code that deleted G/L entries leaves BC's company without its demo rows: a test's IsEmpty keeps the refusal.
+#[test]
+fn a_delete_all_in_install_code_keeps_the_refusal() {
+    refused(one_session(&[
+        "install",
+        "DeleteAllEntries",
+        "end-install",
+        "start",
+        "Plain",
+    ]));
+}
+
+// The pin reads G/L Entry in a test method, outside install code: an IsEmpty inside install code keeps the refusal.
+#[test]
+fn an_is_empty_of_gl_entry_inside_install_code_keeps_the_refusal() {
+    refused(one_session(&["install", "Plain"]));
+}
+
+// Control: two test methods that only read keep the answer.
+#[test]
+fn a_read_in_an_earlier_test_method_keeps_the_answer() {
+    assert_eq!(text(one_session(&["start", "Plain", "start", "Plain"])), "No");
 }

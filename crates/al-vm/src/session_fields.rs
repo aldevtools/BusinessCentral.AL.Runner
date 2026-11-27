@@ -112,6 +112,7 @@ macro_rules! session_fields {
                 company_built: bool,
                 // What the session's own code wrote or resolved (lib.rs).
                 demo_written: HashSet<u32>,
+                gl_entry_written: bool,
                 gl_setup_written: bool,
                 setup_caption_read_early: bool,
                 table_connections: HashSet<(i32, String)>,
