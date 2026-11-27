@@ -464,14 +464,17 @@ fn a_cell_of_the_earlier_conversion_in_another_shape_is_refused() {
     }
 }
 
-/// In the measured shape a cell that passes on the earlier conversion runs through the entry setrange-other-type-convert
-/// (BoolTrue_Cod, open corpus PR 1552), unless a pin covers that call: `1.5` in a Variant given to FieldRef.SetRange
-/// (FieldRefFilterMatrix.al:819,822).
+/// In the measured shape a cell that passes on the earlier conversion runs through its entry: true into a Code[20] field
+/// (BoolTrue_Cod, open corpus PR 1552) through setrange-bool-into-text, which owns every Boolean into a Code or Text field; a
+/// Decimal text through setrange-other-type-convert, unless a pin covers that call: `1.5` in a Variant given to
+/// FieldRef.SetRange (FieldRefFilterMatrix.al:819,822).
 #[test]
 fn a_cell_of_the_earlier_conversion_in_the_measured_shape_is_flagged_unless_pinned() {
     clear_hits();
     assert_eq!(filter("TrueIntoCode"), "YES");
-    assert!(take_hits().contains(&Assumption::SetRangeOtherTypeConvert));
+    let hits = take_hits();
+    assert!(hits.contains(&Assumption::SetRangeBoolIntoText), "{hits:?}");
+    assert!(!hits.contains(&Assumption::SetRangeOtherTypeConvert), "{hits:?}");
     clear_hits();
     assert_eq!(filter("DecimalTextVariant"), "1.5");
     assert!(!take_hits().contains(&Assumption::SetRangeOtherTypeConvert));
@@ -501,11 +504,33 @@ fn false_into_a_code_field_is_its_format_text_through_its_own_entry() {
     assert!(!hits.contains(&Assumption::SetRangeOtherTypeConvert), "{hits:?}");
 }
 
-/// No cell measures true into a Text[2] field or false into a Code[10] field (corpus PR 1575 measures lengths 1, 2, 20 and 50): both
-/// refuse, and the message names the entry setrange-bool-into-text. Main ran true into Text[2] and answered `Yes`.
+/// SrcFilterBoolIntoText.al:421-436 (BoolFalse_Cod10) and 533-548 (BoolTrue_Txt2, corpus PR 1575, al-runner issue 9205): false into
+/// a Code[10] field is `NO`; true into a Text[2] field raises the string-length error with `Yes`; both through the entry
+/// setrange-bool-into-text.
 #[test]
-fn a_boolean_into_a_length_no_cell_measures_is_refused_naming_its_entry() {
-    for routine in ["TrueIntoText2", "FalseIntoCode10"] {
+fn a_boolean_into_a_code_or_text_field_of_any_length_follows_the_measured_rule() {
+    clear_hits();
+    assert_eq!(filter("FalseIntoCode10"), "NO");
+    assert!(take_hits().contains(&Assumption::SetRangeBoolIntoText));
+    clear_hits();
+    match run_in(SRC, "T", "TrueIntoText2") {
+        Err(Signal::Error(e)) => {
+            assert_eq!(e.code, "StringLengthExceeded");
+            assert_eq!(
+                e.message,
+                "The length of the string is 3, but it must be less than or equal to 2 characters. Value: Yes"
+            );
+        }
+        other => panic!("expected the length error, got {other:?}"),
+    }
+    assert!(take_hits().contains(&Assumption::SetRangeBoolIntoText));
+}
+
+/// A Boolean into a Code field on a temporary table is a shape no cell of setrange-bool-into-text measures: the refusal names
+/// that entry (al-runner issue 9205), for false and for true.
+#[test]
+fn a_boolean_into_a_code_field_in_another_shape_is_refused_naming_its_entry() {
+    for routine in ["TrueIntoCodeOnTemporary", "FalseIntoCodeOnTemporary"] {
         match run_in(SRC, "T", routine) {
             Err(Signal::Unsupported(reason)) => {
                 assert!(reason.contains("in a shape no cell measures"), "{routine}: {reason}");
