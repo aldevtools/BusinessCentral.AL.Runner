@@ -1,0 +1,7 @@
+# key	entry
+NBO Own Table Local Tests::Table_Local_FlowFilterView	ASSUMED by-value-own-table-local-copy (corpus PR 1578)
+NBO Own Table Local Tests::Table_Local_NormalFieldView	ASSUMED by-value-own-table-local-copy (corpus PR 1578)
+NBO Own Table Local Tests::Table_Local_TwoFlowFiltersAndCalcFields	ASSUMED by-value-own-table-local-copy (corpus PR 1578)
+NBO Own Table Local Tests::Table_Local_ToGlobalCallee	ASSUMED by-value-own-table-local-copy (corpus PR 1578)
+NBO Own Table Local Tests::TableExt_Local_FlowFilterView	ASSUMED by-value-own-table-local-copy (corpus PR 1578)
+NBO Own Table Local Tests::TableExt_Local_NormalFieldView	ASSUMED by-value-own-table-local-copy (corpus PR 1578)
