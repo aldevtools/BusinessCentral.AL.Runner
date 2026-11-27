@@ -348,12 +348,7 @@ impl Session {
                 }
                 Op::ConvertFieldValue { d, a, t, slot, at_exit } => {
                     let v = take(f, a, nl);
-                    let ty = &chunk.types[t as usize];
-                    let v = if at_exit {
-                        self.convert_field_value_at_exit(v, ty)?
-                    } else {
-                        self.convert_field_value(v, ty, slot)?
-                    };
+                    let v = self.convert_field_value(v, &chunk.types[t as usize], slot, at_exit)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::DbgHit { p } => self.debug_hit(p, &f.locals[..nl as usize]),
@@ -1190,12 +1185,17 @@ impl Session {
     /// variable's or parameter's length (recordref-fieldref/Y13FieldRefValueToText.al:96-153;
     /// text/text-methods/Y49FieldRefIntoText.al:207-353). A Date, Time or DateTime value into one of those number types is
     /// refused (`fieldref_value_temporal::temporal_into_number`, issue 9265); any other value converts as an assignment does.
+    /// `at_exit`: the value of an `exit` into a Text or Code return (`convert_field_value_at_exit`).
     fn convert_field_value(
         &self,
         v: Value,
         ty: &al_builtins::value::RtType,
         slot: Option<al_builtins::fieldref_value_temporal::TemporalSlot>,
+        at_exit: bool,
     ) -> Result<Value, Signal> {
+        if at_exit {
+            return self.convert_field_value_at_exit(v, ty);
+        }
         let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
         if matches!(ty, RtType::Date | RtType::Time | RtType::DateTime) {
             let cell = slot.filter(|_| self.supported_major()).and_then(|slot| {

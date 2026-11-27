@@ -438,6 +438,20 @@ pub(crate) enum Op {
     RaiseContinue,
 }
 
+impl Op {
+    /// `Op::ConvertFieldValue` of a value that goes into no Date, Time or DateTime variable; `at_exit` for the value of an
+    /// `exit` into a Text or Code return.
+    fn convert_field_value(d: u16, a: u16, t: u32, at_exit: bool) -> Op {
+        Op::ConvertFieldValue {
+            d,
+            a,
+            t,
+            slot: None,
+            at_exit,
+        }
+    }
+}
+
 pub(crate) struct CallSite {
     pub object: usize,
     pub routine: usize,

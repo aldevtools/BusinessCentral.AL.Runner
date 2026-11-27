@@ -549,13 +549,7 @@ impl<'a> Compiler<'a> {
                 self.chunk.types.push(t.clone());
                 let t = (self.chunk.types.len() - 1) as u32;
                 if field_value {
-                    self.emit(Op::ConvertFieldValue {
-                        d,
-                        a,
-                        t,
-                        slot: None,
-                        at_exit: false,
-                    });
+                    self.emit(Op::convert_field_value(d, a, t, false));
                 } else {
                     self.emit(Op::Convert { d, a, t });
                 }
@@ -1572,13 +1566,7 @@ impl<'a> Compiler<'a> {
         self.chunk.types.push(t.clone());
         let t = (self.chunk.types.len() - 1) as u32;
         let d = self.alloc()?;
-        self.emit(Op::ConvertFieldValue {
-            d,
-            a,
-            t,
-            slot: None,
-            at_exit: true,
-        });
+        self.emit(Op::convert_field_value(d, a, t, true));
         self.emit(Op::RetVal { a: d });
         Ok(())
     }
