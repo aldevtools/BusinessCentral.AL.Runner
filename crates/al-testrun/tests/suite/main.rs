@@ -109,6 +109,7 @@ mod runner_permission_sets;
 mod runner_reset;
 mod runner_sets_insert;
 mod selection_install_roots;
+mod session_company_rename;
 mod single_instance_lane;
 mod single_instance_test_codeunit;
 mod skip_after_timeout;
