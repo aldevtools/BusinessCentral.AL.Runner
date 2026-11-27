@@ -6,6 +6,7 @@
 //! Entry points: `page_probe_end` (by `Session::guarded_run_end_marks`), `page_shape` (by `ArgFilter::of`).
 
 use super::{ArgFilter, MarkState, RunArg, RunEnd};
+use al_builtins::assumptions::Assumption;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::value::{RecordState, RtType, Value};
 use al_data::TableDef;
@@ -20,6 +21,10 @@ pub(crate) enum PageArgShape {
     /// that Date Filter range (`EnumViewDateFilter`, page "GRP Page X" :359-:413). `date_end` is the date the range ends at,
     /// compared with the WorkDate as the run ends.
     PageMix { date_end: i32 },
+    /// PageMix and PageMixKey of corpus PR 1616 (errors/ConsistentGuardedRunRecTwoKey.al, PrepareZ :601 and :605): the
+    /// view is `SetRange("Doc Kind", Order)` on the Enum field first in a primary key of an Enum and a Code field, and the
+    /// extra filter is `SetFilter("No.", '1')` on the Code field. Run through the assumption `guarded-run-consistent-two-key`.
+    PageMixTwoKey { date_end: i32 },
     /// `SetRange(Name, 'caller'); SetRange("Doc Type", 1); SetRange(Amount, 5)`.
     Three,
 }
@@ -77,6 +82,19 @@ impl ArgFields<'_> {
         )
     }
 
+    /// The two fields of a primary key of an Enum field then a Code field (`key(PK; "Doc Kind", "No.")` of corpus PR 1616,
+    /// errors/ConsistentGuardedRunRecTwoKey.al:56-57, :67, the shape of Purchase Header); `None` for any other key.
+    fn enum_code_key(&self) -> Option<(usize, usize)> {
+        let t = self.table?;
+        match t.keys.first()?.as_slice() {
+            [k1, k2] => match (&t.fields.get(*k1)?.ty, &t.fields.get(*k2)?.ty) {
+                (RtType::Enum(_), RtType::Code(_)) => Some((*k1, *k2)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// The date a SetRange from 0D ends at, on a field of FieldClass FlowFilter (`"Date Filter"`, :58 and :94).
     fn date_range_end(&self, f: &FieldFilter) -> Option<i32> {
         match (&f.expr, self.class(f)) {
@@ -96,32 +114,57 @@ pub(super) fn page_shape(r: &RecordState, fields: &ArgFields) -> Option<PageArgS
     if group0.len() + group2.len() != r.filters.len() {
         return None;
     }
-    // The view of both PageMix arms: one value on an Enum field outside a one-field primary key (Kind, key(PK; Id)).
-    let view = |f: &FieldFilter| fields.equal(f) && fields.enum_field(f) && fields.other_than_key(f);
-    let extra = |f: &FieldFilter, v: &FieldFilter| fields.equal(f) && fields.key_field(f) && f.field != v.field;
+    // The view of both PageMix arms: one value on an Enum field outside a one-field primary key (Kind, key(PK; Id)), or
+    // (corpus PR 1616, PrepareZ :601, :605) SetRange to one value on the Enum field first in an Enum-and-Code primary key.
+    let view_two_key = |f: &FieldFilter| {
+        let in_key = |(k1, _): (usize, usize)| k1 == f.field;
+        if fields.equal(f) && fields.enum_field(f) && fields.other_than_key(f) {
+            Some(false)
+        } else if fields.one_value(f) && fields.enum_code_key().is_some_and(in_key) {
+            Some(true)
+        } else {
+            None
+        }
+    };
+    // The extra group-0 filter of PageMixKey: one value on the one key field (`SetFilter(Id, '1')`), or with the view in
+    // an Enum-and-Code key `SetFilter("No.", '1')` on its Code field (PR 1616, :605).
+    let extra = |f: &FieldFilter, v: &FieldFilter, two_key: bool| match two_key {
+        false => fields.equal(f) && fields.key_field(f) && f.field != v.field,
+        true => {
+            fields.normal(f)
+                && matches!(f.expr, FilterExpr::Eq(_))
+                && fields.enum_code_key().is_some_and(|(_, k2)| k2 == f.field)
+        }
+    };
+    let mix = |two_key: bool, date_end: i32| match two_key {
+        false => PageArgShape::PageMix { date_end },
+        true => PageArgShape::PageMixTwoKey { date_end },
+    };
     match (group0.as_slice(), group2.as_slice()) {
         ([a, b, c], []) => {
             let other = |f: &FieldFilter| fields.one_value(f) && fields.other_than_key(f);
             let distinct = a.field != b.field && a.field != c.field && b.field != c.field;
             (other(a) && other(b) && other(c) && distinct).then_some(PageArgShape::Three)
         }
-        ([date], [v]) if view(v) => fields
-            .date_range_end(date)
-            .map(|date_end| PageArgShape::PageMix { date_end }),
-        ([a, b], [v]) if view(v) => {
+        ([date], [v]) => {
+            let two_key = view_two_key(v)?;
+            Some(mix(two_key, fields.date_range_end(date)?))
+        }
+        ([a, b], [v]) => {
+            let two_key = view_two_key(v)?;
             let end = match (fields.date_range_end(a), fields.date_range_end(b)) {
-                (Some(d), None) if extra(b, v) => d,
-                (None, Some(d)) if extra(a, v) => d,
+                (Some(d), None) if extra(b, v, two_key) => d,
+                (None, Some(d)) if extra(a, v, two_key) => d,
                 _ => return None,
             };
-            Some(PageArgShape::PageMix { date_end: end })
+            Some(mix(two_key, end))
         }
         _ => None,
     }
 }
 
-/// `Some(false)` when the run returns false with the inner error and its marks are gone, `None` when no cell measures the
-/// shape. The caller gives a run not nested in another guarded run, with no mark at its start and no Commit since it
+/// The assumption entry when the run returns false with the inner error and its marks are gone, `None` when no cell
+/// measures the shape. The caller gives a run not nested in another guarded run, with no mark at its start and no Commit since it
 /// started, whose marks were each set by a database variable other than the argument and released or marked again by
 /// none but another variable, and whose argument the run left as it was; `work_date` gives the session's WorkDate. Cells
 /// (each for GRP Z, a table no mark names, and GRP X, the table marked first, as a database record), all failing with
@@ -136,7 +179,7 @@ pub(super) fn page_probe_end(
     work_date: impl FnOnce() -> i32,
     after: &[(u32, MarkState)],
     end: RunEnd,
-) -> Option<bool> {
+) -> Option<Assumption> {
     use MarkState::{Marked as M, MarkedAgainByAnother as A, ReleasedByAnother as R};
     let RunArg::Record {
         table,
@@ -149,15 +192,16 @@ pub(super) fn page_probe_end(
     if end != RunEnd::Failed("Dialog") || !super::unmarked_or_first(table, after) {
         return None;
     }
-    let measured = match after {
-        [(_, M), (_, A)] => {
-            matches!(filter, ArgFilter::Page(PageArgShape::PageMix { date_end }) if date_end == work_date())
+    use Assumption::{GuardedRunConsistentPage as OneKey, GuardedRunConsistentTwoKey as TwoKey};
+    let (entry, date_end) = match (after, filter) {
+        ([(_, M), (_, A)], ArgFilter::Page(PageArgShape::PageMix { date_end })) => (OneKey, date_end),
+        // RecZ_PageMix_MarkedAgain :865, RecZ_PageMixKey_MarkedAgain :961, RecX_PageMix_MarkedAgain :2113 and
+        // RecX_PageMixKey_MarkedAgain :2209 of corpus PR 1616 (errors/ConsistentGuardedRunRecTwoKey.al).
+        ([(_, M), (_, A)], ArgFilter::Page(PageArgShape::PageMixTwoKey { date_end })) => (TwoKey, date_end),
+        ([(_, R | A), (_, M)], ArgFilter::Page(PageArgShape::Three) | ArgFilter::Measured { key: true }) => {
+            return Some(OneKey);
         }
-        [(_, R | A), (_, M)] => matches!(
-            filter,
-            ArgFilter::Page(PageArgShape::Three) | ArgFilter::Measured { key: true }
-        ),
-        _ => false,
+        _ => return None,
     };
-    measured.then_some(false)
+    (date_end == work_date()).then_some(entry)
 }

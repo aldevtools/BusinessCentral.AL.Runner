@@ -581,9 +581,9 @@ impl Session {
             (top_level_no_commit && arg_kept && database_set && released_by_other && arg_marks == ArgMarks::None)
                 .then(|| page_args::page_probe_end(arg, || self.work_date(), &after, end))
                 .flatten();
-        if let Some(raises) = page_end {
-            assume(Assumption::GuardedRunConsistentPage);
-            return Ok(raises.then(|| self.inconsistent_error(after[0].0 as usize)));
+        if let Some(entry) = page_end {
+            assume(entry);
+            return Ok(None);
         }
         Err(Signal::unsupported(format!(
             "A guarded Codeunit.Run ends while Consistent(false) marks table {} in a shape no probe measured (marks, outcome, \

@@ -13,3 +13,5 @@ PF Tests::RecZ_PageMixKey_MarkedAgain	ASSUMED guarded-run-consistent-page (corpu
 PF Tests::RecZ_PageMix_MarkedAgain	ASSUMED guarded-run-consistent-page (corpus PR 1600, ConsistentGuardedRunRecPage.al RecZ_PageMix_MarkedAgain)
 PF Tests::RecZ_Three_AgainThenHeld	ASSUMED guarded-run-consistent-page (corpus PR 1600, ConsistentGuardedRunRecPage.al RecZ_Three_AgainThenHeld)
 PF Tests::RecZ_Three_ReleasedThenHeld	ASSUMED guarded-run-consistent-page (corpus PR 1600, ConsistentGuardedRunRecPage.al RecZ_Three_ReleasedThenHeld)
+PF Tests Key::RecK_PageMixKey_TwoKey_MarkedAgain	ASSUMED guarded-run-consistent-two-key (corpus PR 1616, ConsistentGuardedRunRecTwoKey.al RecZ_PageMixKey_MarkedAgain)
+PF Tests Key::RecK_PageMix_TwoKey_MarkedAgain	ASSUMED guarded-run-consistent-two-key (corpus PR 1616, ConsistentGuardedRunRecTwoKey.al RecZ_PageMix_MarkedAgain)

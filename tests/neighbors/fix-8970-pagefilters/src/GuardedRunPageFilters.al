@@ -1041,6 +1041,31 @@ codeunit 61478 "PF Inner V"
     end;
 }
 
+// Corpus PR 1616's table shape (ConsistentGuardedRunRecTwoKey.al:50-67, GRK X/Z): key(PK; "Doc Kind", "No."), an Enum
+// and a Code field, like Purchase Header. Kind is an Enum outside the key.
+table 61480 "PF K"
+{
+    fields
+    {
+        field(1; "Doc Kind"; Enum "PF Kind") { }
+        field(2; "No."; Code[20]) { }
+        field(3; "Date Filter"; Date) { FieldClass = FlowFilter; }
+        field(4; Kind; Enum "PF Kind") { }
+    }
+    keys { key(PK; "Doc Kind", "No.") { Clustered = true; } }
+}
+
+codeunit 61481 "PF Inner K"
+{
+    TableNo = "PF K";
+    trigger OnRun()
+    var
+        Mode: Codeunit "PF Mode";
+    begin
+        Mode.Run();
+    end;
+}
+
 codeunit 61479 "PF Tests Key"
 {
     Subtype = Test;
@@ -1075,6 +1100,150 @@ codeunit 61479 "PF Tests Key"
         Commit();
         Mode.Set('startx,fya,fyc,err', false);
         if Codeunit.Run(Codeunit::"PF Inner V", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        Commit();
+    end;
+
+    [Test]
+    procedure RecK_PageMix_TwoKey_MarkedAgain()
+    var
+        R: Record "PF K";
+    begin
+        R.DeleteAll();
+        R.Init(); R."Doc Kind" := R."Doc Kind"::Order; R."No." := '1'; R.Kind := R.Kind::Order; R.Insert();
+        R.Get(R."Doc Kind"::Order, '1');
+        R.FilterGroup(2); R.SetRange("Doc Kind", R."Doc Kind"::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate());
+        Commit();
+        Mode.Set('startx,fya,fyc,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner K", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        Commit();
+    end;
+
+    [Test]
+    procedure RecK_PageMixKey_TwoKey_MarkedAgain()
+    var
+        R: Record "PF K";
+    begin
+        R.DeleteAll();
+        R.Init(); R."Doc Kind" := R."Doc Kind"::Order; R."No." := '1'; R.Kind := R.Kind::Order; R.Insert();
+        R.Get(R."Doc Kind"::Order, '1');
+        R.FilterGroup(2); R.SetRange("Doc Kind", R."Doc Kind"::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate()); R.SetFilter("No.", '1');
+        Commit();
+        Mode.Set('startx,fya,fyc,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner K", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecK_PageMixKeySetRange_TwoKey_MarkedAgain()
+    var
+        R: Record "PF K";
+    begin
+        R.DeleteAll();
+        R.Init(); R."Doc Kind" := R."Doc Kind"::Order; R."No." := '1'; R.Kind := R.Kind::Order; R.Insert();
+        R.Get(R."Doc Kind"::Order, '1');
+        R.FilterGroup(2); R.SetRange("Doc Kind", R."Doc Kind"::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate()); R.SetRange("No.", '1');
+        Commit();
+        Mode.Set('startx,fya,fyc,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner K", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecK_PageMixOut_TwoKey_MarkedAgain()
+    var
+        R: Record "PF K";
+    begin
+        R.DeleteAll();
+        R.Init(); R."Doc Kind" := R."Doc Kind"::Order; R."No." := '1'; R.Kind := R.Kind::Order; R.Insert();
+        R.Get(R."Doc Kind"::Order, '1');
+        R.FilterGroup(2); R.SetRange(Kind, R.Kind::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate());
+        Commit();
+        Mode.Set('startx,fya,fyc,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner K", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecK_PageMixViewSetFilter_TwoKey_MarkedAgain()
+    var
+        R: Record "PF K";
+    begin
+        R.DeleteAll();
+        R.Init(); R."Doc Kind" := R."Doc Kind"::Order; R."No." := '1'; R.Kind := R.Kind::Order; R.Insert();
+        R.Get(R."Doc Kind"::Order, '1');
+        R.FilterGroup(2); R.SetFilter("Doc Kind", '%1', R."Doc Kind"::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate());
+        Commit();
+        Mode.Set('startx,fya,fyc,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner K", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecK_PageMix_TwoKey_Fails()
+    var
+        R: Record "PF K";
+    begin
+        R.DeleteAll();
+        R.Init(); R."Doc Kind" := R."Doc Kind"::Order; R."No." := '1'; R.Kind := R.Kind::Order; R.Insert();
+        R.Get(R."Doc Kind"::Order, '1');
+        R.FilterGroup(2); R.SetRange("Doc Kind", R."Doc Kind"::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate());
+        Commit();
+        Mode.Set('startx,fya,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner K", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecK_PageMix_TwoKey_ReleasedThenHeld()
+    var
+        R: Record "PF K";
+    begin
+        R.DeleteAll();
+        R.Init(); R."Doc Kind" := R."Doc Kind"::Order; R."No." := '1'; R.Kind := R.Kind::Order; R.Insert();
+        R.Get(R."Doc Kind"::Order, '1');
+        R.FilterGroup(2); R.SetRange("Doc Kind", R."Doc Kind"::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, WorkDate());
+        Commit();
+        Mode.Set('startx,txb,fya,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner K", R) then
+            Error('the run returned true');
+        if GetLastErrorText() <> 'inner failed' then
+            Error('wrong error: %1', GetLastErrorText());
+        Commit();
+    end;
+
+    [Test]
+    procedure Neighbor_RecK_PageMixOtherDate_TwoKey_MarkedAgain()
+    var
+        R: Record "PF K";
+    begin
+        R.DeleteAll();
+        R.Init(); R."Doc Kind" := R."Doc Kind"::Order; R."No." := '1'; R.Kind := R.Kind::Order; R.Insert();
+        R.Get(R."Doc Kind"::Order, '1');
+        R.FilterGroup(2); R.SetRange("Doc Kind", R."Doc Kind"::Order); R.FilterGroup(0); R.SetRange("Date Filter", 0D, CalcDate('<-1D>', WorkDate()));
+        Commit();
+        Mode.Set('startx,fya,fyc,err', false);
+        if Codeunit.Run(Codeunit::"PF Inner K", R) then
             Error('the run returned true');
         if GetLastErrorText() <> 'inner failed' then
             Error('wrong error: %1', GetLastErrorText());
