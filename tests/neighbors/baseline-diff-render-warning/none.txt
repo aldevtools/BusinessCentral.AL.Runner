@@ -1,0 +1,1 @@
+Tooling only: al-test-cli --baseline-diff prints one stderr warning from the report renderer's probe answer the run already holds; no AL-visible answer changes (the Html save reads the same two renderer needs, now from one constant).
