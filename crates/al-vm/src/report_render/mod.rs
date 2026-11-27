@@ -27,6 +27,9 @@ use crate::reports::Schema;
 use crate::{Session, Signal};
 use al_host::render::{RenderNeed, WordMerge};
 
+/// What the real Html of a Word layout needs of the run's renderer: BC's merger, then its Html converter.
+pub const WORD_HTML_NEEDS: [RenderNeed; 2] = [RenderNeed::Merge, RenderNeed::Html];
+
 /// The facts of the save itself, each by equality with every probe cell (RxHtmlHashTests.al:192, :218, :395, :433 and :471,
 /// RxHtmlWidenTests.al:394, :440, :482, :568 and :614, through `HashCell`): its whole fact vector after the run is the
 /// cells' (`html_cell`, from `report_save`), its call is the cells' (`call::MEASURED_CALL`), it renders with the report's
@@ -76,9 +79,7 @@ impl Session {
         {
             return Ok(None);
         }
-        let available = renderer
-            .availability(RenderNeed::Merge)
-            .and(renderer.availability(RenderNeed::Html));
+        let available = WORD_HTML_NEEDS.iter().try_for_each(|n| renderer.availability(*n));
         match available {
             Ok(()) => {}
             Err(why) if self.engine.dotnet.require_renderer => {
