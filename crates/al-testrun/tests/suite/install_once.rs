@@ -274,6 +274,62 @@ fn install_code_that_reseeds_random_runs_per_codeunit() {
     keeps_install_per_codeunit(&src, "", "rnd=66811", "randomized_with_seed");
 }
 
+/// A seeding helper: a procedure of another codeunit that declares a Record local and inserts a row through it.
+const SEEDER: &str = "codeunit 60508 \"Io Seeder\" {
+        procedure Seed() var R: Record \"Io Row\"; begin R.Code := 'SEED'; R.Insert(); end; }";
+
+/// Issue 9227: install code that calls a procedure declaring a Record local runs once for the run. The record that
+/// local held is gone when the install code ends, so a codeunit's session can start from what it left.
+#[test]
+fn install_code_that_calls_a_procedure_with_a_record_local_runs_once_per_run() {
+    let src = app(
+        "D: Codeunit \"Io Seeder\";",
+        "D.Seed();",
+        "",
+        "StrSubstNo('rows=%1', S.Count())",
+    );
+    let rt = run_with(&format!("{src}\n{SEEDER}"), "", &RunOptions::default());
+    let got = failures(&rt);
+    let want = "rows=1".to_string();
+    assert_eq!(got, vec![(60510, want.clone()), (60511, want)], "{got:?}");
+    assert_eq!(rt.phases.install_runs, 1, "{got:?}");
+    assert_eq!(install_line(&rt), None, "the install code ran once");
+}
+
+/// The neighbor of issue 9227: a record in a SingleInstance codeunit's global does not outlive the install code either.
+/// The test session does not see the SingleInstance state of the install run (al-testrun `install.rs`,
+/// events/platform-triggers/PeVTests.al:297),
+/// so the install code runs once for the run.
+#[test]
+fn install_code_that_leaves_a_record_in_a_single_instance_runs_once_per_run() {
+    let keeper = "codeunit 60509 \"Io Keeper\" { SingleInstance = true; var R: Record \"Io Row\";
+        procedure Keep() begin R.Code := 'KEEP'; end; }";
+    let src = app(
+        "D: Codeunit \"Io Seeder\"; K: Codeunit \"Io Keeper\";",
+        "D.Seed(); K.Keep();",
+        "",
+        "StrSubstNo('rows=%1', S.Count())",
+    );
+    let rt = run_with(&format!("{src}\n{SEEDER}\n{keeper}"), "", &RunOptions::default());
+    let got = failures(&rt);
+    let want = "rows=1".to_string();
+    assert_eq!(got, vec![(60510, want.clone()), (60511, want)], "{got:?}");
+    assert_eq!(rt.phases.install_runs, 1, "{got:?}");
+    assert_eq!(install_line(&rt), None, "the install code ran once");
+}
+
+/// The neighbor of issue 9227: install code that leaves a RecordRef in a Variant keeps running in each codeunit's session.
+#[test]
+fn install_code_that_puts_a_recordref_in_a_variant_runs_per_codeunit() {
+    let src = app(
+        "RR: RecordRef; V: Variant;",
+        "RR.Open(Database::\"Io Row\"); V := RR;",
+        "",
+        "StrSubstNo('rows=%1', S.Count())",
+    );
+    keeps_install_per_codeunit(&src, "", "rows=0", "variant_refs");
+}
+
 /// An automatic subscriber (60504) and a manual one (60506) of the row's OnAfterInsertEvent, and what a test reads of them:
 /// the Event Subscription row's "Number of Calls" (al-vm platform `with_event_stats`).
 const SUBSCRIBERS: &str = "codeunit 60504 \"Io Sub\" {
