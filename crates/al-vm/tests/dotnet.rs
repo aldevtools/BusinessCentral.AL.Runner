@@ -1647,6 +1647,60 @@ fn an_outstream_argument_over_written_bytes_carries_them_to_the_bridge() {
     );
 }
 
+/// A fake that bridges the seeded OutStream on `Open` and rewrites its whole content on `Dispose` (the reply shape of the
+/// sidecar for a disposed Update-mode ZipArchive, corpus tests/al-language/streams/blob-tempblob/ZipBlobFieldUpdate.al:5-8).
+fn rewriting_host() -> Fake {
+    Fake::new(|r| match r {
+        Req::Invoke(_, m, _) if m == "Open" => Ok(DotNetReply {
+            value: DotNetValue::Null,
+            by_ref: vec![],
+            streams: StreamEffects {
+                bridges: vec![(0, 9)],
+                ..Default::default()
+            },
+        }),
+        Req::Invoke(_, m, _) if m == "Dispose" => Ok(DotNetReply {
+            value: DotNetValue::Null,
+            by_ref: vec![],
+            streams: StreamEffects {
+                replaced: vec![(9, 6, b"new".to_vec())],
+                ..Default::default()
+            },
+        }),
+        other => panic!("{other:?}"),
+    })
+}
+
+// al-runner issue 8360: a rewrite replaces the Blob's bytes, the new content shorter than the seed included.
+#[test]
+fn a_rewrite_of_a_seeded_bridge_replaces_the_blobs_bytes() {
+    let r = run(
+        &rewriting_host(),
+        "C: DotNet Convert; B: Record \"ALT Blob\"; O: OutStream; I: InStream; T: Text;",
+        "B.Code := 'S'; B.Data.CreateOutStream(O); O.WriteText('PK zip'); C.Open(O); C.Dispose(); B.Insert(); B.Get('S');
+         B.CalcFields(Data); B.Data.CreateInStream(I); I.ReadText(T); exit(T);",
+        ": Text",
+    );
+    assert_eq!(text(r), "new");
+}
+
+// al-runner issue 8360: AL wrote into the Blob between the call that bridged it and the rewrite, so the Blob no longer holds
+// the bridge's bytes; what BC then holds is not measured, so the rewrite is refused.
+#[test]
+fn a_rewrite_of_a_bridge_al_wrote_into_since_is_refused() {
+    let r = run(
+        &rewriting_host(),
+        "C: DotNet Convert; B: Record \"ALT Blob\"; O: OutStream;",
+        "B.Code := 'S'; B.Data.CreateOutStream(O); O.WriteText('PK zip'); C.Open(O); O.WriteText('x'); C.Dispose(); exit('');",
+        ": Text",
+    );
+    let why = unsupported(&r);
+    assert!(
+        why.contains("a .NET rewrite of an OutStream AL wrote into since the call before"),
+        "{why}"
+    );
+}
+
 // ---- the shipped registry (owner decision 2026-10-14) ------------------------------------
 
 fn no_host() -> Fake {
