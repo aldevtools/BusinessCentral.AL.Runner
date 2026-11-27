@@ -1477,14 +1477,14 @@ impl MemStore {
                 }
             })
         };
-        let calls = match self.alt_step(&slot, scan.key, scan.filters, stamp) {
+        let calls = match self.alt_step(&slot, t, scan.key, scan.filters, stamp) {
             alt_cache::AltStep::Walk => return None,
             alt_cache::AltStep::Sorted(keys) => return Some(self.search_sorted(table, &keys, scan, &cmp_after)),
             alt_cache::AltStep::Band(calls) => calls,
         };
         // When `own` is `None` the filters do not bound the scan's key (checked above), so it has no band to leave out.
         let Some(band) = self.narrowest_band(&slot, t, table, scan.filters, scan.key, own) else {
-            self.alt_keep(&slot, scan.key, scan.filters, None);
+            self.alt_keep(&slot, t, scan.key, scan.filters, None);
             return None;
         };
         let band_keys: Vec<Key> = match &band {
@@ -1520,7 +1520,7 @@ impl MemStore {
             .collect();
         rows.sort_by(|a, b| cmp_rows(t, scan.key, a.1, b.1));
         let keys = std::rc::Rc::new(rows.into_iter().map(|(k, _)| k.clone()).collect::<Vec<_>>());
-        self.alt_keep(&slot, scan.key, scan.filters, Some(keys.clone()));
+        self.alt_keep(&slot, t, scan.key, scan.filters, Some(keys.clone()));
         Some(self.search_sorted(table, &keys, scan, &cmp_after))
     }
 
