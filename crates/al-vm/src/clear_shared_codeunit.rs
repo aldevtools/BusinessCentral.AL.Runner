@@ -895,6 +895,8 @@ impl Session {
                 Value::List(l) => Rc::strong_count(l) == 1,
                 Value::Dictionary(d) => Rc::strong_count(d) == 1,
                 Value::Library(_, l) => Rc::strong_count(l) == 1 && self.tree_ref_as_measured(rc, g),
+                // Only the scalars and Labels of [`tree_kind`]: `tree_node` refuses a node with any other global, an
+                // array among them, before a run (Refused_NodeArrayGlobal, tests/neighbors/fix-9194-tree).
                 _ => true,
             })
     }

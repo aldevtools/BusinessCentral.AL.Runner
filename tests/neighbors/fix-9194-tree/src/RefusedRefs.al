@@ -1,6 +1,6 @@
 // Neighbors of the tree of corpus PR 1620 (ClearSharedCodeunitWhseTree.al, merged, not pinned) that the probe does not
 // measure: a RecordRef of a node that read a row, a register List another variable shares, a node RecordRef another
-// variable shares, a node FieldRef another variable shares (on the same record as the node's RecordRef), a temporary record of a node that read a row. The probe's nodes only open their RecordRef and only
+// variable shares, a node FieldRef another variable shares (on the same record as the node's RecordRef), a temporary record of a node that read a row, an array global of a node. The probe's nodes only open their RecordRef and only
 // insert into their temporary records, and never hand out a List or a RecordRef.
 
 codeunit 86779 "CWR Node RR Read"
@@ -250,6 +250,49 @@ codeunit 86789 "CWR Owner Temp Read"
     end;
 }
 
+codeunit 86794 "CWR Node Array"
+{
+    var
+        A: array[2] of Integer;
+
+    procedure Set()
+    begin
+        A[1] := 5;
+    end;
+}
+
+codeunit 86795 "CWR Reg Array"
+{
+    TableNo = "CKK Row";
+
+    var
+        T: Record "CKK Row" temporary;
+        N: Codeunit "CWR Node Array";
+
+    procedure Set()
+    begin
+        T."No." := 1;
+        T.Insert();
+        N.Set();
+    end;
+}
+
+codeunit 86796 "CWR Owner Array"
+{
+    var
+        Reg: Codeunit "CWR Reg Array";
+
+    procedure Prime()
+    begin
+        Reg.Set();
+    end;
+
+    procedure DoClearAll()
+    begin
+        ClearAll();
+    end;
+}
+
 codeunit 86790 "CWR Ref Test"
 {
     Subtype = Test;
@@ -309,6 +352,15 @@ codeunit 86790 "CWR Ref Test"
     procedure Refused_TempRecordReadRow()
     var
         Owner: Codeunit "CWR Owner Temp Read";
+    begin
+        Owner.Prime();
+        Owner.DoClearAll();
+    end;
+
+    [Test]
+    procedure Refused_NodeArrayGlobal()
+    var
+        Owner: Codeunit "CWR Owner Array";
     begin
         Owner.Prime();
         Owner.DoClearAll();
