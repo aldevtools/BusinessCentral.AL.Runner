@@ -7,7 +7,7 @@
 //! ZipBlobFieldUpdate.al:5-8; al-runner issue 8360).
 //!
 //! Assumed (`zip-blob-writes`, corpus PR 1633, tests/al-language-onprem-dotnet/dotnet/zip-blob-writes/, the same values on
-//! BC 27.5, 28.5 and 29.0), each fact by equality:
+//! every BC version the corpus runs), each fact by equality:
 //! 1. ZipBlobUpdateFreshOutStream.al:49-223: the archive made by the 2-, 3- or 4-argument constructor (Update; leaveOpen false;
 //!    Encoding.UTF8) over an OutStream `CreateOutStream` made on a loaded Blob with content and nothing written since reads
 //!    that content (BC hands .NET the Blob's own stream; the Blob is not cut). Its Dispose, the Blob unchanged since, makes

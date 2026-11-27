@@ -1108,7 +1108,15 @@ fn a_write_over_bytes_a_bridge_already_handed_back_names_the_bridge() {
             vec![arg(DotNetValue::Int64(1))],
         )
         .unwrap();
-    assert_eq!(r.streams.overwritten, vec![bridge]);
+    // AL's SetLength on a bridge that started empty, whose one writer is StreamWriter(OutStream), is the measured overwrite
+    // (corpus PR 1633, tests/al-language-onprem-dotnet/dotnet/zip-blob-writes/ZipBlobDotNetOverwrite.al:54-71, assumption
+    // zip-blob-writes): it comes back in `replaced`; the host marks the Blob anyway, as the WriteByte above already marked it.
+    assert!(r.streams.overwritten.is_empty(), "{:?}", r.streams.overwritten);
+    let (id, before, bytes, kind) = &r.streams.replaced[0];
+    assert_eq!(
+        (*id, *before, bytes.len(), *kind),
+        (bridge, 4, 1, Some(al_host::dotnet::Rewrite::Overwrite))
+    );
     let r = sess.invoke(DotNetTarget::Instance(base), "Flush", vec![]).unwrap();
     assert!(r.streams.overwritten.is_empty(), "named once");
     sess.close();

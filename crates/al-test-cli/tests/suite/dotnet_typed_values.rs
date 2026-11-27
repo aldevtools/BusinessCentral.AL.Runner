@@ -832,10 +832,9 @@ fn a_dotnet_write_over_bytes_handed_back_to_a_blob_marks_the_blob() {
     if let Some(w) = refusal("WriterOverwritesAfterFlush") {
         assert!(w.contains("wrote over after it had handed them back"), "{w}");
     }
-    // Setting the length below the handed-back bytes marks the Blob too.
-    if let Some(w) = refusal("WriterSetLengthBelowFlush") {
-        assert!(w.contains("wrote over after it had handed them back"), "{w}");
-    }
+    // AL's SetLength below the bytes the one StreamWriter(OutStream) handed back cuts the Blob (corpus PR 1633,
+    // tests/al-language-onprem-dotnet/dotnet/zip-blob-writes/ZipBlobDotNetOverwrite.al:54-71, assumption zip-blob-writes).
+    assert!(matches!(txt("WriterSetLengthBelowFlush").as_deref(), Some("a") | None));
 }
 
 // The archive writes the entry's header again when the temporary stream of ZipArchiveEntry.Open() closes (the Dispose of
