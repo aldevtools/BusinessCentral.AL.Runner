@@ -68,6 +68,8 @@ pub(crate) struct AtCall {
     /// the call and the end of the extension's trigger ([`Session::note_ext_before_touch`]): the probe measures only field
     /// assignments, `SetRange` and `SetCurrentKey` there.
     touched: Rc<Cell<bool>>,
+    /// The call reads the record first (`Delete`, [`Session::rec_at_ext_before_call`]).
+    read_first: bool,
     /// The session's watch list, which holds `touched` while this call lives (`Session::ext_before_watch`).
     watch: ExtBeforeWatch,
 }
@@ -164,6 +166,7 @@ impl Session {
             position: r.position.clone(),
             xrec_named,
             touched,
+            read_first,
             watch: self.ext_before_watch.clone(),
         })
     }
@@ -199,10 +202,11 @@ impl Session {
                 && r.filters.iter().all(|f| f.group == 0)
                 && match (&r.position, &at.position) {
                     (None, None) => true,
-                    // Rec was on a row at the call and the runner's `SetRange` forgot it (op_inner.rs `RecordOp::SetRange`): Get, then
-                    // the extension's SetRange, then Delete(true) is XebXRecAfterExtBeforeTrigger.al:268-290, :839. Every other
-                    // record method and whole-record write on Rec sets `touched`.
-                    (None, Some(_)) => true,
+                    // Delete only: Rec was on a row at the call and the runner's `SetRange` forgot it (op_inner.rs
+                    // `RecordOp::SetRange`): Get, then the extension's SetRange, then Delete(true) is
+                    // XebXRecAfterExtBeforeTrigger.al:268-290, :839. No cell measures Insert on a row with that SetRange. Every
+                    // other record method and whole-record write on Rec sets `touched`.
+                    (None, Some(_)) => at.read_first,
                     (Some(now), Some(then)) => Rc::ptr_eq(now, then) || Self::same_values(now, then),
                     _ => false,
                 }

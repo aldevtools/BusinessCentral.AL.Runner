@@ -108,6 +108,27 @@ codeunit 71858 Tests
         Check(Log.Text(), 'N0/EXT||Id');
     end;
 
+    // Neighbor of :403 and :839: a row at the call (Get of another row), then Insert(true) with the extension's SetRange.
+    // No 1611 cell measures it: main's answer, refused on head.
+    [Test]
+    procedure Neighbor_AfterGetOfOtherRow_ExtSetRange_Insert()
+    var
+        R: Record "N9185 Row";
+    begin
+        R.DeleteAll();
+        R.Init();
+        R.Id := 'OTHER';
+        R.Name := 'O';
+        R.Insert(false);
+        R.Get('OTHER');
+        R.Id := 'A';
+        R.Name := 'N0';
+        R.Tag := 'T0';
+        Log.Set(3, 0);
+        R.Insert(true);
+        Check(Log.Text(), 'N0/N0||Id');
+    end;
+
     // Measured: XebXRecAfterExtBeforeTrigger.al:664
     [Test]
     procedure Delete_NothingChanges()

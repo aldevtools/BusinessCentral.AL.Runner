@@ -20,3 +20,4 @@ Tests::Neighbor_ExtChangeCompany	REFUSED xRec in a table's OnInsert or OnDelete 
 Tests::Neighbor_ExtAscendingFalse	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
 Tests::Neighbor_ExtRecAssign	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
 Tests::Neighbor_ExtCopyFilterInto_Delete	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
+Tests::Neighbor_AfterGetOfOtherRow_ExtSetRange_Insert	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
