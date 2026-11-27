@@ -62,8 +62,8 @@ public sealed class Marshaller
     // archive's Dispose rewrites that zip: the Blob then holds the archive's whole final content (corpus
     // tests/al-language/streams/blob-tempblob/ZipBlobFieldUpdate.al:5-8, lengths 119 and 216 at :7; al-runner issue 8360).
     // Facts read, each by equality: a ZipArchive made by the four-argument constructor, its Mode Update, its stream a bridge that
-    // started with the Blob's bytes; the call is that archive's Dispose with no argument. Every other writer keeps the refusal of
-    // [Bridge].
+    // started with the Blob's bytes; the call is that archive's Dispose with no argument, written `Dispose()` or `Dispose;` (one
+    // AL call). Every other writer keeps the refusal of [Bridge].
     readonly System.Runtime.CompilerServices.ConditionalWeakTable<System.IO.Compression.ZipArchive, Bridge> updateArchives = new();
 
     public void NoteConstructed(object? obj, object?[] coerced)

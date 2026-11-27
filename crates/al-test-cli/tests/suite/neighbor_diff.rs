@@ -577,3 +577,63 @@ fn the_stale_note_needs_a_folder_inside_the_repository_that_git_reports_unchange
     // The symlink resolves to the same folder, so both get the same answer, never a path git cannot place.
     assert_eq!(mode(&link), mode(&inside));
 }
+
+/// `neighbor-diff.sh --main-sidecar` says "own" when tools/dotnet-sidecar differs from BASE (the main run then drops
+/// ALRT_DOTNET_SIDECAR, which names the head's sidecar in CI, and builds the sidecar built into the main binary), else
+/// "shared". A sidecar-only change otherwise runs the head sidecar on both sides and shows no difference.
+#[test]
+fn the_main_run_gets_its_own_sidecar_when_the_sidecar_sources_differ() {
+    // A repository of its own with the script, so the answer does not depend on this checkout's history.
+    let d = tempfile::tempdir().unwrap();
+    let repo = d.path();
+    let git = |args: &[&str]| {
+        let o = std::process::Command::new("git")
+            .args(args)
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert!(
+            o.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+    };
+    std::fs::create_dir_all(repo.join("tools/dotnet-sidecar")).unwrap();
+    for f in ["neighbor-diff.sh", "binary-inputs.txt"] {
+        std::fs::copy(root().join("tools").join(f), repo.join("tools").join(f)).unwrap();
+    }
+    std::fs::write(repo.join("tools/dotnet-sidecar/Dispatch.cs"), "// main\n").unwrap();
+    git(&["init", "-q"]);
+    git(&["add", "."]);
+    git(&[
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "-m",
+        "base",
+    ]);
+    let answer = || -> String {
+        let o = std::process::Command::new("bash")
+            .arg(repo.join("tools/neighbor-diff.sh"))
+            .args(["--base", "HEAD", "--main-sidecar"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        String::from_utf8(o.stdout).unwrap().trim().to_string()
+    };
+    assert_eq!(answer(), "shared");
+    std::fs::write(repo.join("tools/dotnet-sidecar/Dispatch.cs"), "// head\n").unwrap();
+    assert_eq!(answer(), "own", "a changed sidecar source");
+    git(&["checkout", "-q", "--", "tools/dotnet-sidecar"]);
+    std::fs::write(repo.join("tools/dotnet-sidecar/New.cs"), "// head\n").unwrap();
+    assert_eq!(answer(), "own", "a new, untracked sidecar source");
+    let script = std::fs::read_to_string(root().join("tools/neighbor-diff.sh")).unwrap();
+    assert!(
+        script.contains("main_env=(-u ALRT_DOTNET_SIDECAR)") && script.contains("env \"${side_env[@]}\""),
+        "the main run drops ALRT_DOTNET_SIDECAR when its sidecar is its own"
+    );
+}
