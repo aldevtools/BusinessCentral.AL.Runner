@@ -58,8 +58,9 @@ codeunit 61920 "DO Decimal Overflow Tests"
         ExpectOverflow();
     end;
 
+    // A product that may land on the largest Decimal (not measured): the runner refuses it, as main does.
     [Test]
-    procedure Unchanged_ProductAtMaxFits()
+    procedure Refused_ProductLandsOnMax()
     var
         D: Decimal;
     begin

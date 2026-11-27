@@ -4,12 +4,15 @@
 //! BC raises `Value was either too large or too small for a Decimal.` (AL:Overflow) for the largest Decimal times the
 //! Integer 10 (errors/PnBErrorsCollections.al:564-566, :585-586 `decimalOverflow`). Only that shape is pinned: a
 //! positive Decimal on the left times a positive Integer on the right. Every other overflow (`+`, `-`, a Decimal on
-//! both sides, the Integer on the left, a negative operand) is not pinned and refuses.
+//! both sides, the Integer on the left, a negative operand) is not pinned and refuses. So does a product whose whole
+//! part times the Integer is not past the largest Decimal: `checked_mul` fails on some products that fit
+//! (`7922816251426433759354395033.5 * 10` is the largest Decimal), so its failure alone is no overflow.
 
 use super::{Arith, keep_18_digits};
 use crate::native::Signal;
 use crate::value::Value;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 
 /// `l op r` for `+`, `-` or `*` where `l` and `r` (values `a` and `b`) are a Decimal and a Decimal or an Integer: the
 /// fast path of `ops::arith`. The end of `arith_general` gives the same results and refuses every overflow.
@@ -30,11 +33,23 @@ pub(super) fn sum_difference_product(
     )
 }
 
-/// The answer to `l op r` when the exact result is past the Decimal range.
+/// The answer to `l op r` when `checked_mul`, `checked_add` or `checked_sub` found no Decimal for it.
 fn past_decimal_range(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
-    let pinned = op == Arith::Mul
-        && matches!(l, Value::Decimal(d) if d.is_sign_positive())
-        && matches!(r, Value::Integer(n) if *n > 0);
+    // The whole part of the Decimal times the Integer is already past the largest Decimal (below 2^96 times below 2^31,
+    // so it fits a u128).
+    let whole_part_past = |d: &Decimal, n: i32| {
+        let (Some(whole), Some(max)) = (d.trunc().to_u128(), Decimal::MAX.to_u128()) else {
+            return false;
+        };
+        u128::try_from(n)
+            .ok()
+            .and_then(|n| whole.checked_mul(n))
+            .is_some_and(|p| p > max)
+    };
+    let pinned = match (op, l, r) {
+        (Arith::Mul, Value::Decimal(d), Value::Integer(n)) => d.is_sign_positive() && *n > 0 && whole_part_past(d, *n),
+        _ => false,
+    };
     if pinned {
         return crate::mathfns::overflow();
     }
@@ -71,5 +86,12 @@ mod tests {
         assert!(refused(past_decimal_range(Arith::Mul, &ten, &max)));
         assert!(refused(past_decimal_range(Arith::Mul, &min, &ten)));
         assert!(refused(past_decimal_range(Arith::Mul, &max, &Value::Integer(-10))));
+    }
+
+    #[test]
+    fn a_product_that_checked_mul_misses_but_may_fit_refuses() {
+        // 7922816251426433759354395033.5 * 10 is the largest Decimal: `checked_mul` fails on it, and it is no overflow.
+        let near = Value::Decimal("7922816251426433759354395033.5".parse().unwrap());
+        assert!(refused(past_decimal_range(Arith::Mul, &near, &Value::Integer(10))));
     }
 }
