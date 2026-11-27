@@ -2341,7 +2341,7 @@ fn mark_test_start_assumptions(
 
 #[cfg(test)]
 mod tests {
-    use super::{Ended, LeftBindings, Stopped, Unfinished, WALL_BACKSTOP, WATCHDOG_POLL, Watchdog, ends_of, stop_by};
+    use super::{Ended, LeftBindings, Stopped, Unfinished, WATCHDOG_POLL, Watchdog, ends_of, stop_by};
     use std::sync::Arc;
 
     /// The limit counts the CPU time of the test thread: a thread that waits is not stopped at the
@@ -2386,7 +2386,7 @@ mod tests {
             std::thread::sleep(WATCHDOG_POLL);
         }
         assert!(
-            started.elapsed() >= limit * WALL_BACKSTOP,
+            started.elapsed() >= limit * super::WALL_BACKSTOP,
             "stopped before the backstop"
         );
         assert_eq!(w.finish(), Some(Stopped::Wall));
