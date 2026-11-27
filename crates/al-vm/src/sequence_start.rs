@@ -84,7 +84,7 @@ pub(crate) struct Notes {
     /// Where in `tx_log` each number sequence was last inserted while the log was kept.
     inserted_at: HashMap<Key, usize>,
     /// What the next commit is the commit of ([`Session::commit_as`]).
-    commit_by: Option<CommitBy>,
+    pub(crate) commit_by: Option<CommitBy>,
     /// The transaction ends and test method bodies since [`Session::note_tx_ends`]; `None` while not noted.
     tx_log: Option<Vec<TxPoint>>,
     /// The runner is one al-testrun `failed_test_runner_measured` names ([`Session::note_tx_ends`]).

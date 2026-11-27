@@ -213,6 +213,78 @@ fn a_planted_difference_in_the_replay_is_reported() {
     );
 }
 
+/// [`MAIN`] with a login subscriber that leaves, in a SingleInstance codeunit, a TextBuilder holding the high half of a
+/// surrogate pair alone (corpus PR 1605, LtSurrogateHalves.al Ops_tb_1: Append keeps the half).
+const HALF_IN_BUILDER: &str = r#"
+codeunit 77500 "RPL Half Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var Holder: Codeunit "RPL Half Holder"; begin Holder.Keep(); end;
+}
+codeunit 77501 "RPL Half Holder"
+{
+    SingleInstance = true;
+    var Builder: TextBuilder;
+    procedure Keep() var H: Text; begin H := 'x'; H[1] := 55357; Builder.Append(H); end;
+}
+"#;
+
+/// Plants in the twin what a String in the image made of the half (issue 9202): U+FFFD in the same TextBuilder cell.
+fn plant_replacement_in_builder(twin: &mut Session) {
+    let at = (twin.engine.program.objects.iter())
+        .position(|o| o.name == "RPL Half Holder")
+        .expect("the holder");
+    let instance = twin.codeunit_instance(at);
+    let Value::Library(_, cell) = &instance.borrow().globals[0] else {
+        panic!("Builder is a TextBuilder")
+    };
+    *cell.borrow_mut() = al_builtins::value::LibraryValue::Text(al_builtins::text::Txt::from_unit(0xFFFD));
+}
+
+// Issue 9202: a replayed login gave a TextBuilder U+FFFD where the login left half of a surrogate pair, and the check
+// reported 0 differ, because its state lines wrote the half as U+FFFD too. Through the check's own path (the replay-vs-run
+// compare and the round trip), a twin that holds U+FFFD in the TextBuilder is a difference in the session state, at the
+// line of that TextBuilder's global.
+#[test]
+fn the_check_reports_a_lone_half_the_replay_turned_into_a_replacement_character() {
+    let (engine, l) = compiled_with(&format!("{MAIN}{HALF_IN_BUILDER}"));
+    crate::login_replay::TWIN_PLANT.with(|p| p.set(Some(plant_replacement_in_builder)));
+    let check = RunOptions {
+        login_replay_check: true,
+        ..Default::default()
+    };
+    let ran = sessions(&engine, &l, "RPL Tests A", 3, &check);
+    crate::login_replay::TWIN_PLANT.with(|p| p.set(None));
+    let report = crate::login_replay::report(&engine).expect("a report");
+    let line = |what: &str| {
+        let line = report.lines().find(|l| l.contains(what));
+        line.unwrap_or_else(|| panic!("{report}")).to_string()
+    };
+    let (replay, image) = (line("replay vs run: "), line("round trips "));
+    assert!(
+        replay.contains("replay vs run: 2 checked, 2 differ (session state 2; first: session state "),
+        "{replay}"
+    );
+    assert!(
+        image.contains("round trips 1, 1 differ (session state 1; first: session state "),
+        "{image}"
+    );
+    // The place the report names is the line of the TextBuilder global, nothing else differs.
+    let place = |l: &str| {
+        let at = l.find("first: session state ").expect("a place") + "first: session state ".len();
+        let n: String = l[at..].chars().take_while(char::is_ascii_digit).collect();
+        n.parse::<usize>().expect("a line number")
+    };
+    assert_eq!(place(&replay), place(&image));
+    assert!(
+        !replay.contains("lines differ"),
+        "only the TextBuilder's line differs: {replay}"
+    );
+    let lines = &ran.states[0].state_lines().lines;
+    let named = &lines[place(&replay) - 1];
+    assert!(named.contains("TextBuilder"), "the place names another line: {named}");
+}
+
 /// [`MAIN`] with install code that sets WorkDate: a codeunit's session that starts from no install baseline starts from
 /// what it left (`install_once.rs`, `Session::install_left` carries WorkDate), before the session enters the codeunit
 /// and logs in.
@@ -1539,11 +1611,12 @@ fn threads_admitted(opts: &RunOptions) -> usize {
 
 // A raised byte cap counts in the soft budget before a thread is admitted: 1020 MB of room the starts may still take
 // leave room for two threads, where the default cap leaves room for the eight the pool may use. No start is dropped.
+// The count of 64 starts at 16 MB each (1024 MB) does not bind here.
 #[test]
 fn a_raised_byte_cap_lowers_the_threads_a_soft_budget_admits() {
     let on = |mib: u64| RunOptions {
         login_replay: true,
-        login_replay_limits: limits(8, mib),
+        login_replay_limits: limits(64, mib),
         ..Default::default()
     };
     assert_eq!(threads_admitted(&on(64)), 8, "60 MB of room fit beside eight threads");
@@ -1559,4 +1632,16 @@ fn a_raised_byte_cap_lowers_the_threads_a_soft_budget_admits() {
         ..on(1024)
     };
     assert_eq!(threads_admitted(&off), 8, "no start is kept: nothing held");
+}
+
+// Al-runner issue 9173: two starts of at most 16 MB each hold at most 32 MB, so a 1024 MB setting beside a count of
+// two holds 28 MB of room (32 MB less the 4 MiB start), not 1020 MB: the pool admits its eight threads.
+#[test]
+fn the_room_held_is_the_smaller_of_the_byte_cap_and_the_count_at_sixteen_mb_a_start() {
+    let two = RunOptions {
+        login_replay: true,
+        login_replay_limits: limits(2, 1024),
+        ..Default::default()
+    };
+    assert_eq!(threads_admitted(&two), 8, "28 MB of room fit beside eight threads");
 }

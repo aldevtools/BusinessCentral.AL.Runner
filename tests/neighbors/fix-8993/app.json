@@ -1,0 +1,11 @@
+{
+  "id": "687f3b50-c830-4586-8963-899300008993",
+  "name": "Neighbors: row version read after another table was written (issue 8993)",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "Cloud",
+  "idRanges": [{"from": 98993, "to": 98999}],
+  "dependencies": []
+}

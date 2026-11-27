@@ -5,11 +5,12 @@
 //!
 //! This crate reads no environment (ADR-006): [`LoginReplayLimits::read`] takes the reader the front end passes.
 //!
-//! The byte cap is a hard limit on what the kept starts hold, so one check at the start keeps them inside a run's
-//! memory limit (ADR-073 amendment 2026-11-26, al-runner issue 8211): [`LoginReplayLimits::check_memory_limit`]. The
-//! memory pool counts the room the cap leaves the starts before it admits a thread (`Pool::reserve`,
-//! `runtime/corpus.rs` `share_with_pool`); no start is dropped for memory.
+//! The caps are hard limits on what the kept starts hold ([`LoginReplayLimits::most_bytes`]), so one check at the start
+//! keeps them inside a run's memory limit (ADR-073 amendment 2026-11-26, al-runner issue 8211):
+//! [`LoginReplayLimits::check_memory_limit`]. The memory pool counts the room that most leaves the starts before it
+//! admits a thread (`Pool::reserve`, `runtime/corpus.rs` `share_with_pool`); no start is dropped for memory.
 
+use super::MAX_START_BYTES;
 use std::ffi::{OsStr, OsString};
 
 /// The most starts an engine keeps when the run sets no other cap (ADR-073 Phase 1).
@@ -57,20 +58,47 @@ impl LoginReplayLimits {
         Ok(LoginReplayLimits { max_starts, max_bytes })
     }
 
+    /// The most bytes the kept starts can hold together: the byte cap, or the count of starts at the cap on one start
+    /// (`login_start::MAX_START_BYTES`) each, whichever is smaller (al-runner issue 9173). The start check
+    /// ([`LoginReplayLimits::check_memory_limit`]) and the room the memory pool holds for the starts (`runtime/corpus.rs`
+    /// `share_with_pool`) both use it.
+    pub fn most_bytes(&self) -> u64 {
+        self.max_bytes.min(self.count_bytes())
+    }
+
+    /// The count of starts at the cap on one start each.
+    fn count_bytes(&self) -> u64 {
+        u64::try_from(self.max_starts)
+            .unwrap_or(u64::MAX)
+            .saturating_mul(MAX_START_BYTES)
+    }
+
     /// Stops a run that keeps starts when a memory limit is set (`limit`, bytes: `--max-memory` or serve's `maxMemory`)
-    /// and the byte cap is not below it, with an error that names both values (al-runner issue 8211, the maintainer's
-    /// start check). Without a set limit there is nothing to compare with.
+    /// and [`LoginReplayLimits::most_bytes`] is not below it, with an error that names the limit and the setting that
+    /// binds (al-runner issue 8211, the maintainer's start check; issue 9173). Without a set limit there is nothing to
+    /// compare with.
     pub fn check_memory_limit(&self, limit: Option<u64>) -> Result<(), String> {
-        match limit {
-            Some(limit) if self.max_bytes >= limit => Err(format!(
-                "{} is {}, not below the memory limit of {} (--max-memory or maxMemory): set it below the limit, or \
-                 raise the limit",
-                Self::MAX_MB_VAR,
-                size(self.max_bytes),
-                size(limit)
-            )),
-            _ => Ok(()),
-        }
+        let Some(limit) = limit.filter(|&limit| self.most_bytes() >= limit) else {
+            return Ok(());
+        };
+        let (setting, lower) = if self.max_bytes <= self.count_bytes() {
+            (
+                format!("{} is {}", Self::MAX_MB_VAR, size(self.max_bytes)),
+                "below the limit",
+            )
+        } else {
+            let (each, all) = (size(MAX_START_BYTES), size(self.count_bytes()));
+            let count = format!(
+                "{} is {} (starts of at most {each}, {all} together)",
+                Self::MAX_IMAGES_VAR,
+                self.max_starts
+            );
+            (count, "lower")
+        };
+        Err(format!(
+            "{setting}, not below the memory limit of {} (--max-memory or maxMemory): set it {lower}, or raise the limit",
+            size(limit)
+        ))
     }
 }
 
@@ -156,7 +184,8 @@ mod tests {
 
     #[test]
     fn a_byte_cap_not_below_a_set_memory_limit_is_an_error_that_names_both_values() {
-        let caps = |mb: &str| read(&[(MB, mb)]).unwrap();
+        // 64 starts at 16 MB each (1024 MB): the MB setting binds (al-runner issue 9173).
+        let caps = |mb: &str| read(&[(IMAGES, "64"), (MB, mb)]).unwrap();
         assert_eq!(
             caps("64").check_memory_limit(Some(64 << 20)).unwrap_err(),
             "ALRUNNER_LOGIN_REPLAY_MAX_MB is 64 MB, not below the memory limit of 64 MB (--max-memory or maxMemory): \
@@ -174,5 +203,30 @@ mod tests {
         assert_eq!(caps("63").check_memory_limit(Some(64 << 20)), Ok(()));
         assert_eq!(LoginReplayLimits::default().check_memory_limit(Some(6 << 30)), Ok(()));
         assert_eq!(caps("4096").check_memory_limit(None), Ok(()));
+    }
+
+    // Al-runner issue 9173: the kept starts hold at most the count of starts at 16 MB each, so the check compares the
+    // smaller of that and the MB setting with the limit, and its error names the setting that binds.
+    #[test]
+    fn the_check_compares_the_smaller_of_the_mb_setting_and_the_count_at_sixteen_mb_a_start() {
+        let caps = |images: &str, mb: &str| read(&[(IMAGES, images), (MB, mb)]).unwrap();
+        assert_eq!(caps("2", "1024").check_memory_limit(Some(512 << 20)), Ok(()));
+        assert_eq!(caps("2", "1024").check_memory_limit(Some(33 << 20)), Ok(()));
+        assert_eq!(
+            caps("2", "64").check_memory_limit(Some(32 << 20)).unwrap_err(),
+            "ALRUNNER_LOGIN_REPLAY_MAX_IMAGES is 2 (starts of at most 16 MB, 32 MB together), not below the memory \
+             limit of 32 MB (--max-memory or maxMemory): set it lower, or raise the limit"
+        );
+        // The MB setting binds when both are the same: its error as before.
+        let err = caps("4", "64").check_memory_limit(Some(64 << 20)).unwrap_err();
+        assert!(
+            err.starts_with("ALRUNNER_LOGIN_REPLAY_MAX_MB is 64 MB, not below"),
+            "{err}"
+        );
+        // The largest count does not overflow: the MB setting binds.
+        assert_eq!(
+            caps("18446744073709551615", "64").check_memory_limit(Some(65 << 20)),
+            Ok(())
+        );
     }
 }

@@ -1050,6 +1050,9 @@ impl Session {
                             .collect(),
                     )
                 };
+                if !self.ext_before_watch.borrow().is_empty() {
+                    self.note_ext_before_touch(None, dst);
+                }
                 Self::put_copied_filters(dst, to, to_group, copied);
                 Ok(Value::Null)
             }
