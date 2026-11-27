@@ -1,13 +1,14 @@
 //! A persistent ordered map: cloning is O(1) and shares everything; a write copies only the pieces it changes.
 //!
 //! Layout: a sorted spine of `Arc`-shared chunks, each a sorted vector of at most [`MAX`] entries. A clone shares the
-//! spine; the first write on either side copies the spine (one pointer and one key per chunk) and the one chunk it
-//! touches. Written for the shared test-data snapshot in `memory.rs` (tests fork from a baseline and change a few rows).
+//! spine; the first write on either side copies the spine (one pointer per chunk) and the one chunk it touches.
+//! Written for the shared test-data snapshot in `memory.rs` (tests fork from a baseline and change a few rows).
 //!
 //! The spine keeps a copy of each chunk's first key in one vector of its own (the fence keys), so the search for a
 //! key's chunk compares against keys side by side and reads no chunk; only the one chunk found is opened. Every write
 //! that changes a chunk's first key (a new smallest key, a split, a removed first entry, a merge, an emptied chunk)
-//! updates the copy in the same step.
+//! updates the copy in the same step. The copies are shared on their own, so a write that moves no chunk boundary (a
+//! value update, a key inside a chunk) copies none of them after a fork.
 
 use std::ops::Bound;
 use std::ops::RangeBounds;
@@ -23,13 +24,15 @@ const FILL: usize = 48;
 /// Entries are shared too, so copying a chunk on the first write after a fork bumps counters and copies no rows.
 type Chunk<K, V> = Vec<Arc<(K, V)>>;
 
-/// The chunks in key order. `firsts[i]` is a copy of the first key of `chunks[i]`; no chunk is empty.
+/// The chunks in key order. `firsts[i]` is a copy of the first key of `chunks[i]`; no chunk is empty. The copies sit
+/// behind an `Arc` of their own, so the first write after a fork copies them only when it moves a chunk boundary.
+/// Only the methods below change `firsts`, which keeps the two vectors in step.
 struct Spine<K, V> {
-    firsts: Vec<K>,
+    firsts: Arc<Vec<K>>,
     chunks: Vec<Arc<Chunk<K, V>>>,
 }
 
-impl<K: Clone, V> Clone for Spine<K, V> {
+impl<K, V> Clone for Spine<K, V> {
     fn clone(&self) -> Self {
         Spine {
             firsts: self.firsts.clone(),
@@ -38,15 +41,50 @@ impl<K: Clone, V> Clone for Spine<K, V> {
     }
 }
 
-impl<K: Clone, V> Spine<K, V> {
-    /// Copies the first key of chunk `ci` again, after a write that may have changed it.
+impl<K: Clone, V: Clone> Spine<K, V> {
+    /// Copies the first key of chunk `ci` again, after a write that changed it.
     fn refresh_first(&mut self, ci: usize) {
-        self.firsts[ci] = self.chunks[ci][0].0.clone();
+        Arc::make_mut(&mut self.firsts)[ci] = self.chunks[ci][0].0.clone();
     }
 
-    fn push(&mut self, chunk: Chunk<K, V>) {
-        self.firsts.push(chunk[0].0.clone());
-        self.chunks.push(Arc::new(chunk));
+    /// Puts a non-empty `chunk` at index `ci`.
+    fn insert_chunk(&mut self, ci: usize, chunk: Chunk<K, V>) {
+        Arc::make_mut(&mut self.firsts).insert(ci, chunk[0].0.clone());
+        self.chunks.insert(ci, Arc::new(chunk));
+    }
+
+    /// Takes chunk `ci` out, its entries still shared with any fork.
+    fn remove_chunk(&mut self, ci: usize) -> Chunk<K, V> {
+        Arc::make_mut(&mut self.firsts).remove(ci);
+        let c = self.chunks.remove(ci);
+        Arc::try_unwrap(c).unwrap_or_else(|a| (*a).clone())
+    }
+
+    /// After chunk `ci` fell below [`MIN`] entries: merges it into the smaller neighbor when the two fit in one chunk.
+    fn merge_small(&mut self, ci: usize) {
+        let n = self.chunks[ci].len();
+        let left = (ci > 0).then(|| self.chunks[ci - 1].len());
+        let right = self.chunks.get(ci + 1).map(|c| c.len());
+        let into_left = match (left, right) {
+            (Some(l), Some(r)) => (l <= r && l + n <= MAX)
+                .then_some(true)
+                .or((r + n <= MAX).then_some(false)),
+            (Some(l), None) => (l + n <= MAX).then_some(true),
+            (None, Some(r)) => (r + n <= MAX).then_some(false),
+            (None, None) => None,
+        };
+        match into_left {
+            Some(true) => {
+                let c = self.remove_chunk(ci);
+                Arc::make_mut(&mut self.chunks[ci - 1]).extend(c);
+            }
+            Some(false) => {
+                let c = self.remove_chunk(ci);
+                Arc::make_mut(&mut self.chunks[ci]).splice(0..0, c);
+                self.refresh_first(ci);
+            }
+            None => {}
+        }
     }
 }
 
@@ -68,7 +106,7 @@ impl<K, V> Default for PMap<K, V> {
     fn default() -> Self {
         PMap {
             spine: Arc::new(Spine {
-                firsts: Vec::new(),
+                firsts: Arc::new(Vec::new()),
                 chunks: Vec::new(),
             }),
             len: 0,
@@ -194,7 +232,7 @@ impl<K: Ord + Clone, V: Clone> PMap<K, V> {
     /// Sets `k` to `v`; returns the value it replaced.
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
         if self.spine.chunks.is_empty() {
-            Arc::make_mut(&mut self.spine).push(vec![Arc::new((k, v))]);
+            Arc::make_mut(&mut self.spine).insert_chunk(0, vec![Arc::new((k, v))]);
             self.len = 1;
             return None;
         }
@@ -209,8 +247,7 @@ impl<K: Ord + Clone, V: Clone> PMap<K, V> {
                 self.len += 1;
                 if chunk.len() > MAX {
                     let right = chunk.split_off(chunk.len() / 2);
-                    spine.firsts.insert(ci + 1, right[0].0.clone());
-                    spine.chunks.insert(ci + 1, Arc::new(right));
+                    spine.insert_chunk(ci + 1, right);
                 }
                 if i == 0 {
                     // A new smallest key: only the first chunk takes a key below its first.
@@ -230,43 +267,14 @@ impl<K: Ord + Clone, V: Clone> PMap<K, V> {
         self.len -= 1;
         let n = chunk.len();
         if n == 0 {
-            spine.firsts.remove(ci);
-            spine.chunks.remove(ci);
+            spine.remove_chunk(ci);
             return Some(v);
         }
         if i == 0 {
             spine.refresh_first(ci);
         }
         if n < MIN {
-            // Merge into the smaller neighbor when the two fit in one chunk.
-            let left = (ci > 0).then(|| spine.chunks[ci - 1].len());
-            let right = spine.chunks.get(ci + 1).map(|c| c.len());
-            let into_left = match (left, right) {
-                (Some(l), Some(r)) => (l <= r && l + n <= MAX)
-                    .then_some(true)
-                    .or((r + n <= MAX).then_some(false)),
-                (Some(l), None) => (l + n <= MAX).then_some(true),
-                (None, Some(r)) => (r + n <= MAX).then_some(false),
-                (None, None) => None,
-            };
-            match into_left {
-                Some(true) => {
-                    // The left chunk keeps its first key.
-                    spine.firsts.remove(ci);
-                    let c = spine.chunks.remove(ci);
-                    let c = Arc::try_unwrap(c).unwrap_or_else(|a| (*a).clone());
-                    Arc::make_mut(&mut spine.chunks[ci - 1]).extend(c);
-                }
-                Some(false) => {
-                    // The merged chunk starts with this chunk's first key, so the right chunk's copy goes.
-                    spine.firsts.remove(ci + 1);
-                    let c = spine.chunks.remove(ci);
-                    let c = Arc::try_unwrap(c).unwrap_or_else(|a| (*a).clone());
-                    let next = Arc::make_mut(&mut spine.chunks[ci]);
-                    next.splice(0..0, c);
-                }
-                None => {}
-            }
+            spine.merge_small(ci);
         }
         Some(v)
     }
@@ -286,7 +294,7 @@ impl<K: Ord + Clone, V: Clone> FromIterator<(K, V)> for PMap<K, V> {
         }
         let len = sorted.len();
         let mut spine = Spine {
-            firsts: Vec::with_capacity(len / FILL + 1),
+            firsts: Arc::new(Vec::with_capacity(len / FILL + 1)),
             chunks: Vec::with_capacity(len / FILL + 1),
         };
         let mut rest = sorted.into_iter();
@@ -295,7 +303,7 @@ impl<K: Ord + Clone, V: Clone> FromIterator<(K, V)> for PMap<K, V> {
             if chunk.is_empty() {
                 break;
             }
-            spine.push(chunk);
+            spine.insert_chunk(spine.chunks.len(), chunk);
         }
         PMap {
             spine: Arc::new(spine),
