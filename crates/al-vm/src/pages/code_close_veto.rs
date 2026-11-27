@@ -62,6 +62,11 @@ impl Session {
         r
     }
 
+    /// Whether the innermost page trigger running now is an OnAction of the page whose state is at `page_state`.
+    pub(crate) fn in_page_action(&self, page_state: *const RefCell<PageState>) -> bool {
+        matches!(self.pages.trigger_kinds.last(), Some((p, TriggerKind::Action, _)) if *p == page_state)
+    }
+
     /// Whether the innermost page trigger running now is the OnOpenPage of page object `page`, on a page the test opened with
     /// `TestPage.OpenView`.
     pub(crate) fn page_open_by_test_open_view(&self, page: usize) -> bool {
