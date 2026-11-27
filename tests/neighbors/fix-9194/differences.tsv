@@ -1,0 +1,6 @@
+# key	entry
+N94 Tests::Deep	ASSUMED clear-all-whse-register-store (corpus PR 1619)
+N94 Tests::Kinds	ASSUMED clear-all-whse-register-store (corpus PR 1619)
+N94 Tests::Whse_DirectSiWrite	ASSUMED clear-all-whse-register-store (corpus PR 1619)
+N94 Tests::Whse_EveryLevel	ASSUMED clear-all-whse-register-store (corpus PR 1619)
+N94 Tests::Whse_OwnerPrimes	ASSUMED clear-all-whse-register-store (corpus PR 1619)
