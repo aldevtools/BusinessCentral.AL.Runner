@@ -6,10 +6,9 @@
 //! (recordref-fieldref/fieldref/SrcSetRangeConvert.al, SrcFilterConvertKinds.al, not yet pinned: assumption
 //! setrange-other-type-convert). A value of a pair of types those cells measure is refused in a shape or of a size they do
 //! not measure; a cell that passes on the conversion `setrange_filter` and the filter parser give keeps it in the measured
-//! shape only (through the same assumption), unless a pin or another assumption covers every shape (`Cell::MainEveryShape`). False into a
-//! Code or Text field, and true into one shorter than its Format text, have their own entry (al-runner issue 9026, assumption
-//! setrange-bool-into-text). A pair of types they do not
-//! measure keeps that conversion.
+//! shape only (through the same assumption), unless a pin or another assumption covers every shape (`Cell::MainEveryShape`). A Boolean
+//! into a Code or Text field has its own entry (al-runner issues 9026 and 9205, assumption setrange-bool-into-text). A pair of
+//! types they do not measure keeps that conversion.
 
 use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
@@ -69,7 +68,7 @@ enum Cell {
     /// BC converts it into this value or raises this error, where main's conversion gives another answer.
     Convert(Result<Value, Signal>),
     /// BC gives what main's conversion gives (the cell passes on main) in the shape the cells measure, through this entry
-    /// (setrange-other-type-convert, or setrange-bool-into-text for false into a Code or Text field); refused in another.
+    /// (setrange-other-type-convert, or setrange-bool-into-text for a Boolean into a Code or Text field); refused in another.
     Main(Assumption),
     /// Main's answer, pinned in the measured shape of this call: run there without the flag; refused in another.
     MainPinned,
@@ -205,7 +204,7 @@ impl Session {
                     | Cell::Refused(_)),
                 ) => {
                     let entry = match cell {
-                        Cell::Refused(entry) => entry,
+                        Cell::Refused(entry) | Cell::Main(entry) | Cell::Raise(entry, _) => entry,
                         _ => ENTRY,
                     };
                     return Err(Signal::unsupported(format!(
@@ -229,8 +228,8 @@ impl Session {
             _ => None,
         };
         match ty {
-            // SrcFilterConvertKinds.al:452-686 (Int5_Cod .. DecNeg125_Txt): the Format text, `1,000.5` and `-1.25` too; true is
-            // Yes (BoolTrue_Cod, BoolTrue_Txt: main's answer); other lengths and false have their own evidence (`bool_into_text`).
+            // SrcFilterConvertKinds.al:452-686 (Int5_Cod .. DecNeg125_Txt): the Format text, `1,000.5` and `-1.25` too; a Boolean
+            // has its own evidence (`bool_into_text`).
             RtType::Code(_) | RtType::Text(_) => match v {
                 Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) => Some(number_into_text(v, ty, self)),
                 Value::Boolean(b) => Some(bool_into_text(*b, ty)),
@@ -400,33 +399,28 @@ fn number_into_text(v: &Value, ty: &RtType, ctx: &Session) -> Cell {
     }
 }
 
-/// A Boolean `b` into a Code or Text field `ty`, on the field lengths corpus PR 1575 measures (SrcFilterBoolIntoText.al, the same on
-/// the Business Central majors 27, 28 and 29, on every route of `measured_call`), through the entry setrange-bool-into-text:
-/// false into a Code[20], Code[2] or Text[50] field is main's answer, `NO` in a Code, `No` in a Text (178-224: BoolFalse_Cod,
-/// BoolFalse_Txt, BoolFalse_Cod2); a Format text longer than the field (false into Code[1] or Text[1], true into Code[2],
-/// Code[1] or Text[1]) raises the string-length error with the Format text, not upper case in a Code field (226-304:
-/// BoolFalse_Cod1 .. BoolTrue_Txt1). True into a Code[20] or Text[50] field is main's answer (corpus PR 1552, BoolTrue_Cod,
-/// BoolTrue_Txt), and so is true into a field of 3 or more characters (main's conversion, which the cells do not measure).
-/// Every other length is refused.
+/// A Boolean `b` into a Code or Text field `ty`, through the entry setrange-bool-into-text, on every route of `measured_call`
+/// (the same on the Business Central majors 27, 28 and 29): the Format text when it fits the field, `NO` / `YES` in a Code field
+/// and `No` / `Yes` in a Text field (the earlier conversion); a field shorter than the Format text raises the string-length error
+/// with the Format text, not upper case in a Code field. Corpus PR 1575, SrcFilterBoolIntoText.al:262-629 (BoolFalse_Cod ..
+/// BoolTrue_Txt2048: false into Code[1, 2, 3, 10, 20, 50, 250] and Text[1, 2, 3, 50, 100, 2048], true into Code[1, 2, 3, 10, 50,
+/// 250] and Text[1, 2, 3, 100, 2048]), and corpus PR 1552 (SrcFilterConvertKinds.al BoolTrue_Cod, BoolTrue_Txt: true into
+/// Code[20] and Text[50]). The cells measure both sides of the boundary for each value and kind (length 1 and 2 against 3 for
+/// `Yes`, length 1 against 2 for `No`) and lengths up to 250 (Code) and 2048 (Text), so the rule serves every field length.
 fn bool_into_text(b: bool, ty: &RtType) -> Cell {
-    let len = match ty {
-        RtType::Code(Some(n)) | RtType::Text(Some(n)) => *n,
-        _ => return Cell::Refused(Assumption::SetRangeBoolIntoText),
+    let entry = Assumption::SetRangeBoolIntoText;
+    let (RtType::Code(Some(len)) | RtType::Text(Some(len))) = ty else {
+        return Cell::Refused(entry);
     };
-    let code = matches!(ty, RtType::Code(_));
     let format = if b { "Yes" } else { "No" };
-    match (b, code, len) {
-        (false, true, 2 | 20) | (false, false, 50) => Cell::Main(Assumption::SetRangeBoolIntoText),
-        (false, _, 1) | (true, true, 1 | 2) | (true, false, 1) => {
-            // `string_length_error` raises for every length it is given here (the Format text is longer than the field).
-            Cell::Raise(
-                Assumption::SetRangeBoolIntoText,
-                al_builtins::ops::string_length_error::<()>(format, len).unwrap_err(),
-            )
-        }
-        (true, _, 3..) => Cell::Main(ENTRY),
-        _ => Cell::Refused(Assumption::SetRangeBoolIntoText),
+    if format.len() <= *len as usize {
+        return Cell::Main(entry);
     }
+    // `string_length_error` raises for every length it is given.
+    Cell::Raise(
+        entry,
+        al_builtins::ops::string_length_error::<()>(format, *len).unwrap_err(),
+    )
 }
 
 /// A text the probe measures as no number of the field's type: letters, empty, and, into an Integer or BigInteger field, digits
