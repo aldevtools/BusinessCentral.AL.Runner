@@ -242,7 +242,7 @@ fn reached(at: Option<usize>, from: Option<usize>) -> bool {
 /// the carry chain never hands them on). Every test, whatever its outcome, goes into `taken_after` (codeunit id, test,
 /// numbers: the cause of a stability flip, decision 7, never printed); each failed test also gets the numbers hint
 /// ([`numbers_hints`]), added to its SingleInstance hint when it has one. A codeunit in two sessions (`--test-suites`) is
-/// hinted in the first only (`numbered`). Returns how many failed tests got a hint they did not have.
+/// hinted in the first that names an earlier taker only (`numbered`). Returns how many failed tests got a hint they did not have.
 pub(super) fn hint_numbers(
     lowered: &al_sema::lower::Lowered,
     units: &[super::Unit],
@@ -259,7 +259,7 @@ pub(super) fn hint_numbers(
         let Some(Ok(done)) = slots[k].as_mut().map(|r| &mut r.result) else {
             continue;
         };
-        if !before.is_empty() && numbered.insert(k) {
+        if !before.is_empty() && !numbered.contains(&k) {
             let from = done.5.carry_from;
             let unseen: BTreeMap<(String, String), usize> = before
                 .iter()
@@ -275,7 +275,11 @@ pub(super) fn hint_numbers(
                 .filter(|(_, o)| matches!(o, crate::Outcome::Fail(_)))
                 .map(|(t, _)| t.clone())
                 .collect();
-            for (test, numbers) in numbers_hints(lowered, units, &done.5.numbers_taken, &unseen, &tests) {
+            let hints = numbers_hints(lowered, units, &done.5.numbers_taken, &unseen, &tests);
+            if !hints.is_empty() {
+                numbered.insert(k);
+            }
+            for (test, numbers) in hints {
                 taken_after.push((units[k].id, test.clone(), numbers.clone()));
                 if !failed.contains(&test) {
                     continue;

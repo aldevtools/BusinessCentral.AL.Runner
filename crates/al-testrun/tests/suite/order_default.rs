@@ -520,3 +520,89 @@ fn the_numbers_hint_leaves_out_a_chain_member_whose_numbers_reached_the_test() {
         .collect();
     assert!(after.contains(&(60479, "CarryTakesOne", 60476)), "{after:?}");
 }
+
+/// Two sequences and three takers: A takes X, B and C take Y. C always fails, so only the numbers hint says where BC's
+/// order differs.
+const TWO_SESSIONS: &str = r#"
+codeunit 60490 "Order Y Installer"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() begin NumberSequence.Insert('ORDERSEQY', 1, 1); end;
+}
+codeunit 60491 "Order X Taker"
+{
+    Subtype = Test;
+    [Test] procedure TakesX() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQ'); end;
+}
+codeunit 60492 "Order Y Taker"
+{
+    Subtype = Test;
+    [Test] procedure TakesY() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQY'); end;
+}
+codeunit 60493 "Order Y Late Taker"
+{
+    Subtype = Test;
+    [Test] procedure TakesYAndFails() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQY'); Error('unrelated %1', N); end;
+}
+"#;
+
+/// Review of al-runner PR 9321 (Copilot, order_hint.rs): a codeunit in two BC sessions (`--test-suites`) gets its
+/// numbers hint from the session where an earlier codeunit took from the same sequence. In the first session the only
+/// earlier taker took from another sequence, so that session gives no hint and must not use up the codeunit.
+#[test]
+fn a_codeunit_in_two_sessions_gets_the_numbers_hint_from_the_session_that_matches() {
+    let opts = RunOptions {
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse("S1: 60491 60493\nS2: 60492 60493")
+                .expect("a valid suites file"),
+        )),
+        ..Default::default()
+    };
+    let rt = run(TWO_SESSIONS, &opts);
+    assert!(
+        matches!(&result(&rt, "TakesYAndFails").outcome, Outcome::Fail(m) if m.contains("unrelated")),
+        "{:?}",
+        result(&rt, "TakesYAndFails")
+    );
+    assert_eq!(
+        numbers_hint(&rt, "TakesYAndFails"),
+        vec![("ORDERSEQY".to_string(), 60492)]
+    );
+}
+
+/// A codeunit that fails only after the setter of PAIR ran in its session.
+const INVERSE: &str = r#"
+codeunit 60482 "Order Inverse Reader"
+{
+    Subtype = Test;
+    [Test] procedure FailsAfterTheSetter()
+    var S: Codeunit "Order State";
+    begin
+        if S.GetFlag() = 'left' then Error('the setter ran first');
+    end;
+}
+"#;
+
+/// Review of al-runner PR 9321 (Copilot, al-test-cli main.rs): in a run that is already in BC's order (the nightly
+/// whole-corpus run, `AL_STRICT_ORDER_ALL`) `strict_after` runs nothing again, so a listed codeunit keeps the outcome it
+/// had after the codeunits before it, not the one it gets alone.
+#[test]
+fn a_strict_run_keeps_its_outcomes_and_runs_nothing_again_for_strict_after() {
+    let opts = RunOptions {
+        strict_after: Some(al_testrun::runtime::StrictAfter {
+            only: vec![(0, 60482)],
+            listed: [(String::new(), 60482)].into(),
+        }),
+        ..strict()
+    };
+    let rt = run(&format!("{PAIR}{INVERSE}"), &opts);
+    let case = al_testrun::CaseId {
+        codeunit: 60482,
+        name: "FailsAfterTheSetter".into(),
+    };
+    assert!(
+        matches!(rt.outcome_in("", &case), Outcome::Fail(m) if m.contains("the setter ran first")),
+        "{:?}",
+        rt.outcome_in("", &case)
+    );
+}

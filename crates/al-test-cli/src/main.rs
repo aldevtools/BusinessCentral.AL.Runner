@@ -1424,7 +1424,7 @@ fn run_version_inner(
         &suite_data,
         &suite_cases_all,
     )?;
-    // The runtime runs them once more over the compile of the pass (no second compile).
+    // The runtime runs them once more over the compile of the pass (no second compile; none under AL_STRICT_ORDER_ALL).
     opts.strict_after = (!strict.only.is_empty()).then_some(runtime::StrictAfter {
         only: strict.only,
         listed: strict.listed,

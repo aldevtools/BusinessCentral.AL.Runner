@@ -77,7 +77,7 @@ pub struct StrictAfter {
 #[derive(Debug, Clone, Default)]
 pub struct RunOptions {
     /// Codeunits that run again with `strict_order` after the run, over the same compile (no second compile). `None`
-    /// or empty `only`: no second run.
+    /// or empty `only`: no second run. A run with `strict_order` runs nothing again (`CorpusRuntime::run_then_strict`).
     pub strict_after: Option<StrictAfter>,
     /// The test runner (ADR-066). Default: al-runner's own.
     pub test_runner: TestRunner,

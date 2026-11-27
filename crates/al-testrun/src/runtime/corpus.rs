@@ -272,14 +272,18 @@ impl CorpusRuntime {
 
     /// Runs `compiled` as `opts` says, then the codeunits of `opts.strict_after` once more with `strict_order` over the
     /// same compile (its own install baseline, no second compile), whose outcomes the first run's cases take. What the
-    /// second run met that the compile left out goes to the first's `met`.
+    /// second run met that the compile left out goes to the first's `met`. A first run that is itself in BC's order
+    /// (`AL_STRICT_ORDER_ALL`) runs nothing again: its outcomes already follow the codeunits before each.
     fn run_then_strict(
         compiled: &Compiled,
         target: Option<&al_version::Target>,
         dotnet: al_vm::dotnet::DotNetConfig,
         opts: &RunOptions,
     ) -> CorpusRuntime {
-        let strict = opts.strict_after.as_ref().filter(|s| !s.only.is_empty());
+        let strict = opts
+            .strict_after
+            .as_ref()
+            .filter(|s| !s.only.is_empty() && !opts.strict_order);
         // A run that is run again, or that may be redone on another compile, keeps its engines: the process does not end
         // after it, and engines it left unfreed would stay in memory beside the next compile.
         let redo = Narrowing::may_redo(compiled);
@@ -350,9 +354,8 @@ impl CorpusRuntime {
             each(i);
             let o = RunOptions {
                 perturb: p.clone(),
-                // ADR-070 decision 7: two plain runs. A variant of the dimension `isolation.singleInstance = fresh` is
-                // the default isolated run; every other variant runs in BC's order (`--strict-order`).
-                strict_order: !p.single_fresh,
+                // ADR-070 decision 7: two plain runs.
+                strict_order: p.in_bc_order(),
                 process_ends_after: false,
                 hooks: if i == 0 { opts.hooks.clone() } else { Default::default() },
                 ..opts.clone()
