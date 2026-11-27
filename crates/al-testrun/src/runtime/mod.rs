@@ -513,8 +513,9 @@ pub struct Phases {
     /// (`Session::install_left`), the run that found that out being the first codeunit's. A run on files of a real folder
     /// (`--files-dir`) also runs it once per codeunit.
     pub install_runs: usize,
-    /// Why the install code first ran again for a test codeunit, instead of the codeunit's session starting from what
-    /// it left on its last run for the run (`install_once.rs` `Rerun`); `None` when it did not.
+    /// The first reason noted that the install's run cannot be shared with a test codeunit's session
+    /// (`install_once.rs` `Rerun`); `None` when none was. The first codeunit notes one too, so it is not always the reason
+    /// of a rerun, and a later codeunit's other reason is not shown.
     pub install_rerun: Option<String>,
     /// The install baseline did not run because no selected test can observe it (`observe.rs`).
     pub baseline_skipped: bool,
@@ -626,8 +627,8 @@ impl Phases {
     /// `None` when there was nothing to say (no dependency app).
     /// With partner apps installed in several orders (ADR-046 amendment 7; by the baseline or by the install code of the
     /// apps under test, both labeled `install baseline:`), one more line per group of them.
-    /// When the install code of the apps under test ran again for a test codeunit, one more line: how many times it ran
-    /// and why it first ran again (`install_rerun`).
+    /// When the install code of the apps under test ran more than once, one more line: how many times it ran and the
+    /// first reason noted that its run cannot be shared (`install_rerun`).
     pub fn baseline_line(&self) -> Option<String> {
         let orders = self
             .baseline_install_orders
@@ -637,7 +638,7 @@ impl Phases {
             .filter(|_| self.install_runs > 1)
             .map(|why| {
                 format!(
-                    "install code: ran {} times for the test codeunits; first rerun: {why}",
+                    "install code: ran {} times for the test codeunits; first reason noted that its run cannot be shared: {why}",
                     self.install_runs
                 )
             });

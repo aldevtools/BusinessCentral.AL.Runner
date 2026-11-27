@@ -266,7 +266,7 @@ fn install_code_that_reads_a_resource_runs_again_for_an_entry_with_other_texts()
     assert_eq!(
         crate::install_once::install_line(&rt).as_deref(),
         Some(
-            "install code: ran 3 times for the test codeunits; first rerun: other texts of the resource files it read"
+            "install code: ran 3 times for the test codeunits; first reason noted that its run cannot be shared: other texts of the resource files it read"
         ),
     );
 }
@@ -368,6 +368,8 @@ fn a_run_that_notes_the_code_it_runs_runs_the_install_code_for_each_entry() {
     assert_eq!(rt.phases.install_runs, 3, "{got:?}");
     assert_eq!(
         crate::install_once::install_line(&rt).as_deref(),
-        Some("install code: ran 3 times for the test codeunits; first rerun: the run follows the code it runs"),
+        Some(
+            "install code: ran 3 times for the test codeunits; first reason noted that its run cannot be shared: the run follows the code it runs"
+        ),
     );
 }

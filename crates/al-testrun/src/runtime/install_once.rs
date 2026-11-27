@@ -11,8 +11,8 @@
 //! the first codeunit's session and every later codeunit runs the install code itself).
 //! `installs_for` is the install step of `run_codeunit_inner`. `begin_pass` and `end_run` set and
 //! clear the entries' resource texts; `end_run` also gives the install-order notes of the apps under test, each
-//! codeunit's list once per run (al-runner issue 9058), and why the install code first ran again for a codeunit
-//! (`Rerun`, the `--timings` line). Entry points: `installs_for`, `run_installs_in`, `RunInstalls`, `begin_pass`,
+//! codeunit's list once per run (al-runner issue 9058), and the first reason noted that the install's run cannot be
+//! shared (`Rerun`, the `--timings` line). Entry points: `installs_for`, `run_installs_in`, `RunInstalls`, `begin_pass`,
 //! `end_run`.
 use super::*;
 
@@ -99,7 +99,8 @@ pub(crate) struct RunInstalls {
     /// The notes of the install-order proof of the apps under test, each codeunit's list once (al-runner issue 9058;
     /// [`end_run`]).
     notes: std::sync::Mutex<Vec<Vec<String>>>,
-    /// Why the install code first ran again for a codeunit of the run ([`start_installed`]; `Phases::install_rerun`).
+    /// The first reason noted that the install's run cannot be shared with a codeunit of the run, by whichever thread
+    /// noted one first; the first codeunit notes one too ([`start_installed`]; `Phases::install_rerun`).
     rerun: std::sync::OnceLock<Rerun>,
 }
 
@@ -140,7 +141,7 @@ impl Rerun {
 }
 
 impl RunInstalls {
-    /// Keeps `why` when it is the first reason of the run.
+    /// Keeps `why` when it is the first reason noted in the run.
     fn note(&self, why: Rerun) {
         let _ = self.rerun.set(why);
     }
@@ -207,7 +208,7 @@ pub(super) fn begin_pass(engine: &Engine, resources: &al_vm::ResourceOverrides) 
 pub(super) struct RunEnd {
     /// How many times the install code ran for the run's codeunits (`Phases::install_runs`).
     pub(super) runs: usize,
-    /// Why it first ran again for a codeunit, described (`Phases::install_rerun`); `None` when it did not.
+    /// The first reason noted that its run cannot be shared, described (`Phases::install_rerun`); `None`: none was.
     pub(super) rerun: Option<String>,
     /// The notes of its install-order proof, every reason of every tie (al-runner issue 9058; `--verbose` prints them
     /// as the baseline's).

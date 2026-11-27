@@ -141,7 +141,7 @@ fn keeps_install_per_codeunit(src: &str, target: &str, want: &str, left: &str) {
     assert_eq!(
         install_line(&rt).as_deref(),
         Some(&*format!(
-            "install code: ran 2 times for the test codeunits; first rerun: it left `{left}` not as a new session holds it"
+            "install code: ran 2 times for the test codeunits; first reason noted that its run cannot be shared: it left `{left}` not as a new session holds it"
         )),
         "{got:?}"
     );
@@ -343,7 +343,7 @@ fn install_code_that_leaves_a_manual_subscriber_bound_runs_per_codeunit() {
     assert_eq!(
         install_line(&rt).as_deref(),
         Some(
-            "install code: ran 2 times for the test codeunits; first rerun: it left `events.bindings` not as a new session holds it"
+            "install code: ran 2 times for the test codeunits; first reason noted that its run cannot be shared: it left `events.bindings` not as a new session holds it"
         ),
         "{got:?}"
     );
