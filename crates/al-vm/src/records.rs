@@ -2070,6 +2070,8 @@ impl Session {
             // showed `*` after `Copy1 := Row`, and CalcFields reads nothing back
             // (types/ProbeTypeFormsAndFilters.al:FormatRecord_AssignmentCopiesBlobBytes, BC 27.5).
             let (bytes, pending, inserted) = match stored.as_ref().map(|row| row[pos].clone()) {
+                // A temporary row an Insert stored from a Blob never loaded (`blobs_to_insert`) loads empty.
+                Some(Value::Blob(src)) if src.borrow().never_loaded_insert => (Vec::new(), None, false),
                 Some(Value::Blob(src)) => {
                     let src = src.borrow();
                     (src.bytes.clone(), src.render_pending.clone(), src.inserted)
@@ -2093,24 +2095,65 @@ impl Session {
         Ok(())
     }
 
+    /// A Blob whose stored content the record never loaded (a read without CalcFields, or a copy of such a record: in BC it
+    /// shows HasValue true and empty text, streams/BlobCopyStates.al:1216 by value, :1332 Copy, :34 a temporary row;
+    /// record/PnABlobAssignRename.al:93 an assignment) and that no stream wrote since: what an Insert or a Modify of it
+    /// stores is the assumption `blob-never-loaded-not-stored` (issue 9286, corpus pull request 1631, open:
+    /// record/lt-blob-field-assign/BlobInsertUnloaded.al). A record of another company is not measured and stores as before.
+    fn never_loaded(rec: &Rec, v: &Value) -> bool {
+        matches!(v, Value::Blob(b) if { let b = b.borrow(); !b.loaded && !b.written && !b.bytes.is_empty() })
+            && rec.borrow().company.is_none()
+    }
+
+    /// Before an Insert stores `stored`, the row of `rec`: a Blob the record never loaded ([`Session::never_loaded`]) is not
+    /// stored. A database row gets no Blob content (BlobInsertUnloaded.al C01 to C10: :=, the same variable under a new key,
+    /// Delete and Insert, Copy, a by-value parameter, a Variant, a RecordRef, FindFirst, FindSet, SetLoadFields); a
+    /// temporary row keeps the buffer, which answers HasValue Yes until CalcFields loads it empty (T12, T13,
+    /// `BlobBuf::never_loaded_insert`). The record keeps answering HasValue Yes and reads empty. Then the Blobs are marked as
+    /// an Insert's ([`Session::mark_blobs_inserted`]).
+    pub(crate) fn blobs_to_insert(rec: &Rec, stored: &mut [Value]) {
+        let positions: Vec<usize> = (rec.borrow().fields.iter().enumerate())
+            .filter(|(_, v)| Self::never_loaded(rec, v))
+            .map(|(i, _)| i)
+            .collect();
+        for &i in &positions {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored);
+            match &stored[i] {
+                Value::Blob(b) if rec.borrow().temporary => b.borrow_mut().never_loaded_insert = true,
+                _ => stored[i] = Value::Blob(al_builtins::stream::new_blob()),
+            }
+        }
+        Self::mark_blobs_inserted(rec, stored, true);
+        for &i in &positions {
+            if let Value::Blob(b) = &rec.borrow().fields[i] {
+                b.borrow_mut().inserted = false;
+            }
+        }
+    }
+
+    /// Before a Modify of a database record stores `stored` over the row `old`: a Blob the record never loaded
+    /// ([`Session::never_loaded`]) that holds other bytes than the row's Blob (its key names another stored row) leaves the
+    /// row's Blob as it was (BlobInsertUnloaded.al C11). The row as it was read holds the same bytes and stays as stored
+    /// (streams/BlobCopyStates.al:1219 `bv get row`). Then the Blobs are marked as not an Insert's.
+    pub(crate) fn blobs_to_modify(rec: &Rec, stored: &mut [Value], old: Option<&[Value]>) {
+        if let (Some(old), false) = (old, rec.borrow().temporary) {
+            for (i, v) in rec.borrow().fields.iter().enumerate() {
+                let (Value::Blob(b), Value::Blob(o)) = (v, &old[i]) else {
+                    continue;
+                };
+                if Self::never_loaded(rec, v) && b.borrow().bytes != o.borrow().bytes {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored);
+                    stored[i] = Value::Blob(al_builtins::stream::copy_blob(o, true));
+                }
+            }
+        }
+        Self::mark_blobs_inserted(rec, stored, false);
+    }
+
     /// After an Insert stored the row of `rec`: its Blobs count as saved ([`Session::clear_blob_written`]), the table notes an
     /// empty one ([`Session::note_empty_blob_insert`]), and the content a temporary record stored is persisted, as one a Modify
     /// stored (see Rename).
-    ///
-    /// A Blob that holds stored content it never loaded (a read without CalcFields, or a copy of such a record) is refused.
-    /// In BC the record shows it as HasValue true and empty text (streams/BlobCopyStates.al:1216 by value, :1332 Copy, :34 a
-    /// temporary row; record/PnABlobAssignRename.al:93 an assignment), and no corpus case pins what an Insert of it stores:
-    /// the runner would store the content, where BC 28.4 stored no Blob for a copy inserted under a new key (issue 9286).
-    pub(crate) fn blobs_after_insert(rec: &Rec, t: &TableDef, empty_blob: bool) -> Result<(), Signal> {
-        let unloaded = rec.borrow().fields.iter().any(
-            |v| matches!(v, Value::Blob(b) if { let b = b.borrow(); !b.loaded && !b.written && !b.bytes.is_empty() }),
-        );
-        if unloaded {
-            return unsupported(format!(
-                "an Insert into {} of a Blob whose stored content was not loaded (read without CalcFields, or a copy of such a record): what the new row stores is not pinned",
-                t.name
-            ));
-        }
+    pub(crate) fn blobs_after_insert(rec: &Rec, t: &TableDef, empty_blob: bool) {
         Self::note_empty_blob_insert(rec, t, empty_blob);
         Self::clear_blob_written(rec);
         if rec.borrow().temp_id.is_some() {
@@ -2120,7 +2163,6 @@ impl Session {
                 }
             }
         }
-        Ok(())
     }
 
     /// A save makes the Blobs of the buffer what is stored: none counts as written any more.

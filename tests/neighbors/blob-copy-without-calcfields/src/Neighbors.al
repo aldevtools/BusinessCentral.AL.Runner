@@ -1,5 +1,5 @@
 // Neighbors of issue 9286: an Insert of a database record whose Blob holds stored content that was never loaded (a Get
-// without CalcFields, or a copy of such a record) under a new key. Each test raises what it saw, so a changed answer and a
+// without CalcFields, or a copy of such a record) under a new key. Each test checks BC's answer, so a changed answer and a
 // refusal both show as a difference. One test per codeunit: a refused test makes the later tests of its codeunit not run.
 // Invented names only.
 table 50120 "NB BI Row"
@@ -54,6 +54,13 @@ codeunit 50121 "NB BI Lib"
         exit('hv:' + Txt);
     end;
 
+    // Raises when the answer is not the one BC gives (corpus pull request 1631, BlobInsertUnloaded.al, or a pin).
+    procedure Expect(Seen: Text; Want: Text)
+    begin
+        if Seen <> Want then
+            Error('seen %1, BC %2', Seen, Want);
+    end;
+
     procedure InsertByValue(R: Record "NB BI Row"; No: Code[20])
     begin
         R."No." := No;
@@ -81,7 +88,7 @@ codeunit 50130 "NB BI Case 01"
         C := Src;
         C."No." := 'A1C';
         C.Insert();
-        Error('seen %1', L.Stored('A1C'));
+        L.Expect(L.Stored('A1C'), 'nohv:');
     end;
 }
 
@@ -106,7 +113,7 @@ codeunit 50131 "NB BI Case 02"
         C := Src;
         C."No." := 'A2C';
         C.Insert();
-        Error('seen %1', L.Stored('A2C'));
+        L.Expect(L.Stored('A2C'), 'hv:hello');
     end;
 }
 
@@ -131,7 +138,7 @@ codeunit 50132 "NB BI Case 03"
         C.CalcFields(Body);
         C."No." := 'A3C';
         C.Insert();
-        Error('seen %1', L.Stored('A3C'));
+        L.Expect(L.Stored('A3C'), 'hv:hello');
     end;
 }
 
@@ -155,7 +162,7 @@ codeunit 50133 "NB BI Case 04"
         C := Src;
         C."No." := 'A4C';
         C.Insert();
-        Error('seen %1', L.Stored('A4C'));
+        L.Expect(L.Stored('A4C'), 'nohv:');
     end;
 }
 
@@ -204,7 +211,7 @@ codeunit 50135 "NB BI Case 06"
         C := Src;
         C.Info := 'x';
         C.Modify();
-        Error('seen %1', L.Stored('A6'));
+        L.Expect(L.Stored('A6'), 'hv:hello');
     end;
 }
 
@@ -226,7 +233,7 @@ codeunit 50136 "NB BI Case 07"
         Src.Get('B1');
         Src."No." := 'B1C';
         Src.Insert();
-        Error('seen %1', L.Stored('B1C'));
+        L.Expect(L.Stored('B1C'), 'nohv:');
     end;
 }
 
@@ -248,7 +255,7 @@ codeunit 50137 "NB BI Case 08"
         Src.Get('B2');
         Src.Delete();
         Src.Insert();
-        Error('seen %1', L.Stored('B2'));
+        L.Expect(L.Stored('B2'), 'nohv:');
     end;
 }
 
@@ -272,7 +279,7 @@ codeunit 50138 "NB BI Case 09"
         C.Copy(Src);
         C."No." := 'C1C';
         C.Insert();
-        Error('seen %1', L.Stored('C1C'));
+        L.Expect(L.Stored('C1C'), 'nohv:');
     end;
 }
 
@@ -293,7 +300,7 @@ codeunit 50139 "NB BI Case 10"
         L.Seed('C2', 'hello');
         Src.Get('C2');
         L.InsertByValue(Src, 'C2C');
-        Error('seen %1', L.Stored('C2C'));
+        L.Expect(L.Stored('C2C'), 'nohv:');
     end;
 }
 
@@ -318,7 +325,7 @@ codeunit 50140 "NB BI Case 11"
         C.TransferFields(Src);
         C."No." := 'C3C';
         C.Insert();
-        Error('seen %1', L.Stored('C3C'));
+        L.Expect(L.Stored('C3C'), 'nohv:');
     end;
 }
 
@@ -348,6 +355,31 @@ codeunit 50141 "NB BI Case 12"
         T.CalcFields(Body);
         T.Body.CreateInStream(InS);
         InS.ReadText(Txt);
-        Error('seen %1 %2', T.Body.HasValue(), Txt);
+        L.Expect(StrSubstNo('%1 [%2]', T.Body.HasValue(), Txt), 'No []');
+    end;
+}
+
+codeunit 50142 "NB BI Case 13"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        L: Codeunit "NB BI Lib";
+
+    // A Modify of the copy under the key of another stored row: that row's Blob stays as it was.
+    [Test]
+    procedure Assign_NoCalc_ModifyOtherRow()
+    var
+        Src: Record "NB BI Row";
+        C: Record "NB BI Row";
+    begin
+        L.Seed('E1', 'hello');
+        L.Seed('E2', 'other');
+        Src.Get('E1');
+        C := Src;
+        C."No." := 'E2';
+        C.Modify();
+        L.Expect(L.Stored('E2'), 'hv:other');
     end;
 }

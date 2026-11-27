@@ -32,6 +32,7 @@ const FILE: u32 = 1 << 11;
 const ASSIGNED_UNSAVED: u32 = 1 << 12;
 const UNREAD_CONTENT: u32 = 1 << 13;
 const UTF16_BINARY: u32 = 1 << 14;
+const NEVER_LOADED_INSERT: u32 = 1 << 15;
 
 /// Appends every field of `b`.
 pub(crate) fn put(b: &BlobBuf, out: &mut Vec<u8>) {
@@ -56,6 +57,7 @@ pub(crate) fn put(b: &BlobBuf, out: &mut Vec<u8>) {
         assigned_unsaved,
         assigned_write,
         unread_content,
+        never_loaded_insert,
         utf16_binary,
         unicode_read,
         content_edits,
@@ -78,6 +80,7 @@ pub(crate) fn put(b: &BlobBuf, out: &mut Vec<u8>) {
         (*file, FILE),
         (*assigned_unsaved, ASSIGNED_UNSAVED),
         (*unread_content, UNREAD_CONTENT),
+        (*never_loaded_insert, NEVER_LOADED_INSERT),
         (*utf16_binary, UTF16_BINARY),
     ];
     put_u32(out, flags.iter().filter(|(on, _)| *on).map(|(_, bit)| bit).sum());
@@ -145,6 +148,7 @@ pub(crate) fn read(r: &mut Reader) -> Option<BlobBuf> {
         assigned_unsaved: on(ASSIGNED_UNSAVED),
         assigned_write,
         unread_content: on(UNREAD_CONTENT),
+        never_loaded_insert: on(NEVER_LOADED_INSERT),
         utf16_binary: on(UTF16_BINARY),
         unicode_read,
         content_edits: r.u32()?,
@@ -212,6 +216,7 @@ impl BlobBuf {
             assigned_unsaved,
             assigned_write,
             unread_content,
+            never_loaded_insert,
             utf16_binary,
             unicode_read,
             content_edits,
@@ -241,6 +246,7 @@ impl BlobBuf {
             ("assigned_unsaved", *assigned_unsaved == other.assigned_unsaved),
             ("assigned_write", *assigned_write == other.assigned_write),
             ("unread_content", *unread_content == other.unread_content),
+            ("never_loaded_insert", *never_loaded_insert == other.never_loaded_insert),
             ("utf16_binary", *utf16_binary == other.utf16_binary),
             ("unicode_read", *unicode_read == other.unicode_read),
             ("content_edits", *content_edits == other.content_edits),
@@ -291,6 +297,7 @@ mod tests {
             assigned_unsaved: true,
             assigned_write: AssignedWrite::NeverInsertedEmpties,
             unread_content: true,
+            never_loaded_insert: true,
             utf16_binary: true,
             unicode_read: Some(Encoding::Windows),
             content_edits: 7,
@@ -327,7 +334,7 @@ mod tests {
         let all = a.differing_fields(&crate::stream::new_blob().borrow());
         assert_eq!(
             all.len(),
-            24,
+            25,
             "every field of the set buffer is apart from a new one's: {all:?}"
         );
     }

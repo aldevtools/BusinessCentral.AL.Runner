@@ -628,7 +628,7 @@ impl Session {
                     return self.insert_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
                 let empty_blob = Self::temp_insert_blobs(rec, &stored);
-                Self::mark_blobs_inserted(rec, &stored, true);
+                Self::blobs_to_insert(rec, &mut stored);
                 let before = self.store.change_counter();
                 // The SQL counters' buffer before their first read (sqlcount.rs, `SqlCounters::pre_insert`).
                 let pre_ops = (!self.sql.active && !rec.borrow().temporary).then(al_data::memory::store_ops);
@@ -645,7 +645,7 @@ impl Session {
                         }
                         self.note_insert(rec, &t, before);
                         self.queue_stored_row(rec, &t);
-                        Self::blobs_after_insert(rec, &t, empty_blob)?;
+                        Self::blobs_after_insert(rec, &t, empty_blob);
                         rec.borrow_mut().inserted = true;
                         if !rec.borrow().temporary {
                             let company = rec.borrow().company.clone();
@@ -925,7 +925,7 @@ impl Session {
                     let shape = (caller, stored_row.is_some(), run);
                     return self.fail_modify_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
-                Self::mark_blobs_inserted(rec, &stored, false);
+                Self::blobs_to_modify(rec, &mut stored, stored_row.as_deref());
                 let before = self.store.change_counter();
                 match self
                     .store_for(rec)?
