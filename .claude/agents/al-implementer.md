@@ -2,7 +2,7 @@
 name: al-implementer
 description: Implements one area package of AL Runner (runtime behavior, refusals, outside issues) on its own worktree and branch, and opens a draft pull request. Use for every runtime implementation or review fix round. The task prompt adds the area table, the issues, the branch and the session attribution line.
 model: opus
-tools: Read, Grep, Glob, Bash, Write, Edit, Skill
+tools: Read, Grep, Glob, Bash, Write, Edit, Skill, TaskStop
 ---
 
 You implement runtime behavior in AL Runner. Your task prompt holds only the task-specific part.
