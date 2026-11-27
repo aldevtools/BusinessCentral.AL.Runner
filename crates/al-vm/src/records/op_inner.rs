@@ -645,8 +645,7 @@ impl Session {
                         }
                         self.note_insert(rec, &t, before);
                         self.queue_stored_row(rec, &t);
-                        Self::note_empty_blob_insert(rec, &t, empty_blob);
-                        Self::clear_blob_written(rec);
+                        Self::blobs_after_insert(rec, &t, empty_blob)?;
                         rec.borrow_mut().inserted = true;
                         if !rec.borrow().temporary {
                             let company = rec.borrow().company.clone();
@@ -667,14 +666,6 @@ impl Session {
                             .map(|i| rec.borrow().fields[i].clone());
                         if let Some(Value::BigInteger(v)) = version {
                             self.set_own_insert_origin(&t, rec, v);
-                        }
-                        // The Blob content an Insert of a temporary record stored is persisted, as one a Modify stored (see Rename).
-                        if rec.borrow().temp_id.is_some() {
-                            for v in &rec.borrow().fields {
-                                if let Value::Blob(b) = v {
-                                    b.borrow_mut().persisted = true;
-                                }
-                            }
                         }
                         if let (Some(a), false) = (auto, taken) {
                             self.note_explicit_key(&t, a, &row, &cx.company);

@@ -2093,6 +2093,36 @@ impl Session {
         Ok(())
     }
 
+    /// After an Insert stored the row of `rec`: its Blobs count as saved ([`Session::clear_blob_written`]), the table notes an
+    /// empty one ([`Session::note_empty_blob_insert`]), and the content a temporary record stored is persisted, as one a Modify
+    /// stored (see Rename).
+    ///
+    /// A Blob that holds stored content it never loaded (a read without CalcFields, or a copy of such a record) is refused.
+    /// In BC the record shows it as HasValue true and empty text (streams/BlobCopyStates.al:1216 by value, :1332 Copy, :34 a
+    /// temporary row; record/PnABlobAssignRename.al:93 an assignment), and no corpus case pins what an Insert of it stores:
+    /// the runner would store the content, where BC 28.4 stored no Blob for a copy inserted under a new key (issue 9286).
+    pub(crate) fn blobs_after_insert(rec: &Rec, t: &TableDef, empty_blob: bool) -> Result<(), Signal> {
+        let unloaded = rec.borrow().fields.iter().any(
+            |v| matches!(v, Value::Blob(b) if { let b = b.borrow(); !b.loaded && !b.written && !b.bytes.is_empty() }),
+        );
+        if unloaded {
+            return unsupported(format!(
+                "an Insert into {} of a Blob whose stored content was not loaded (read without CalcFields, or a copy of such a record): what the new row stores is not pinned",
+                t.name
+            ));
+        }
+        Self::note_empty_blob_insert(rec, t, empty_blob);
+        Self::clear_blob_written(rec);
+        if rec.borrow().temp_id.is_some() {
+            for v in &rec.borrow().fields {
+                if let Value::Blob(b) = v {
+                    b.borrow_mut().persisted = true;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// A save makes the Blobs of the buffer what is stored: none counts as written any more.
     fn clear_blob_written(rec: &Rec) {
         for v in &rec.borrow().fields {
