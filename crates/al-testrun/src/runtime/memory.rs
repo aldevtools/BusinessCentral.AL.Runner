@@ -154,6 +154,13 @@ pub struct MemoryReport {
 }
 
 impl MemoryReport {
+    /// Reads [`after_compile`](MemoryReport::after_compile) once the compile ended: what the process holds now, read by
+    /// the budget's reader; `None` without a budget. The one reading of a run that goes on ([`Plan::after_compile`])
+    /// and of a compile the hard limit stops after its last check (`compile_halt.rs`).
+    pub(crate) fn read_after_compile(&mut self, budget: Option<&MemoryBudget>) {
+        self.after_compile = budget.and_then(|b| (b.rss)());
+    }
+
     /// The `--timings` line; `None` without a budget.
     pub fn line(&self) -> Option<String> {
         let (limit, source) = self.limit.as_ref()?;
@@ -385,12 +392,9 @@ impl Plan {
             ..Default::default()
         };
         let budget = opts.memory.clone();
-        let mut fixed = 0;
-        if let Some(b) = &budget {
-            report.limit = Some((b.limit, b.source.clone()));
-            report.after_compile = (b.rss)();
-            fixed = report.after_compile.unwrap_or(0);
-        }
+        report.limit = budget.as_ref().map(|b| (b.limit, b.source.clone()));
+        report.read_after_compile(budget.as_ref());
+        let fixed = report.after_compile.unwrap_or(0);
         let pool = Pool::new(budget.clone(), fixed, asked);
         if let (Some(b), Some(now)) = (&budget, report.after_compile) {
             pool.stop_when_below(b, now, "once the apps are compiled");
@@ -1159,6 +1163,23 @@ mod tests {
             !Plan::after_compile(&soft, 12).pool().halted(),
             "serve and debug go on with one thread"
         );
+    }
+
+    /// A run that goes on and a compile the hard limit stops after its last check (`compile_halt.rs`) fill the
+    /// `after_compile` reading the same way: the budget's reader once the compile ended, nothing without a budget.
+    #[test]
+    fn a_run_that_goes_on_takes_the_shared_after_compile_reading() {
+        for memory in [Some(budget(4096 * MB, rss(700), false)), None] {
+            let opts = crate::runtime::RunOptions {
+                memory,
+                ..Default::default()
+            };
+            let mut stopped = MemoryReport::default();
+            stopped.read_after_compile(opts.memory.as_ref());
+            let goes_on = Plan::after_compile(&opts, 2).report().after_compile;
+            assert_eq!(goes_on, stopped.after_compile);
+            assert_eq!(goes_on, opts.memory.as_ref().map(|_| 700 * MB));
+        }
     }
 
     /// A test not reached before the stop keeps the limit as its reason when a later step refuses the whole codeunit

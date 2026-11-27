@@ -27,9 +27,11 @@ use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::FieldFilter;
 use al_builtins::native::Signal;
 use al_builtins::value::{RecordState, Value};
-use al_ir::{FieldClass, FieldFacts};
+use al_ir::FieldFacts;
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
+
+mod page_args;
 
 /// How the variables of a table have called `Consistent` on its mark.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -88,17 +90,25 @@ pub(crate) enum RunArg {
 }
 
 impl RunArg {
-    /// The argument of a run whose record argument is `v`; `field_facts` are the facts of each table's fields.
-    pub(crate) fn of(v: Option<&Value>, field_facts: &[Vec<FieldFacts>]) -> RunArg {
+    /// The argument of a run whose record argument is `v`; `field_facts` are the facts of each table's fields, `tables` the
+    /// schema of each table.
+    pub(crate) fn of(
+        v: Option<&Value>,
+        field_facts: &[Vec<FieldFacts>],
+        tables: &[Option<std::sync::Arc<al_data::TableDef>>],
+    ) -> RunArg {
         match v {
             None => RunArg::None,
             Some(Value::Record(r)) => {
                 let r = r.borrow();
-                let facts = field_facts.get(r.table as usize).map_or(&[][..], Vec::as_slice);
+                let fields = page_args::ArgFields {
+                    facts: field_facts.get(r.table as usize).map_or(&[][..], Vec::as_slice),
+                    table: tables.get(r.table as usize).and_then(Option::as_deref),
+                };
                 RunArg::Record {
                     table: r.table,
                     temporary: r.temporary,
-                    filter: ArgFilter::of(&r, facts),
+                    filter: ArgFilter::of(&r, &fields),
                 }
             }
             Some(_) => RunArg::Other,
@@ -115,23 +125,26 @@ pub(crate) enum ArgFilter {
     /// One of the filters the probe set, each without a marked row: `SetRange` to one value on one field of FieldClass
     /// Normal, in filter group 0 (the `_SetRangeKey_` cells on the primary key, the `_SetRangeName_` cells on a field outside
     /// it); `SetFilter(Name, 'call*|zzz')` on a field of FieldClass Normal, in filter group 0 (the `_SetFilter_` cells); no
-    /// filter, one row marked and `MarkedOnly(true)` (the `_MarkedOnly_` cells).
-    Measured,
+    /// filter, one row marked and `MarkedOnly(true)` (the `_MarkedOnly_` cells). `key`: the filter is the `SetRange` to one
+    /// value on the one field of a one-field primary key (also the Key shape of corpus PR 1600, read by `page_probe_end`).
+    Measured { key: bool },
+    /// One of the other page-style filter shapes of corpus PR 1600 (`page_args`).
+    Page(page_args::PageArgShape),
     /// Any other filters.
     Other,
 }
 
 impl ArgFilter {
-    /// The filters of `r`, whose table's fields have the facts `facts`.
-    fn of(r: &RecordState, facts: &[FieldFacts]) -> ArgFilter {
-        use al_builtins::filter::FilterExpr::{Eq, Like, Or, Range};
-        let normal = |f: &FieldFilter| facts.get(f.field).map(|x| x.class) == Some(FieldClass::Normal);
+    /// The filters of `r`, whose table has the field facts `fields`.
+    fn of(r: &RecordState, fields: &page_args::ArgFields) -> ArgFilter {
+        use al_builtins::filter::FilterExpr::{Eq, Like, Or};
         let one_filter = match r.filters.as_slice() {
-            [f] if f.group == 0 && !r.marked_only && r.marks.is_empty() && normal(f) => Some(&f.expr),
+            [f] if f.group == 0 && !r.marked_only && r.marks.is_empty() && fields.normal(f) => Some(f),
             _ => None,
         };
-        let measured = match one_filter {
-            Some(Range(Some(a), Some(b))) => a.identical(b),
+        let one_value = one_filter.filter(|f| fields.one_value(f));
+        let measured = match one_filter.map(|f| &f.expr) {
+            _ if one_value.is_some() => true,
             Some(Or(alternatives)) => matches!(
                 alternatives.as_slice(),
                 [Like(pattern, false), Eq(Value::Text(value))] if pattern == "call*" && value.as_str() == "zzz"
@@ -140,10 +153,14 @@ impl ArgFilter {
             None => r.filters.is_empty() && r.marked_only && r.marks.len() == 1,
         };
         // The probe's arguments start in filter group 0 (the prepare codeunits never change it).
-        match (r.filters.is_empty() && !r.marked_only && r.marks.is_empty(), measured) {
+        let unmarked = !r.marked_only && r.marks.is_empty();
+        match (r.filters.is_empty() && unmarked, measured) {
             _ if r.filter_group != 0 => ArgFilter::Other,
             (true, _) => ArgFilter::None,
-            (false, true) => ArgFilter::Measured,
+            (false, true) => ArgFilter::Measured {
+                key: one_value.is_some_and(|f| fields.key_field(f)),
+            },
+            (false, false) if unmarked => page_args::page_shape(r, fields).map_or(ArgFilter::Other, ArgFilter::Page),
             (false, false) => ArgFilter::Other,
         }
     }
@@ -310,7 +327,7 @@ fn filtered_probe_arg(arg: RunArg, after: &[(u32, MarkState)]) -> bool {
     let RunArg::Record {
         table,
         temporary,
-        filter: ArgFilter::None | ArgFilter::Measured,
+        filter: ArgFilter::None | ArgFilter::Measured { .. },
     } = arg
     else {
         return false;
@@ -341,19 +358,23 @@ enum FailProbeArg {
     Temporary,
 }
 
+/// Whether no mark of `after` names `table`, or `table` is the one marked first.
+fn unmarked_or_first(table: u32, after: &[(u32, MarkState)]) -> bool {
+    after.iter().all(|(t, _)| *t != table) || after.first().map(|(t, _)| *t) == Some(table)
+}
+
 impl FailProbeArg {
     /// The kind of `arg` when the run ends with the marks `after` (`arg_kept`: the run left the argument's filters as they
     /// were); `None` for any other argument.
     fn of(arg: RunArg, arg_kept: bool, after: &[(u32, MarkState)]) -> Option<FailProbeArg> {
         let first_marked = |table: u32| after.first().map(|(t, _)| *t) == Some(table);
-        let unmarked = |table: u32| after.iter().all(|(t, _)| *t != table);
         match arg {
             RunArg::None => Some(FailProbeArg::NoArg),
             RunArg::Record {
                 table,
                 temporary: false,
                 filter: ArgFilter::None,
-            } if arg_kept && (unmarked(table) || first_marked(table)) => Some(FailProbeArg::Database),
+            } if arg_kept && unmarked_or_first(table, after) => Some(FailProbeArg::Database),
             RunArg::Record {
                 table,
                 temporary: true,
@@ -553,6 +574,16 @@ impl Session {
         if let Some(raises) = probe_end {
             assume(Assumption::GuardedRunConsistentFail);
             return Ok(raises.then(|| self.inconsistent_error(after[0].0 as usize)));
+        }
+        // Every cell of corpus PR 1600 releases through a variable other than the argument (step `txb`, variable XB).
+        let released_by_other = self.tx.open.inconsistent.iter().all(|m| !is_arg(&m.released_by));
+        let page_end =
+            (top_level_no_commit && arg_kept && database_set && released_by_other && arg_marks == ArgMarks::None)
+                .then(|| page_args::page_probe_end(arg, || self.work_date(), &after, end))
+                .flatten();
+        if let Some(entry) = page_end {
+            assume(entry);
+            return Ok(None);
         }
         Err(Signal::unsupported(format!(
             "A guarded Codeunit.Run ends while Consistent(false) marks table {} in a shape no probe measured (marks, outcome, \
