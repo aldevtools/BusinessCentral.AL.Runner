@@ -107,11 +107,12 @@ impl Session {
                             Holding::Written => temp_rows_refusal(),
                         });
                     }
-                    assume(match self.store_kind(rc.borrow().object as usize) {
+                    assume(match self.store_kind_in(owner, rc.borrow().object as usize) {
                         Some(Store::Kinds) => Assumption::ClearAllStoreGlobalKinds,
                         Some(Store::TableNoKinds) => Assumption::ClearAllTableNoRegister,
                         Some(Store::TableNoSingle) => Assumption::ClearAllRegisterSingleInstance,
                         Some(Store::TableNoWhse) => Assumption::ClearAllWhseRegisterStore,
+                        Some(Store::Tree) => Assumption::ClearAllRegisterTree,
                         _ => Assumption::ClearSharedCodeunit,
                     });
                     self.reset_keeping_rows(rc);
@@ -640,6 +641,59 @@ impl Session {
             })
     }
 
+    /// Whether codeunit `object`, `depth` levels below a register (0: the register, with a TableNo, not SingleInstance), is a
+    /// node of the tree open corpus PR 1620 measures (ClearSharedCodeunitWhseTree.al, assumption clear-all-register-tree):
+    /// at most three levels deep ("CWT S4" :29 and "CWT P4" :152 below "CWT S2" :520 and "CWT P3" :396), no TableNo below
+    /// the register, SingleInstance or not, every global one of [`tree_kind`] or a codeunit global that is such a node
+    /// one level deeper ("CWT Reg" :1023-1056, "CWT P1" :767-794, "CWT S1" :894).
+    pub(crate) fn tree_node(&self, object: usize, depth: u8) -> bool {
+        let o = &self.engine.program.objects[object];
+        depth <= 3
+            && o.kind == al_ir::ObjKind::Codeunit
+            && (o.rec_slot.is_some() == (depth == 0))
+            && (depth > 0 || self.plain_codeunit(object))
+            && o.globals.iter().enumerate().all(|(i, g)| {
+                o.rec_slot == Some(i)
+                    || match g.ty {
+                        RtType::Codeunit(c) if !g.label => self.tree_node(c as usize, depth + 1),
+                        _ => tree_kind(g),
+                    }
+            })
+    }
+
+    /// The store shape of codeunit `store` held by `owner`: [`Session::store_kind`], else [`Store::Tree`] for the three
+    /// owner and store pairs of open corpus PR 1620 ([`Session::tree_pair`]).
+    fn store_kind_in(&self, owner: usize, store: usize) -> Option<Store> {
+        self.store_kind(store)
+            .or_else(|| self.tree_pair(owner, store).then_some(Store::Tree))
+    }
+
+    /// Whether `ClearAll()` in `owner` of its global of codeunit `store` is one of the three cells of open corpus PR 1620
+    /// (ClearSharedCodeunitWhseTree.al): the plain owner whose one global is the register ("CWT Owner" :1171-1174,
+    /// Tree_OwnerClearAll_After :1362); the register over a node one level below it ("CWT Reg" holding "CWT P1" and
+    /// "CWT S1" :1055-1056, Tree_RegisterClearAll :1780); a plain node that a register declares, over a node one level
+    /// below it ("CWT P1" holding "CWT S2" and "CWT P2" :793-794, Tree_PlainHolderOfSiClearAll :1864).
+    fn tree_pair(&self, owner: usize, store: usize) -> bool {
+        let objects = &self.engine.program.objects;
+        let declares = |holder: usize, held: usize| {
+            (objects[holder].globals.iter()).any(|g| matches!(g.ty, RtType::Codeunit(c) if c as usize == held))
+        };
+        match (self.owner_kind(owner), objects[store].rec_slot.is_some()) {
+            (Some(Owner::Plain), true) => {
+                matches!(objects[owner].globals.as_slice(), [g] if matches!(g.ty, RtType::Codeunit(c) if c as usize == store))
+                    && self.tree_node(store, 0)
+            }
+            (Some(Owner::TableNo), false) => self.tree_node(owner, 0) && self.tree_node(store, 1),
+            (Some(Owner::Plain), false) => {
+                self.tree_node(owner, 1)
+                    && self.tree_node(store, 2)
+                    && (0..objects.len())
+                        .any(|r| objects[r].rec_slot.is_some() && declares(r, owner) && self.tree_node(r, 0))
+            }
+            _ => false,
+        }
+    }
+
     /// Whether TableNo register `object` ([`Store::TableNoKinds`]) has the shape the plain owner is measured with:
     /// ClearSharedCodeunitTableNoRegister.al "CKT Reg" (:95-96, "CKT M3" and "CKT M2"), nested codeunits three levels
     /// deep at most and none holding the register (TableNoReg_Primed_PlainOwner :725 to TableNoReg_RunBeforeShare_PlainOwner
@@ -658,7 +712,7 @@ impl Session {
             unreachable!("a store global holds a codeunit")
         };
         let store = rc.borrow().object as usize;
-        let why = match (self.owner_kind(owner), self.store_kind(store)) {
+        let why = match (self.owner_kind(owner), self.store_kind_in(owner, store)) {
             (None, _) => "the owner is an object whose ClearAll the corpus does not measure".to_string(),
             (_, None) => match (objects[store].rec_slot, self.kinds_unpinned(store, 0)) {
                 (Some(_), _) if self.plain_codeunit(store) => match self.tableno_unpinned(store) {
@@ -729,11 +783,14 @@ impl Session {
     /// holding) is a cell the corpus measures.
     fn measured_cell(&self, owner: usize, v: &Value, holding: Holding, hold: TempHold) -> bool {
         let Value::Codeunit(rc) = v else { return false };
-        let (Some(o), Some(s)) = (self.owner_kind(owner), self.store_kind(rc.borrow().object as usize)) else {
+        let (Some(o), Some(s)) = (
+            self.owner_kind(owner),
+            self.store_kind_in(owner, rc.borrow().object as usize),
+        ) else {
             return false;
         };
         measured(o, s, holding, hold)
-            && (!matches!(s, Store::Register | Store::TableNoKinds | Store::TableNoSingle | Store::TableNoWhse) || self.register_as_measured(rc))
+            && (!matches!(s, Store::Register | Store::TableNoKinds | Store::TableNoSingle | Store::TableNoWhse | Store::Tree) || self.register_as_measured(rc))
             && ((o, s) != (Owner::Plain, Store::TableNoKinds) || self.plain_owner_register(rc.borrow().object as usize))
             && (s != Store::Kinds || self.kinds_instances(rc, 0))
             // The store with one more Integer that no call made is measured for "CLQ Store Plus" only
@@ -1223,6 +1280,11 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // Whse_OwnerPrimes_OwnerClearAll :386, Whse_DirectSiWrite_OwnerClearAll :412, Kinds_OwnerClearAll :431,
         // Deep_OwnerClearAll :451). Never called, only read and the plain owner are not measured: refused.
         (TableNo, TableNoWhse, Shared) => true,
+        // Open corpus PR 1620 (assumption clear-all-register-tree), ClearSharedCodeunitWhseTree.al: the register "CWT Reg"
+        // (:1023-1056) held by the plain owner "CWT Owner" (:1171-1174) alone, holding temporary rows; the owner's ClearAll
+        // (Tree_OwnerClearAll_After :1362), the register's own (Tree_RegisterClearAll :1780) and P1's (Tree_PlainHolderOfSiClearAll
+        // :1864). Which owner goes with which store is [`Session::tree_cell`]'s. Shared and never called: refused.
+        (Plain | TableNo, Tree, Written) => true,
         _ => false,
     }
 }
@@ -1320,6 +1382,35 @@ fn whse_register_kind(g: &al_ir::Slot) -> bool {
                     | RtType::Option(_)
                     | RtType::Char
             )
+}
+
+/// Whether global `g` is of a kind every node of ClearSharedCodeunitWhseTree.al (open corpus PR 1620) declares ("CWT Reg"
+/// :1031-1054): a record, temporary or not, Boolean, Integer, Decimal, BigInteger, Text, Code, Date, DateTime, Option,
+/// Enum, a List of Integer, a Dictionary of [Integer, Text], TextBuilder, Guid, RecordRef, FieldRef, KeyRef, or a Label
+/// (plain, Comment, Locked, MaxLength :1051-1054; AL code cannot assign one, corpus must-not-compile 0350, 2628).
+fn tree_kind(g: &al_ir::Slot) -> bool {
+    use al_builtins::library_kind::LibraryKind as K;
+    g.label
+        || match &g.ty {
+            RtType::List(e) => matches!(**e, RtType::Integer),
+            RtType::Dictionary(k, v) => matches!((&**k, &**v), (RtType::Integer, RtType::Text(_))),
+            RtType::Library(k) => matches!(k, K::RecordRef | K::FieldRef | K::KeyRef | K::TextBuilder),
+            t => matches!(
+                t,
+                RtType::Record(..)
+                    | RtType::Boolean
+                    | RtType::Integer
+                    | RtType::Decimal
+                    | RtType::BigInteger
+                    | RtType::Text(_)
+                    | RtType::Code(_)
+                    | RtType::Date
+                    | RtType::DateTime
+                    | RtType::Option(_)
+                    | RtType::Enum(_)
+                    | RtType::Guid
+            ),
+        }
 }
 
 /// Whether `t` is one of the scalars of ClearSharedCodeunitGlobalKinds.al "CKK Store" :107-122 (merged corpus PR 1587,
@@ -1447,6 +1538,9 @@ enum Store {
     /// clear-all-whse-register-store, the shape of "Whse. Jnl.-Register Line" with "Confirm Management") that is no
     /// [`Store::TableNoSingle`].
     TableNoWhse,
+    /// A codeunit of the tree of open corpus PR 1620 (assumption clear-all-register-tree) that is no other store, held by an
+    /// owner of a measured pair ([`Session::tree_pair`]); [`Session::store_kind_in`] alone gives it.
+    Tree,
 }
 
 /// How the instance of a store global is held when `ClearAll()` runs in its owner.
@@ -1496,6 +1590,7 @@ impl Store {
             Store::TableNoKinds => "a TableNo register",
             Store::TableNoSingle => "a TableNo register with nested SingleInstance codeunits",
             Store::TableNoWhse => "a TableNo register in the shape of Whse. Jnl.-Register Line",
+            Store::Tree => "a codeunit of the Whse. Jnl.-Register Line tree",
         }
     }
 }

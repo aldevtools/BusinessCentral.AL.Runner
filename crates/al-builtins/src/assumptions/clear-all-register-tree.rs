@@ -1,0 +1,13 @@
+ClearAllRegisterTree => {
+    id: "clear-all-register-tree",
+    assumed: "ClearAll() resets in place a global codeunit instance that only its owner holds and whose codeunits hold temporary rows, in three cells: a plain owner whose only global is a register with a TableNo, the register holding a codeunit of the tree, and a plain codeunit of the tree that a register declares holding another one. Every codeunit of the tree is at most three levels below the register, has no TableNo below the register, and declares only records (temporary or not), Boolean, Integer, Decimal, BigInteger, Text, Code, Date, DateTime, Option, Enum, a List of Integer, a Dictionary of [Integer, Text], TextBuilder, Guid, RecordRef, FieldRef, KeyRef, Labels (plain, Comment, Locked or MaxLength, which the runner does not tell apart) and codeunits of the tree. The probe declares every one of these kinds in every node; a node may declare fewer of them, because the reset acts on each global by its kind alone and each kind is measured in every node. The reset instance and every codeunit that is not SingleInstance it reaches through codeunits that are not SingleInstance go back to their declared values: a record filter and its fields to empty, scalars, Date, DateTime, Option, Enum and Guid to their defaults, Lists, Dictionaries and TextBuilders to empty, a RecordRef to closed, and reading a FieldRef or KeyRef then raises an error; temporary rows stay and Labels keep their text. A SingleInstance codeunit and every codeunit below one keep all their state. Writes made directly on a SingleInstance codeunit before or after the ClearAll are seen through the owner. The records of the tree read or wrote no row, no other variable shares a nested codeunit instance, no routine of the store runs, and no BindSubscription binds it.",
+    tests: "The neighbor app tests/neighbors/fix-9194-tree (the ten tests of corpus pull request 1620). Microsoft's SCM tests reach \"Whse. Jnl.-Register Line\" through \"Sales-Post\".ClearAll, an owner with a TableNo that shares the register, a cell this entry does not cover.",
+    probe: "Open corpus pull request 1620, tests/al-language/codeunits/clear-instance/ClearSharedCodeunitWhseTree.al (test codeunit 86751: owner ClearAll Tree_OwnerClearAll_After :1362, direct SingleInstance writes :1446 :1604 :1692, re-priming :1506 :1559, the register's own ClearAll :1780, ClearAll in a plain holder of a SingleInstance codeunit :1864), identical on local BC 27.5 and 29.0. Merged, not yet pinned by a corpus bump.",
+    awaiting: Awaiting {
+        issues: &[9194],
+        files: &[
+            "tests/al-language/codeunits/clear-instance/ClearSharedCodeunitWhseTree.al",
+        ],
+        since: "2026-11-27",
+    },
+}
