@@ -23,12 +23,22 @@ codeunit 50460 "NVT Tests"
 
     var
         GlobalInt32: DotNet NVTInt32;
+        ResultText: Text;
 
-    local procedure ToInt32ByValue(B: DotNet NVTBoolean): Integer
+    [TryFunction]
+    local procedure TryToInt32(B: DotNet NVTBoolean)
     var
         Cv: DotNet NVTConvert;
     begin
-        exit(Cv.ToInt32(B));
+        ResultText := Format(Cv.ToInt32(B));
+    end;
+
+    [TryFunction]
+    local procedure TrySbCtor(I: DotNet NVTInt32)
+    var
+        Sb: DotNet NVTStringBuilder;
+    begin
+        Sb := Sb.StringBuilder(I, 5);
     end;
 
     local procedure ToStringByVar(var I: DotNet NVTInt32): Text
@@ -58,7 +68,9 @@ codeunit 50460 "NVT Tests"
     var
         B: DotNet NVTBoolean;
     begin
-        Expect(Format(ToInt32ByValue(B)), '0');
+        if not TryToInt32(B) then
+            Error('TryToInt32 failed: %1', GetLastErrorText());
+        Expect(ResultText, '0');
     end;
 
     [Test]
@@ -77,9 +89,9 @@ codeunit 50460 "NVT Tests"
     procedure Measured_StringBuilderNullInt32Raises()
     var
         I: DotNet NVTInt32;
-        Sb: DotNet NVTStringBuilder;
     begin
-        asserterror Sb := Sb.StringBuilder(I, 5);
+        if TrySbCtor(I) then
+            Error('TrySbCtor did not fail');
         Expect(GetLastErrorCode(), 'DotNetCreate:NullReference');
     end;
 
