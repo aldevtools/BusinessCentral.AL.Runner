@@ -1,0 +1,6 @@
+# key	entry
+NVT Tests::Measured_ConvertToInt32NullBooleanByValueParam	ASSUMED dotnet-null-value-type-argument (corpus PR 1623)
+NVT Tests::Measured_ConvertToStringNullByte	ASSUMED dotnet-null-value-type-argument (corpus PR 1623)
+NVT Tests::Measured_DateTimeOffsetNullTimeSpanRaises	ASSUMED dotnet-null-value-type-argument (corpus PR 1623)
+NVT Tests::Measured_StringBuilderNullInt32Raises	ASSUMED dotnet-null-value-type-argument (corpus PR 1623)
+NVT Tests::Neighbor_NullInt32IntoAppendOverloads	REFUSED DotNet Append of System.Text.StringBuilder: a null argument declared as a .NET value type

@@ -144,6 +144,10 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.DateTime\"; \"ClrDateTime\") { }
     type(\"System.DateTimeOffset\"; \"ClrDateTimeOffset\") { }
     type(\"System.Byte\"; \"ClrByte\") { }
+    type(\"System.Int32\"; \"ClrInt32\") { }
+    type(\"System.Boolean\"; \"ClrBoolean\") { }
+    type(\"System.TimeSpan\"; \"ClrTimeSpan\") { }
+    type(\"System.Int64\"; \"ClrInt64\") { }
     type(\"System.IO.File\"; \"File\") { }
     type(\"System.IO.Directory\"; \"Directory\") { }
     type(\"System.IO.DirectoryInfo\"; \"DirectoryInfo\") { }
@@ -223,8 +227,20 @@ fn compile_extra(
     ret: &str,
     extra: &str,
 ) -> (std::sync::Arc<al_ir::Program>, Vec<Vec<Option<String>>>, usize, usize) {
-    let src =
-        format!("{DOTNET}{TABLE}\ncodeunit 50100 C {{ procedure F(){ret} var {vars} begin {body} end; {extra} }}");
+    compile_in("", vars, body, ret, extra)
+}
+
+/// As `compile_extra`, with `head` before `procedure F()` (for example a `Subtype` and an attribute of `F`).
+fn compile_in(
+    head: &str,
+    vars: &str,
+    body: &str,
+    ret: &str,
+    extra: &str,
+) -> (std::sync::Arc<al_ir::Program>, Vec<Vec<Option<String>>>, usize, usize) {
+    let src = format!(
+        "{DOTNET}{TABLE}\ncodeunit 50100 C {{ {head}procedure F(){ret} var {vars} begin {body} end; {extra} }}"
+    );
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -4051,7 +4067,24 @@ codeunit 50100 C {{ procedure F(): Text var T: DotNet NavTenantSettingsHelper; V
 
 /// `run` on an engine that runs as `bc` with the fake host `host`.
 fn run_as_with(bc: &str, host: &Fake, vars: &str, body: &str, ret: &str) -> Ran {
-    let (program, blocked, oi, ri) = compile(vars, body, ret);
+    run_as_extra(bc, host, vars, body, ret, "")
+}
+
+/// `run_as_with` with `extra`, more procedures of the codeunit.
+fn run_as_extra(bc: &str, host: &Fake, vars: &str, body: &str, ret: &str, extra: &str) -> Ran {
+    run_compiled(bc, host, compile_extra(vars, body, ret, extra))
+}
+
+/// As `run_as_extra`, with `F` a `[Test]` method of a test codeunit.
+fn run_as_test_extra(bc: &str, host: &Fake, vars: &str, body: &str, extra: &str) -> Ran {
+    run_compiled(bc, host, compile_in("Subtype = Test; [Test] ", vars, body, "", extra))
+}
+
+fn run_compiled(
+    bc: &str,
+    host: &Fake,
+    (program, blocked, oi, ri): (std::sync::Arc<al_ir::Program>, Vec<Vec<Option<String>>>, usize, usize),
+) -> Ran {
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
         return Ran {
             result: Err(Signal::unsupported(r.clone())),
@@ -5144,4 +5177,155 @@ fn the_constant_answers_are_registered_calls() {
     assert!(ANSWERS_ONLY.iter().all(|(c, m)| keeps_nothing(c, m)));
     let helper = al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER;
     assert!(!keeps_nothing(helper, "SetTestTenantEnvironmentType"));
+}
+
+// ---- A null DotNet passed where its declared type is a .NET value type (al-runner issue 8268; assumption
+// dotnet-null-value-type-argument, corpus pull request 1623, dotnet-null-valuetype/N8268DotNetNullValueType.al) ----
+
+/// [TryFunction] helpers that take the null as a by-value parameter, the place the probe measured most cells in
+/// (N8268DotNetNullValueType.al:337-407).
+const TRY_HELPERS: &str = "[TryFunction] local procedure TryToInt32(Bo: DotNet ClrBoolean) var Cv: DotNet Convert; T: Text; begin T := Format(Cv.ToInt32(Bo)); end; \
+    [TryFunction] local procedure TrySbRemove(I: DotNet ClrInt32) var Sb: DotNet StringBuilder; begin Sb := Sb.StringBuilder('abcdef'); Sb.Remove(I, 2); end; \
+    [TryFunction] local procedure TrySbCtor(I: DotNet ClrInt32) var Sb: DotNet StringBuilder; begin Sb := Sb.StringBuilder(I, 5); end; \
+    [TryFunction] local procedure TryLocal() var B: DotNet ClrByte; Cv: DotNet Convert; T: Text; begin T := Cv.ToString(B, 2); end; \
+    local procedure Plain(B: DotNet ClrByte) var Cv: DotNet Convert; T: Text; begin T := Cv.ToString(B, 2); end;";
+
+/// The wire values of the arguments of the first request the host got for `member`.
+fn sent_args(host: &Fake, member: &str) -> Vec<DotNetValue> {
+    host.log()
+        .into_iter()
+        .find_map(|r| match r {
+            Req::Invoke(_, m, a) if m == member => Some(a.into_iter().map(|a| a.value).collect()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no {member} request"))
+}
+
+// N8268DotNetNullValueType.al:167 (Convert.ToString(null Byte, 2) = '0', a local of the test), :211 (Convert.ToInt32(null
+// Boolean) = 0) and :275 (StringBuilder.Remove(null Int32, 2)), both through a by-value parameter of a [TryFunction]
+// (:346, :389): the null goes to .NET as the default value of its declared type.
+#[test]
+fn a_null_value_type_argument_of_a_measured_method_goes_to_dotnet_as_its_default() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(_, m, _) if m == "ToString" => reply(DotNetValue::Str("0".into())),
+        Req::Invoke(_, m, _) if m == "ToInt32" => reply(DotNetValue::Int32(0)),
+        Req::Construct(t, _) if t == "System.Text.StringBuilder" => reply(handle(7, "System.Text.StringBuilder")),
+        Req::Invoke(_, m, _) if m == "Remove" => reply(handle(7, "System.Text.StringBuilder")),
+        _ => reply(DotNetValue::Null),
+    });
+    let vars = "B: DotNet ClrByte; Bo: DotNet ClrBoolean; I: DotNet ClrInt32; Cv: DotNet Convert; Sb: DotNet StringBuilder; T: Text;";
+    let body = "T := Cv.ToString(B, 2); if not TryToInt32(Bo) then Error('x'); if not TrySbRemove(I) then Error('y');";
+    for bc in ["27.5", "28.5", "29.0"] {
+        let r = run_as_test_extra(bc, &host, vars, body, TRY_HELPERS);
+        assert!(r.result.is_ok(), "{bc}: {:?}", r.result);
+    }
+    assert_eq!(
+        sent_args(&host, "ToString"),
+        vec![DotNetValue::Byte(0), DotNetValue::Int32(2)]
+    );
+    assert_eq!(sent_args(&host, "ToInt32"), vec![DotNetValue::Bool(false)]);
+    assert_eq!(
+        sent_args(&host, "Remove"),
+        vec![DotNetValue::Int32(0), DotNetValue::Int32(2)]
+    );
+}
+
+// N8268DotNetNullValueType.al:48-57 (DateTimeOffset(D, null TimeSpan), a local of the test) and :293 (StringBuilder(null
+// Int32, 5) through a by-value parameter of a [TryFunction], :400): a constructor raises DotNetCreate:NullReference naming
+// the assembly BC 27 or BC 28 and later reports; .NET is not called.
+#[test]
+fn a_null_value_type_argument_of_a_measured_constructor_raises_dotnet_create() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(_, m, _) if m == "UtcNow" => reply(DotNetValue::DateTime(638_000_000_000_000_000)),
+        other => panic!("unexpected request {other:?}"),
+    });
+    let vars = "D: DotNet ClrDateTime; Ts: DotNet ClrTimeSpan; Dto: DotNet ClrDateTimeOffset; I: DotNet ClrInt32; Sb: DotNet StringBuilder;";
+    let cases = [
+        (
+            "D := D.UtcNow(); Dto := Dto.DateTimeOffset(D, Ts);",
+            "System.DateTimeOffset",
+        ),
+        ("TrySbCtor(I);", "System.Text.StringBuilder"),
+    ];
+    for (body, ty) in cases {
+        for (bc, assembly) in [
+            (
+                "27.5",
+                "System.Runtime, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+            ),
+            (
+                "28.5",
+                "mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+            ),
+            (
+                "29.0",
+                "mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+            ),
+        ] {
+            match run_as_test_extra(bc, &host, vars, body, TRY_HELPERS).result {
+                Err(Signal::Error(e)) => {
+                    assert_eq!(e.code, "DotNetCreate:NullReference", "{bc} {ty}");
+                    assert_eq!(
+                        e.message,
+                        format!(
+                            "Cannot create an instance of the following .NET Framework object: assembly {assembly}, type {ty}."
+                        ),
+                        "{bc}"
+                    );
+                }
+                other => panic!("{bc} {ty}: {other:?}"),
+            }
+        }
+    }
+}
+
+// Shapes the probe did not measure refuse: a null Int64, a null Int32 into Convert.ToString with a Text second argument, a
+// null Int32 to a property setter, a measured method or constructor on a BC major the probe did not run, a measured call
+// whose null comes through a var parameter, and a measured call with its null in the other place: a local where the probe
+// passed a [TryFunction] parameter, a parameter of a plain procedure, a local of a [TryFunction] or a local of a procedure that
+// is no [Test] method where it used a local of the test (N8268DotNetNullValueType.al:167 against :337-407).
+#[test]
+fn a_null_value_type_argument_outside_the_measured_calls_is_refused() {
+    // The replies of the measured calls, so that only the null argument can refuse.
+    let host = Fake::new(|r| match r {
+        Req::Invoke(_, m, _) if m == "ToString" => reply(DotNetValue::Str("0".into())),
+        Req::Invoke(_, m, _) if m == "ToInt32" => reply(DotNetValue::Int32(0)),
+        Req::Construct(t, _) if t == "System.Text.StringBuilder" => reply(handle(7, "System.Text.StringBuilder")),
+        Req::Invoke(_, m, _) if m == "Remove" => reply(handle(7, "System.Text.StringBuilder")),
+        _ => reply(DotNetValue::Null),
+    });
+    let vars = "L: DotNet ClrInt64; I: DotNet ClrInt32; B: DotNet ClrByte; Bo: DotNet ClrBoolean; Cv: DotNet Convert; Sb: DotNet StringBuilder; T: Text;";
+    let extra = format!(
+        "{TRY_HELPERS} procedure G(var N: DotNet ClrInt32) var Cv: DotNet Convert; T: Text; begin T := Cv.ToString(N, 2); end;"
+    );
+    let refused = [
+        ("29.0", "T := Cv.ToString(L, 2);"),
+        ("29.0", "T := Cv.ToString(I, 'x');"),
+        ("29.0", "Sb := Sb.StringBuilder(); Sb.Capacity := I;"),
+        ("26.5", "Sb := Sb.StringBuilder(I, 5);"),
+        ("26.5", "T := Cv.ToString(B, 2);"),
+        ("30.0", "T := Cv.ToString(B, 2);"),
+        ("26.5", "TrySbCtor(I);"),
+        ("30.0", "TrySbCtor(I);"),
+        ("29.0", "G(I);"),
+        ("29.0", "T := Format(Cv.ToInt32(Bo));"),
+        ("29.0", "Sb := Sb.StringBuilder('abcdef'); Sb.Remove(I, 2);"),
+        ("29.0", "Sb := Sb.StringBuilder(I, 5);"),
+        ("29.0", "Plain(B);"),
+        ("29.0", "TryLocal();"),
+    ]
+    .map(|(bc, body)| (bc, body, run_as_test_extra(bc, &host, vars, body, &extra).result));
+    // The measured Convert.ToString(null Byte, 2) with its null in a local of a procedure that is no [Test] method.
+    let helper_local = (
+        "29.0",
+        "helper local",
+        run_as_extra("29.0", &host, vars, "T := Cv.ToString(B, 2);", "", "").result,
+    );
+    let served: Vec<String> = refused
+        .into_iter()
+        .chain([helper_local])
+        .filter(|(_, _, r)| !matches!(r, Err(Signal::Unsupported(why)) if why.contains(": a null ")))
+        .map(|(bc, body, r)| format!("{bc} {body}: {r:?}"))
+        .collect();
+    assert!(served.is_empty(), "{served:#?}");
 }
