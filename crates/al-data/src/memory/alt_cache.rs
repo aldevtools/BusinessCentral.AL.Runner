@@ -3,10 +3,13 @@
 //! ([`same_filters`]): a lookup compares a few filters, where a key made of their text formatted every filter at every
 //! step (issue 8603).
 //!
+//! An entry is for the fields of the scan's key, not only its index: an ad hoc key (SetCurrentKey on fields no key
+//! starts with) takes the slot after the table's keys, so two ad hoc keys on other fields share an index (issue 9257).
+//!
 //! What `alt_next` keeps per scan: per table and key, the last `ALT_SCANS_PER_KEY` sets of filters,
-//! told apart by `same_filters` (the filters themselves, not their text; issue 8603), each with the
-//! rows they leave in the order of the key as of the table's stamp. Entry points: `alt_step`,
-//! `alt_keep`. Unit tests: `memory/alt_cache_tests.rs`.
+//! told apart by `same_filters` (the filters themselves, not their text; issue 8603) and by the key's
+//! fields (`AltEntry::is_for`; issue 9257), each with the rows they leave in the order of the key as
+//! of the table's stamp. Entry points: `alt_step`, `alt_keep`. Unit tests: `memory/alt_cache_tests.rs`.
 
 use super::*;
 
@@ -19,6 +22,9 @@ pub(super) type AltCache = std::collections::HashMap<(Slot, usize), Vec<AltEntry
 /// What `alt_next` knows about one scan (a table, a key and a set of filters) as of a table stamp.
 #[derive(Clone)]
 pub(super) struct AltEntry {
+    /// The fields of the scan's key: an ad hoc key takes the slot after the table's keys, so the key index alone does
+    /// not name the order of `keys` (issue 9257).
+    fields: Vec<usize>,
     /// The filters of the scan, as the store reads them (after `number_filters`).
     filters: Vec<FieldFilter>,
     stamp: u64,
@@ -29,6 +35,14 @@ pub(super) struct AltEntry {
     not_applicable: bool,
     /// The primary keys of the rows that pass the filters, in the order of the scan's key.
     keys: Option<std::rc::Rc<Vec<Key>>>,
+}
+
+impl AltEntry {
+    /// Whether the entry is the one of a scan in a key of `fields` through `filters`: the one test of what an entry is
+    /// for.
+    fn is_for(&self, fields: &[usize], filters: &[FieldFilter]) -> bool {
+        self.fields == fields && same_filters(&self.filters, filters)
+    }
 }
 
 /// What the next step of a scan does, from what is kept for it.
@@ -42,17 +56,26 @@ pub(super) enum AltStep {
 }
 
 impl MemStore {
-    /// The step of the scan in key `key` of `slot` through `filters` at the table's `stamp`, counting it.
-    pub(super) fn alt_step(&self, slot: &Slot, key: usize, filters: &[FieldFilter], stamp: u64) -> AltStep {
+    /// The step of the scan in key `key` of `t` in `slot` through `filters` at the table's `stamp`, counting it.
+    pub(super) fn alt_step(
+        &self,
+        slot: &Slot,
+        t: &TableDef,
+        key: usize,
+        filters: &[FieldFilter],
+        stamp: u64,
+    ) -> AltStep {
         let mut cache = self.alt_cache.borrow_mut();
         if cache.len() > 256 {
             cache.clear();
         }
+        let fields = &t.keys[key];
         let kept = cache.entry((slot.clone(), key)).or_default();
-        let Some(i) = kept.iter().position(|e| same_filters(&e.filters, filters)) else {
+        let Some(i) = kept.iter().position(|e| e.is_for(fields, filters)) else {
             kept.insert(
                 0,
                 AltEntry {
+                    fields: fields.clone(),
                     filters: filters.to_vec(),
                     stamp,
                     calls: 1,
@@ -68,6 +91,7 @@ impl MemStore {
         if e.stamp != stamp {
             // The first step after a write: walk.
             *e = AltEntry {
+                fields: std::mem::take(&mut e.fields),
                 filters: std::mem::take(&mut e.filters),
                 stamp,
                 calls: 1,
@@ -90,6 +114,7 @@ impl MemStore {
     pub(super) fn alt_keep(
         &self,
         slot: &Slot,
+        t: &TableDef,
         key: usize,
         filters: &[FieldFilter],
         keys: Option<std::rc::Rc<Vec<Key>>>,
@@ -97,7 +122,7 @@ impl MemStore {
         let mut cache = self.alt_cache.borrow_mut();
         let Some(e) = cache
             .get_mut(&(slot.clone(), key))
-            .and_then(|kept| kept.iter_mut().find(|e| same_filters(&e.filters, filters)))
+            .and_then(|kept| kept.iter_mut().find(|e| e.is_for(&t.keys[key], filters)))
         else {
             return;
         };
@@ -117,6 +142,6 @@ impl MemStore {
         self.alt_cache
             .borrow()
             .get(&(slot(cx, t), key))
-            .is_some_and(|kept| kept.iter().any(|e| same_filters(&e.filters, filters)))
+            .is_some_and(|kept| kept.iter().any(|e| e.is_for(&t.keys[key], filters)))
     }
 }

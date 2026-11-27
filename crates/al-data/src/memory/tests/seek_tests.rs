@@ -420,3 +420,34 @@ fn a_scan_in_a_loosely_bounded_key_uses_a_much_narrower_band_of_another_key() {
         }
     }
 }
+
+/// Two ad hoc keys on other fields (SetCurrentKey on fields no key starts with) take the same key slot, the one after
+/// the table's keys. Scanned with the same filters at the same table version, each reads the rows in its own key's
+/// order: its fields, then the primary key (record/keys-sorting/SetCurrentKeyUndeclared.al:83-116, with filters
+/// :188-212). The filters bound another key, so from 64 rows the scans read that key's band and the rows `alt_next`
+/// keeps; before, the second scan read the rows the first kept, in the first key's order (issue 9257).
+#[test]
+fn two_ad_hoc_keys_with_the_same_filters_each_read_in_their_own_order() {
+    let by_c = seek_table(vec![vec![0, 1], vec![3, 0, 1], vec![2, 0, 1]]);
+    let by_b = seek_table(vec![vec![0, 1], vec![3, 0, 1], vec![1, 0, 1]]);
+    let mut s = MemStore::default();
+    for a in 0..400 {
+        let row = vec![
+            Value::Integer(a),
+            Value::Integer((a * 7) % 13),
+            Value::Code(format!("K{:03}", (a * 11) % 17).into()),
+            Value::Integer(a % 40),
+        ];
+        s.insert(&cx(), &by_c, row).unwrap();
+    }
+    let f = [range(3, Some(Value::Integer(5)), Some(Value::Integer(6)))];
+    for ascending in [true, false] {
+        for (name, t) in [("C", &by_c), ("B", &by_b)] {
+            assert_eq!(
+                format!("{:?}", scan_all(&s, t, 2, &f, ascending)),
+                format!("{:?}", reference(&s, t, 2, &f, ascending)),
+                "ad hoc key on {name}, ascending {ascending}"
+            );
+        }
+    }
+}

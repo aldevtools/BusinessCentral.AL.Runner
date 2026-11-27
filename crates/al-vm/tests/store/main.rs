@@ -1,5 +1,6 @@
 //! The tests of one area in one binary (ADR-037 item 5): fewer binaries to link. Each module is a file of store/.
 
+mod adhoc_keys_shared_slot;
 mod assigned_audit_fields;
 mod autoinc_non_key;
 mod blob_assign_in_memory_calcfields;
