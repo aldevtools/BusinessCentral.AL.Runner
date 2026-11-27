@@ -4827,18 +4827,23 @@ fn the_shutdown_reply_comes_after_the_workspace_entry_is_written() {
     assert_eq!(at_reply.len(), 1, "entries when the reply came: {at_reply:?}");
 }
 
-/// Issue 9232: a client sends `shutdown` and then SIGTERM at once (one editor client sends SIGTERM right after the
-/// reply or after 500 ms without one, another right away and SIGKILL 2 s later). The server waits for the pending
-/// workspace layer write before it ends by the signal, and the next server over the same cache folder reads the entry.
+/// Issue 9232: a client stops the server with SIGTERM while the workspace layer write of its last request is pending
+/// (one editor client sends SIGTERM 500 ms after `shutdown` without a reply, another right after `shutdown`, and
+/// SIGKILL 2 s later). The server waits for the write before it ends by the signal, and the next server over the same
+/// cache folder reads the entry.
+///
+/// The signal goes right after the response, with no `shutdown`: the signal is then the only way the server ends, so
+/// the exit status is the signal's whatever the timing. (With `shutdown` first, the shutdown path and the signal path
+/// both wait for the same write, and either may end the process first: exit 0 or by SIGTERM.) The write waits
+/// `SLOW_WRITE_MS` after the response, so it is still pending when the signal comes, and less than the server's bound.
 #[cfg(unix)]
 #[test]
-fn a_sigterm_right_after_shutdown_keeps_the_workspace_entry_for_the_next_server() {
+fn a_sigterm_while_the_write_is_pending_keeps_the_workspace_entry_for_the_next_server() {
     use std::os::unix::process::ExitStatusExt;
     let d = tempfile::tempdir().unwrap();
     let a = app(d.path(), "mixed", MIXED);
     let cache = d.path().join("cache");
     let mut s = server_that_built_an_entry(&a, &cache, Stdio::null());
-    s.send(json!({"command": "shutdown"}));
     // SAFETY: `kill` on the pid of the child this test started and has not waited for.
     assert_eq!(unsafe { libc::kill(s.child.id() as libc::pid_t, libc::SIGTERM) }, 0);
     let status = s.child.wait().unwrap();
