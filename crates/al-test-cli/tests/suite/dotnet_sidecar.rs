@@ -1008,6 +1008,50 @@ fn a_seeded_outstream_bridge_holds_the_bytes_appends_after_them_and_refuses_a_wr
     sess.close();
 }
 
+// al-runner issue 8360: the one writer allowed over a seed, a ZipArchive made by `ZipArchive(Stream, Update, Boolean, Encoding)`
+// over a seeded bridge, disposed, hands back its whole content with the seed's length (corpus
+// tests/al-language/streams/blob-tempblob/ZipBlobFieldUpdate.al:5-8). The three-argument constructor keeps the refusal.
+#[test]
+fn a_disposed_update_zip_over_a_seeded_bridge_hands_back_its_whole_content_and_other_shapes_stay_refused() {
+    let Some(h) = host() else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let mut empty_zip = b"PK\x05\x06".to_vec();
+    empty_zip.resize(22, 0);
+    let update = sess
+        .get_property(st("System.IO.Compression.ZipArchiveMode"), "Update")
+        .unwrap()
+        .value;
+    let utf8 = sess.get_property(st("System.Text.Encoding"), "UTF8").unwrap().value;
+    let open = |sess: &mut Box<dyn al_host::dotnet::DotNetSession>, args: Vec<DotNetValue>| {
+        let r = sess
+            .construct(&ty("System.IO.Compression.ZipArchive"), args.into_iter().map(arg).collect())
+            .unwrap();
+        let (_, bridge) = r.streams.bridges[0];
+        let zip = handle_of(&r);
+        sess.invoke(DotNetTarget::Instance(zip), "CreateEntry", vec![s("a.txt")])
+            .unwrap();
+        (zip, bridge)
+    };
+    let four = vec![
+        DotNetValue::OutStreamWith(empty_zip.clone()),
+        update.clone(),
+        DotNetValue::Bool(false),
+        utf8,
+    ];
+    let (zip, bridge) = open(&mut sess, four);
+    let r = sess.invoke(DotNetTarget::Instance(zip), "Dispose", vec![]).unwrap();
+    assert!(r.streams.written.is_empty(), "{:?}", r.streams.written);
+    assert_eq!(r.streams.replaced.len(), 1);
+    let (id, before, bytes) = &r.streams.replaced[0];
+    assert_eq!((*id, *before), (bridge, 22));
+    assert!(bytes.starts_with(b"PK\x03\x04") && bytes.len() > 22, "{bytes:?}");
+    let three = vec![DotNetValue::OutStreamWith(empty_zip), update, DotNetValue::Bool(false)];
+    let (zip, _) = open(&mut sess, three);
+    let why = refused(sess.invoke(DotNetTarget::Instance(zip), "Dispose", vec![]));
+    assert!(why.contains("over the bytes an AL OutStream held"), "{why}");
+    sess.close();
+}
+
 // al-runner issue 7947: bytes a bridge handed back after one call are in the Blob; a later .NET write over them, or a length
 // below them, does not reach the Blob, so the reply names the bridge for the VM to mark its Blob. A write after them comes back.
 #[test]
