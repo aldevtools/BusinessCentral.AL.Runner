@@ -722,6 +722,10 @@ impl Lowerer<'_> {
                     self.field_error_variant_id(&id, args)
                 } else if let Some(variant_id) = self.variant_argument_id(&id, args) {
                     variant_id.to_string()
+                } else if id == "System.Abs#1" && args.first().is_some_and(|a| self.is_fieldref_value(a)) {
+                    // `Abs(FR.Value())`: a Date, Time or DateTime raises as into a Decimal
+                    // (FvcTemporalIntoNumberPlaces.al `abs`).
+                    "System.AbsFieldValue#1".to_string()
                 } else if id == "TextBuilder.Append#1" && args.first().is_some_and(|a| self.is_fieldref_value(a)) {
                     // `FieldRef.Value()` written directly as the argument appends the formatted value
                     // (text/textbuilder-bigtext/TextBuilderAppendFieldDirect.al).

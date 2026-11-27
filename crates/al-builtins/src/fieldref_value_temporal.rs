@@ -3,8 +3,8 @@
 //! Every measured cell raises and leaves the variable as it was. This module owns the list of cells; a value, a slot or a
 //! target that is not on it gets `None`, and the caller converts as an assignment does (which refuses).
 //!
-//! The other direction, a Date, Time or DateTime field's value into a number (`temporal_into_number`), is refused: BC 28.4
-//! raises a conversion error where the Variant conversion gives a number (issue 9265), and no corpus case pins it yet.
+//! The other direction, a Date, Time or DateTime field's value into a number (`temporal_into_number`), raises the
+//! conversion error corpus PR 1629 measured where the Variant conversion gives a number (issue 9265).
 
 use crate::native::Signal;
 use crate::value::{RtType, Value};
@@ -132,11 +132,24 @@ pub fn is_number_target(t: &RtType) -> bool {
     )
 }
 
-/// `FieldRef.Value()` of a Date, Time or DateTime field converted straight into a number `t` (no Variant in between): refused.
-/// BC 28.4 raises `Unable to convert from ...NavDate to System.Int32.` for an Integer local where the Variant conversion
-/// (types/date-time/Y62UndefinedDate.al:292,295) gives 0 or the date's number; issue 9265, not pinned. `None`: any other
-/// value or target, which converts as before.
-pub fn temporal_into_number(v: &Value, t: &RtType) -> Option<Result<Value, Signal>> {
+/// `FieldRef.Value()` of a Date, Time or DateTime field converted straight into a number `t` (no Variant in between),
+/// in every place the probe measured (a local, a `var` parameter, an argument, a named return value, exit, a global, a
+/// record field, an array element, `List.Add` with the list's element type, and `Abs` as a Decimal): corpus PR 1629
+/// (merged at 778b8fc1, not yet pinned),
+/// recordref-fieldref/fieldref-value-convert/FvcTemporalIntoNumberPlaces.al:296-680 `<Source>_Targets` and
+/// `<Source>_Places`, the DateTime split by major at :536 and :608 (issue 9265, assumption
+/// `fieldref-value-temporal-into-number`). Into an Integer, BigInteger, Decimal, Byte or Char it raises `Unable to
+/// convert from Microsoft.Dynamics.Nav.Runtime.Nav<Kind> to <.NET type>.` (Conversion). A Date or Time into a Duration,
+/// Option or Boolean, and a DateTime into a Duration, converts as the Variant conversion does (`None`). A DateTime into
+/// a Boolean raises the Int32 error, into an Option from BC 28 (`from28`) the Evaluate error of its Format text, before
+/// that the Int32 error. The probe measured a blank and a set value of each kind; the rule is taken for the whole kind.
+/// Outside an en-US session: refused. `None`: any other value or target, which converts as before.
+pub fn temporal_into_number(
+    v: &Value,
+    t: &RtType,
+    from28: bool,
+    ctx: &dyn crate::format::FormatCtx,
+) -> Option<Result<Value, Signal>> {
     let kind = match v {
         Value::Date(..) => "Date",
         Value::Time(_) => "Time",
@@ -146,10 +159,47 @@ pub fn temporal_into_number(v: &Value, t: &RtType) -> Option<Result<Value, Signa
     if !is_number_target(t) {
         return None;
     }
-    Some(Err(Signal::unsupported(format!(
-        "FieldRef.Value() of a {kind} field into {} (not pinned, issue 9265)",
-        crate::describe::Describe::describe(t)
-    ))))
+    if !crate::format::en_us_session(ctx) {
+        return Some(Err(Signal::unsupported(format!(
+            "FieldRef.Value() of a {kind} field into {} outside an en-US session (not pinned, issue 9265)",
+            crate::describe::Describe::describe(t)
+        ))));
+    }
+    crate::assumptions::assume(crate::assumptions::Assumption::FieldRefValueTemporalIntoNumber);
+    let date_time = kind == "DateTime";
+    let dotnet = match t {
+        RtType::Integer => "System.Int32",
+        RtType::BigInteger => "System.Int64",
+        RtType::Decimal => "Microsoft.Dynamics.Nav.Runtime.Decimal18",
+        RtType::Byte => "System.Byte",
+        RtType::Char => "System.Char",
+        RtType::Boolean if date_time => "System.Int32",
+        RtType::Option(_) if date_time && !from28 => "System.Int32",
+        RtType::Option(_) if date_time => {
+            return Some(match crate::format::try_format(v, 0, 0, ctx) {
+                Ok(text) => crate::native::raise(
+                    format!("The value \"{text}\" can't be evaluated into type Option."),
+                    "Evaluate:Conversion",
+                ),
+                Err(e) => Err(Signal::unsupported(e)),
+            });
+        }
+        // Duration, and a Date or Time into an Option or Boolean: the number the Variant conversion gives (Date
+        // 2026-01-15 is 1479993, 12:00:00 is 43200001, a blank value 0; `conv::variant_scalars::temporal_number`).
+        _ => {
+            let n = crate::conv::variant_scalars::temporal_number(v).unwrap_or(0);
+            return Some(Ok(match t {
+                RtType::Duration => Value::Duration(n),
+                RtType::Boolean => Value::Boolean(n != 0),
+                RtType::Option(members) => Value::Option(i32::try_from(n).ok()?, members.clone()),
+                _ => return None,
+            }));
+        }
+    };
+    Some(crate::native::raise(
+        format!("Unable to convert from Microsoft.Dynamics.Nav.Runtime.Nav{kind} to {dotnet}."),
+        "Conversion",
+    ))
 }
 
 #[cfg(test)]

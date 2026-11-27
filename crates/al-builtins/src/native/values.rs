@@ -25,6 +25,18 @@ pub(super) fn abs(_: &mut dyn Ctx, _: Option<&mut Value>, args: &mut [Value]) ->
     })
 }
 
+/// `Abs(FR.Value())` (the lowering's id when the argument is written as a `FieldRef.Value()` call): a Date, Time or
+/// DateTime raises as its conversion into a Decimal does
+/// (recordref-fieldref/fieldref-value-convert/FvcTemporalIntoNumberPlaces.al:322-354 `abs`, corpus PR 1629;
+/// `fieldref_value_temporal::temporal_into_number`); any other value as [`abs`].
+pub(super) fn abs_field_value(c: &mut dyn Ctx, r: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+    let ctx: &dyn crate::format::FormatCtx = &*c;
+    match crate::fieldref_value_temporal::temporal_into_number(&args[0], &crate::value::RtType::Decimal, true, ctx) {
+        Some(r) => r,
+        None => abs(c, r, args),
+    }
+}
+
 /// `Abs` of a Duration is the BigInteger of its milliseconds: `Format(Abs(D))` is `1500`, assigned to a Decimal it is `1,500`
 /// (types/P146AbsDuration.al:P146_Abs_Duration_ResultFormats, P146AbsDurationBigInt.al).
 #[cold]

@@ -161,10 +161,10 @@ fn the_timestamp_exited_as_a_code_is_its_format_text() {
 #[test]
 fn a_parenthesized_exit_converts_as_the_plain_one() {
     assert_eq!(al_testkit::text(al_testkit::run_in(SRC, "C", "Paren")), "5");
-    let r = al_testkit::run_in(SRC, "C", "ParenDateIntoInteger");
-    assert!(
-        matches!(&r, Err(al_builtins::native::Signal::Unsupported(why)) if why.contains("issue 9265")),
-        "{r:?}"
+    // FvcTemporalIntoNumberPlaces.al:382 Date1_Places `exit` (corpus PR 1629; issue 9265).
+    assert_eq!(
+        al_testkit::error_message(al_testkit::run_in(SRC, "C", "ParenDateIntoInteger")),
+        "Unable to convert from Microsoft.Dynamics.Nav.Runtime.NavDate to System.Int32."
     );
 }
 

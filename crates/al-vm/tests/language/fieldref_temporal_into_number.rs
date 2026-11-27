@@ -125,14 +125,31 @@ fn places(kind: &str, variant: &str) -> String {
 /// DateTime1_Targets (the BC 28 and later readings).
 #[test]
 fn a_temporal_fieldref_value_into_each_number_target() {
-    assert_eq!(call("Targets", "date0"), targets("Date", "ok: P0DT0H0M0.0S", "ok: 0", "ok: false"));
-    assert_eq!(call("Targets", "date1"), targets("Date", "ok: P0DT0H24M39.993S", "ok: 1479993", "ok: true"));
-    assert_eq!(call("Targets", "time0"), targets("Time", "ok: P0DT0H0M0.0S", "ok: 0", "ok: false"));
-    assert_eq!(call("Targets", "time1"), targets("Time", "ok: P0DT12H0M0.001S", "ok: 43200001", "ok: true"));
+    assert_eq!(
+        call("Targets", "date0"),
+        targets("Date", "ok: P0DT0H0M0.0S", "ok: 0", "ok: false")
+    );
+    assert_eq!(
+        call("Targets", "date1"),
+        targets("Date", "ok: P0DT0H24M39.993S", "ok: 1479993", "ok: true")
+    );
+    assert_eq!(
+        call("Targets", "time0"),
+        targets("Time", "ok: P0DT0H0M0.0S", "ok: 0", "ok: false")
+    );
+    assert_eq!(
+        call("Targets", "time1"),
+        targets("Time", "ok: P0DT12H0M0.001S", "ok: 43200001", "ok: true")
+    );
     let int = err("DateTime", "System.Int32");
     assert_eq!(
         call("Targets", "datetime0"),
-        targets("DateTime", "ok: P0DT0H0M0.0S", "E: The value \"\" can't be evaluated into type Option. | Evaluate:Conversion", &int)
+        targets(
+            "DateTime",
+            "ok: P0DT0H0M0.0S",
+            "E: The value \"\" can't be evaluated into type Option. | Evaluate:Conversion",
+            &int
+        )
     );
     assert_eq!(
         call("Targets", "datetime1"),
@@ -152,7 +169,10 @@ fn a_temporal_fieldref_value_into_an_integer_in_every_place() {
     assert_eq!(call("Places", "date1"), places("Date", "ok: 1479993"));
     assert_eq!(call("Places", "time0"), places("Time", "ok: 0"));
     assert_eq!(call("Places", "time1"), places("Time", "ok: 43200001"));
-    assert_eq!(call("Places", "datetime1"), places("DateTime", &err("DateTime", "System.Int32")));
+    assert_eq!(
+        call("Places", "datetime1"),
+        places("DateTime", &err("DateTime", "System.Int32"))
+    );
 }
 
 /// The rule is taken for every value of a kind (the probe measured a blank and a set one): an early date.
