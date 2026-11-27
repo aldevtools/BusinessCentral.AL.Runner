@@ -47,16 +47,20 @@ pub struct InstallLeft {
 
 impl Session {
     /// What the install code left besides its data, when every other field of the session holds what a new session
-    /// holds; `None` otherwise (the caller then runs the install code in each test codeunit's own session). Called after
-    /// the install code ran and before [`Session::capture_baseline`], which commits and clears what it captures.
+    /// holds; otherwise the first term that does not, by its field name (the caller then runs the install code in each
+    /// test codeunit's own session, and its `--timings` line names the term). Called after the install code ran and
+    /// before [`Session::capture_baseline`], which commits and clears what it captures.
     ///
     /// Every field is named: a new field of `Session` does not compile here until it is decided. Each is one of
     /// - carried: in the `Baseline` the caller captures, or in [`InstallLeft`] (the comment says which);
     /// - not written by install code, or the same in every session of the run (the comment gives the reason);
     /// - checked, a field without a comment: [`Session::at_rest_why`] (what runs now, the `rest` class of the session field
-    ///   table, `session_fields.rs`) or [`Session::holds_as_new`] (what a test reads, and the owners' sub-states) require a
-    ///   new session's value.
-    pub fn install_left(&self) -> Option<InstallLeft> {
+    ///   table, `session_fields.rs`) or [`Session::not_as_new_why`] (what a test reads, and the owners' sub-states)
+    ///   require a new session's value.
+    ///
+    /// The terms, in the order they are tried: [`Session::at_rest_why`], `error_raised_in`,
+    /// [`Session::not_as_new_why`], then `sql` (`SqlCounters::left_inactive`).
+    pub fn install_left(&self) -> Result<InstallLeft, &'static str> {
         let Session {
             // Same engine: the caller keys what it keeps by `Engine::uid`.
             engine: _,
@@ -84,7 +88,8 @@ impl Session {
             isolated_set_in_test: _,
             // Carried in InstallLeft.
             isolated_written_in_codeunit: _,
-            // Checked (`holds_as_new`): nothing is noted before a test codeunit's first test (`begin_codeunit_row_locks`).
+            // Checked (`not_as_new_why`): nothing is noted before a test codeunit's first test
+            // (`begin_codeunit_row_locks`).
             row_locks: _,
             unmeasured: _,
             tasks: _,
@@ -220,7 +225,7 @@ impl Session {
             // (stale_buffer_origin.rs:55, assigned_audit.rs:327), a blob (blob_transfer.rs:977), a query (query_reopen.rs:43),
             // a page run (pages/page_run_close.rs:631), the SQL counters (sqlcount.rs:886, reset by `left_inactive`).
             commits: _,
-            // Checked (`holds_as_new`).
+            // Checked (`not_as_new_why`).
             blob_sources: _,
             error_scopes: _,
             // Caches of what the program defines: the same values in every session.
@@ -256,7 +261,7 @@ impl Session {
             waited_ms: _,
             // Read by the caller (`Session::resource_reads`).
             resource_reads: _,
-            // Checked (`holds_as_new`).
+            // Checked (`not_as_new_why`).
             sleep_budget: _,
             slept_in_test: _,
             encrypted: _,
@@ -289,10 +294,13 @@ impl Session {
         } = self;
         // The object that raised the last error is a `plain` field of the table (it goes with `last_error`); install code
         // may not leave one.
-        if !(self.at_rest_why().is_none() && self.error_raised_in.is_none() && self.holds_as_new()) {
-            return None;
+        if let Some(why) = (self.at_rest_why())
+            .or_else(|| self.error_raised_in.is_some().then_some("error_raised_in"))
+            .or_else(|| self.not_as_new_why())
+        {
+            return Err(why);
         }
-        Some(InstallLeft {
+        Ok(InstallLeft {
             carried: crate::CarriedState {
                 language: self.global_language(),
                 work_date: self.work_date,
@@ -303,77 +311,109 @@ impl Session {
             last_commit_wrote: self.tx.last_commit_wrote,
             transaction_type: self.tx.transaction_type,
             type_origin: self.tx.type_origin,
-            sql: self.sql.left_inactive()?,
+            sql: self.sql.left_inactive().ok_or("sql")?,
             caption_context_revision: self.events.caption_context_revision,
             subscriber_calls: self.events.event_stats.calls.borrow().clone(),
         })
     }
 
-    /// The fields a test reads, and the owners' sub-states, hold what a new session holds: the `refuse` predicates of the
-    /// session field table (`session_fields.rs`, [`Session::install_refused_field`]), and the fields the table holds by
-    /// value or by hand but install code may not leave changed.
-    fn holds_as_new(&self) -> bool {
+    /// The first of the fields a test reads, and of the owners' sub-states, that does not hold what a new session
+    /// holds, by its name; `None` when each does: the `refuse` predicates of the session field table
+    /// (`session_fields.rs`, [`Session::install_refused_field`]), and the fields the table holds by value or by hand
+    /// but install code may not leave changed.
+    fn not_as_new_why(&self) -> Option<&'static str> {
         let fresh_guid_key = al_host::seed::fixed_guid_key(self.host.guid_seed.unwrap_or(self.host.random_seed));
         // State a test reads that a new session holds, by the reviewer's table of PR 8153 and the field list above.
-        self.install_refused_field().is_none()
-            && self.last_error == al_builtins::native::AlError::default()
-            && self.isolated_committed == self.isolated_storage
-            && self.demo_written.is_empty()
-            && !self.gl_setup_written
-            && !self.setup_caption_read_early
-            && self.table_connections.is_empty()
-            && self.default_table_connection.is_empty()
-            && self.sequences_changed.is_empty()
-            && self.singletons.is_empty()
-            && self.guid_key == fresh_guid_key
-            && self.unseeded_base == self.host.random_seed
-            && !self.randomized_with_seed
-            && self.random_draws == 0
-            && !self.reseeded_in_test
-            && self.inherited_draws == 0
-            && !self.run_seeded_in_test
-            && self.carried_draws == 0
-            && self.unseeded_randomizes == 0
-            && self.install_row_version == self.restored_row_version
-            && self.baseline_origin.is_none()
-            && !self.in_test_codeunit
-            && !self.isolation_from_hub
-            && !self.hub_disabled
-            && self.test_object.is_none()
-            && self.http_policy.is_none()
-            && self.tdd_reached.is_empty()
-            && self.media.objects.borrow().is_empty()
-            && self.media.sets.borrow().is_empty()
-            && self.media.removed.borrow().is_empty()
-            && self.media.outside_tenant.borrow().is_empty()
-            && self.media_removed.0.is_empty()
-            && self.media_removed.1.is_empty()
-            && self.application_areas.is_empty()
-            && self.encrypted.is_empty()
-            && self.encryption_key == crate::EncryptionKey::Present
-            && self.clock_key == al_host::seed::clock_key(self.host.run_seed, 0, "")
-            && self.caption_translations.is_empty()
-            && self.ui_caption_translated.is_empty()
-            && self.tx_left_as_after_commit()
-            && self.blob_sources.as_new()
-            && self.variant_refs.as_new()
-            && self.temp_blob_impl_fields.as_new()
-            && clients::ui_as_new(&self.ui_state)
-            && clients::events_as_new(&self.events)
+        let by_value = || {
+            [
+                (self.last_error == al_builtins::native::AlError::default(), "last_error"),
+                (self.isolated_committed == self.isolated_storage, "isolated_committed"),
+                (self.demo_written.is_empty(), "demo_written"),
+                (!self.gl_setup_written, "gl_setup_written"),
+                (!self.setup_caption_read_early, "setup_caption_read_early"),
+                (self.table_connections.is_empty(), "table_connections"),
+                (self.default_table_connection.is_empty(), "default_table_connection"),
+                (self.sequences_changed.is_empty(), "sequences_changed"),
+                (self.singletons.is_empty(), "singletons"),
+                (self.guid_key == fresh_guid_key, "guid_key"),
+                (self.unseeded_base == self.host.random_seed, "unseeded_base"),
+                (!self.randomized_with_seed, "randomized_with_seed"),
+                (self.random_draws == 0, "random_draws"),
+                (!self.reseeded_in_test, "reseeded_in_test"),
+                (self.inherited_draws == 0, "inherited_draws"),
+                (!self.run_seeded_in_test, "run_seeded_in_test"),
+                (self.carried_draws == 0, "carried_draws"),
+                (self.unseeded_randomizes == 0, "unseeded_randomizes"),
+                (
+                    self.install_row_version == self.restored_row_version,
+                    "install_row_version",
+                ),
+                (self.baseline_origin.is_none(), "baseline_origin"),
+                (!self.in_test_codeunit, "in_test_codeunit"),
+                (!self.isolation_from_hub, "isolation_from_hub"),
+                (!self.hub_disabled, "hub_disabled"),
+                (self.test_object.is_none(), "test_object"),
+                (self.http_policy.is_none(), "http_policy"),
+                (self.tdd_reached.is_empty(), "tdd_reached"),
+                (self.media.objects.borrow().is_empty(), "media.objects"),
+                (self.media.sets.borrow().is_empty(), "media.sets"),
+                (self.media.removed.borrow().is_empty(), "media.removed"),
+                (self.media.outside_tenant.borrow().is_empty(), "media.outside_tenant"),
+                (
+                    self.media_removed.0.is_empty() && self.media_removed.1.is_empty(),
+                    "media_removed",
+                ),
+                (self.application_areas.is_empty(), "application_areas"),
+                (self.encrypted.is_empty(), "encrypted"),
+                (self.encryption_key == crate::EncryptionKey::Present, "encryption_key"),
+                (
+                    self.clock_key == al_host::seed::clock_key(self.host.run_seed, 0, ""),
+                    "clock_key",
+                ),
+                (self.caption_translations.is_empty(), "caption_translations"),
+                (self.ui_caption_translated.is_empty(), "ui_caption_translated"),
+            ]
+            .into_iter()
+            .find_map(|(holds, field)| (!holds).then_some(field))
+        };
+        let owned = || {
+            [
+                (self.blob_sources.as_new(), "blob_sources"),
+                (self.variant_refs.as_new(), "variant_refs"),
+                (self.temp_blob_impl_fields.as_new(), "temp_blob_impl_fields"),
+            ]
+            .into_iter()
+            .find_map(|(holds, field)| (!holds).then_some(field))
+        };
+        (self.install_refused_field())
+            .or_else(by_value)
+            .or_else(|| self.tx_after_commit_why())
+            .or_else(owned)
+            .or_else(|| clients::ui_why(&self.ui_state))
+            .or_else(|| clients::events_why(&self.events))
     }
 
-    /// The transaction state after the install's last Commit: what a new session holds ([`tx_left_as_new`]), except what the
-    /// Commit sets (`committed_row_version`, carried in the Baseline; `commit_counter`, the store's change counter, which
-    /// [`Session::restore_install_left`] sets again; `last_commit_wrote`, `transaction_type` and `type_origin`, carried).
-    fn tx_left_as_after_commit(&self) -> bool {
+    /// The first field (`tx.<field>`) of the transaction state after the install's last Commit that does not hold what
+    /// a new session holds ([`tx_not_as_new`]); `None` when each does. Not checked: what the Commit sets
+    /// (`committed_row_version`, carried in the Baseline; `last_commit_wrote`, `transaction_type` and `type_origin`,
+    /// carried), and `commit_counter` is the store's change counter, which [`Session::restore_install_left`] sets
+    /// again.
+    fn tx_after_commit_why(&self) -> Option<&'static str> {
         let fresh = crate::state::TxState::fresh();
         let tx = &self.tx;
-        tx.phase == fresh.phase
-            && tx.lock_timeout == fresh.lock_timeout
-            && tx.lock_timeout_duration == fresh.lock_timeout_duration
-            && tx.commit_counter == self.store.change_counter()
-            && !tx.rolled_back
-            && tx_left_as_new(tx)
+        [
+            (tx.phase == fresh.phase, "tx.phase"),
+            (tx.lock_timeout == fresh.lock_timeout, "tx.lock_timeout"),
+            (
+                tx.lock_timeout_duration == fresh.lock_timeout_duration,
+                "tx.lock_timeout_duration",
+            ),
+            (tx.commit_counter == self.store.change_counter(), "tx.commit_counter"),
+            (!tx.rolled_back, "tx.rolled_back"),
+        ]
+        .into_iter()
+        .find_map(|(holds, field)| (!holds).then_some(field))
+        .or_else(|| tx_not_as_new(tx))
     }
 
     /// Starts this new session from what install code left in a session of its own: the clock first (the restore keeps
@@ -400,15 +440,11 @@ impl Session {
     }
 }
 
-/// The transaction state field by field: what a new session holds ([`crate::state::TxState::fresh`]), except what a
-/// Commit leaves for a later test to read (`phase`, `transaction_type`, `type_origin`, `lock_timeout`,
-/// `lock_timeout_duration`, `committed_row_version`, `commit_counter`, `write_counts`, `rolled_back`,
-/// `last_commit_wrote`), which the callers decide: no transaction is open and no call left anything behind.
-pub(crate) fn tx_left_as_new(tx: &crate::state::TxState) -> bool {
-    tx_not_as_new(tx).is_none()
-}
-
-/// The first field [`tx_left_as_new`] finds not as new, as `tx.<field>`.
+/// The first field of the transaction state, as `tx.<field>`, that does not hold what a new session holds
+/// ([`crate::state::TxState::fresh`]); `None` when each does. Not checked: what a Commit leaves for a later test to read
+/// (`phase`, `transaction_type`, `type_origin`, `lock_timeout`, `lock_timeout_duration`, `committed_row_version`,
+/// `commit_counter`, `write_counts`, `rolled_back`, `last_commit_wrote`), which the callers decide: no transaction is
+/// open and no call left anything behind.
 pub(crate) fn tx_not_as_new(tx: &crate::state::TxState) -> Option<&'static str> {
     let crate::state::TxState {
         tx_world,

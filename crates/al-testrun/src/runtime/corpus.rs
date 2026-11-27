@@ -1801,8 +1801,8 @@ impl CorpusRuntime {
                 wall: pass_started.elapsed(),
             });
         }
-        let (install_runs, install_notes) = super::install_once::end_run(&engine, &installs);
-        baseline_ids.add_printed("install", &install_notes, opts.quiet_baseline);
+        let installs_end = super::install_once::end_run(&engine, &installs);
+        baseline_ids.add_printed("install", &installs_end.notes, opts.quiet_baseline);
         let login_replay = crate::login_start::phases(&engine);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
@@ -1865,7 +1865,8 @@ impl CorpusRuntime {
                 workspace_cache: workspace_cache.clone(),
                 engine: engine_time,
                 baseline_skipped,
-                install_runs,
+                install_runs: installs_end.runs,
+                install_rerun: installs_end.rerun,
                 baseline_why: baseline_note,
                 compile_cache_skipped,
                 source_index,
