@@ -77,6 +77,10 @@ owner's OK; CI shows it in the job summary. No bot pushes to `main`.
 install baseline's NumberSequence values per test codeunit). Corpus files that pin what carries from one test
 codeunit to the next are listed in `metrics/strict-order-files.txt`; each pass runs their codeunits once more,
 alone, with `--strict-order`, and their cases take that outcome. They must pass there and get no not-passing line.
+The nightly CI runs the whole corpus in BC's order (`AL_STRICT_ORDER_ALL=1`, ADR-070 decision 5). It holds the
+not-passing lists and `metrics/<major>/strict-order-not-run.txt`: the cases the default run passes and that run does not
+run yet. That list only shrinks (`--list-changes` exits 3 on an added line); prune it with
+`AL_STRICT_ORDER_ALL=1 al-test-cli --root . --bc-version 29 --prune-not-passing`.
 
 ## Generated docs and ids
 
