@@ -9,6 +9,11 @@ use al_sema::workspace::AppSource;
 
 /// The outcomes of test codeunit 52504 of `src` under Function isolation on the hub.
 fn outcomes(src: &str) -> Vec<(String, Outcome)> {
+    outcomes_from(src, None)
+}
+
+/// [`outcomes`] on the data that codeunit `seed`'s OnRun left (the seed's code joins `src`).
+fn outcomes_from(src: &str, seed: Option<&str>) -> Vec<(String, Outcome)> {
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -23,6 +28,16 @@ fn outcomes(src: &str) -> Vec<(String, Outcome)> {
     let index = (l.program.objects.iter())
         .position(|o| o.id == Some(52504) && o.kind == al_ir::ObjKind::Codeunit)
         .unwrap();
+    let baseline = seed.map(|seed| {
+        let mut session = al_vm::Session::new(engine.clone());
+        let s = (l.program.objects.iter()).position(|o| o.name == seed).unwrap();
+        let on_run = (l.program.objects[s].routines.iter())
+            .position(|r| r.name == "OnRun")
+            .unwrap();
+        let inst = session.instance(s);
+        assert!(session.call(s, on_run, inst, Vec::new()).is_ok());
+        session.capture_baseline()
+    });
     let mut scratch = Scratch {
         hub: true,
         ..Scratch::new(crate::host::RunClock::begin())
@@ -31,7 +46,7 @@ fn outcomes(src: &str) -> Vec<(String, Outcome)> {
         &engine,
         &l,
         index,
-        None,
+        baseline.as_ref(),
         TestIsolation::Function,
         None,
         &mut Vec::new(),
@@ -95,4 +110,25 @@ fn a_restart_is_put_back_for_the_next_test() {
 fn a_delete_is_put_back_for_the_next_test() {
     let o = outcomes(&codeunit("NumberSequence.Delete('HUBSEQ', false);", "cur=0"));
     assert!(matches!(b(&o), Outcome::Pass), "{o:?}");
+}
+
+#[test]
+fn a_sequence_that_existed_before_the_codeunit_began_refuses() {
+    // The seed inserts HUBSEQ before codeunit 52504 begins; its OnRun then only takes Next twice. Not measured
+    // (hub_test_sequences: "a sequence missing when the codeunit began"): the next test refuses.
+    let seed = "codeunit 52503 Seed
+{
+    trigger OnRun()
+    begin
+        NumberSequence.Insert('HUBSEQ', 1, 1, false);
+    end;
+}
+";
+    let src = codeunit("NumberSequence.Restart('HUBSEQ', 1000, false);", "cur=0").replace(
+        "NumberSequence.Insert('HUBSEQ', 1, 1, false);\n",
+        "",
+    );
+    assert!(!src.contains("Insert"), "{src}");
+    let o = outcomes_from(&format!("{seed}{src}"), Some("Seed"));
+    assert!(matches!(b(&o), Outcome::NotRun(_)), "{o:?}");
 }
