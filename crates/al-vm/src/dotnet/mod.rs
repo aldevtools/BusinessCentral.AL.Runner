@@ -19,6 +19,7 @@ pub(crate) mod instream_arg;
 mod invoke_exception;
 mod last_error;
 mod not_created;
+mod null_value_type;
 mod pinned_exceptions;
 pub mod policy;
 mod pure;
@@ -428,6 +429,7 @@ impl Session {
         };
         let footprint_member = (kind != MemberKind::Construct).then_some(member.as_str());
         self.note_footprint_dotnet(&clr_type, footprint_member, values.len(), &shown);
+        self.null_value_type_args(kind, &clr_type, &member, &mut values, &places, f)?;
 
         // 1. The registry: a registered type is served here for all its members.
         let engine = self.engine.clone();

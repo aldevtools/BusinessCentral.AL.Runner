@@ -144,6 +144,10 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.DateTime\"; \"ClrDateTime\") { }
     type(\"System.DateTimeOffset\"; \"ClrDateTimeOffset\") { }
     type(\"System.Byte\"; \"ClrByte\") { }
+    type(\"System.Int32\"; \"ClrInt32\") { }
+    type(\"System.Boolean\"; \"ClrBoolean\") { }
+    type(\"System.TimeSpan\"; \"ClrTimeSpan\") { }
+    type(\"System.Int64\"; \"ClrInt64\") { }
     type(\"System.IO.File\"; \"File\") { }
     type(\"System.IO.Directory\"; \"Directory\") { }
     type(\"System.IO.DirectoryInfo\"; \"DirectoryInfo\") { }
@@ -5090,4 +5094,124 @@ fn the_constant_answers_are_registered_calls() {
     assert!(ANSWERS_ONLY.iter().all(|(c, m)| keeps_nothing(c, m)));
     let helper = al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER;
     assert!(!keeps_nothing(helper, "SetTestTenantEnvironmentType"));
+}
+
+// ---- A null DotNet passed where its declared type is a .NET value type (al-runner issue 8268; assumption
+// dotnet-null-value-type-argument, corpus pull request 1623, dotnet-null-valuetype/N8268DotNetNullValueType.al) ----
+
+/// The wire values of the arguments of the first request the host got for `member`.
+fn sent_args(host: &Fake, member: &str) -> Vec<DotNetValue> {
+    host.log()
+        .into_iter()
+        .find_map(|r| match r {
+            Req::Invoke(_, m, a) if m == member => Some(a.into_iter().map(|a| a.value).collect()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no {member} request"))
+}
+
+// N8268DotNetNullValueType.al:167 (Convert.ToString(null Byte, 2) = '0'), :211 (Convert.ToInt32(null Boolean) = 0),
+// :275 (StringBuilder.Remove(null Int32, 2)): the null goes to .NET as the default value of its declared type.
+#[test]
+fn a_null_value_type_argument_of_a_measured_method_goes_to_dotnet_as_its_default() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(_, m, _) if m == "ToString" => reply(DotNetValue::Str("0".into())),
+        Req::Invoke(_, m, _) if m == "ToInt32" => reply(DotNetValue::Int32(0)),
+        Req::Construct(t, _) if t == "System.Text.StringBuilder" => reply(handle(7, "System.Text.StringBuilder")),
+        Req::Invoke(_, m, _) if m == "Remove" => reply(handle(7, "System.Text.StringBuilder")),
+        _ => reply(DotNetValue::Null),
+    });
+    let vars = "B: DotNet ClrByte; Bo: DotNet ClrBoolean; I: DotNet ClrInt32; Cv: DotNet Convert; Sb: DotNet StringBuilder; T: Text;";
+    let body =
+        "T := Cv.ToString(B, 2); T := Format(Cv.ToInt32(Bo)); Sb := Sb.StringBuilder('abcdef'); Sb.Remove(I, 2);";
+    for bc in ["27.5", "28.5", "29.0"] {
+        let r = run_as_with(bc, &host, vars, body, "");
+        assert!(r.result.is_ok(), "{bc}: {:?}", r.result);
+    }
+    assert_eq!(
+        sent_args(&host, "ToString"),
+        vec![DotNetValue::Byte(0), DotNetValue::Int32(2)]
+    );
+    assert_eq!(sent_args(&host, "ToInt32"), vec![DotNetValue::Bool(false)]);
+    assert_eq!(
+        sent_args(&host, "Remove"),
+        vec![DotNetValue::Int32(0), DotNetValue::Int32(2)]
+    );
+}
+
+// N8268DotNetNullValueType.al:48-57 (DateTimeOffset(D, null TimeSpan)) and :293 (StringBuilder(null Int32, 5)): a constructor
+// raises DotNetCreate:NullReference naming the assembly BC 27 or BC 28 and later reports; .NET is not called.
+#[test]
+fn a_null_value_type_argument_of_a_measured_constructor_raises_dotnet_create() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(_, m, _) if m == "UtcNow" => reply(DotNetValue::DateTime(638_000_000_000_000_000)),
+        other => panic!("unexpected request {other:?}"),
+    });
+    let vars = "D: DotNet ClrDateTime; Ts: DotNet ClrTimeSpan; Dto: DotNet ClrDateTimeOffset; I: DotNet ClrInt32; Sb: DotNet StringBuilder;";
+    let cases = [
+        (
+            "D := D.UtcNow(); Dto := Dto.DateTimeOffset(D, Ts);",
+            "System.DateTimeOffset",
+        ),
+        ("Sb := Sb.StringBuilder(I, 5);", "System.Text.StringBuilder"),
+    ];
+    for (body, ty) in cases {
+        for (bc, assembly) in [
+            (
+                "27.5",
+                "System.Runtime, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+            ),
+            (
+                "28.5",
+                "mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+            ),
+            (
+                "29.0",
+                "mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+            ),
+        ] {
+            match run_as_with(bc, &host, vars, body, "").result {
+                Err(Signal::Error(e)) => {
+                    assert_eq!(e.code, "DotNetCreate:NullReference", "{bc} {ty}");
+                    assert_eq!(
+                        e.message,
+                        format!(
+                            "Cannot create an instance of the following .NET Framework object: assembly {assembly}, type {ty}."
+                        ),
+                        "{bc}"
+                    );
+                }
+                other => panic!("{bc} {ty}: {other:?}"),
+            }
+        }
+    }
+}
+
+// Shapes the probe did not measure refuse: a null Int64, a null Int32 into Convert.ToString with a Text second argument, a
+// null Int32 to a property setter, a measured constructor on a BC major the probe did not run, and a measured call whose
+// null comes through a var parameter.
+#[test]
+fn a_null_value_type_argument_outside_the_measured_calls_is_refused() {
+    let host = Fake::new(|_| reply(DotNetValue::Null));
+    let vars = "L: DotNet ClrInt64; I: DotNet ClrInt32; Cv: DotNet Convert; Sb: DotNet StringBuilder; T: Text;";
+    let by_var =
+        "procedure G(var N: DotNet ClrInt32) var Cv: DotNet Convert; T: Text; begin T := Cv.ToString(N, 2); end;";
+    let refused = [
+        ("29.0", "T := Cv.ToString(L, 2);"),
+        ("29.0", "T := Cv.ToString(I, 'x');"),
+        ("29.0", "Sb := Sb.StringBuilder(); Sb.Capacity := I;"),
+        ("26.5", "Sb := Sb.StringBuilder(I, 5);"),
+    ]
+    .map(|(bc, body)| (bc, body, run_as_with(bc, &host, vars, body, "").result));
+    let through_var = (
+        "-",
+        "G(I);",
+        run_extra(cfg(&host), vars, "G(I);", "", by_var, |_| {}).result,
+    );
+    for (bc, body, result) in refused.into_iter().chain([through_var]) {
+        match result {
+            Err(Signal::Unsupported(why)) => assert!(why.contains("null"), "{body}: {why}"),
+            other => panic!("{bc} {body}: {other:?}"),
+        }
+    }
 }
