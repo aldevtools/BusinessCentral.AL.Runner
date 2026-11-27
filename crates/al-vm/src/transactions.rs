@@ -405,11 +405,7 @@ impl Session {
 
     /// The `Subtype` object `o` declares, trimmed; `None` when it declares none.
     pub(crate) fn declared_subtype(&self, o: usize) -> Option<&str> {
-        self.engine.program.objects[o]
-            .properties
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
-            .map(|(_, v)| v.trim())
+        declared_subtype(&self.engine.program.objects[o].properties)
     }
 
     pub(crate) fn leave_used_try(&mut self) {
@@ -1031,6 +1027,14 @@ impl Session {
         let removed = std::mem::take(&mut self.media_removed.0);
         self.media_removed.1.extend(removed);
     }
+}
+
+/// The `Subtype` an object with these properties declares, trimmed; `None` when it declares none.
+pub(crate) fn declared_subtype(properties: &[(String, String)]) -> Option<&str> {
+    properties
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
+        .map(|(_, v)| v.trim())
 }
 
 #[cfg(test)]
