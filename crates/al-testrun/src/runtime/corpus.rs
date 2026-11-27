@@ -1377,6 +1377,8 @@ impl CorpusRuntime {
         let installs = Arc::new(super::install_once::RunInstalls::default());
         let passes = Pass::of_run(opts, &opts_only, &memory, order, in_program_order);
         let mut entry_ranges: Vec<std::ops::Range<usize>> = Vec::new();
+        // Per finished pass: the reason of its first row that triggered its stop (`Scratch::stop_trigger`).
+        let mut triggers: Vec<Option<String>> = Vec::new();
         let mut pass_times: Vec<PassTime> = Vec::new();
         for pass in &passes {
             let start = list.len();
@@ -1386,7 +1388,8 @@ impl CorpusRuntime {
             // Writing the snapshot the test threads read (the first pass on several threads does it).
             let mut encode_time = std::time::Duration::ZERO;
             super::install_once::begin_pass(&engine, &pass.resources);
-            let (refused, skip) = pass_refused(install_read_resources, pass, &passes, &entry_ranges, &list);
+            let (refused, skip) = pass_refused(install_read_resources, pass, &passes, &triggers);
+            let mut triggered: Option<String> = None;
             let (opts_only, limit) = (&pass.only, pass.limit);
             // The test codeunits to run, in the order the report lists them.
             let mut units: Vec<Unit> = Vec::new();
@@ -1700,6 +1703,7 @@ impl CorpusRuntime {
                 };
                 match r.result {
                     Ok((done, stacks, times, hits, mut covs, mut scratch)) => {
+                        triggered = triggered.or(scratch.stop_trigger.take());
                         for (name, outcome) in done {
                             let stack = stacks.iter().find(|(n, _)| *n == name).map(|(_, s)| s.clone());
                             let marks = hits.iter().find(|(n, _)| *n == name).map(|(_, h)| h.clone());
@@ -1795,6 +1799,7 @@ impl CorpusRuntime {
             if !opts.entries.is_empty() {
                 entry_ranges.push(start..list.len());
             }
+            triggers.push(triggered);
             pass_times.push(PassTime {
                 reset: encode_time
                     + std::time::Duration::from_nanos(reset_ns.load(std::sync::atomic::Ordering::Relaxed)),
@@ -2339,35 +2344,28 @@ fn pass_refused(
     install_read_resources: bool,
     pass: &Pass,
     passes: &[Pass],
-    ranges: &[std::ops::Range<usize>],
-    list: &[TestResult],
+    triggers: &[Option<String>],
 ) -> (Option<String>, bool) {
     if install_read_resources && !pass.resources.is_empty() {
         return (Some("the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()), false);
     }
-    let stopped = pass_stopped(pass, passes, ranges, list);
+    let stopped = pass_stopped(pass, passes, triggers);
     let skipped = stopped.is_some();
     (stopped, skipped)
 }
 
-/// The reason the stop of `pass` (`stop.rs`) runs no test of it: an earlier pass with the same stop scope (`Pass::stop`;
-/// issue 8210) has a row that triggers the stop, the first in `list` order. The entries
-/// without a group share one scope (the serve protocol refuses a mix of entries with and without one). `ranges[k]` holds the rows of `passes[k]` in
-/// `list`, one range per finished pass, so the `zip` ends at the current pass. With no entries `ranges` is empty, and
-/// the single pass has no earlier rows.
-fn pass_stopped(
-    pass: &Pass,
-    passes: &[Pass],
-    ranges: &[std::ops::Range<usize>],
-    list: &[TestResult],
-) -> Option<String> {
+/// The reason the stop of `pass` (`stop.rs`) runs no test of it: the first earlier pass with the same stop scope
+/// (`Pass::stop`; issue 8210) whose rows triggered the stop. `triggers[k]` is what the codeunit loop recorded for
+/// `passes[k]` (`Scratch::stop_trigger`, its first triggering row), one per finished pass, so the `zip` ends at the
+/// current pass; the texts of the rows are not matched again (issue 9213). The entries without a group share one scope
+/// (the serve protocol refuses a mix of entries with and without one).
+fn pass_stopped(pass: &Pass, passes: &[Pass], triggers: &[Option<String>]) -> Option<String> {
     let stop = pass.stop.as_ref()?;
-    ranges
+    triggers
         .iter()
         .zip(passes)
         .filter(|(_, p)| p.stop.as_ref().is_some_and(|s| s.scope == stop.scope))
-        .flat_map(|(r, _)| &list[r.clone()])
-        .find_map(|r| stop.after(&r.outcome, r.codeunit, &r.test))
+        .find_map(|(t, _)| t.clone())
 }
 
 /// The isolation of the runner the test codeunits of `suite` run under, or why none of them runs (`refused`). With

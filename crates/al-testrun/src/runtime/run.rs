@@ -726,6 +726,10 @@ fn run_codeunit_inner(
                     }
                 }
                 Err(Signal::Unsupported(r)) if r.starts_with(TIME_LIMIT_REASON) => {
+                    scratch.stop_trigger = scratch
+                        .stop
+                        .as_ref()
+                        .and_then(|s| s.after_on_run_cut(obj.id.unwrap_or(0)));
                     return Err(on_run_refused(r.into_reason()));
                 }
                 Err(Signal::Unsupported(r)) => return Err(on_run_refused(format!("OnRun: {r}"))),
@@ -1283,11 +1287,13 @@ fn run_codeunit_inner(
             };
             let ended = ended_of(&outcome, began, untrusted.is_some());
             if stopped.is_none() {
-                stopped = (scratch
+                // The first row that triggers the pass's stop is kept for the later entries (`stop.rs`).
+                let id = obj.id.unwrap_or(0);
+                scratch.stop_trigger = scratch
                     .stop
                     .as_ref()
-                    .and_then(|s| s.after(&outcome, obj.id.unwrap_or(0), &name)))
-                .or_else(|| {
+                    .and_then(|s| s.after(&outcome, hit_time_limit, id, &name));
+                stopped = (scratch.stop_trigger.clone()).or_else(|| {
                     (scratch.skip_after_timeout && hit_time_limit).then(|| skipped_after_timeout(&routine.name))
                 });
             }
@@ -1958,8 +1964,8 @@ fn not_run_reason(r: Refusal) -> String {
 /// How the reason of a test the time limit stopped starts (the outputs turn it into `Test exceeded <N>s timeout.`).
 const TIME_LIMIT_REASON: &str = "the test used more than the time limit of ";
 
-/// Where the reason of an OnRun the time limit stopped says it was stopped (`stop.rs` names the trigger by it).
-pub(super) const ON_RUN_PLACE: &str = " in the test codeunit's OnRun trigger, before its tests";
+/// Where the reason of an OnRun the time limit stopped says it was stopped.
+const ON_RUN_PLACE: &str = " in the test codeunit's OnRun trigger, before its tests";
 
 /// Whether `reason` is that of a row the time limit stopped (`TIME_LIMIT_REASON`).
 pub(super) fn is_time_limit(reason: &str) -> bool {

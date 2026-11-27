@@ -819,6 +819,9 @@ pub(crate) struct Scratch {
     skip_after_timeout: bool,
     /// The pass's stop (`stop.rs`).
     stop: Option<stop::Stop>,
+    /// The reason the first row of the codeunit that triggered `stop` gives the later tests (`stop.rs`); the pass reads it
+    /// for its later entries (`corpus::pass_stopped`).
+    stop_trigger: Option<String>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -896,6 +899,7 @@ impl Scratch {
             report_unpinned_errors: Default::default(),
             skip_after_timeout: Default::default(),
             stop: Default::default(),
+            stop_trigger: None,
             perturb: Default::default(),
             run_seed: Default::default(),
             runner: Default::default(),
@@ -1039,6 +1043,7 @@ fn run_unit(
             report_unpinned_errors: u.report_unpinned_errors,
             skip_after_timeout: u.skip_after_timeout,
             stop: u.stop.clone(),
+            stop_trigger: None,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             runner: u.runner,
