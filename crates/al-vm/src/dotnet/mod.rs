@@ -95,6 +95,22 @@ const _: fn() = || {
     assert_send_sync::<DotNetConfig>();
 };
 
+/// The AL stream behind a host write bridge, and its Blob's [`al_builtins::stream::BlobBuf::content_edits`] when the bridge was made
+/// or a reply last wrote into it: an AL write, `Clear`, `CreateOutStream` or `Import` of the Blob since then changes the count.
+struct Bridge {
+    blob: BlobRef,
+    edits: u32,
+}
+
+impl Bridge {
+    fn new(blob: &BlobRef) -> Self {
+        Bridge {
+            blob: blob.clone(),
+            edits: blob.borrow().content_edits,
+        }
+    }
+}
+
 /// A session's .NET side: the host session (opened at the first call that reaches the host),
 /// the queue of dropped handles, and the AL streams behind the host's write bridges.
 #[derive(Default)]
@@ -103,7 +119,7 @@ pub struct DotNetState {
     release: Rc<RefCell<Vec<DotNetHandle>>>,
     /// `availability()` of the host, asked once per session.
     available: Option<Result<(), String>>,
-    bridges: HashMap<u64, BlobRef>,
+    bridges: HashMap<u64, Bridge>,
     /// ADR-056: the workbook writers `WorkbookWriter.Create(fileName)` made, by handle: the file and the AL stream the writer
     /// writes into instead. `Close` makes the bytes the file.
     open_workbooks: HashMap<DotNetHandle, (String, BlobRef)>,
@@ -1380,34 +1396,50 @@ impl Session {
     /// What a reply says .NET did to the AL streams behind its bridges, applied to their Blobs: the bytes it wrote come back
     /// (the bridges of al-runner issue 6317), and a Blob whose handed-back bytes it wrote over is marked
     /// (`DOTNET_BRIDGE_OVERWRITTEN`). Every call that can write through a bridge applies its reply here.
-    fn apply_stream_effects(&self, streams: &al_host::dotnet::StreamEffects, shown: &str) -> Result<(), Signal> {
+    fn apply_stream_effects(&mut self, streams: &al_host::dotnet::StreamEffects, shown: &str) -> Result<(), Signal> {
         for (id, bytes) in &streams.written {
-            match self.dotnet.bridges.get(id) {
-                Some(blob) => al_builtins::stream::write_bytes(blob, bytes),
+            match self.dotnet.bridges.get_mut(id) {
+                Some(bridge) => {
+                    al_builtins::stream::write_bytes(&bridge.blob, bytes);
+                    bridge.edits = bridge.blob.borrow().content_edits;
+                }
                 None => return unsupported(format!("DotNet {shown}: bytes for an unknown stream bridge {id}")),
             }
         }
-        // The Blob's bytes are the bridge's content only while AL wrote nothing into it since the last reply, as the seed was
-        // its whole bytes with the position at their end (`DotNetValue::OutStreamWith`); else what it then holds is not pinned.
+        // The seed was the Blob's whole bytes with the position at their end (`DotNetValue::OutStreamWith`). A rewrite replaces them
+        // only when the Blob still holds what the bridge holds: its edit count is the one of the bridge (no AL write, Clear,
+        // CreateOutStream or Import since the bridge was made or last written), its length and position are the bridge's length,
+        // no render is pending, and a Clear of it empties this same buffer (`blob_clears_in_place`: no Insert stored it, no xRec
+        // shares it). Else what the Blob then holds is not pinned.
         for (id, before, bytes) in &streams.replaced {
-            let Some(blob) = self.dotnet.bridges.get(id) else {
+            let Some(bridge) = self.dotnet.bridges.get(id) else {
                 return unsupported(format!("DotNet {shown}: an unknown stream bridge {id}"));
             };
+            let blob = bridge.blob.clone();
             let held = {
                 let buf = blob.borrow();
-                buf.bytes.len() == *before && buf.write_pos == *before && buf.render_pending.is_none()
-            };
+                (
+                    buf.content_edits,
+                    buf.bytes.len(),
+                    buf.write_pos,
+                    buf.render_pending.is_none(),
+                ) == (bridge.edits, *before, *before, true)
+            } && al_builtins::native::blob_clears_in_place(&*self, &blob);
             if !held {
                 return unsupported(format!(
                     "DotNet {shown}: a .NET rewrite of an OutStream AL wrote into since the call before (not pinned)"
                 ));
             }
-            al_builtins::stream::replace_bytes(blob, bytes);
+            al_builtins::stream::replace_bytes(&blob, bytes);
+            if let Some(bridge) = self.dotnet.bridges.get_mut(id) {
+                bridge.edits = blob.borrow().content_edits;
+            }
         }
         for id in &streams.overwritten {
             match self.dotnet.bridges.get(id) {
-                Some(blob) => {
-                    blob.borrow_mut().render_pending = Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN.into())
+                Some(bridge) => {
+                    bridge.blob.borrow_mut().render_pending =
+                        Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN.into())
                 }
                 None => return unsupported(format!("DotNet {shown}: an unknown stream bridge {id}")),
             }
@@ -1436,7 +1468,7 @@ impl Session {
         }
         for (idx, id) in &reply.streams.bridges {
             if let Some((_, blob)) = book.outs.iter().find(|(i, _)| i == idx) {
-                self.dotnet.bridges.insert(*id, blob.clone());
+                self.dotnet.bridges.insert(*id, Bridge::new(blob));
             }
         }
         self.apply_stream_effects(&reply.streams, shown)?;

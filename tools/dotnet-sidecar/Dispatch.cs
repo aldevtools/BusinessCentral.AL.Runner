@@ -246,7 +246,9 @@ public sealed class Server
                 try { result = ((MethodInfo)best).Invoke(((MethodInfo)best).IsStatic ? null : target, coerced); }
                 catch (TargetInvocationException) when (rewrite is { Replaced: true })
                 {
-                    // A failed request hands back no bytes: a rewrite that then fails would reach the Blob late.
+                    // A failed request hands back no bytes: a rewrite that then fails would reach the Blob late. The flag
+                    // does not outlive the call.
+                    rewrite.Replaced = false;
                     throw new Refusal("a .NET rewrite of the bytes an AL OutStream held, then an exception (not pinned)");
                 }
                 finally { if (rewrite != null) rewrite.RewriteAllowed = false; }
