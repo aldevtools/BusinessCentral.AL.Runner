@@ -3,13 +3,20 @@
 
 use crate::state::{CoverageState, EventState, PageClients, ReportState, UiState};
 
-/// The handler functions and notifications of a test method: install code runs outside one.
-pub(crate) fn ui_as_new(ui: &UiState) -> bool {
-    ui.sent_notifications.is_empty() && !ui.clientless_login_skipped && ui_left_as_new(ui)
+/// The first field (`ui_state.<field>`) of the handler functions and notifications of a test method that does not hold
+/// a new session's value (install code runs outside one); `None` when each does.
+pub(crate) fn ui_why(ui: &UiState) -> Option<&'static str> {
+    [
+        (ui.sent_notifications.is_empty(), "ui_state.sent_notifications"),
+        (!ui.clientless_login_skipped, "ui_state.clientless_login_skipped"),
+        (ui_left_as_new(ui), "ui_state"),
+    ]
+    .into_iter()
+    .find_map(|(holds, field)| (!holds).then_some(field))
 }
 
-/// [`ui_as_new`] without the notifications a handler took and whether the clientless login was skipped: the UI state a
-/// session image holds besides those (al-vm `login_image`).
+/// [`ui_why`]'s rule without the notifications a handler took and whether the clientless login was skipped: the UI
+/// state a session image holds besides those (al-vm `login_image`).
 pub(crate) fn ui_left_as_new(ui: &UiState) -> bool {
     let UiState {
         scope,
@@ -106,16 +113,21 @@ pub(crate) fn pages_as_new(p: &PageClients) -> bool {
         && onvalidate_pages.is_empty()
 }
 
-/// Event subscriptions, what the Event Subscription table reports and the install's own event state. Not checked:
+/// The first field (`events.<field>`) of the event subscriptions, what the Event Subscription table reports and the
+/// install's own event state that does not hold a new session's value; `None` when each does. Not checked:
 /// `caption_context_revision`, the language and the calls of `event_stats` (all carried, `InstallLeft`).
-pub(crate) fn events_as_new(e: &EventState) -> bool {
-    e.bindings.is_empty()
-        && e.event_stats.active.borrow().is_empty()
-        && e.global_setups.is_empty()
-        && events_not_as_new(e).is_none()
+pub(crate) fn events_why(e: &EventState) -> Option<&'static str> {
+    [
+        (e.bindings.is_empty(), "events.bindings"),
+        (e.event_stats.active.borrow().is_empty(), "events.event_stats.active"),
+        (e.global_setups.is_empty(), "events.global_setups"),
+    ]
+    .into_iter()
+    .find_map(|(holds, field)| (!holds).then_some(field))
+    .or_else(|| events_not_as_new(e))
 }
 
-/// The first field (`events.<field>`) of [`events_as_new`] that does not hold a new session's value, without the manual
+/// The first field (`events.<field>`) of [`events_why`] that does not hold a new session's value, without the manual
 /// bindings, the bound instances per subscriber (`event_stats.active`) and the Global Triggers setups: the event state a
 /// session image holds besides those (al-vm `login_image`).
 pub(crate) fn events_not_as_new(e: &EventState) -> Option<&'static str> {

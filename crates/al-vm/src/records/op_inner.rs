@@ -425,10 +425,7 @@ impl Session {
                 // Rec carries its SystemId from the Before event on, the one that is stored (record/TestXRecStampFields.al:80-90;
                 // events/TestProbeEventContracts.al:SystemId_BeforeOnInsert_AndPresetBuffer, `sysid_null=No` in the Before event);
                 // the stamps and the key come below it.
-                let keep_id = match args.get(1) {
-                    Some(v) => ops::truthy(v)?,
-                    None => false,
-                };
+                let keep_id = args.get(1).map(ops::truthy).transpose()?.unwrap_or(false);
                 // xRec in the insert triggers is the buffer as it was before the SystemId is given: the SystemId an
                 // earlier insert left in the variable, else the null Guid (Insert_Events_TriggerFalseAndTrue).
                 let before_id = t
@@ -436,6 +433,7 @@ impl Session {
                     .iter()
                     .position(|f| f.id == 2_000_000_000)
                     .map(|i| rec.borrow().fields[i].clone());
+                let at_call = self.rec_at_ext_before_call(&t, run, "OnBeforeInsert", "OnInsert", false, rec);
                 self.assign_system_id(&t, rec, keep_id);
                 let id_slot = t.fields.iter().position(|f| f.id == 2_000_000_000);
                 // The id the platform gave the row, before any event or trigger could change it.
@@ -452,6 +450,7 @@ impl Session {
                     // The extension's triggers bracket the base table's own (tableextensiontrigger/
                     // TestTableExtensionTableTriggers_Tests.al); Insert(false) runs none of them.
                     self.run_ext_trigger_unmeasured_xrec(&t, "OnBeforeInsert", rec)?;
+                    let insert_xrec = at_call.map(|at| Self::xrec_after_ext_before(at, rec)).or(insert_xrec);
                     if let Some(tr) = self.table_trigger(&t, "OnInsert") {
                         self.run_trigger(t.object as usize, tr, rec, insert_xrec.as_ref())?;
                     }

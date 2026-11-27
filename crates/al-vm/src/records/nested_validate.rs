@@ -296,11 +296,15 @@ impl Session {
     /// that on every running Validate of `rec` (`ValidateRun::whole_write`). The one owner for each writer of a whole record
     /// into a record variable that is no record method (those note `Session::note_record_op_under_validate`): an assignment
     /// and a write-back (`interp.rs` `write_as_general`), `RecordRef.SetTable` (`refs.rs`), `Page.GetRecord`
-    /// (`page_get_record.rs`) and `Page.SetSelectionFilter` (`pageops.rs`). Returns the fields it replaced.
+    /// (`page_get_record.rs`) and `Page.SetSelectionFilter` (`pageops.rs`). It also notes the write on a running
+    /// `Insert(true)` or `Delete(true)` of `rec` (`Session::note_ext_before_touch`). Returns the fields it replaced.
     pub(crate) fn replace_record_fields(&mut self, rec: &Rec, d: &mut RecordState, fields: Fields) -> Fields {
         let handle = Rc::as_ptr(rec) as usize;
         for v in self.validate_sites.iter_mut().filter(|v| v.handle == handle) {
             v.whole_write = true;
+        }
+        if !self.ext_before_watch.borrow().is_empty() {
+            self.note_ext_before_touch(None, rec);
         }
         std::mem::replace(&mut d.fields, fields)
     }

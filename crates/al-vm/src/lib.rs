@@ -1030,6 +1030,9 @@ pub struct Session {
     pub(crate) plain_proc_xrec: Vec<(usize, usize, crate::records::Rec)>,
     /// How many table extension insert or delete triggers run now (`Session::run_ext_trigger_unmeasured_xrec`).
     pub(crate) ext_xrec_triggers: u32,
+    /// Per record handle, the `touched` flag of an `Insert(true)` or `Delete(true)` of the measured shape whose subscribers
+    /// or extension trigger may still run (`records/ext_trigger_xrec.rs` `AtCall`, which drops its entry when the call ends).
+    pub(crate) ext_before_watch: crate::records::ext_trigger_xrec::ExtBeforeWatch,
     /// The xRecs of the table procedures that run on a record with an xRec they share with their caller or a running call
     /// (`ProcXrec::Shared` and `ProcXrec::SharedReadOnly`), innermost last.
     pub(crate) shared_proc_xrec: Vec<crate::records::Rec>,
@@ -1477,6 +1480,7 @@ impl Session {
             validate_sites: Vec::new(),
             plain_proc_xrec: Vec::new(),
             ext_xrec_triggers: 0,
+            ext_before_watch: Default::default(),
             shared_proc_xrec: Vec::new(),
             iface_frames: Vec::new(),
             cx: al_data::AccessContext {
