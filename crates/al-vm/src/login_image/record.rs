@@ -214,6 +214,7 @@ impl Walker<'_> {
             unpinned_buffer,
             view_assumption,
             run_page_link,
+            page_view,
             rolled_read,
             auto_calc_dropped,
         } = r;
@@ -226,6 +227,9 @@ impl Walker<'_> {
         }
         if run_page_link.is_some() {
             return Err(refuse("Record with a page link"));
+        }
+        if page_view.0.is_some() {
+            return Err(refuse("Record with a page's view mark"));
         }
         // The variable's own read of a row holding a rolled Time (al-vm `records/time_rollover.rs`) is not imaged.
         if rolled_read.0.is_some() {
@@ -543,6 +547,7 @@ impl Maker<'_> {
             unpinned_buffer: *unpinned_buffer,
             view_assumption: *view_assumption,
             run_page_link: None,
+            page_view: Default::default(),
             rolled_read: Default::default(),
             auto_calc_dropped: *auto_calc_dropped,
             temp_id,

@@ -727,6 +727,35 @@ pub struct RecordState {
     /// The filters an action's `RunPageLink` put on this Rec of the page it opened: a copy of Rec passed by value does not
     /// carry them (testpage/TestActionRunPageLinkFilterGroup.al:292-369, `filters=` in OnOpenPage and OnAfterGetCurrRecord).
     pub run_page_link: Option<Rc<Vec<crate::filter::FieldFilter>>>,
+    /// The Rec of a List or Document page whose SourceTableView put its group-2 filters (al-vm `consistent_marks/page_view.rs`).
+    pub page_view: PageViewMark,
+}
+
+/// The group-2 filters a List or Document page's SourceTableView put on its Rec, as the page applied them, with the page
+/// (its object index and the address of its state): read only by al-vm `consistent_marks/page_view.rs`, set by the page
+/// open, kept by `Record.Copy` and ended by `Reset`, `SetView`, `Clear`, `CopyFilters` and a SetRange or SetFilter in filter
+/// group 2 (al-vm `page_view_op`).
+///
+/// `Clone` gives `None`: a copy of a record state (`:=`, a record passed by value, a Variant's or a RecordRef's record) is
+/// not the page's Rec, and no probe measured one.
+#[derive(Debug, Default)]
+pub struct PageViewMark(pub Option<Rc<PageView>>);
+
+impl Clone for PageViewMark {
+    fn clone(&self) -> Self {
+        PageViewMark(None)
+    }
+}
+
+/// See [`PageViewMark`].
+#[derive(Debug)]
+pub struct PageView {
+    pub page: u32,
+    /// The open of the page that set the mark (al-vm `PageState::open_id`).
+    pub open_id: u64,
+    pub group2: Vec<crate::filter::FieldFilter>,
+    /// The page's Rec the open marked (a `Record.Copy` of it holds the same mark, but is not this record).
+    pub origin: std::rc::Weak<std::cell::RefCell<RecordState>>,
 }
 
 /// The record is one whose Blobs the Blob copy probes measured as the source of a record-wide move (a record passed by

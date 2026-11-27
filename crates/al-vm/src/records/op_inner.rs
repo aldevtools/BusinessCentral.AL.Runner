@@ -2327,11 +2327,19 @@ fn valid_find_direction(which: &str) -> bool {
 }
 
 impl Session {
-    /// The marks `record_op_inner` checks before a method runs: the view of a by-value copy (`records/by_value_view.rs`
+    /// The marks `record_op_inner` checks before a method runs, and the page view mark a method ends
+    /// (`consistent_marks/page_view.rs`): the view of a by-value copy (`records/by_value_view.rs`
     /// `by_value_view_marks`); and Copy, CopyFilters, TransferFields and the like from a record `copy_refused_mark` names, which
     /// would carry its unpinned view or buffer over.
     fn view_and_source_marks(method: RecordOp, rec: &Rec, args: &[Value]) -> Result<(), Signal> {
         Self::by_value_view_marks(method, rec, args)?;
+        let ended = {
+            let r = rec.borrow();
+            r.page_view.0.is_some() && crate::consistent_marks::page_view_ended(method, r.filter_group)
+        };
+        if ended {
+            rec.borrow_mut().page_view = Default::default();
+        }
         if let Some(Value::Record(src)) = args.first() {
             if let Some(why) = copy_refused_mark(src) {
                 return unsupported(format!("Record.{}() from a record: {why}", method.name()));

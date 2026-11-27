@@ -40,6 +40,9 @@ pub(crate) struct GuardedBody {
     pub(crate) marks_dropped_inside: bool,
     /// The CommitBehavior scope in effect when this run started: a scope opened above the run is not the cell's shape.
     pub(crate) commit_behavior_at_start: crate::transactions::CommitBehavior,
+    /// A guarded run started inside this one (read by `consistent_marks/page_view.rs`: a nested run's raise and an inner
+    /// Commit's error end the run alike).
+    pub(crate) runs_inside: bool,
 }
 
 impl Session {
@@ -48,6 +51,9 @@ impl Session {
     pub(crate) fn guarded_body_begin(&mut self, guarded: bool, static_form: bool, rec: Option<&Value>) {
         self.guarded_bodies_leave_pin();
         if guarded {
+            for b in &mut self.tx.guarded_bodies {
+                b.runs_inside = true;
+            }
             let rec = match rec {
                 Some(Value::Record(rc)) if static_form && !rc.borrow().temporary => Some(Rc::as_ptr(rc) as usize),
                 _ => None,
@@ -57,6 +63,7 @@ impl Session {
                 step: Step::Start,
                 marks_dropped_inside: false,
                 commit_behavior_at_start: self.tx.commit_behavior,
+                runs_inside: false,
             });
         }
     }
