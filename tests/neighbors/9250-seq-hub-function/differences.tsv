@@ -20,3 +20,7 @@ N9 Untouched::B_Reads	REFUSED number sequence
 N9 E2 Committed::B_Reads	REFUSED number sequence
 N9 Existing Before Codeunit::B_Reads	REFUSED number sequence
 N9 Inserted In Test::B_Reads	REFUSED number sequence
+N9 OnRun Restart Existing::B_Reads	REFUSED number sequence
+N9 OnRun Delete Existing::B_Inserts	REFUSED number sequence
+N9 OnRun Next Existing::B_Reads	REFUSED number sequence
+N9 OnRun Range Existing::B_Reads	REFUSED number sequence

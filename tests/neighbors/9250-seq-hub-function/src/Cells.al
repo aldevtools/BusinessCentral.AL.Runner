@@ -881,5 +881,121 @@ codeunit 52519 "N9 Install Sequence"
     begin
         if not NumberSequence.Exists('N9S52517', false) then
             NumberSequence.Insert('N9S52517', 1, 1, false);
+        if not NumberSequence.Exists('N9S52520', false) then
+            NumberSequence.Insert('N9S52520', 1, 1, false);
+        if not NumberSequence.Exists('N9S52521', false) then
+            NumberSequence.Insert('N9S52521', 1, 1, false);
+        if not NumberSequence.Exists('N9S52522', false) then
+            NumberSequence.Insert('N9S52522', 1, 1, false);
+        if not NumberSequence.Exists('N9S52523', false) then
+            NumberSequence.Insert('N9S52523', 1, 1, false);
+    end;
+}
+
+// A sequence an install codeunit inserted, restarted by OnRun; test a does not touch it, test b reads it.
+codeunit 52520 "N9 OnRun Restart Existing"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    RequiredTestIsolation = Function;
+
+    var
+        Seq: Codeunit "N9 Seq";
+
+    trigger OnRun()
+    begin
+        NumberSequence.Restart('N9S52520', 100, false);
+    end;
+
+    [Test]
+    procedure A_ChangesAndPasses()
+    begin
+    end;
+
+    [Test]
+    procedure B_Reads()
+    begin
+        Seq.Expect(Seq.Rel('N9S52520', false, 0), 'cur=100');
+    end;
+}
+
+// A sequence an install codeunit inserted, deleted by OnRun; test b inserts it again.
+codeunit 52521 "N9 OnRun Delete Existing"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    RequiredTestIsolation = Function;
+
+    var
+        Seq: Codeunit "N9 Seq";
+
+    trigger OnRun()
+    begin
+        NumberSequence.Delete('N9S52521', false);
+    end;
+
+    [Test]
+    procedure A_ChangesAndPasses()
+    begin
+    end;
+
+    [Test]
+    procedure B_Inserts()
+    begin
+        NumberSequence.Insert('N9S52521', 1, 1, false);
+    end;
+}
+
+// A sequence an install codeunit inserted, moved by OnRun's Next; test b reads it.
+codeunit 52522 "N9 OnRun Next Existing"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    RequiredTestIsolation = Function;
+
+    var
+        Seq: Codeunit "N9 Seq";
+
+    trigger OnRun()
+    begin
+        if NumberSequence.Next('N9S52522', false) = 0 then;
+    end;
+
+    [Test]
+    procedure A_ChangesAndPasses()
+    begin
+    end;
+
+    [Test]
+    procedure B_Reads()
+    begin
+        Seq.Expect(Seq.Rel('N9S52522', false, 0), 'cur=1');
+    end;
+}
+
+// A sequence an install codeunit inserted, moved by OnRun's Range; test b reads it.
+codeunit 52523 "N9 OnRun Range Existing"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    RequiredTestIsolation = Function;
+
+    var
+        Seq: Codeunit "N9 Seq";
+
+    trigger OnRun()
+    begin
+        if NumberSequence.Range('N9S52523', 5, false) = 0 then;
+    end;
+
+    [Test]
+    procedure A_ChangesAndPasses()
+    begin
+    end;
+
+    [Test]
+    procedure B_Reads()
+    begin
+        Seq.Expect(Seq.Rel('N9S52523', false, 0), 'cur=5');
     end;
 }
