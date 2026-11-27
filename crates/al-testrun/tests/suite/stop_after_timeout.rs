@@ -407,6 +407,90 @@ fn an_untrusted_timeout_stops_the_codeunit_and_the_later_entries() {
     }
 }
 
+/// Test codeunits whose OnRun writes isolated storage: under BcContainerHelper's discovery pass every codeunit of the
+/// session whose reach can read it is refused after its test loop, its failure or its timeout included. 50732 reads
+/// nothing of it and runs.
+const REFUSED_AFTER_THE_LOOP: &str = r#"
+codeunit 50730 "Fails Then Refused"
+{
+    Subtype = Test;
+    trigger OnRun()
+    begin
+        if IsolatedStorage.Set('k9213', 'x') then;
+    end;
+    [Test]
+    procedure F_Fails()
+    begin
+        Error('fails');
+    end;
+}
+codeunit 50731 "Times Out Then Refused"
+{
+    Subtype = Test;
+    trigger OnRun()
+    begin
+        if IsolatedStorage.Set('k9213', 'x') then;
+    end;
+    [Test]
+    procedure T_TimesOut()
+    begin
+        Sleep(5000);
+    end;
+}
+codeunit 50732 "Runs After"
+{
+    Subtype = Test;
+    [Test]
+    procedure N_Passes()
+    begin
+    end;
+}
+"#;
+
+/// Review of the pull request for issue 9213, round 2: a codeunit whose rows are all refused after its loop (here the
+/// discovery pass of `--test-driver bccontainerhelper` changed isolated storage it can read) has no row that stops. Its
+/// failure, or its timeout, was replaced by the refusal, so the next entry runs, as on main for the failure stop.
+#[test]
+fn a_codeunit_refused_after_its_loop_stops_no_later_entry() {
+    let src_run = |opts: RunOptions| {
+        CorpusRuntime::run_suites_with(
+            vec![AppSource {
+                id: "main".into(),
+                name: "main".into(),
+                dependencies: vec![],
+                files: vec![("main.al".into(), REFUSED_AFTER_THE_LOOP.into())],
+            }],
+            vec![al_sema::AppKind::Workspace],
+            &[],
+            &Default::default(),
+            None,
+            Default::default(),
+            &[SuiteRun::everything()],
+            &RunOptions {
+                test_driver: al_testrun::runtime::TestDriver::BcContainerHelper,
+                strict_order: true,
+                ..opts
+            },
+        )
+    };
+    let failure = src_run(RunOptions {
+        stop_after_first_failure: true,
+        entries: vec![entry(50730), entry(50732)],
+        ..RunOptions::default()
+    });
+    let timeout = src_run(stop_on(vec![entry(50731), entry(50732)]));
+    // Both stops are checked before the assertion, so a red run shows each.
+    let wrong: Vec<String> = [("failure", failure), ("timeout", timeout)]
+        .into_iter()
+        .map(|(stop, rt)| (stop, entry_rows(&rt)))
+        .filter(|(_, rows)| {
+            !(matches!(&rows[0][0].1, Outcome::NotRun(m) if m.contains("isolated storage")) && all_pass(&rows[1]))
+        })
+        .map(|(stop, rows)| format!("{stop} stop: {rows:?}"))
+        .collect();
+    assert!(wrong.is_empty(), "the next entry must run: {wrong:#?}");
+}
+
 /// A .NET host whose call `Value()` waits `wait` before it answers, past the wall backstop of the test's time limit:
 /// with `deadline` it answers as a sidecar whose call deadline passed (it was killed), else with a text. It counts the
 /// sessions it opened and closed.
