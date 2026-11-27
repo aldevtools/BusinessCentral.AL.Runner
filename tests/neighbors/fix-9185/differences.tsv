@@ -12,3 +12,10 @@ Tests::Insert_SubscriberAndExtSetName	ASSUMED xrec-after-ext-before-trigger corp
 Tests::Insert_SubscriberSetsName	ASSUMED xrec-after-ext-before-trigger corpus PR 1611 (merged, not pinned)
 Tests::Neighbor_ExtGetsRow	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
 Tests::Neighbor_ExtFilterGroup	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
+Tests::Neighbor_ExtGetsSameRow_Delete	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
+Tests::Neighbor_ExtFindEqual_Delete	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
+Tests::Neighbor_ExtMarks	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
+Tests::Neighbor_ExtMarkedOnly	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
+Tests::Neighbor_ExtChangeCompany	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
+Tests::Neighbor_ExtAscendingFalse	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure
+Tests::Neighbor_ExtRecAssign	REFUSED xRec in a table's OnInsert or OnDelete after a table extension's OnBeforeInsert or OnBeforeDelete, in a shape the corpus does not measure

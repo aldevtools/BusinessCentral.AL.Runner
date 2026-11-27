@@ -241,42 +241,42 @@ codeunit 71858 Tests
     [Test]
     procedure Neighbor_ExtGetsSameRow_Delete()
     begin
-        Check(RunDelete(7, 0, true), 'X');
+        Check(RunDelete(7, 0, true), 'BUF/N0||Id');
     end;
 
     [Test]
     procedure Neighbor_ExtFindEqual_Delete()
     begin
-        Check(RunDelete(8, 0, true), 'X');
+        Check(RunDelete(8, 0, true), 'BUF/N0||Id');
     end;
 
     [Test]
     procedure Neighbor_ExtMarks()
     begin
-        Check(RunDelete(9, 0, true), 'X');
+        Check(RunDelete(9, 0, true), 'BUF/BUF||Id');
     end;
 
     [Test]
     procedure Neighbor_ExtMarkedOnly()
     begin
-        Check(RunDelete(10, 0, true), 'X');
+        Check(RunDelete(10, 0, true), 'BUF/BUF||Id');
     end;
 
     [Test]
     procedure Neighbor_ExtChangeCompany()
     begin
-        Check(RunDelete(11, 0, true), 'X');
+        Check(RunDelete(11, 0, true), 'BUF/BUF||Id');
     end;
 
     [Test]
     procedure Neighbor_ExtAscendingFalse()
     begin
-        Check(RunDelete(12, 0, true), 'X');
+        Check(RunDelete(12, 0, true), 'BUF/BUF||Id');
     end;
 
     [Test]
     procedure Neighbor_ExtRecAssign()
     begin
-        Check(RunDelete(13, 0, true), 'X');
+        Check(RunDelete(13, 0, true), 'BUF/N0||Id');
     end;
 }
