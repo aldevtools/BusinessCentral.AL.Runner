@@ -111,7 +111,7 @@ impl HostMove {
     }
 }
 
-fn page_of<'a>(engine: &'a Engine, st: &St) -> &'a ir::Page {
+pub(crate) fn page_of<'a>(engine: &'a Engine, st: &St) -> &'a ir::Page {
     let object = st.borrow().object as usize;
     engine.program.objects[object]
         .page

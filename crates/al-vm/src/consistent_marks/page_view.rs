@@ -12,12 +12,14 @@
 use super::page_args::PageArgShape;
 use super::{ArgFilter, MarkState, RunArg, RunEnd, RunStart};
 use crate::Session;
+use crate::pages::{PageState, page_of};
 use crate::records::Rec;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::FieldFilter;
 use al_builtins::native::{AlError, ExceptionKind, Signal};
 use al_builtins::record_op::RecordOp;
 use al_builtins::value::{PageView, PageViewMark, RecordState};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 /// The code a test page's Invoke gives the error (`TestWrapped:CSide`, the Ends cells :690-:1185).
@@ -36,10 +38,13 @@ impl Session {
 
     /// The page just applied its SourceTableView to `rec` (`page_open`): marks it with its group-2 filters when the test
     /// opened the page with OpenView (every cell, :588-:638), without a record or a sub-page view, and the page is measured.
-    pub(crate) fn mark_page_view(&self, object: usize, page_state: usize, opened_by_test_view: bool, rec: &Rec) {
-        if !(opened_by_test_view && self.page_view_page(object)) {
+    /// `opened_without_record` is whether the test opened the page itself, without a record or a sub-page view.
+    pub(crate) fn mark_page_view(&self, st: &Rc<RefCell<PageState>>, opened_without_record: bool, rec: &Rec) {
+        let object = st.borrow().object as usize;
+        if !(opened_without_record && st.borrow().test_open_view() && self.page_view_page(object)) {
             return;
         }
+        let page_state = Rc::as_ptr(st) as usize;
         let mut r = rec.borrow_mut();
         let group2 = group2(&r);
         r.page_view = PageViewMark(Some(Rc::new(PageView {
@@ -78,12 +83,8 @@ impl Session {
             _ => false,
         };
         let mark = arg.rec.borrow().page_view.0.clone()?;
-        let view_kept = mark.group2.len() == group2(&arg.rec.borrow()).len()
-            && mark
-                .group2
-                .iter()
-                .zip(group2(&arg.rec.borrow()))
-                .all(|(a, b)| same_filter(a, &b));
+        let now = group2(&arg.rec.borrow());
+        let view_kept = mark.group2.len() == now.len() && mark.group2.iter().zip(&now).all(|(a, b)| same_filter(a, b));
         let in_action = self.in_page_action(mark.page_state as *const _) && self.page_view_page(mark.page as usize);
         if !(run_shape && one_mark && view_kept && in_action) {
             return None;
@@ -92,14 +93,11 @@ impl Session {
             // Ends :690: the run does not return; the error names GPC M.
             RunEnd::Succeeded => {
                 assume(Assumption::GuardedRunConsistentPageView);
-                let e = self.inconsistent_error(after[0].0 as usize);
-                Some(Some(match e {
-                    Signal::Error(mut e) => {
-                        e.exception = ExceptionKind::ConsistentPageViewEnd;
-                        Signal::Error(e)
-                    }
-                    other => other,
-                }))
+                let mut e = self.inconsistent_error(after[0].0 as usize);
+                if let Signal::Error(err) = &mut e {
+                    err.exception = ExceptionKind::ConsistentPageViewEnd;
+                }
+                Some(Some(e))
             }
             // PlainCommit :705: the run returns false with the Commit's error (code DB:TableInConsistent).
             RunEnd::Failed("DB:TableInConsistent") => {
@@ -110,11 +108,22 @@ impl Session {
         }
     }
 
-    /// The code a test page's Invoke gives `e` from an action of the page itself: `TestWrapped:CSide` for the error a page
-    /// view run end raised (Ends :690-:1185), `None` for every other error.
-    pub(crate) fn page_view_action_code(&self, object: usize, own_action: bool, e: &AlError) -> Option<&'static str> {
+    /// The code a test page's Invoke gives `e` from action `idx`: `TestWrapped:CSide` for the error a page view run end
+    /// raised from an action of the page itself (Ends :690-:1185), `fallback`'s code (main's) for every other error.
+    pub(crate) fn page_view_action_code(
+        &self,
+        st: &Rc<RefCell<PageState>>,
+        idx: usize,
+        e: &AlError,
+        fallback: fn(&str, &str) -> String,
+    ) -> String {
+        let object = st.borrow().object as usize;
+        let own_action = page_of(&self.engine, st).controls[idx].owner.is_none();
         let raised = e.exception == ExceptionKind::ConsistentPageViewEnd && e.code == "DB:TableInConsistent";
-        (raised && own_action && self.page_view_page(object)).then_some(ACTION_CODE)
+        if raised && own_action && self.page_view_page(object) {
+            return ACTION_CODE.into();
+        }
+        fallback(&e.code, &e.message)
     }
 }
 

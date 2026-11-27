@@ -2294,7 +2294,10 @@ impl Session {
     /// would carry its unpinned view or buffer over.
     fn view_and_source_marks(method: RecordOp, rec: &Rec, args: &[Value]) -> Result<(), Signal> {
         Self::by_value_view_marks(method, rec, args)?;
-        let ended = crate::consistent_marks::page_view_ended(method, rec.borrow().filter_group);
+        let ended = {
+            let r = rec.borrow();
+            r.page_view.0.is_some() && crate::consistent_marks::page_view_ended(method, r.filter_group)
+        };
         if ended {
             rec.borrow_mut().page_view = Default::default();
         }
