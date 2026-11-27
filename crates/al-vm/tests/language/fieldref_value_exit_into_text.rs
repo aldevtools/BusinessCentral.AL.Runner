@@ -3,8 +3,8 @@
 //! past the length. Assumption `fieldref-value-exit-into-text` (corpus PR 1629, merged at 778b8fc1, recordref-fieldref/
 //! fieldref-value-convert/FvcTimestampField.al:443, :466, :485 ExitValue_* and :214 Field0_InsertedRow). A Variant
 //! variable exited into a Code keeps its TypeConversion error (types/variant/VaTCompare.al:Concat_After_Conversion),
-//! and the exit into a number checks the lowered value, so a parenthesized `exit((FR.Value()))` meets the refusal of a
-//! Date (issue 9305).
+//! and the exit into a number checks the lowered value, so a parenthesized `exit((FR.Value()))` meets the conversion
+//! error of a Date (issue 9305).
 
 const SRC: &str = r#"
 enum 50740 XKind { Extensible = false; value(0; Zero) { } value(1; One) { Caption = 'One Caption'; } }
