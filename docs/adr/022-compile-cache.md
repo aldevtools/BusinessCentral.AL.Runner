@@ -1341,9 +1341,18 @@ fixed in the compile first; the build is already required to be deterministic (d
   `a_compile_the_memory_limit_stops_after_its_last_check_stores_no_entry`).
 - **Measured.** On the reporter's real app (43,511 mutants, 18 dependency layers), medians of 6: a warm daemon restart
   compiles in 407 ms instead of 30,919 ms, and a warm one-shot `--codeunit X` in 0.50 s instead of 47.70 s (wall 3.09 s
-  instead of 50.62 s); a cold run that builds the entry costs no more than before (serve cold compile 59,284 ms against
-  59,037 ms). On the corpus apps over the Microsoft apps (the equality test), a read takes 0.74, 0.95 and 1.20 s on BC
-  27, 28 and 29, against 30.4, 18.3 and 24.2 s for a fresh compile.
+  instead of 50.62 s). On the corpus apps over the Microsoft apps (the equality test), a read takes 0.74, 0.95 and
+  1.20 s on BC 27, 28 and 29, against 30.4, 18.3 and 24.2 s for a fresh compile.
+- **What a cold run costs.** A cold run builds the entry, and a cold one-shot costs about 2% more than before. Measured
+  by user-space instructions on an invented workspace of the same size as that app (180 MB) over the BC 28 Microsoft
+  apps, a fresh cache folder for every cold run, medians of 3, against main a7d908375:
+
+  | run | main | with the layer |
+  |---|---:|---:|
+  | one-shot `--codeunit`, cold (the entry's write at exit included) | 413.3 G | 421.8 G (+2%) |
+  | serve first request, cold (whole daemon) | 372.4 G | 364.4 G (about the same) |
+  | one-shot, warm (the entry is read) | 186.4 G | 64.7 G |
+  | serve restart, warm (the entry is read) | 139.5 G | 42.5 G |
 
 ### Test plan as built (2026-11-22)
 
