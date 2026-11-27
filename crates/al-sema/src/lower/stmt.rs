@@ -1291,6 +1291,15 @@ impl Lowerer<'_> {
                             return self.convert_to(&decl, self.ty_ref(e), v).map(|v| ir::Stmt::Exit(Some(v)));
                         }
                     }
+                    // `exit(FR.Value())` from a procedure that returns a number converts as `I := FR.Value()` does (al-vm
+                    // `Op::ConvertFieldValue`, which refuses a Date, Time or DateTime value: issue 9265); the result then
+                    // converts into the return type as every exit value does.
+                    if let Some(rt) = self.ret_ty.clone()
+                        && al_builtins::fieldref_value_temporal::is_number_target(&rt)
+                        && self.is_fieldref_value(e)
+                    {
+                        return Ok(ir::Stmt::Exit(Some(ir::Expr::Convert(rt, Box::new(v)))));
+                    }
                     Ok(ir::Stmt::Exit(Some(match (self.ty_ref(e), &self.ret_ty) {
                         (Ty::DotNet(a), Some(rt)) if a.is_empty() && !matches!(rt, RtType::DotNet(_)) => {
                             ir::Expr::DotNetCoerce(rt.clone(), Box::new(v))
