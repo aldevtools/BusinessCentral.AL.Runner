@@ -58,26 +58,26 @@ codeunit 61920 "DO Decimal Overflow Tests"
         ExpectOverflow();
     end;
 
-    // A product that may land on the largest Decimal (not measured): the runner refuses it, as main does.
+    // Both operands have at most 18 significant digits, so no literal is rounded: the product is past the largest Decimal.
     [Test]
-    procedure Refused_ProductLandsOnMax()
+    procedure Pinned_EighteenDigitDecimalTimesHundred()
     var
         D: Decimal;
     begin
-        D := 7922816251426433759354395033.5;
-        D := D * 10;
-        if Format(D, 0, 9) <> '79228162514264337593543950335' then
-            Error('got %1', Format(D, 0, 9));
+        D := 792281625142643376000000000.0;
+        asserterror D := D * 100;
+        ExpectOverflow();
     end;
 
     [Test]
-    procedure Unchanged_MaxDecimalLiteralFormats()
+    procedure Unchanged_ProductBelowMax()
     var
         D: Decimal;
     begin
-        D := 79228162514264337593543950335.0;
-        if Format(D, 0, 9) <> '79228162514264337593543950335' then
-            Error('got %1', Format(D, 0, 9));
+        D := 792281625142643375000000000.0;
+        D := D * 10;
+        if D <> 7922816251426433750000000000.0 then
+            Error('the product changed');
     end;
 
     [Test]

@@ -3,3 +3,4 @@ DO Decimal Overflow Tests::Pinned_MaxDecimalTimesIntegerTen	PINNED tests/al-lang
 DO Decimal Overflow Tests::Pinned_PastMaxIntoOtherVariable	PINNED tests/al-language/errors/PnBErrorsCollections.al:565
 DO Decimal Overflow Tests::Pinned_IntegerVariableOperand	PINNED tests/al-language/errors/PnBErrorsCollections.al:565
 DO Decimal Overflow Tests::CompoundStarAssign	PINNED tests/al-language/errors/PnBErrorsCollections.al:565
+DO Decimal Overflow Tests::Pinned_EighteenDigitDecimalTimesHundred	PINNED tests/al-language/errors/PnBErrorsCollections.al:565
