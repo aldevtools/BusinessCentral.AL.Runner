@@ -1695,7 +1695,10 @@ fn a_rewrite_of_a_bridge_al_wrote_into_since_is_refused() {
         ": Text",
     );
     let why = unsupported(&r);
-    assert!(why.contains("a .NET rewrite of an OutStream AL wrote into since the call before"), "{why}");
+    assert!(
+        why.contains("a .NET rewrite of an OutStream AL wrote into since the call before"),
+        "{why}"
+    );
 }
 
 // ---- the shipped registry (owner decision 2026-10-14) ------------------------------------

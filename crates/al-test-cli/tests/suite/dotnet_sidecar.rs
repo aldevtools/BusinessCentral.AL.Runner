@@ -1024,7 +1024,10 @@ fn a_disposed_update_zip_over_a_seeded_bridge_hands_back_its_whole_content_and_o
     let utf8 = sess.get_property(st("System.Text.Encoding"), "UTF8").unwrap().value;
     let open = |sess: &mut Box<dyn al_host::dotnet::DotNetSession>, args: Vec<DotNetValue>| {
         let r = sess
-            .construct(&ty("System.IO.Compression.ZipArchive"), args.into_iter().map(arg).collect())
+            .construct(
+                &ty("System.IO.Compression.ZipArchive"),
+                args.into_iter().map(arg).collect(),
+            )
             .unwrap();
         let (_, bridge) = r.streams.bridges[0];
         let zip = handle_of(&r);
