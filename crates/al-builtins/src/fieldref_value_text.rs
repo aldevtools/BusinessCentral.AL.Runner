@@ -27,9 +27,9 @@ pub fn fieldref_value_into_text(
 
 /// `exit(FR.Value())` from a procedure that returns a Text or Code (al-vm `Op::ConvertFieldValue` at an exit): an Integer,
 /// BigInteger (the timestamp too), Decimal, Enum, Option, Boolean, Date or Duration is its Format text, upper-cased into a Code,
-/// and StringLengthExceeded past the length, as [`variant_into_text_field`] converts it (corpus PR 1629, recordref-fieldref/
-/// fieldref-value-convert/FvcTimestampField.al ExitValue_NumberFields, _EnumOptionFields, _OtherFields, Field0_InsertedRow;
-/// issue 9285). `None`: another value or target, which converts as every exit value does.
+/// and StringLengthExceeded past the length, as [`variant_into_text_field`] converts it (corpus PR 1629, merged at 778b8fc1,
+/// not yet pinned: recordref-fieldref/fieldref-value-convert/FvcTimestampField.al:443 ExitValue_NumberFields, :466
+/// ExitValue_EnumOptionFields, :485 ExitValue_OtherFields, :214 Field0_InsertedRow; issue 9285). `None`: another value or target, which converts as every exit value does.
 pub fn fieldref_value_at_exit(
     v: &Value,
     t: &RtType,
