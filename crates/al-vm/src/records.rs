@@ -2431,6 +2431,9 @@ impl Session {
         if !self.validate_sites.is_empty() {
             self.note_record_op_under_validate(method, rec);
         }
+        if !self.ext_before_watch.is_empty() {
+            self.note_ext_before_touch(Some(method), rec);
+        }
         self.probed_source_before(method, rec, args);
         Self::rolled_read_before(method, rec);
         let inserted = self.own_read_before(method, rec, args);

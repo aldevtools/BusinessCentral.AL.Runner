@@ -317,19 +317,16 @@ fn reads_xrec(program: &ir::Program, base: usize, e: usize, r: usize) -> bool {
             continue;
         };
         let own_slot = objects[o].xrec_slot;
-        let names = |p: &ir::Place| place_names_xrec(p, own_slot, base_slot);
-        let refs = |args: &[ir::Arg]| args.iter().any(|a| matches!(a, ir::Arg::Ref(p) if names(p)));
         let mut found = false;
-        ir::types::for_each_expr_post(routine.body.stmts(), &mut |x| match x {
-            ir::Expr::Load(p) => found |= names(p),
-            ir::Expr::Call {
+        ir::types::for_each_expr_post(routine.body.stmts(), &mut |x| {
+            found |= expr_names_xrec(x, own_slot, base_slot);
+            if let ir::Expr::Call {
                 object,
                 routine,
                 instance,
-                args,
                 ..
-            } => {
-                found |= refs(args);
+            } = x
+            {
                 let same_page = matches!(
                     instance.as_deref(),
                     None | Some(ir::Expr::ThisInstance | ir::Expr::BaseInstance)
@@ -338,11 +335,6 @@ fn reads_xrec(program: &ir::Program, base: usize, e: usize, r: usize) -> bool {
                     todo.push((*object, *routine));
                 }
             }
-            ir::Expr::Builtin { receiver, args, .. } => {
-                found |= refs(args) || receiver.as_deref().is_some_and(|a| refs(std::slice::from_ref(a)));
-            }
-            ir::Expr::InterfaceCall { args, .. } | ir::Expr::DotNet { args, .. } => found |= refs(args),
-            _ => {}
         });
         if found {
             return true;
@@ -351,8 +343,28 @@ fn reads_xrec(program: &ir::Program, base: usize, e: usize, r: usize) -> bool {
     false
 }
 
+/// Whether expression `x` names xRec of the running object (`own`) or of the base object (`base`), or passes it to a `var`
+/// parameter of a call or a builtin (its receiver among the arguments). The one scan of a routine's expressions for xRec: page
+/// extensions (`reads_xrec`) and table extensions (`records/ext_trigger_xrec.rs`) both use it.
+pub(crate) fn expr_names_xrec(x: &ir::Expr, own: Option<usize>, base: Option<usize>) -> bool {
+    let refs = |args: &[ir::Arg]| {
+        args.iter()
+            .any(|a| matches!(a, ir::Arg::Ref(p) if place_names_xrec(p, own, base)))
+    };
+    match x {
+        ir::Expr::Load(p) => place_names_xrec(p, own, base),
+        ir::Expr::Call { args, .. } | ir::Expr::InterfaceCall { args, .. } | ir::Expr::DotNet { args, .. } => {
+            refs(args)
+        }
+        ir::Expr::Builtin { receiver, args, .. } => {
+            refs(args) || receiver.as_deref().is_some_and(|a| refs(std::slice::from_ref(a)))
+        }
+        _ => false,
+    }
+}
+
 /// Whether place `p` is xRec of the running object (`own`) or of the base page (`base`), or a part of it.
-pub(crate) fn place_names_xrec(p: &ir::Place, own: Option<usize>, base: Option<usize>) -> bool {
+fn place_names_xrec(p: &ir::Place, own: Option<usize>, base: Option<usize>) -> bool {
     match p {
         ir::Place::Global(g) => Some(*g) == own,
         ir::Place::BaseGlobal(g) => Some(*g) == base,

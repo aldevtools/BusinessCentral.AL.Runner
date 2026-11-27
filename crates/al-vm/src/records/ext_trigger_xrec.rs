@@ -17,12 +17,13 @@
 //! (`Session::unpinned_buffer_op`).
 //!
 //! The table's own `OnInsert` and `OnDelete` xRec when a table extension declares `OnBeforeInsert` or `OnBeforeDelete`
-//! (assumption `xrec-after-ext-before-trigger`, corpus PR 1611, record/events/XebXRecAfterExtBeforeTrigger.al:292-874): its
+//! (assumption `xrec-after-ext-before-trigger`, corpus PR 1611, merged and not yet pinned, record/events/XebXRecAfterExtBeforeTrigger.al:292-874): its
 //! fields are Rec at the `Insert(true)` or `Delete(true)` call, before the `OnBefore...Event` subscribers and the extension's
 //! trigger; its filters and key are Rec's after the extension's trigger. Only the call shape the probe measures runs
 //! ([`AtCall`]); every other call shape keeps main's xRec (the buffer after the subscribers, before the extension's
-//! trigger). In a measured call whose extension trigger moved Rec to another row, left another filter group or set a filter in
-//! another group, that xRec
+//! trigger). In a measured call where the subscribers or the extension's trigger ran a record method on Rec other than
+//! `SetRange` and `SetCurrentKey` (a `Get` or `Find` of the same row among them), wrote a whole record into it (`Rec := Other`),
+//! changed a view fact the entry requires at the call, left another filter group or set a filter in another group, that xRec
 //! is marked [`XREC_AFTER_EXT_BEFORE_UNMEASURED`], read like the mark above. A call runs through the assumption only when
 //! code of the table or of its extensions names xRec (`table_code_names_xrec`), so a test that cannot read it stays clean.
 //!
@@ -33,8 +34,9 @@ use crate::Session;
 use crate::records::Rec;
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::native::Signal;
-use al_builtins::value::Value;
+use al_builtins::value::{RecordState, Value};
 use al_data::TableDef;
+use std::cell::Cell;
 use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of xRec in a table extension's insert or delete trigger.
@@ -57,6 +59,10 @@ pub(crate) struct AtCall {
     /// Some code of the table or of one of its extensions names xRec ([`table_code_names_xrec`]): only then can the trigger
     /// read the served xRec, so only then does the call run through the assumption.
     xrec_named: bool,
+    /// Set when a record method other than `SetRange` and `SetCurrentKey`, or a write of a whole record, ran on Rec between
+    /// the call and the end of the extension's trigger ([`Session::note_ext_before_touch`]): the probe measures only field
+    /// assignments, `SetRange` and `SetCurrentKey` there. The session holds it weakly (`Session::ext_before_watch`).
+    touched: Rc<Cell<bool>>,
 }
 
 /// Whether a routine of table object `table` or of one of its table extensions names that object's xRec, or passes it to a
@@ -67,25 +73,26 @@ fn table_code_names_xrec(program: &al_ir::Program, table: usize) -> bool {
     let exts = objects[table].table.as_ref().map_or(&[][..], |s| &s.extensions[..]);
     std::iter::once(table).chain(exts.iter().copied()).any(|o| {
         let own_slot = objects[o].xrec_slot;
-        let names = |p: &al_ir::Place| crate::pages::validate_xrec::place_names_xrec(p, own_slot, base_slot);
         objects[o].routines.iter().any(|routine| {
             let mut found = false;
             al_ir::types::for_each_expr_post(routine.body.stmts(), &mut |x| {
-                let refs = |args: &[al_ir::Arg]| args.iter().any(|a| matches!(a, al_ir::Arg::Ref(p) if names(p)));
-                found |= match x {
-                    al_ir::Expr::Load(p) => names(p),
-                    al_ir::Expr::Call { args, .. }
-                    | al_ir::Expr::InterfaceCall { args, .. }
-                    | al_ir::Expr::DotNet { args, .. } => refs(args),
-                    al_ir::Expr::Builtin { receiver, args, .. } => {
-                        refs(args) || receiver.as_deref().is_some_and(|a| refs(std::slice::from_ref(a)))
-                    }
-                    _ => false,
-                };
+                found |= crate::pages::validate_xrec::expr_names_xrec(x, own_slot, base_slot);
             });
             found
         })
     })
+}
+
+/// The view facts XebXRecAfterExtBeforeTrigger.al:22-103, :229-290 hold at the call and that its extension and subscribers do
+/// not change: a normal record of the session company, no marks, not MarkedOnly, no adhoc key, ascending order.
+fn view_as_measured(r: &RecordState) -> bool {
+    !r.temporary
+        && r.company.is_none()
+        && r.marks.is_empty()
+        && !r.marked_only
+        && r.adhoc.is_none()
+        && r.ascending
+        && r.field_descending == 0
 }
 
 impl Session {
@@ -100,7 +107,7 @@ impl Session {
     /// keeps main's xRec (a call that runs no trigger (`run` false), no extension declares `before`, the table declares no
     /// `own` trigger, or another call shape).
     pub(crate) fn rec_at_ext_before_call(
-        &self,
+        &mut self,
         t: &TableDef,
         run: bool,
         before: &str,
@@ -111,37 +118,66 @@ impl Session {
         if !run || declared == 0 || self.table_trigger(t, own).is_none() {
             return None;
         }
-        let r = rec.borrow();
-        // XebXRecAfterExtBeforeTrigger.al:22-103, :229-290: one table extension declaring the trigger, a normal record of the
-        // session company, no filters, the primary key, filter group 0, no marks.
+        // XebXRecAfterExtBeforeTrigger.al:22-103, :229-290: one table extension declaring the trigger, no filters, the primary
+        // key, filter group 0 and the view facts of `view_as_measured`.
         let extensions = self.engine.program.objects[t.object as usize]
             .table
             .as_ref()
             .map_or(0, |s| s.extensions.len());
+        let r = rec.borrow();
         let measured = extensions == 1
             && declared == 1
-            && !r.temporary
-            && r.company.is_none()
+            && view_as_measured(&r)
             && r.filters.is_empty()
             && r.key == 0
-            && r.adhoc.is_none()
-            && r.filter_group == 0
-            && r.marks.is_empty()
-            && !r.marked_only;
-        measured.then(|| AtCall {
+            && r.filter_group == 0;
+        if !measured {
+            return None;
+        }
+        let program = &self.engine.program;
+        let xrec_named = *self.engine.table_facts[t.object as usize]
+            .xrec_named
+            .get_or_init(|| table_code_names_xrec(program, t.object as usize));
+        let touched = Rc::new(Cell::new(false));
+        self.ext_before_watch.retain(|(_, w)| w.strong_count() > 0);
+        self.ext_before_watch
+            .push((Rc::as_ptr(rec) as usize, Rc::downgrade(&touched)));
+        Some(AtCall {
             fields: r.fields.to_vec(),
             position: r.position.clone(),
-            xrec_named: table_code_names_xrec(&self.engine.program, t.object as usize),
+            xrec_named,
+            touched,
         })
     }
 
+    /// Notes that a record method `method` ran on `rec` (`Session::record_op`), or a whole record was written into it
+    /// (`method` `None`, `Session::replace_record_fields`): on a call of the measured shape still in its subscribers or the
+    /// extension's trigger, every method but `SetRange` and `SetCurrentKey` (XebXRecAfterExtBeforeTrigger.al:590, :627)
+    /// sets [`AtCall::touched`].
+    pub(crate) fn note_ext_before_touch(&mut self, method: Option<al_builtins::record_op::RecordOp>, rec: &Rec) {
+        use al_builtins::record_op::RecordOp;
+        if matches!(method, Some(RecordOp::SetRange | RecordOp::SetCurrentKey)) {
+            return;
+        }
+        let handle = Rc::as_ptr(rec) as usize;
+        for (h, w) in &self.ext_before_watch {
+            if let Some(touched) = w.upgrade().filter(|_| *h == handle) {
+                touched.set(true);
+            }
+        }
+    }
+
     /// xRec of the table's own trigger after the extension's `OnBefore...` trigger ran: the fields of `at`, the view of Rec now
-    /// (XebXRecAfterExtBeforeTrigger.al:590 SetRange, :627 SetCurrentKey, :839). Measured when the trigger left filter group 0,
-    /// every filter of Rec is in group 0 and the trigger did not move Rec to another row; else the mark [`XREC_AFTER_EXT_BEFORE_UNMEASURED`].
+    /// (XebXRecAfterExtBeforeTrigger.al:590 SetRange, :627 SetCurrentKey, :839). Measured when no record method but `SetRange` and
+    /// `SetCurrentKey` and no whole-record write ran on Rec ([`AtCall::touched`]), the view facts of `view_as_measured` still
+    /// hold, the trigger left filter group 0, every filter of Rec is in group 0 and Rec is on the row of the call; else the mark
+    /// [`XREC_AFTER_EXT_BEFORE_UNMEASURED`].
     pub(crate) fn xrec_after_ext_before(at: AtCall, rec: &Rec) -> Rec {
         let measured = {
             let r = rec.borrow();
-            r.filter_group == 0
+            !at.touched.get()
+                && view_as_measured(&r)
+                && r.filter_group == 0
                 && r.filters.iter().all(|f| f.group == 0)
                 && match (&r.position, &at.position) {
                     (None, None) => true,
