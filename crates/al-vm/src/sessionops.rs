@@ -377,6 +377,7 @@ impl Session {
         let key = self.sequence_key(args, scope)?;
         self.note_footprint_sequence(method, &key);
         self.note_sequence_call(method, &key);
+        self.hub_log_call(method, &key);
         let name = key.1.clone();
         // session-system/TestNumberSequenceRuntimeContracts.al:NumberSequence_MissingSequence_Texts: the name is
         // quoted and the code is `AL`.

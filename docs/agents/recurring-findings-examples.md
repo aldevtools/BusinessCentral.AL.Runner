@@ -402,3 +402,9 @@ State the pin's lines (`pinned_body::page_lines`, `table_lines`) and require the
   counted holders of the RecordRef handle; `X := RR` gives `X` a new handle on the same record buffer
   (`recordref_variant::own_copy`), so the count stayed 1. Fix: `tree_ref_as_measured` counts holders of the buffer,
   less the instance's own RecordRef, FieldRef and KeyRef globals, and checks `state_stamp::no_row_io`.
+
+## 32. An assumption serves a probe's first observe round that BC did not answer stably (al-runner PR 9256 round 1)
+
+- PR 9256 served the cells of `SeqNextHubFunction.al` as merged in corpus PR 1580 (no Commit after OnRun). Corpus issue
+  1595 (BC 29.0) and issue 1614 (BC 28.5, even with the commits added later) showed test b reading the sequence as
+  missing now and then. The fix refuses every sequence OnRun inserted until reworked cells are pinned.
