@@ -458,6 +458,8 @@ mod tests {
     }
 
     /// The key of serve's kept compile, made on every request (`workspace_layer::warm_key`), over no dependency apps.
+    /// Unix only, as its one user: an app is kept only with stamps that carry a change time.
+    #[cfg(unix)]
     fn warm_key(inputs: &[AppInput]) -> String {
         let none = al_testrun::deps::Dependencies {
             apps: Vec::new(),
