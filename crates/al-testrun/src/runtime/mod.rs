@@ -403,7 +403,7 @@ pub struct TestResult {
     pub order_hint: Option<OrderHint>,
     /// With `RunOptions::cell_tap`: the `Expect` cells the test matched (`al_vm::observer_tap`); `None` when it did not use the fixture.
     pub cells: Option<al_vm::observer_tap::CellRecord>,
-    /// The test was not run because `RunOptions::stop_after_first_failure` or `RunOptions::skip_after_timeout` left it
+    /// The test was not run because a stop (`stop.rs`) or `RunOptions::skip_after_timeout` left it
     /// out after an earlier test (al-runner issue 8492): a choice of the run, not a refusal.
     pub skipped_by_option: bool,
 }
@@ -735,8 +735,8 @@ pub(crate) struct Unit {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
-    /// See `RunOptions::stop_after_first_failure`.
-    stop_after_first_failure: Option<run::StopAfterFailure>,
+    /// The pass's stop (`stop.rs`).
+    stop: Option<stop::Stop>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -791,7 +791,7 @@ pub(crate) struct Scratch {
     cells: Vec<(String, al_vm::observer_tap::CellRecord)>,
     /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
     slept: Vec<(String, u64)>,
-    /// The tests `skip_after_timeout` or `stop_after_first_failure` left out, with the reason they were given
+    /// The tests `skip_after_timeout` or a stop (`stop.rs`) left out, with the reason they were given
     /// (`TestResult::skipped_by_option`).
     skipped: Vec<(String, String)>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).
@@ -827,8 +827,11 @@ pub(crate) struct Scratch {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
-    /// See `RunOptions::stop_after_first_failure`.
-    stop_after_first_failure: Option<run::StopAfterFailure>,
+    /// The pass's stop (`stop.rs`).
+    stop: Option<stop::Stop>,
+    /// The first row of the codeunit that triggered `stop` (`stop.rs`); the pass keeps its reason for the later entries
+    /// while the codeunit's rows still hold that row (`stop::Trigger::kept_in`, `corpus::pass_stopped`).
+    stop_trigger: Option<stop::Trigger>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -905,7 +908,8 @@ impl Scratch {
             installs: Default::default(),
             report_unpinned_errors: Default::default(),
             skip_after_timeout: Default::default(),
-            stop_after_first_failure: Default::default(),
+            stop: Default::default(),
+            stop_trigger: None,
             perturb: Default::default(),
             run_seed: Default::default(),
             runner: Default::default(),
@@ -1048,7 +1052,8 @@ fn run_unit(
             flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
             skip_after_timeout: u.skip_after_timeout,
-            stop_after_first_failure: u.stop_after_first_failure.clone(),
+            stop: u.stop.clone(),
+            stop_trigger: None,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             runner: u.runner,
@@ -1191,7 +1196,7 @@ fn scratch_unit(
         flags: Default::default(),
         report_unpinned_errors: false,
         skip_after_timeout: false,
-        stop_after_first_failure: None,
+        stop: None,
         perturb: Default::default(),
         run_seed: opts.run_seed,
         runner: None,
@@ -1377,6 +1382,7 @@ mod runner_reset;
 pub(crate) mod session_flags;
 mod single_fresh;
 mod single_lane;
+mod stop;
 mod strict_taint;
 mod strict_walk;
 mod suite_rows;
@@ -1403,6 +1409,7 @@ pub use self::order_hint::{NumbersOrder, OrderHint};
 pub use self::run::*;
 pub use self::single_fresh::{CarriedCodeunit, CarriedRead};
 pub use self::single_lane::LaneReport;
+pub use self::stop::stop_triggers;
 
 /// The translation files of the app folder `dir`, as the IR keeps them (ADR-053 step 2). A file that cannot be read keeps its
 /// reason, and its language refuses every translated read.

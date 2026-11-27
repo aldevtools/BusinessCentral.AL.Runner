@@ -613,7 +613,7 @@ mod tests {
         let file = dir.join("file.txt");
         std::fs::write(&file, "text").unwrap();
         type Change = fn(&mut TestArgs, &Path);
-        let options: [(&str, Change); 13] = [
+        let options: [(&str, Change); 14] = [
             ("test_runner", |a, _| {
                 a.test_runner = Some(al_testrun::runtime::TestRunner::Builtin)
             }),
@@ -632,6 +632,7 @@ mod tests {
             ("license", |a, f| a.license = Some(f.to_path_buf())),
             ("skip_after_timeout", |a, _| a.skip_after_timeout = true),
             ("stop_after_first_failure", |a, _| a.stop_after_first_failure = true),
+            ("stop_after_timeout", |a, _| a.stop_after_timeout = true),
             ("test_suites", |a, f| a.test_suites = Some(f.to_path_buf())),
         ];
         let plain = key(&TestArgs::default()).unwrap();
