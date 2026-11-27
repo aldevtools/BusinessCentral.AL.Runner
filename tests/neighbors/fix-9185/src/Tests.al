@@ -235,4 +235,48 @@ codeunit 71858 Tests
         R.Insert(true);
         Check(Log.Text(), 'EXT');
     end;
+
+    // Not measured: the extension reads the same row again (Get, Find('=')), marks Rec, sets MarkedOnly, changes the
+    // company, sets a descending order or assigns another variable of the same row to Rec.
+    [Test]
+    procedure Neighbor_ExtGetsSameRow_Delete()
+    begin
+        Check(RunDelete(7, 0, true), 'X');
+    end;
+
+    [Test]
+    procedure Neighbor_ExtFindEqual_Delete()
+    begin
+        Check(RunDelete(8, 0, true), 'X');
+    end;
+
+    [Test]
+    procedure Neighbor_ExtMarks()
+    begin
+        Check(RunDelete(9, 0, true), 'X');
+    end;
+
+    [Test]
+    procedure Neighbor_ExtMarkedOnly()
+    begin
+        Check(RunDelete(10, 0, true), 'X');
+    end;
+
+    [Test]
+    procedure Neighbor_ExtChangeCompany()
+    begin
+        Check(RunDelete(11, 0, true), 'X');
+    end;
+
+    [Test]
+    procedure Neighbor_ExtAscendingFalse()
+    begin
+        Check(RunDelete(12, 0, true), 'X');
+    end;
+
+    [Test]
+    procedure Neighbor_ExtRecAssign()
+    begin
+        Check(RunDelete(13, 0, true), 'X');
+    end;
 }

@@ -141,9 +141,12 @@ codeunit 71857 "N9185 Log"
         Seen := '';
     end;
 
-    // 0 nothing, 1 Name := 'EXT', 3 SetRange(Name, 'N0'), 4 SetCurrentKey(Name), 5 Get another row, 6 FilterGroup 2 SetRange
+    // 0 nothing, 1 Name := 'EXT', 3 SetRange(Name, 'N0'), 4 SetCurrentKey(Name), 5 Get another row, 6 FilterGroup 2 SetRange,
+    // 7 Get the same row, 8 Find('='), 9 Mark(true), 10 MarkedOnly(true), 11 ChangeCompany(CompanyName), 12 Ascending(false),
+    // 13 Rec := Other (the same row read into another variable)
     procedure ApplyExt(var Rec: Record "N9185 Row")
     var
+        Other: Record "N9185 Row";
         Mode: Integer;
     begin
         Mode := ExtMode;
@@ -161,6 +164,23 @@ codeunit 71857 "N9185 Log"
                     Rec.FilterGroup(2);
                     Rec.SetRange(Name, 'N0');
                     Rec.FilterGroup(0);
+                end;
+            7:
+                Rec.Get(Rec.Id);
+            8:
+                Rec.Find('=');
+            9:
+                Rec.Mark(true);
+            10:
+                Rec.MarkedOnly(true);
+            11:
+                Rec.ChangeCompany(CompanyName());
+            12:
+                Rec.Ascending(false);
+            13:
+                begin
+                    Other.Get(Rec.Id);
+                    Rec := Other;
                 end;
         end;
     end;
