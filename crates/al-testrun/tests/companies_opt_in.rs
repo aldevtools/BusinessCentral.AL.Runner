@@ -855,9 +855,9 @@ fn reads_in(company: &str) -> String {
 }
 
 // Review of PR 9235: install code renames a company. Renaming a company `--companies` selected (one whose restored rows
-// the test data holds) is refused (al-vm `Session::refuse_selected_company_rename`), so no copy of the baseline holds a
-// renamed backed company: the install code stops at the Rename, and the test's read of the new name answers the same on
-// every copy.
+// the test data holds) is refused (al-vm `Session::refuse_selected_company_rename`), so no copy of the baseline holds that
+// company renamed: the install code stops at the Rename, and the test's read of the new name answers the same on every
+// copy. The session company outside `--companies` is the suite test `session_company_rename`.
 #[test]
 fn install_code_that_renames_a_selected_company_answers_alike_on_every_baseline_copy() {
     let install = "codeunit 70101 \"DC Installer\" { Subtype = Install;

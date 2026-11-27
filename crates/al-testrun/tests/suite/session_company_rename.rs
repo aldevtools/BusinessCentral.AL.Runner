@@ -80,9 +80,11 @@ fn install_code_that_renames_the_session_company_is_refused_on_every_baseline_co
     let notes = format!("{:?}", run.notes);
     let captured = run.baseline;
     let thawed = captured.freeze().expect("frozen").thaw(Some(&engine));
-    let read_back = captured
-        .to_bytes()
-        .map(|bytes| al_vm::Baseline::from_bytes(&bytes).expect("read back").backed_by(&engine));
+    let read_back = captured.to_bytes().map(|bytes| {
+        al_vm::Baseline::from_bytes(&bytes)
+            .expect("read back")
+            .backed_by(&engine)
+    });
     let oi = l
         .program
         .objects
