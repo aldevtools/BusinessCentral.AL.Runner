@@ -1,0 +1,19 @@
+# key	entry
+# Main converted these as a Variant would (0 for an undefined value; the undefined DateTime into an Integer raised the
+# Variant error); BC 28.4 raises a conversion error for the Date into an Integer local (issue 9265). Not pinned: refused.
+NB FDI Test::DateIntoBigIntegerLocal	REFUSED FieldRef.Value() of a Date field into
+NB FDI Test::DateIntoDecimalLocal	REFUSED FieldRef.Value() of a Date field into
+NB FDI Test::DateIntoDurationLocal	REFUSED FieldRef.Value() of a Date field into
+NB FDI Test::DateIntoIntegerArgument	REFUSED FieldRef.Value() of a Date field into
+NB FDI Test::DateIntoIntegerGlobal	REFUSED FieldRef.Value() of a Date field into
+NB FDI Test::DateIntoIntegerLocal	REFUSED FieldRef.Value() of a Date field into
+NB FDI Test::DateIntoIntegerLocal_BcText	REFUSED FieldRef.Value() of a Date field into
+NB FDI Test::DateIntoIntegerRecordField	REFUSED FieldRef.Value() of a Date field into
+NB FDI Test::DateTimeIntoBigIntegerLocal	REFUSED FieldRef.Value() of a DateTime field into
+NB FDI Test::DateTimeIntoDecimalLocal	REFUSED FieldRef.Value() of a DateTime field into
+NB FDI Test::DateTimeIntoDurationLocal	REFUSED FieldRef.Value() of a DateTime field into
+NB FDI Test::DateTimeIntoIntegerLocal	REFUSED FieldRef.Value() of a DateTime field into
+NB FDI Test::TimeIntoBigIntegerLocal	REFUSED FieldRef.Value() of a Time field into
+NB FDI Test::TimeIntoDecimalLocal	REFUSED FieldRef.Value() of a Time field into
+NB FDI Test::TimeIntoDurationLocal	REFUSED FieldRef.Value() of a Time field into
+NB FDI Test::TimeIntoIntegerLocal	REFUSED FieldRef.Value() of a Time field into
