@@ -132,14 +132,13 @@ impl Session {
                             | RecordOp::CalcSums
                     )))
                 && !self.demo_written.contains(&t.object)
+                && !self.demo_gl_entry_is_empty(method, &t, rec)
             {
-                if !self.demo_gl_entry_is_empty(method, &t, rec) {
-                    return unsupported(format!(
-                        "{} on {} before the test wrote to it: the corpus database holds demo rows there that the runtime does not have (ADR-047 rejected)",
-                        method.name(),
-                        t.name
-                    ));
-                }
+                return unsupported(format!(
+                    "{} on {} before the test wrote to it: the corpus database holds demo rows there that the runtime does not have (ADR-047 rejected)",
+                    method.name(),
+                    t.name
+                ));
             }
         }
         // A write of General Ledger Setup by the test's own code: the captions of areas 1 and 101 read it (`refuse_setup_caption`).
