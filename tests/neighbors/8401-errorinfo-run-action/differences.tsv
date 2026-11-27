@@ -8,8 +8,11 @@ NB Run Action Tests::Run_CollectibleInCollectScope	ASSUMED errorinfo-add-action-
 NB Run Action Tests::Run_CodeunitZero	ASSUMED errorinfo-add-action-run (corpus PR 1601)
 NB Run Action Tests::Run_MissingCodeunit	ASSUMED errorinfo-add-action-run (corpus PR 1601)
 NB Run Action Tests::Run_UpperCase_Refused	REFUSED ErrorInfo.AddAction with the method 'RUN'
-NB Run Action Tests::Run_TestSubtypeCodeunit_Refused	REFUSED ErrorInfo.AddAction with the method 'Run'
-NB Run Action Tests::Run_NegativeId_Refused	REFUSED ErrorInfo.AddAction with the method 'Run'
+NB Run Action Tests::Run_TestSubtypeCodeunit_Refused	REFUSED ErrorInfo.AddAction with the method 'Run' on codeunit 58403
+NB Run Action Tests::Run_NegativeId_Refused	REFUSED ErrorInfo.AddAction with the method 'Run' on codeunit -1
+NB Run Action Tests::Run_ExplicitNormalSubtype_Refused	REFUSED ErrorInfo.AddAction with the method 'Run' on codeunit 58405
+NB Run Action Tests::Run_OnRunNoTableNo_Refused	REFUSED ErrorInfo.AddAction with the method 'Run' on codeunit 58406
+NB Run Action Tests::Run_TableNoNoOnRun_Refused	REFUSED ErrorInfo.AddAction with the method 'Run' on codeunit 58407
 LT EnT ErrorInfo Run Action::RunAction_AddActionAlone	ASSUMED errorinfo-add-action-run (corpus PR 1601)
 LT EnT ErrorInfo Run Action::RunAction_NoTableNo_AssertError	ASSUMED errorinfo-add-action-run (corpus PR 1601)
 LT EnT ErrorInfo Run Action::RunAction_TableNo_AssertError	ASSUMED errorinfo-add-action-run (corpus PR 1601)

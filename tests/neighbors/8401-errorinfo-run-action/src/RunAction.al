@@ -31,6 +31,31 @@ codeunit 58403 "NB Test Subtype Target"
     Subtype = Test;
 }
 
+codeunit 58405 "NB Normal Subtype Target"
+{
+    Subtype = Normal;
+
+    procedure FixIt(E: ErrorInfo)
+    begin
+    end;
+}
+
+codeunit 58406 "NB OnRun Only Target"
+{
+    trigger OnRun()
+    begin
+    end;
+}
+
+codeunit 58407 "NB TableNo Only Target"
+{
+    TableNo = "NB Rec";
+
+    procedure FixIt(E: ErrorInfo)
+    begin
+    end;
+}
+
 table 58400 "NB Rec"
 {
     fields { field(1; PK; Integer) { } }
@@ -152,6 +177,30 @@ codeunit 58404 "NB Run Action Tests"
         E: ErrorInfo;
     begin
         asserterror E.AddAction('Fix it', -1, 'Run');
+    end;
+
+    [Test]
+    procedure Run_ExplicitNormalSubtype_Refused()
+    var
+        E: ErrorInfo;
+    begin
+        asserterror E.AddAction('Fix it', Codeunit::"NB Normal Subtype Target", 'Run');
+    end;
+
+    [Test]
+    procedure Run_OnRunNoTableNo_Refused()
+    var
+        E: ErrorInfo;
+    begin
+        asserterror E.AddAction('Fix it', Codeunit::"NB OnRun Only Target", 'Run');
+    end;
+
+    [Test]
+    procedure Run_TableNoNoOnRun_Refused()
+    var
+        E: ErrorInfo;
+    begin
+        asserterror E.AddAction('Fix it', Codeunit::"NB TableNo Only Target", 'Run');
     end;
 
     [ErrorBehavior(ErrorBehavior::Collect)]

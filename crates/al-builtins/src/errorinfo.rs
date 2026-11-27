@@ -339,8 +339,8 @@ fn add_action(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
 }
 
 /// `AddAction` whose method is `Run` (assumption `errorinfo-add-action-run`, corpus PR 1601
-/// EnTErrorInfoRunAction.al): on a codeunit of no Subtype it fails with the unknown-type error; codeunit 0 and an id no
-/// codeunit has take the action.
+/// EnTErrorInfoRunAction.al): on a codeunit of no Subtype whose OnRun trigger and TableNo are both there or both absent
+/// it fails with the unknown-type error; codeunit 0 and an id no codeunit has take the action.
 fn add_run_action(c: &dyn Ctx, codeunit: i32, method: &str) -> Result<(), Signal> {
     use crate::native::CodeunitShape;
     let spelled = method == "Run" || method == "run";
@@ -356,6 +356,11 @@ fn add_run_action(c: &dyn Ctx, codeunit: i32, method: &str) -> Result<(), Signal
                 "The type Microsoft.Dynamics.Nav.Types.DataError is unknown.",
                 "NotSupportedType",
             );
+        }
+        (true, _, Some(CodeunitShape::Other(why))) => {
+            return unsupported(format!(
+                "ErrorInfo.AddAction with the method '{method}' on codeunit {codeunit}, {why} (not measured)"
+            ));
         }
         _ => {
             return unsupported(format!(
@@ -521,3 +526,6 @@ pub fn native_for(sig: &Signature) -> Option<NativeFn> {
         _ => return None,
     })
 }
+
+#[cfg(test)]
+mod tests;
