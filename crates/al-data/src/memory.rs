@@ -9,7 +9,7 @@ use al_builtins::filter::FieldFilter;
 use band::pk_band;
 pub use key::PkStorage;
 use key::{Key, table_storage};
-use scan::{KeyOrder, search_sorted};
+use scan::KeyOrder;
 use std::cmp::Ordering;
 
 mod alt_cache;
@@ -1382,59 +1382,6 @@ impl MemStore {
         order
     }
 
-    /// A scan whose own key is not bounded by the filters, but another key is (an index the filters narrow, as SQL
-    /// picks one): the rows that pass are found in that key's band and put in the order of the scan's key, once
-    /// per table version and set of filters (the cache `alt_cache`). `None`: the caller walks.
-    ///
-    /// The first step of a scan reads the band; the second builds the sorted list; later steps search it. The step
-    /// right after a write walks (a loop that writes in every step must not pay for a band in every step).
-    ///
-    /// `own`: the number of rows of the band of the scan's own key, when the filters bound it (`None`: they do not). Another
-    /// key's band is then read only when it is a clear gain over that band.
-    fn alt_next(
-        &self,
-        cx: &AccessContext,
-        t: &TableDef,
-        scan: &Scan,
-        table: &Table,
-        own: Option<usize>,
-    ) -> Option<Option<Row>> {
-        if scan.filters.is_empty()
-            || (own.is_none() && Seek::of(t, scan.key, scan.filters, table.values().next()).is_some())
-        {
-            return None;
-        }
-        let sample = table.values().next();
-        if !(0..t.keys.len()).any(|j| j != scan.key && Seek::of(t, j, scan.filters, sample).is_some()) {
-            return None;
-        }
-        let slot = slot(cx, t);
-        let stamp = self.stamp_of(&slot, &self.versions);
-        let by = KeyOrder::of(t, scan);
-        let calls = match self.alt_step(&slot, t, scan.key, scan.filters, stamp) {
-            alt_cache::AltStep::Walk => return None,
-            alt_cache::AltStep::Sorted(keys) => return Some(search_sorted(table, &keys, scan, by)),
-            alt_cache::AltStep::Band(calls) => calls,
-        };
-        // When `own` is `None` the filters do not bound the scan's key (checked above), so it has no band to leave out.
-        let Some(band) = self.narrowest_band(&slot, t, table, scan.filters, scan.key, own) else {
-            self.alt_keep(&slot, t, scan.key, scan.filters, None);
-            return None;
-        };
-        let rows = band
-            .into_rows(table, t, scan.filters)
-            .filter(|(_, r)| passes(r, scan.filters));
-        if calls < 2 {
-            // The first step: the best row of the band.
-            return Some(by.first_of(rows.map(|(_, r)| r), scan.after).cloned());
-        }
-        let mut rows: Vec<(&Key, &Row)> = rows.collect();
-        rows.sort_by(|a, b| by.cmp_rows(a.1, b.1));
-        let keys = std::rc::Rc::new(rows.into_iter().map(|(k, _)| k.clone()).collect::<Vec<_>>());
-        self.alt_keep(&slot, t, scan.key, scan.filters, Some(keys.clone()));
-        Some(search_sorted(table, &keys, scan, by))
-    }
-
     fn table_mut(&mut self, cx: &AccessContext, t: &TableDef) -> &mut Table {
         self.seen(t.object);
         self.footprint_written(t.object);
@@ -1693,78 +1640,7 @@ impl Store for MemStore {
             filters: &numbers,
             ..scan.clone()
         };
-        if table.len() >= INDEX_MIN_ROWS {
-            if let Some(found) = self.alt_next(cx, t, scan, &table, None) {
-                return Ok(found);
-            }
-        }
-        // In primary key order the table is already in the order of the scan: step to the first row past
-        // the position and look at the rows from there on until one passes the filters.
-        if scan.key == 0 {
-            use std::ops::Bound::{Excluded, Included, Unbounded};
-            let k = t.keys[0].len();
-            let after = scan.after.map(|a| Key::of(t, a[..k.min(a.len())].to_vec()));
-            if scan.ascending {
-                let seek = Seek::of(t, 0, scan.filters, table.values().next());
-                let from = seek
-                    .as_ref()
-                    .filter(|s| !s.lo.is_empty())
-                    .map(|s| Key::of(t, s.lo.clone()));
-                let lower = match (after, from) {
-                    (Some(a), Some(f)) if a.cmp(&f) == Ordering::Less => Included(f),
-                    (Some(a), _) => Excluded(a),
-                    (None, Some(f)) => Included(f),
-                    (None, None) => Unbounded,
-                };
-                return Ok(table
-                    .range((lower, Unbounded))
-                    .map(|(_, r)| r)
-                    // Past the last row the filters allow (a row that does not compare is looked at).
-                    .take_while(|r| seek.as_ref().is_none_or(|s| s.after(r) != Some(true)))
-                    .find(|r| passes(r, scan.filters))
-                    .cloned());
-            }
-            let upper = after.map_or(Unbounded, Excluded);
-            return Ok(table
-                .range((Unbounded, upper))
-                .rev()
-                .map(|(_, r)| r)
-                .find(|r| passes(r, scan.filters))
-                .cloned());
-        }
-        // A big table in another key: step through the table's rows in that key's order.
-        if table.len() >= INDEX_MIN_ROWS {
-            let slot = slot(cx, t);
-            let order = self.order_of(&slot, scan.key, t, &table);
-            let row_at = |k: &Key| table.get(k);
-            if order_fits(&order, &table) {
-                // The slice of the order the filters on the leading fields of the key leave (ADR-035).
-                let seek = Seek::of(t, scan.key, scan.filters, table.values().next());
-                let mut band = 0..order.len();
-                if let Some(sk) = &seek {
-                    // Rows that do not compare: the order cannot be trusted, so the whole of it is looked at.
-                    if let Some(b) = band::band(&order, |k| row_at(k), sk) {
-                        band = b;
-                    }
-                    // A wide band of this key: another key the filters bound may hold far fewer rows
-                    // (Tests-SCM codeunit 137380 TenThousandSerialNos: "Reservation Entry" by source line and serial number).
-                    if band.len() >= INDEX_MIN_ROWS {
-                        if let Some(found) = self.alt_next(cx, t, scan, &table, Some(band.len())) {
-                            return Ok(found);
-                        }
-                    }
-                }
-                let by = KeyOrder::of(t, scan);
-                let past = by.past_in(&order, scan.after, |k, a| row_at(k).map(|r| by.cmp_to_position(r, a)));
-                let found = by.first_in(&order[scan::meet(past, band)], |k| {
-                    row_at(k).filter(|r| passes(r, scan.filters))
-                });
-                return Ok(found.cloned());
-            }
-        }
-        // A small table in another key: every row is looked at, without building its position (a copy of the key fields).
-        let rows = table.values().filter(|r| passes(r, scan.filters));
-        Ok(KeyOrder::of(t, scan).first_of(rows, scan.after).cloned())
+        Ok(self.step(cx, t, scan, &table))
     }
 
     fn count(&self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
