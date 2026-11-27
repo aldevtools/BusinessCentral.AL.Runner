@@ -754,6 +754,8 @@ pub struct PageView {
     /// The open of the page that set the mark (al-vm `PageState::open_id`).
     pub open_id: u64,
     pub group2: Vec<crate::filter::FieldFilter>,
+    /// The page's Rec the open marked (a `Record.Copy` of it holds the same mark, but is not this record).
+    pub origin: std::rc::Weak<std::cell::RefCell<RecordState>>,
 }
 
 /// The record is one whose Blobs the Blob copy probes measured as the source of a record-wide move (a record passed by

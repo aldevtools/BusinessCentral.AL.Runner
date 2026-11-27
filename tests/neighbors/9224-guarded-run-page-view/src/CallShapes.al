@@ -4,7 +4,8 @@
 // procedure of the page, 'method' calls RunCopy from a method of another codeunit, 'event' runs it in a subscriber of an
 // event the action raises. Review round 2: 'param-int' and 'param-other' first copy Rec into a global of GPN Call Wrapper,
 // then call a method whose one var parameter is an Integer or a Record of another table, and that method runs the guarded
-// run on the global. The runtime keeps main's result for each.
+// run on the global. Fix round of runner PR 9252: 'param-same-global' does the same with a method whose one var parameter is
+// the page's Rec itself (a Record of GPC Z), and runs on the global. The runtime keeps main's result for each.
 page 69181 "GPN Call Shapes"
 {
     PageType = List;
@@ -67,6 +68,11 @@ page 69181 "GPN Call Shapes"
                                 Wrapper.SetRec(Rec);
                                 Wrapper.GoOther(Other);
                             end;
+                        'param-same-global':
+                            begin
+                                Wrapper.SetRec(Rec);
+                                Wrapper.GoSame(Rec);
+                            end;
                     end;
                 end;
             }
@@ -94,6 +100,18 @@ codeunit 69182 "GPN Call Wrapper"
     procedure SetRec(var PageRec: Record "GPC Z")
     begin
         G.Copy(PageRec);
+    end;
+
+    // The parameter is a Record of the run argument's table, but the run is on the global G.
+    procedure GoSame(var PageRec: Record "GPC Z")
+    var
+        LogCu: Codeunit "GPC Log";
+        Ok: Boolean;
+    begin
+        ClearLastError();
+        Ok := Codeunit.Run(Codeunit::"GPC Inner", G);
+        LogCu.Log('run=' + Format(Ok));
+        LogCu.Log('code=' + GetLastErrorCode());
     end;
 
     // The guarded run sits in the method body itself, so the method is the caller of Codeunit.Run.

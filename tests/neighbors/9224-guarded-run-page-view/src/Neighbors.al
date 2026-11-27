@@ -760,3 +760,33 @@ codeunit 69176 "GPN Param Tests"
         Observer.Verify();
     end;
 }
+
+// Fix round of runner PR 9252: a method whose one var parameter is the page's Rec runs the guarded run on a global copy
+// made in an earlier call. A codeunit of its own: GPN Param Tests' first cell is refused, which hides its later cells.
+codeunit 69173 "GPN Same Param Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure ParamSameGlobal_Ends()
+    var
+        Observer: Codeunit "Probe Observer";
+        Tests: Codeunit "GPN Tests";
+    begin
+        Tests.Cell(Observer, 'CallShapes', 'mark', 'param-same-global');
+        Observer.Expect('run end|code', 'TestWrapped:CSide');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure ParamSameGlobal_PlainCommit()
+    var
+        Observer: Codeunit "Probe Observer";
+        Tests: Codeunit "GPN Tests";
+    begin
+        Tests.Cell(Observer, 'CallShapes', 'mark,commit', 'param-same-global');
+        Observer.Expect('run end|text', 'END');
+        Observer.Verify();
+    end;
+}

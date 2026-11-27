@@ -1,5 +1,4 @@
-//! A guarded `Codeunit.Run` from a page action whose record argument is the Rec of a List or Document page, or a
-//! `Record.Copy` of it, with the page's SourceTableView filter in filter group 2: the Ends and PlainCommit cells of corpus PR
+//! A guarded `Codeunit.Run` from a page action whose record argument is the Rec of a List or Document page itself, with the page's SourceTableView filter in filter group 2: the Ends and PlainCommit cells of corpus PR
 //! 1622 (errors/ConsistentGuardedRunPageConst.al, codeunit 99562, :690-:1200; not yet in the pinned corpus), run through the
 //! assumption `guarded-run-consistent-page-view`. Owns the page's view mark on `RecordState` (`PageViewMark`): where it is set,
 //! the record methods that end it, and the code a test page's Invoke gives the error the run end raises. Every other shape
@@ -54,6 +53,7 @@ impl Session {
             page: object as u32,
             open_id,
             group2,
+            origin: Rc::downgrade(rec),
         })));
     }
 
@@ -86,11 +86,15 @@ impl Session {
             _ => false,
         };
         let mark = arg.rec.borrow().page_view.0.clone()?;
+        // The argument is the page's Rec itself, which the action method got as its parameter (`OrderDirect` :484). A
+        // `Record.Copy` of it (:475, :486) is measured only as a local of that method made in that method, which this gate
+        // cannot tell from a global copy made in an earlier call; it keeps main's result.
+        let is_page_rec = mark.origin.upgrade().is_some_and(|o| Rc::ptr_eq(&o, &arg.rec));
         let now = group2(&arg.rec.borrow());
         let view_kept = mark.group2.len() == now.len() && mark.group2.iter().zip(&now).all(|(a, b)| same_filter(a, b));
         let in_action = self.run_by_action_method(mark.open_id, start.caller_frame, table)
             && self.page_view_page(mark.page as usize);
-        if !(run_shape && one_mark && view_kept && in_action) {
+        if !(run_shape && one_mark && is_page_rec && view_kept && in_action) {
             return None;
         }
         match end {
