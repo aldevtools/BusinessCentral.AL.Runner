@@ -530,6 +530,23 @@ impl al_builtins::native::Ctx for Session {
         }
         ModuleLookup::NotInstalled
     }
+    fn codeunit_shape(&self, id: u32) -> al_builtins::native::CodeunitShape {
+        use al_builtins::native::CodeunitShape;
+        let Some(any) = self.engine.codeunit_object(Some(id)) else {
+            return CodeunitShape::Missing;
+        };
+        let subtype = |o: usize| {
+            let props = &self.engine.program.objects[o].properties;
+            props
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
+                .map(|(_, v)| v.trim().to_string())
+        };
+        match self.engine.compiled_codeunit(Some(id)) {
+            Some(o) if o == any && subtype(o).is_none_or(|t| t.eq_ignore_ascii_case("Normal")) => CodeunitShape::Normal,
+            _ => CodeunitShape::Other,
+        }
+    }
     fn workspace_table(&self, number: i32) -> bool {
         self.engine
             .program

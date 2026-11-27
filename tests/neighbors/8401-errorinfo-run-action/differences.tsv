@@ -1,0 +1,12 @@
+# key	entry
+# Main ignores AddAction's method; head raises BC's unknown-type error for Run on a codeunit of no Subtype (issue 8401)
+NB Run Action Tests::IssueRepro_CodeunitRun	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+NB Run Action Tests::Run_TableNoCodeunit	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+NB Run Action Tests::Run_LowerCase	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+NB Run Action Tests::Run_WithDescription	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+NB Run Action Tests::Run_CollectibleInCollectScope	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+NB Run Action Tests::Run_CodeunitZero	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+NB Run Action Tests::Run_MissingCodeunit	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+NB Run Action Tests::Run_UpperCase_Refused	REFUSED ErrorInfo.AddAction with the method 'RUN'
+NB Run Action Tests::Run_TestSubtypeCodeunit_Refused	REFUSED ErrorInfo.AddAction with the method 'Run'
+NB Run Action Tests::Run_NegativeId_Refused	REFUSED ErrorInfo.AddAction with the method 'Run'
