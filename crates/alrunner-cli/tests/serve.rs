@@ -4779,3 +4779,101 @@ fn the_mixed_group_refusal_names_the_stops_that_are_on() {
     }
     shut_down(s);
 }
+
+/// The writes of the workspace layer wait this long in the tests of issue 9232 (`ALRUNNER_TEST_SLOW_CACHE_WRITE_MS`),
+/// so that a write is still in flight when the client stops the server. Well under the server's bound for the pending
+/// writes, so the server that waits sees the write finish.
+const SLOW_WRITE_MS: &str = "500";
+
+/// The workspace layer entries in the cache folder `cache`.
+fn workspace_entries(cache: &Path) -> Vec<std::ffi::OsString> {
+    std::fs::read_dir(cache.join("compile"))
+        .map(|d| {
+            d.flatten()
+                .filter(|e| e.path().extension().is_some_and(|x| x == "alcw"))
+                .map(|e| e.file_name())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A server over `cache` with slow writes, after one request on `app` that built the workspace layer entry.
+fn server_that_built_an_entry(app: &Path, cache: &Path, stderr: Stdio) -> Server {
+    let cache_arg = cache.to_string_lossy().to_string();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--cache-dir", &cache_arg],
+        &[("ALRUNNER_TEST_SLOW_CACHE_WRITE_MS", SLOW_WRITE_MS)],
+        stderr,
+    );
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(json!({"command": "runTests", "sourcePaths": [app]}));
+    let summary = s.until_summary().last().unwrap().clone();
+    assert_eq!(summary["timings"]["workspaceCache"], json!("built"), "{summary}");
+    s
+}
+
+/// Issue 9232: the `shutdown` reply comes after the pending workspace layer write finished, so a client that stops the
+/// server as soon as the reply arrives does not lose the entry.
+#[test]
+fn the_shutdown_reply_comes_after_the_workspace_entry_is_written() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "mixed", MIXED);
+    let cache = d.path().join("cache");
+    let mut s = server_that_built_an_entry(&a, &cache, Stdio::null());
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+    let at_reply = workspace_entries(&cache);
+    assert!(s.child.wait().unwrap().success());
+    assert_eq!(at_reply.len(), 1, "entries when the reply came: {at_reply:?}");
+}
+
+/// Issue 9232: a client sends `shutdown` and then SIGTERM at once (one editor client sends SIGTERM right after the
+/// reply or after 500 ms without one, another right away and SIGKILL 2 s later). The server waits for the pending
+/// workspace layer write before it ends by the signal, and the next server over the same cache folder reads the entry.
+#[cfg(unix)]
+#[test]
+fn a_sigterm_right_after_shutdown_keeps_the_workspace_entry_for_the_next_server() {
+    use std::os::unix::process::ExitStatusExt;
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "mixed", MIXED);
+    let cache = d.path().join("cache");
+    let mut s = server_that_built_an_entry(&a, &cache, Stdio::null());
+    s.send(json!({"command": "shutdown"}));
+    // SAFETY: `kill` on the pid of the child this test started and has not waited for.
+    assert_eq!(unsafe { libc::kill(s.child.id() as libc::pid_t, libc::SIGTERM) }, 0);
+    let status = s.child.wait().unwrap();
+    assert_eq!(status.signal(), Some(libc::SIGTERM), "{status:?}");
+    let cache_arg = cache.to_string_lossy().to_string();
+    let mut next = Server::start(&["--no-download", "--no-test-data", "--cache-dir", &cache_arg]);
+    assert_eq!(next.line(), json!({"ready": true}));
+    next.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    let summary = next.until_summary().last().unwrap().clone();
+    assert_eq!(summary["timings"]["workspaceCache"], json!("read"), "{summary}");
+    shut_down(next);
+}
+
+/// Issue 9232: a write that takes longer than the server's bound does not hold the `shutdown` reply back for longer:
+/// the reply comes, stderr says that a write was still running, and the server still finishes the write before it
+/// exits on its own.
+#[test]
+fn a_write_longer_than_the_bound_does_not_hold_the_shutdown_reply_back() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "mixed", MIXED);
+    let cache = d.path().join("cache");
+    let log = d.path().join("stderr.txt");
+    let cache_arg = cache.to_string_lossy().to_string();
+    let mut s = Server::start_with_stderr(
+        &["--no-download", "--no-test-data", "--cache-dir", &cache_arg],
+        &[("ALRUNNER_TEST_SLOW_CACHE_WRITE_MS", "4000")],
+        Stdio::from(std::fs::File::create(&log).unwrap()),
+    );
+    assert_eq!(s.line(), json!({"ready": true}));
+    s.send(json!({"command": "runTests", "sourcePaths": [a]}));
+    s.until_summary();
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+    assert!(s.child.wait().unwrap().success());
+    let err = std::fs::read_to_string(&log).unwrap();
+    assert!(err.contains("a workspace cache entry was still being written"), "{err}");
+    assert_eq!(workspace_entries(&cache).len(), 1);
+}
