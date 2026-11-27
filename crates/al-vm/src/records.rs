@@ -1396,6 +1396,24 @@ impl Session {
             })
     }
 
+    /// [`Session::fail_unique`] of an Insert. The flag hides the values of a unique index an Insert into a database table with
+    /// a Blob field breaks (errors/last-error/InsertDuplicateKeyExcludeFlag.al:121). Other tables are not pinned.
+    fn fail_unique_insert(&mut self, rec: &Rec, t: &TableDef, key: usize, row: &[Value]) -> Result<Value, Signal> {
+        let r = self.fail_unique(t, key, row);
+        if self.has_blob_field(t) && !rec.borrow().temporary {
+            return r.map_err(|s| {
+                redact_error(
+                    s,
+                    format!(
+                        "There is already a record in table {} that has the same values in a unique index for the following fields: <redacted>",
+                        self.caption(t)
+                    ),
+                )
+            });
+        }
+        r
+    }
+
     /// The refusal of a unique index; only the start of BC's message is pinned.
     fn fail_unique(&mut self, t: &TableDef, key: usize, row: &[Value]) -> Result<Value, Signal> {
         if self.ret_used {

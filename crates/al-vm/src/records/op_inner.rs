@@ -597,16 +597,7 @@ impl Session {
                             self.note_explicit_key(&t, a, &row, &cx.company);
                         }
                     }
-                    let r = self.fail_unique(&t, unique_key, &row);
-                    // The flag hides the values of a unique index an Insert into a table with a Blob field breaks
-                    // (errors/last-error/InsertDuplicateKeyExcludeFlag.al:121). Other tables are not pinned.
-                    if self.has_blob_field(&t) && !rec.borrow().temporary {
-                        return r.map_err(|s| redact_error(s, format!(
-                            "There is already a record in table {} that has the same values in a unique index for the following fields: <redacted>",
-                            self.caption(&t)
-                        )));
-                    }
-                    return r;
+                    return self.fail_unique_insert(rec, &t, unique_key, &row);
                 }
                 let mut view = self.stored_view(&t, &row);
                 // A temporary row keeps the FlowFilter values the Insert wrote (`flow_filter_positions`).
