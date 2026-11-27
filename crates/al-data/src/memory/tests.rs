@@ -154,6 +154,7 @@ fn reference(s: &MemStore, t: &TableDef, key: usize, filters: &[FieldFilter], as
 }
 
 mod count_tests;
+mod scan_tests;
 mod seek_tests;
 
 #[test]
