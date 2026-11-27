@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// A text whose lone surrogate unit `value_codec` would drop (`value_codec.rs:112-115` writes `as_str()`).
+/// A text with a lone surrogate unit, which `Value::identical` does not compare.
 fn lone_text() -> Txt {
     Txt::from_units(&[0x41, 0xD800, 0x42])
 }

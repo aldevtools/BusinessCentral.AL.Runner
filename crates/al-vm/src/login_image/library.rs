@@ -9,6 +9,7 @@ use super::arena::{Frozen, NodeId};
 use super::freeze::{Holder, Walker, deferred, never};
 use super::thaw::Maker;
 use al_builtins::library_kind::LibraryKind;
+use al_builtins::text::Txt;
 use al_builtins::value::{
     CookieState, EmptiedRef, ErrorInfoBuilt, ErrorInfoState, HandlerContext, LibraryValue, ModuleInfoState,
     NotificationState, SessionSettingsState, WebServiceActionState,
@@ -23,8 +24,10 @@ pub(crate) enum LibraryNode {
     ClosedRecordRef,
     HandedContext,
     XmlNameTable,
-    Text(String),
-    TextCap(String, i32),
+    /// A TextBuilder's or BigText's text as the cell holds it: a `Txt` keeps a lone surrogate half, a `String` would
+    /// hold U+FFFD in its place (issue 9202).
+    Text(Txt),
+    TextCap(Txt, i32),
     SystemTable(i64),
     Version([i32; 4]),
     RecordId {
@@ -111,8 +114,8 @@ impl Walker<'_> {
             L::HandedContext => N::HandedContext,
             L::XmlNameTable => N::XmlNameTable,
             L::Text(_) if *kind == LibraryKind::SecretText => return Err(never(path, "SecretText")),
-            L::Text(t) => N::Text(t.to_string()),
-            L::TextCap(t, n) => N::TextCap(t.to_string(), *n),
+            L::Text(t) => N::Text(t.clone()),
+            L::TextCap(t, n) => N::TextCap(t.clone(), *n),
             L::SystemTable(n) => N::SystemTable(*n),
             L::Version(v) => N::Version(*v),
             L::RecordId {
@@ -230,8 +233,8 @@ impl Maker<'_> {
             N::ClosedRecordRef => L::ClosedRecordRef,
             N::HandedContext => L::HandedContext,
             N::XmlNameTable => L::XmlNameTable,
-            N::Text(t) => L::Text(t.clone().into()),
-            N::TextCap(t, n) => L::TextCap(t.clone().into(), *n),
+            N::Text(t) => L::Text(t.clone()),
+            N::TextCap(t, n) => L::TextCap(t.clone(), *n),
             N::SystemTable(n) => L::SystemTable(*n),
             N::Version(v) => L::Version(*v),
             N::RecordId {
