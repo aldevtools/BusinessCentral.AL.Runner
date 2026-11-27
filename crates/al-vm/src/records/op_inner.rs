@@ -36,12 +36,15 @@ impl Session {
     /// shape keep the demo-row refusal. The demo-row check skips its refusal for it, and the `IsEmpty` arm answers it after
     /// every step a database read takes (transaction start, deferred inserts, row versions).
     fn demo_gl_entry_is_empty(&self, method: RecordOp, t: &TableDef, rec: &Rec) -> bool {
-        let r = rec.borrow();
-        method == RecordOp::IsEmpty
+        if !(method == RecordOp::IsEmpty
             && self.engine.demo_tables.contains(&(t.object as usize))
             && !self.demo_written.contains(&t.object)
-            && self.engine.program.objects[t.object as usize].id == Some(17)
-            && !r.temporary
+            && self.table_id(t) == Some(17))
+        {
+            return false;
+        }
+        let r = rec.borrow();
+        !r.temporary
             && r.company.is_none()
             && !r.change_company_called
             && r.filters.is_empty()
