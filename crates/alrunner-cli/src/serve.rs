@@ -577,16 +577,20 @@ fn stop_group(e: &Map<String, Value>) -> Result<Option<String>, String> {
 }
 
 /// The `stopGroup`s of `entries` are all or none (issue 8210): a mix is refused, as an entry without a group has more
-/// than one plausible reading there, and a refusal can be lifted later. Groups need a stop (`stop`: after a failure or,
-/// issue 9213, after a timeout; the request's field, or the server's option when it is absent): without one a group
+/// than one plausible reading there, and a refusal can be lifted later. Groups need a stop (`failure` or, issue 9213,
+/// `timeout`: the request's field, or the server's option when it is absent): without one a group
 /// changes nothing, so it is refused as a likely client mistake. The mix is checked first: it is wrong whatever the
 /// stop.
-fn stop_groups_checked(entries: &[run::Entry], stop: bool) -> Result<(), String> {
+fn stop_groups_checked(entries: &[run::Entry], failure: bool, timeout: bool) -> Result<(), String> {
     let grouped = entries.iter().filter(|e| e.stop_group.is_some()).count();
     if grouped > 0 && grouped < entries.len() {
-        return Err("some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)".into());
+        // Issue 9213: the tail names the stops that are on (`stop.rs` owns the words).
+        let then = al_testrun::runtime::stop_triggers(failure, timeout);
+        return Err(format!(
+            "some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none ({then} then stops the whole request)"
+        ));
     }
-    if !stop && grouped > 0 {
+    if !(failure || timeout) && grouped > 0 {
         return Err("`stopGroup` needs `stopAfterFirstFailure` or `stopAfterTimeout` (or a server started with `--stop-after-first-failure` or `--stop-after-timeout`): without a stop a group changes nothing".into());
     }
     Ok(())
@@ -601,7 +605,7 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
         Ok(x) => x,
         Err(e) => return error(e),
     };
-    if let Err(e) = stop_groups_checked(&entries, args.stop_after_first_failure || args.stop_after_timeout) {
+    if let Err(e) = stop_groups_checked(&entries, args.stop_after_first_failure, args.stop_after_timeout) {
         return error(e);
     }
     if let Ok(mut v) = flags.entry_ids.lock() {
@@ -1453,14 +1457,29 @@ mod tests {
         let needs_the_stop = "`stopGroup` needs `stopAfterFirstFailure` or `stopAfterTimeout` (or a server started with `--stop-after-first-failure` or `--stop-after-timeout`): without a stop a group changes nothing";
         let mix = "some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none (a failure then stops the whole request)";
         for stop in [false, true] {
-            assert_eq!(stop_groups_checked(&none, stop), Ok(()), "no groups, stop {stop}");
+            assert_eq!(
+                stop_groups_checked(&none, stop, false),
+                Ok(()),
+                "no groups, stop {stop}"
+            );
+            assert_eq!(
+                stop_groups_checked(&none, false, stop),
+                Ok(()),
+                "no groups, timeout stop {stop}"
+            );
         }
-        assert_eq!(stop_groups_checked(&all, true), Ok(()));
+        assert_eq!(stop_groups_checked(&all, true, false), Ok(()));
+        assert_eq!(stop_groups_checked(&all, false, true), Ok(()));
         assert_eq!(
-            stop_groups_checked(&mixed, true),
+            stop_groups_checked(&mixed, true, false),
             Err(mix.to_string()),
             "a mix is refused"
         );
-        assert_eq!(stop_groups_checked(&all, false), Err(needs_the_stop.to_string()));
+        assert_eq!(stop_groups_checked(&all, false, false), Err(needs_the_stop.to_string()));
+        assert_eq!(
+            stop_groups_checked(&mixed, false, true),
+            Err(mix.replace("(a failure then", "(a timeout then")),
+            "issue 9213: the tail names the stop that is on"
+        );
     }
 }

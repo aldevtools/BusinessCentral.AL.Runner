@@ -1394,6 +1394,7 @@ pub use self::order_hint::{NumbersOrder, OrderHint};
 pub use self::run::*;
 pub use self::single_fresh::{CarriedCodeunit, CarriedRead};
 pub use self::single_lane::LaneReport;
+pub use self::stop::stop_triggers;
 
 /// The translation files of the app folder `dir`, as the IR keeps them (ADR-053 step 2). A file that cannot be read keeps its
 /// reason, and its language refuses every translated read.

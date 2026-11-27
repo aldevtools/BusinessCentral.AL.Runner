@@ -67,6 +67,17 @@ impl Stop {
     }
 }
 
+/// What stops the whole request under the stops that are on (`failure`: `RunOptions::stop_after_first_failure`,
+/// `timeout`: `RunOptions::stop_after_timeout`), for serve's refusal of a mix of grouped and ungrouped entries
+/// (issues 8210, 9213). With neither on it is issue 8210's word: that refusal comes before the check of the stop.
+pub fn stop_triggers(failure: bool, timeout: bool) -> &'static str {
+    match (failure, timeout) {
+        (true, true) => "a failure or a timeout",
+        (false, true) => "a timeout",
+        _ => "a failure",
+    }
+}
+
 /// The reason of a test `RunOptions::skip_after_timeout` (al-runner issue 7517) does not run, after its codeunit's test
 /// `test` was stopped at the time limit.
 pub(crate) fn skipped_after_timeout(test: &str) -> String {
@@ -98,6 +109,18 @@ mod tests {
         );
         assert_eq!(request.after(&Outcome::Pass, 1, "T"), None);
         assert_eq!(Stop::of(false, false, Some("m1")), None, "no stop, no scope");
+    }
+
+    #[test]
+    fn the_triggers_name_the_stops_that_are_on() {
+        assert_eq!(stop_triggers(true, false), "a failure");
+        assert_eq!(stop_triggers(false, true), "a timeout");
+        assert_eq!(stop_triggers(true, true), "a failure or a timeout");
+        assert_eq!(
+            stop_triggers(false, false),
+            "a failure",
+            "issue 8210's text when no stop is on"
+        );
     }
 
     /// A time-limit row as `run::time_limit_reason` words it, for a test method (`place` empty) or the OnRun trigger.
