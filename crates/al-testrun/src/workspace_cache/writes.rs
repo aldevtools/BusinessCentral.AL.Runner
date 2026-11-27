@@ -92,7 +92,14 @@ fn wait_until(deadline: Option<Instant>) -> bool {
 
 /// Runs the deferred writes and waits for every write of this process (`al-runner test` before it exits, after the
 /// results are printed; serve when it ends). A write that did not finish leaves no file (temporary file, rename).
+///
+/// The deferred writes run here, on the caller: a one-shot run starts no thread, waits for nothing, and a write that
+/// panics panics the caller. Only serve has writer threads ([`start_writes`]); they are waited for as
+/// [`wait_for_writes_within`] does, so that they stay listed and a stop signal during serve's end-of-input wait still
+/// waits for them (issue 9232).
 pub fn wait_for_writes() {
+    let jobs: Vec<Job> = std::mem::take(&mut *DEFERRED.lock().unwrap_or_else(|e| e.into_inner()));
+    run(jobs);
     wait_until(None);
 }
 
@@ -101,4 +108,27 @@ pub fn wait_for_writes() {
 /// leaves no file.
 pub fn wait_for_writes_within(bound: Duration) -> bool {
     wait_until(Some(Instant::now() + bound))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The unbounded wait runs the deferred writes on the caller, as before issue 9232: no thread, so no poll and no
+    /// spawn that can fail, and a write that panics panics the caller. One test, as the list of writes is the
+    /// process's.
+    #[test]
+    fn the_unbounded_wait_runs_the_deferred_writes_on_the_caller() {
+        let ran_on = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let seen = ran_on.clone();
+        defer_write(move || *seen.lock().unwrap() = Some(std::thread::current().id()));
+        wait_for_writes();
+        assert_eq!(*ran_on.lock().unwrap(), Some(std::thread::current().id()));
+        defer_write(|| panic!("a write that fails"));
+        assert!(
+            std::panic::catch_unwind(wait_for_writes).is_err(),
+            "the panic of a write reaches the caller"
+        );
+        assert_eq!(pending_writes(), 0);
+    }
 }
