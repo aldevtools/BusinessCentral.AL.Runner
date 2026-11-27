@@ -190,6 +190,10 @@ pub struct MemStore {
     /// The tables (object index, in any company) the runtime marked as written ([`MemStore::note_written`]). Never cleared:
     /// every copy of the store (a clone, a snapshot, a frozen store, the bytes of a baseline) keeps it with the rows.
     written: std::collections::BTreeSet<u32>,
+    /// The change counter each table of `written` got when this store marked it ([`MemStore::note_written`]): a mark set
+    /// without a row change (a DeleteAll of an empty table) still counts as a change of the table
+    /// ([`MemStore::tables_changed_since`]). A copy made from bytes starts with the mark and no stamp.
+    written_stamps: std::collections::BTreeMap<u32, u64>,
     /// The primary keys of a big table in the order of one of its other keys, as of a shape stamp. Shared by the clones
     /// of the store, so a session restored to a snapshot finds the orders built since the snapshot was taken (al-runner
     /// issue 5884: each test session asks for the last G/L entry by Posting Date). Safe to share because a stamp is
@@ -986,13 +990,20 @@ impl MemStore {
     }
 
     /// The table objects (in any company) whose rows changed after the change counter was `counter`, and whose change a
-    /// rollback has not undone (`versions` follows rollback).
+    /// rollback has not undone (`versions` follows rollback), with the tables [`MemStore::note_written`] marked after it
+    /// (the mark is never undone).
     pub fn tables_changed_since(&self, counter: u64) -> std::collections::BTreeSet<u32> {
         self.footprint_changes_since(counter);
+        let marked = self
+            .written_stamps
+            .iter()
+            .filter(|(_, v)| **v > counter)
+            .map(|(object, _)| *object);
         self.versions
             .iter()
             .filter(|(_, v)| **v > counter)
             .map(|((_, object), _)| *object)
+            .chain(marked)
             .collect()
     }
 

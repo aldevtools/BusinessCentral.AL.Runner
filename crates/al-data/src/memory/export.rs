@@ -88,9 +88,13 @@ impl MemStore {
     }
 
     /// Marks table `object` (object index) as written, in whatever company: [`MemStore::was_written`] answers `true` for it
-    /// in this store and in every copy made from it from now on (al-vm `records/op_inner.rs` marks G/L Entry).
+    /// in this store and in every copy made from it from now on (al-vm `records/op_inner.rs` marks G/L Entry). The first
+    /// mark is a change of the table ([`MemStore::tables_changed_since`]), whether or not a row changed.
     pub fn note_written(&mut self, object: u32) {
-        self.written.insert(object);
+        if self.written.insert(object) {
+            self.counter = super::next_stamp();
+            self.written_stamps.insert(object, self.counter);
+        }
     }
 
     /// Whether [`MemStore::note_written`] marked table `object` in this store or in the store it was copied from.

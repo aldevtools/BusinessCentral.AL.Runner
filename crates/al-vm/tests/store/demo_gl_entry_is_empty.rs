@@ -256,3 +256,39 @@ fn an_is_empty_of_gl_entry_inside_install_code_keeps_the_refusal() {
 fn a_read_in_an_earlier_test_method_keeps_the_answer() {
     assert_eq!(text(one_session(&["start", "Plain", "start", "Plain"])), "No");
 }
+
+// Under runner 130450 a codeunit's OnRun runs in a session restored from the baseline the codeunit started from; what it
+// left is handed on only when it changed something (al-testrun `numbers_taken.rs` `onrun_left`). A DeleteAll on the
+// runtime's empty G/L Entry removes no row but sets the mark: the session no longer holds what it started from, and the
+// table counts as changed, so the later codeunits start from what OnRun left and keep the refusal.
+#[test]
+fn an_onrun_delete_all_on_an_empty_store_counts_as_a_change() {
+    let l = al_testkit::compile(SRC);
+    let mut engine = al_testkit::engine(&l);
+    let t = l.program.objects.iter().position(|o| o.name == "G/L Entry").unwrap();
+    std::sync::Arc::get_mut(&mut engine).unwrap().demo_tables.insert(t);
+    let oi = l.program.objects.iter().position(|o| o.name == "R").unwrap();
+    let ri = |name: &str| {
+        l.program.objects[oi]
+            .routines
+            .iter()
+            .position(|r| r.name == name)
+            .unwrap()
+    };
+    let mut s = al_vm::Session::new(engine.clone());
+    let start = s.capture_baseline();
+    s = al_vm::Session::new(engine.clone());
+    s.restore_baseline(&start);
+    let changes_from = s.store_mut().change_counter();
+    let inst = s.instance(oi);
+    s.call(oi, ri("DeleteAllEntries"), inst, vec![]).expect("DeleteAll");
+    assert!(!s.holds_what_it_started_from(&start));
+    assert!(s.store_mut().tables_changed_since(changes_from).contains(&(t as u32)));
+    // The later codeunit starts from what OnRun left.
+    let left = s.capture_baseline();
+    s = al_vm::Session::new(engine.clone());
+    s.restore_baseline(&left);
+    s.start_test_method();
+    let inst = s.instance(oi);
+    refused(s.call(oi, ri("Plain"), inst, vec![]).map(|(v, _)| v));
+}

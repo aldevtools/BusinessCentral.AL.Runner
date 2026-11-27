@@ -173,6 +173,7 @@ impl MemStore {
             committed_moves: _,
             committed_source_stamps: _,
             counter: _,
+            written_stamps: _,
             // A DeleteAll without filters is a write of its table: the callers read the marks (`committed_marks`,
             // `committed_table`).
             committed_emptied: _,
