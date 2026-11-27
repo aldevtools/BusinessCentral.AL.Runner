@@ -75,7 +75,7 @@ impl CorpusRuntime {
                     retire(c);
                 }
                 let mut rt = halted(tests, suites, opts, watch.reason(), message, started.elapsed());
-                rt.phases.memory.after_compile = opts.memory.as_ref().and_then(|b| (b.rss)());
+                rt.phases.memory.read_after_compile(opts.memory.as_ref());
                 Ok(Err(rt))
             }
             // The stop unwinds the compile (`al_sema::halt::Halted`, or the panic of a scoped thread that carried it).
