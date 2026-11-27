@@ -1,5 +1,0 @@
-# key	entry
-# Against main with PR 8307 merged. Review of PR 8307 (2026-11-22, LOW): parameters bind by name, so a three-parameter
-# subscriber whose second parameter is CurrFieldNo (by var) and third xRec is no shape the cells measured; it now refuses
-# where main shared the Validate's xRec. The test makes no assertion, so main passed it.
-VE Tests::Refused_CurrFieldNoSecondXRecThird	REFUSED xRec in a table procedure called through other code

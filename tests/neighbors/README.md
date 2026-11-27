@@ -18,7 +18,7 @@ the branch name or the issue. The folder holds exactly one of:
   The reviewer checks the reason. A change of comments only, or a tooling change no AL code sees, takes this form.
 
 CI fails when the rule fails, and when a test differs and has no entry. A stale entry (an entry whose test no longer differs) fails for a folder the pull request adds or changes. For a folder given as an argument in a local run that the pull request does not change, it is printed as a note. In CI (`--changed`) every folder that runs is a changed one, so a stale entry always fails there.
-A later pull request may delete old folders.
+A later pull request may delete old folders. Delete the folder once the fix has merged.
 
 ## The app
 

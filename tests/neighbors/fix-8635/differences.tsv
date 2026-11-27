@@ -1,4 +1,0 @@
-# key	entry
-# Every test is a member shape next to the new rule that the AL compiler takes and main runs: words that are no keyword
-# after `.` unquoted, keywords quoted (a field, a method, a TestPage control, a property expression), and a keyword namespace
-# segment in a namespace declaration, a using and a variable's type. No test differs.

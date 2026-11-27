@@ -1,8 +1,0 @@
-# key	entry
-# Main: new System.IO.MemoryStream touches everything and the four installs tie; head: MemoryStream() and ToArray are
-# served in process (inproc.txt) and keep nothing past the install session, so the apps do not tie.
-FP MemStream Tests::RowOfAExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
-FP MemStream Tests::RowOfBExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
-FP MemStream Tests::RowOfCExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
-FP MemStream Tests::RowOfDExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
-FP MemStream Tests::ControlTouchesNoInstalledTable	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)

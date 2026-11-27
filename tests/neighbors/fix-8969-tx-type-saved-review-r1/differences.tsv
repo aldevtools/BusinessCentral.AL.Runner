@@ -1,4 +1,0 @@
-# key	entry
-# Main refuses every shape here at the save read. Head refuses the save read when the procedure reads the type twice (as
-# main), and refuses the set back after a rollback since the read (the read ran, flagged).
-NB TV Restore After Rollback::B_SetBackAfterRollback_Refused	REFUSED Database.CurrentTransactionType set back to the type read while the type a test method before left was not known

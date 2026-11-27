@@ -1,1 +1,0 @@
-Comments and Rust test assertions only; no AL-visible behavior changes, so no neighbor app applies.

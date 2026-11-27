@@ -1,1 +1,0 @@
-Speed and doc comments only: off unix a serve request already read every app from its files and still does, now without walking them first; on unix the code path is unchanged, so no AL-visible answer changes.
