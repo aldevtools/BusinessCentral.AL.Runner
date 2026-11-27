@@ -1316,6 +1316,15 @@ fn optional_count(flag: &str, it: &mut std::iter::Peekable<impl Iterator<Item = 
     }
 }
 
+/// `--test-data-company NAME`: the first names the company of the test data, each later one another company.
+fn test_data_company(a: &mut TestArgs, company: String) {
+    if a.test_data_company.is_none() {
+        a.test_data_company = Some(company);
+    } else {
+        a.additional_test_data_companies.push(company);
+    }
+}
+
 fn number(flag: &str, v: &str) -> Result<usize, String> {
     v.parse().map_err(|_| format!("{flag} needs a number, got `{v}`"))
 }
@@ -1736,14 +1745,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--skip-after-timeout" => a.skip_after_timeout = true,
             "--stop-after-first-failure" => a.stop_after_first_failure = true,
             "--stop-after-timeout" => a.stop_after_timeout = true,
-            "--test-data-company" => {
-                let company = text()?;
-                if a.test_data_company.is_none() {
-                    a.test_data_company = Some(company);
-                } else {
-                    a.additional_test_data_companies.push(company);
-                }
-            }
+            "--test-data-company" => test_data_company(&mut a, text()?),
             "--country" => {
                 let v = text()?;
                 if v.contains(',') {

@@ -1661,7 +1661,6 @@ fn test_inner(
         debug_ready: debug.as_ref().map(|d| d.ready.clone()),
         // Code the AL compiler rejects is not run (al-runner issue 5602): exit 3 with the errors.
         stop_on_compile_errors: true,
-        entries: Vec::new(),
         skipped_dependencies: dependencies.skipped.clone(),
         layout_sources: dependencies.layout_sources(),
         process_ends_after,
