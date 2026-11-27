@@ -24,8 +24,8 @@ pub(crate) enum LibraryNode {
     ClosedRecordRef,
     HandedContext,
     XmlNameTable,
-    /// A TextBuilder's or BigText's text as the cell holds it: a `Txt` keeps a lone surrogate half, a `String` would hold
-    /// U+FFFD in its place (issue 9202).
+    /// A TextBuilder's or BigText's text as the cell holds it: a `Txt` keeps a lone surrogate half, a `String` would
+    /// hold U+FFFD in its place (issue 9202).
     Text(Txt),
     TextCap(Txt, i32),
     SystemTable(i64),

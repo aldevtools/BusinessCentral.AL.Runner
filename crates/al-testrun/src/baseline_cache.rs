@@ -15,8 +15,8 @@ use al_builtins::value_codec::{Reader, put_i64, put_str, put_u8, put_u32, put_u6
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-/// The first bytes of a file: what it is and which layout it has. Layout 8: a Text or Code with half of a surrogate pair
-/// has a form of its own (al-builtins `value_codec`, issue 9202).
+/// The first bytes of a file: what it is and which layout it has. Layout 8: a Text or Code with half of a surrogate
+/// pair has a form of its own (al-builtins `value_codec`, issue 9202).
 const MAGIC: &[u8; 8] = b"ALBRUN\0\x08";
 
 /// The extension of the entry files (the layers have `alcc`, the source index `alci`).

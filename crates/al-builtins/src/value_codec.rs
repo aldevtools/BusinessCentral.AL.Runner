@@ -223,8 +223,8 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
 }
 
 /// A text with half of a surrogate pair (issue 9202): its string, which holds U+FFFD at each lone position, then each
-/// half's UTF-16 position and unit. The read of the string is noted as before (`Txt::as_str`): a test that leaves such a
-/// text where the single-instance tracking reads it is still refused.
+/// half's UTF-16 position and unit. The read of the string is noted as before (`Txt::as_str`): a test that leaves such
+/// a text where the single-instance tracking reads it is still refused.
 fn put_lone(out: &mut Vec<u8>, t: &crate::text::Txt) {
     put_str(out, t.as_str());
     put_u32(out, t.lone_units().len() as u32);
@@ -493,9 +493,9 @@ mod tests {
         assert!(r.is_empty());
     }
 
-    /// Issue 9202: a Text or Code holding half of a surrogate pair wrote the U+FFFD that holds its place, so the high half,
-    /// the low half and U+FFFD itself had one form, and the half was gone after a decode. Each has its own form now, and
-    /// reads back with the same UTF-16 units.
+    /// Issue 9202: a Text or Code holding half of a surrogate pair wrote the U+FFFD that holds its place, so the high
+    /// half, the low half and U+FFFD itself had one form, and the half was gone after a decode. Each has its own form
+    /// now, and reads back with the same UTF-16 units.
     #[test]
     fn a_lone_half_has_its_own_form_and_reads_back_exact() {
         let texts: [&[u16]; 5] = [

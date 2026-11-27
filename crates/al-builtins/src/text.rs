@@ -370,9 +370,9 @@ impl fmt::Display for Txt {
     }
 }
 
-/// The string's Debug form, a lone half written as its unit (`\u{d83d}`) instead of the U+FFFD that holds its place in the
-/// string: two texts that differ only in a lone half have two forms (the state lines the login replay check compares,
-/// issue 9202). A backslash is written `\\`, so no text without a lone half has that form.
+/// The string's Debug form, a lone half written as its unit (`\u{d83d}`) instead of the U+FFFD that holds its place in
+/// the string: two texts that differ only in a lone half have two forms (the state lines the login replay check
+/// compares, issue 9202). A backslash is written `\\`, so no text without a lone half has that form.
 impl fmt::Debug for Txt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Some(lone) = &self.0.lone else {

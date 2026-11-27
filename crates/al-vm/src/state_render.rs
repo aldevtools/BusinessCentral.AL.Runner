@@ -846,10 +846,11 @@ mod tests {
         assert_ne!(one, two);
     }
 
-    // Issue 9202: the state lines the login replay check compares (and the replay key digests) wrote a lone surrogate half
-    // as the U+FFFD that holds its place, so a session holding the high half, the low half or U+FFFD itself rendered the
-    // same. Every text value the render takes keeps its exact units: a Text and a Code (the byte form,
-    // `value_codec`), a TextConst, a TextBuilder with and without a capacity and a BigText (the text form, `Txt`'s Debug).
+    // Issue 9202: the state lines the login replay check compares (and the replay key digests) wrote a lone surrogate
+    // half as the U+FFFD that holds its place, so a session holding the high half, the low half or U+FFFD itself
+    // rendered the same. Every text value the render takes keeps its exact units: a Text and a Code (the byte form,
+    // `value_codec`), a TextConst, a TextBuilder with and without a capacity and a BigText (the text form, `Txt`'s
+    // Debug).
     #[test]
     fn texts_that_differ_only_in_a_lone_half_render_apart() {
         let (session, _) = session_and_records();
