@@ -307,16 +307,26 @@ fn a_test_stopped_by_its_cpu_time_stops() {
     );
 }
 
-/// Issue 9213: an OnRun cut stops; the rows name the trigger, not a test that did not cause the timeout.
+/// Issue 9213: an OnRun cut stops, alone and with the failure stop too; the rows name the trigger, not a test that did
+/// not cause the timeout. A guard (it passed when written): it is the end-to-end case of the OnRun match of
+/// `Trigger::kept_in`, whose trigger names no test and is kept while the codeunit's rows still carry the OnRun reason.
 #[test]
 fn an_onrun_cut_stops_naming_the_trigger() {
-    let rt = run(stop_on(vec![entry(50723), entry(50721)]));
-    let rows = entry_rows(&rt);
-    assert!(rows[0].iter().all(|(_, o, _)| is_timeout(o)), "{rows:?}");
-    assert!(
-        all_stopped(&rows[1], "Codeunit50723.OnRun", "a later entry"),
-        "{rows:?}"
-    );
+    for failure in [false, true] {
+        let rt = run(RunOptions {
+            stop_after_first_failure: failure,
+            ..stop_on(vec![entry(50723), entry(50721)])
+        });
+        let rows = entry_rows(&rt);
+        assert!(
+            rows[0].iter().all(|(_, o, _)| is_timeout(o)),
+            "failure stop {failure}: {rows:?}"
+        );
+        assert!(
+            all_stopped(&rows[1], "Codeunit50723.OnRun", "a later entry"),
+            "failure stop {failure}: {rows:?}"
+        );
+    }
 }
 
 /// Issue 9213: "Never a failure, a refusal, a row a stop skipped". Each alone keeps its behavior.
