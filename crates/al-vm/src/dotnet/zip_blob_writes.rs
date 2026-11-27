@@ -32,6 +32,7 @@ use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::stream::{BlobBuf, BlobRef};
 use al_builtins::value::{DotNetKind, Value};
 use al_host::dotnet::Rewrite;
+use std::sync::Arc;
 
 /// The newest .NET write that reached a Blob through a bridge, for part 2's states (one per Blob).
 pub(super) struct NetWrite {
@@ -98,7 +99,7 @@ impl Session {
     pub(super) fn note_net_write(&mut self, blob: &BlobRef, edits_before: u32, len_before: usize, replace: bool) {
         let edits_after = blob.borrow().content_edits;
         let writes = &mut self.dotnet.net_writes;
-        writes.retain(|w| !std::sync::Arc::ptr_eq(&w.blob, blob));
+        writes.retain(|w| !Arc::ptr_eq(&w.blob, blob));
         writes.push(NetWrite {
             blob: blob.clone(),
             edits_before,
@@ -157,7 +158,7 @@ impl Session {
             .dotnet
             .net_writes
             .iter()
-            .find(|w| std::sync::Arc::ptr_eq(&w.blob, &bridge.blob));
+            .find(|w| Arc::ptr_eq(&w.blob, &bridge.blob));
         let net_newest = newest.filter(|w| w.edits_after == buf.content_edits);
         let al_changed = buf.content_edits != bridge.edits;
         match net_newest {

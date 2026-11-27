@@ -1462,9 +1462,7 @@ impl Session {
                     }
                     self.note_net_write(&blob, edits, len, true);
                 }
-                zip_blob_writes::Verdict::Mark => {
-                    blob.borrow_mut().render_pending = Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN.into())
-                }
+                zip_blob_writes::Verdict::Mark => mark_overwritten(&blob),
                 zip_blob_writes::Verdict::Refuse => {
                     return unsupported(format!(
                         "DotNet {shown}: a .NET rewrite of an OutStream AL wrote into since the call before (not pinned)"
@@ -1474,10 +1472,7 @@ impl Session {
         }
         for id in &streams.overwritten {
             match self.dotnet.bridges.get(id) {
-                Some(bridge) => {
-                    bridge.blob.borrow_mut().render_pending =
-                        Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN.into())
-                }
+                Some(bridge) => mark_overwritten(&bridge.blob),
                 None => return unsupported(format!("DotNet {shown}: an unknown stream bridge {id}")),
             }
         }
@@ -1985,6 +1980,12 @@ pub(crate) fn fit(v: Value, t: &RtType) -> Result<Value, Signal> {
         (_, T::DotNet(_)) => Ok(v),
         _ => ops::convert(v, t),
     }
+}
+
+/// Marks `blob` as holding bytes a .NET call wrote over after its bridge had handed them back: reading it is refused, as what it
+/// holds then is not pinned (al-runner issue 7947).
+fn mark_overwritten(blob: &BlobRef) {
+    blob.borrow_mut().render_pending = Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN.into());
 }
 
 /// Whether saved bytes hold `CARRIED_TEXT_MARK` (U+FDD1) in UTF-8, UTF-16 little endian or UTF-16 big endian.
