@@ -27,6 +27,12 @@ pub(crate) enum PageArgShape {
     PageMixTwoKey { date_end: i32 },
     /// `SetRange(Name, 'caller'); SetRange("Doc Type", 1); SetRange(Amount, 5)`.
     Three,
+    /// The filters of the page cells of corpus PR 1622 (errors/ConsistentGuardedRunPageConst.al, codeunit 99562, :675-:1200;
+    /// not yet in the pinned corpus): in filter group 2 one equality to the member with ordinal 0 to 3 of `GPC Kind` on the
+    /// Enum key field (`"Doc Kind"`) or an Enum field outside the key (`Kind`), in a primary key of an Enum then a Code field;
+    /// in filter group 0 nothing, or one value on the Code key field (`No.`: a TestPage filter :900, SetRange :945, SetFilter
+    /// :990). Read only with the page's view mark (`consistent_marks/page_view.rs`).
+    PageView,
 }
 
 /// The facts of the argument's table that the filter shapes read.
@@ -95,6 +101,33 @@ impl ArgFields<'_> {
         }
     }
 
+    /// The ordinal of the one Enum value the filter is equal to (`Eq`, or a range with two equal ends).
+    fn enum_ordinal(&self, f: &FieldFilter) -> Option<i32> {
+        match &f.expr {
+            FilterExpr::Eq(Value::Enum(_, o)) => Some(*o),
+            FilterExpr::Range(Some(a @ Value::Enum(_, o)), Some(b)) if a.identical(b) => Some(*o),
+            _ => None,
+        }
+    }
+
+    /// The page view shape (`PageArgShape::PageView`) of the group-0 and group-2 filters.
+    fn page_view(&self, group0: &[&FieldFilter], group2: &[&FieldFilter]) -> bool {
+        let Some((_, k2)) = self.enum_code_key() else {
+            return false;
+        };
+        let view = match group2 {
+            // Any Enum field is the Enum key field or a field outside the two-field key, whose other field is a Code.
+            [v] => self.equal(v) && self.enum_field(v) && matches!(self.enum_ordinal(v), Some(0..=3)),
+            _ => false,
+        };
+        let extra = match group0 {
+            [] => true,
+            [a] => self.equal(a) && a.field == k2,
+            _ => false,
+        };
+        view && extra
+    }
+
     /// The date a SetRange from 0D ends at, on a field of FieldClass FlowFilter (`"Date Filter"`, :58 and :94).
     fn date_range_end(&self, f: &FieldFilter) -> Option<i32> {
         match (&f.expr, self.class(f)) {
@@ -113,6 +146,9 @@ pub(super) fn page_shape(r: &RecordState, fields: &ArgFields) -> Option<PageArgS
     let (group0, group2) = (group(0), group(2));
     if group0.len() + group2.len() != r.filters.len() {
         return None;
+    }
+    if fields.page_view(&group0, &group2) {
+        return Some(PageArgShape::PageView);
     }
     // The view of both PageMix arms: one value on an Enum field outside a one-field primary key (Kind, key(PK; Id)), or
     // (corpus PR 1616, PrepareZ :601, :605) SetRange to one value on the Enum field first in an Enum-and-Code primary key.
