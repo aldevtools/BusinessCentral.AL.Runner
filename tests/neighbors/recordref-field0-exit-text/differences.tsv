@@ -28,3 +28,4 @@ FY Tests::Exit_Duration_IntoCode3	ASSUMED fieldref-value-exit-into-text (corpus 
 FY Tests::Exit_Timestamp_IntoCode20	ASSUMED fieldref-value-exit-into-text (corpus PR 1629, merged at 778b8fc1)
 FY Tests::Exit_Timestamp_IntoText	ASSUMED fieldref-value-exit-into-text (corpus PR 1629, merged at 778b8fc1)
 FY Tests::Paren_Integer_IntoCode20	ASSUMED fieldref-value-exit-into-text (corpus PR 1629, merged at 778b8fc1; issue 9305)
+FY Tests::Paren_Date_IntoInteger	ASSUMED fieldref-value-temporal-into-number (corpus PR 1629, merged at 778b8fc1; issues 9265 and 9305)
