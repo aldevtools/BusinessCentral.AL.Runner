@@ -142,7 +142,9 @@ pub(crate) struct ReachFacts {
     /// The tables of `writes` a reached routine adds or changes rows of through a record variable not declared
     /// temporary: Insert, Modify, ModifyAll and Rename. Delete, DeleteAll and a page's source table are left out.
     pub persistent_writes: BTreeSet<u32>,
-    /// An Insert, Modify, ModifyAll or Rename through a `RecordRef` or `FieldRef` (part of `writes_any`).
+    /// An Insert, Modify, ModifyAll or Rename through a `RecordRef` local of the writing routine that the routine opens
+    /// by `Open(<constant id>)` (alone or with the constant `false`) or by `GetTable` of a local record not declared
+    /// temporary (`Walk::opens_rows`); part of `writes_any`. Any other RecordRef does not count.
     pub recordref_writes: bool,
     /// A `RecordRef`, `FieldRef` or `KeyRef` is used: it may read any table, which `touched` does not show (the table it
     /// opens is known only at run time).
@@ -1856,6 +1858,61 @@ impl Rec<'_> {
         Some(ty.clone())
     }
 
+    /// Whether `receiver`, the RecordRef a write of routine `r` goes through, is a local of that routine (not a
+    /// parameter) that the routine opens on the rows of a table, and nothing else binds: every `Open` on it takes a
+    /// constant id alone or with the constant `false`, every `GetTable` a local record not declared temporary, at least
+    /// one of them is there, and the routine neither assigns it, passes it to a call, nor calls `Get` or `Copy` on it.
+    /// Every other RecordRef keeps main's choice (al-runner issue 7622).
+    fn opens_rows(&self, o: usize, r: usize, receiver: &Place) -> bool {
+        use al_builtins::library_kind::LibraryKind as K;
+        let rt = &self.lowered.program.objects[o].routines[r];
+        let &Place::Local(i) = receiver else { return false };
+        if i < rt.params || rt.locals.get(i).map(|s| &s.ty) != Some(&RtType::Library(K::RecordRef)) {
+            return false;
+        }
+        let is_rr = |p: &Place| root(p) == Some((false, i));
+        let plain_record = |a: &Arg| match a {
+            Arg::Ref(Place::Local(j)) | Arg::Value(Expr::Load(Place::Local(j))) => {
+                *j >= rt.params && matches!(rt.locals.get(*j).map(|s| &s.ty), Some(RtType::Record(_, false)))
+            }
+            _ => false,
+        };
+        let (mut opened, mut other) = (false, false);
+        rt.body.read(|body| {
+            stmt_places(body, &mut |p| other |= is_rr(p));
+            al_ir::types::for_each_expr_post(body, &mut |e| {
+                let args = match e {
+                    Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => args,
+                    Expr::Builtin { id, receiver, args, .. } => {
+                        let on_rr =
+                            matches!(receiver.as_deref(), Some(Arg::Ref(p) | Arg::Value(Expr::Load(p))) if is_rr(p));
+                        if on_rr && id.name().starts_with("RecordRef.") {
+                            match (id.method(), args.as_slice()) {
+                                ("Open", [Arg::Value(Expr::Const(Const::Integer(_)))])
+                                | (
+                                    "Open",
+                                    [
+                                        Arg::Value(Expr::Const(Const::Integer(_))),
+                                        Arg::Value(Expr::Const(Const::Boolean(false))),
+                                    ],
+                                ) => opened = true,
+                                ("GetTable", [a]) if plain_record(a) => opened = true,
+                                ("Open" | "GetTable" | "Get" | "Copy", _) => other = true,
+                                _ => {}
+                            }
+                        }
+                        args
+                    }
+                    _ => return,
+                };
+                other |= args
+                    .iter()
+                    .any(|a| matches!(a, Arg::Ref(p) | Arg::Value(Expr::Load(p)) if is_rr(p)));
+            });
+        });
+        opened && !other
+    }
+
     fn builtin(&mut self, o: usize, r: usize, id: al_ir::BuiltinId, receiver: Option<&Place>, args: &[Arg]) {
         use state::*;
         let name = id.name();
@@ -1898,7 +1955,7 @@ impl Rec<'_> {
                 if op != 0 && op != ops::VALIDATE {
                     self.note_table_write(None);
                 }
-                if op & ops::KEEPS != 0 {
+                if op & ops::KEEPS != 0 && receiver.is_some_and(|p| self.opens_rows(o, r, p)) {
                     self.note_persistent_write(None);
                 }
                 if op != 0 && ops::runs_triggers(method, args) {

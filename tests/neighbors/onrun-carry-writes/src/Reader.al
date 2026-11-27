@@ -67,3 +67,28 @@ codeunit 86910 "OCW Reader"
             Error('too many rows: %1', Row.Count());
     end;
 }
+
+// Runs after the temporary RecordRef writers (86911-86914): BC leaves none of their rows in the table.
+codeunit 86915 "OCW Reader Temp RecRef"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure TempRecRef_NothingLeft()
+    var
+        Row: Record "OCW Row";
+    begin
+        Row.SetFilter("Key", 'RRT*|RGT*');
+        if not Row.IsEmpty() then
+            Error('a temporary RecordRef row reached the table');
+    end;
+
+    [Test]
+    procedure TempRecRef_TableCount()
+    var
+        Row: Record "OCW Row";
+    begin
+        if Row.Count() > 5 then
+            Error('too many rows: %1', Row.Count());
+    end;
+}

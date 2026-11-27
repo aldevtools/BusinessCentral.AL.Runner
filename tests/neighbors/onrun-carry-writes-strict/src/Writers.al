@@ -157,3 +157,89 @@ codeunit 86908 "OCW Temp Only Refused"
     begin
     end;
 }
+
+codeunit 86911 "OCW RecRef Temp"
+{
+    Subtype = Test;
+
+    trigger OnRun()
+    var
+        RecRef: RecordRef;
+        FldRef: FieldRef;
+    begin
+        RecRef.Open(86900, true);
+        RecRef.Init();
+        FldRef := RecRef.Field(1);
+        FldRef.Value := 'RRT';
+        RecRef.Insert();
+    end;
+
+    [Test]
+    procedure RecRefTemp_Runs()
+    begin
+    end;
+}
+
+codeunit 86912 "OCW RecRef From Temp"
+{
+    Subtype = Test;
+
+    trigger OnRun()
+    var
+        TempRow: Record "OCW Row" temporary;
+        RecRef: RecordRef;
+    begin
+        TempRow."Key" := 'RGT';
+        RecRef.GetTable(TempRow);
+        RecRef.Insert();
+    end;
+
+    [Test]
+    procedure RecRefFromTemp_Runs()
+    begin
+    end;
+}
+
+codeunit 86913 "OCW RecRef Temp Refused"
+{
+    Subtype = Test;
+
+    trigger OnRun()
+    var
+        RecRef: RecordRef;
+        FldRef: FieldRef;
+    begin
+        RecRef.Open(86900, true);
+        RecRef.Init();
+        FldRef := RecRef.Field(1);
+        FldRef.Value := 'RRTX';
+        RecRef.Insert();
+        Database.ExportData(true, 'x', '');
+    end;
+
+    [Test]
+    procedure RecRefTempRefused_Runs()
+    begin
+    end;
+}
+
+codeunit 86914 "OCW RecRef From Temp Refused"
+{
+    Subtype = Test;
+
+    trigger OnRun()
+    var
+        TempRow: Record "OCW Row" temporary;
+        RecRef: RecordRef;
+    begin
+        TempRow."Key" := 'RGTX';
+        RecRef.GetTable(TempRow);
+        RecRef.Insert();
+        Database.ExportData(true, 'x', '');
+    end;
+
+    [Test]
+    procedure RecRefFromTempRefused_Runs()
+    begin
+    end;
+}
