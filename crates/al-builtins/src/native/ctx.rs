@@ -15,6 +15,23 @@ pub enum ModuleLookup {
     OrderUnknown(String),
 }
 
+/// What a codeunit id names, for `ErrorInfo.AddAction` (`errorinfo::add_action`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CodeunitShape {
+    /// No codeunit of the program has this id.
+    Missing,
+    /// A compiled codeunit that declares no `Subtype`, with both an `OnRun` trigger and `TableNo` or neither.
+    Normal,
+    /// Any other codeunit, and why it is not `Normal`: it declares a `Subtype` (also `Normal`), it has `OnRun` without
+    /// `TableNo` or `TableNo` without `OnRun`, or it is a dependency shell that was not compiled.
+    Other(&'static str),
+}
+
+impl CodeunitShape {
+    /// What a session that knows no program answers (the default of `Ctx::codeunit_shape`).
+    pub const UNKNOWN: Self = Self::Other("no program in this session");
+}
+
 /// What builtins need from the running session.
 /// A request an `HttpClient` call sends, as a `[HttpClientHandler]` sees it (ADR-027 section 5).
 #[derive(Debug, Clone)]
@@ -347,6 +364,10 @@ pub trait Ctx: FormatCtx {
     /// The installed app with this id.
     fn module_by_id(&self, _id: &[u8; 16]) -> ModuleLookup {
         ModuleLookup::NotInstalled
+    }
+    /// What codeunit `id` (greater than 0) names in the program.
+    fn codeunit_shape(&self, _id: u32) -> CodeunitShape {
+        CodeunitShape::UNKNOWN
     }
     /// Whether table `number` (`Database::"Name"`) is declared in the workspace.
     fn workspace_table(&self, _number: i32) -> bool {
