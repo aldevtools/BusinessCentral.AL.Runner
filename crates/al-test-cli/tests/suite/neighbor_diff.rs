@@ -401,6 +401,7 @@ fn a_pinned_path_must_stay_under_the_corpus() {
     assert!(out.contains("3 of 4 tests differ, 3 without an entry"), "{out}");
 }
 
+#[cfg(unix)] // makes a symlink
 #[test]
 fn a_pinned_symlink_out_of_the_corpus_is_missing() {
     let d = tempfile::tempdir().unwrap();
@@ -547,6 +548,7 @@ fn a_dependency_folder_is_packed_into_a_source_package() {
 
 /// `neighbor-diff.sh --stale-mode APP` says "note" only for a folder inside the repository (physical path) that git
 /// reports unchanged; an app outside the repository, or one reached through a symlink, is judged by its real path.
+#[cfg(unix)] // makes a symlink
 #[test]
 fn the_stale_note_needs_a_folder_inside_the_repository_that_git_reports_unchanged() {
     let mode = |app: &Path| -> String {

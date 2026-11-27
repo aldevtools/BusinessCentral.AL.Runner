@@ -5,7 +5,7 @@
 //! This module owns the key ([`WorkspaceKey`], decision 2), the list of the environment switches the compile reads
 //! ([`COMPILE_ENV`]), what the entry holds besides the blocks ([`WorkspaceExtra`], decision 3), the report, the canonical
 //! dump that compares a read compile with a fresh one ("Equality requirement"), and the writes that run off the critical
-//! path (decision 6). The read and the store over a compile are `runtime/workspace_layer.rs`; the format is
+//! path (decision 6, `writes.rs`). The read and the store over a compile are `runtime/workspace_layer.rs`; the format is
 //! `al_cache::build_workspace`; the files are `compile_cache.rs` and `cache_gc.rs`.
 
 use crate::runtime::{Compiled, Manifest};
@@ -468,58 +468,6 @@ pub struct WorkspaceExtra {
     pub decided: Decided,
 }
 
-/// A write of an entry that waits for the end of the run (decision 6).
-type Job = Box<dyn FnOnce() + Send>;
-
-/// The writes this process deferred, in the order the compiles made them.
-static DEFERRED: std::sync::Mutex<Vec<Job>> = std::sync::Mutex::new(Vec::new());
-/// The writer threads [`start_writes`] started and nothing joined yet.
-static WRITERS: std::sync::Mutex<Vec<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(Vec::new());
-
-/// Defers `write` to the end of the run (decision 6): the encode and the write wait until the results are printed
-/// (`al-runner test`, [`wait_for_writes`]) or the response is sent (serve, [`start_writes`]), so they do not share the
-/// cores with the tests.
-pub(crate) fn defer_write(write: impl FnOnce() + Send + 'static) {
-    DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).push(Box::new(write));
-}
-
-/// How many writes wait for the end of the run ([`defer_write`]).
-pub fn pending_writes() -> usize {
-    DEFERRED.lock().unwrap_or_else(|e| e.into_inner()).len()
-}
-
-/// Starts the deferred writes on a thread of their own, in order (serve, after the response of a request is sent), and
-/// joins the writer threads that finished (review LOW 6: the list does not grow with the requests).
-pub fn start_writes() {
-    let jobs: Vec<Job> = std::mem::take(&mut *DEFERRED.lock().unwrap_or_else(|e| e.into_inner()));
-    let mut writers = WRITERS.lock().unwrap_or_else(|e| e.into_inner());
-    let (done, running): (Vec<_>, Vec<_>) = std::mem::take(&mut *writers).into_iter().partition(|h| h.is_finished());
-    for h in done {
-        let _ = h.join();
-    }
-    *writers = running;
-    if jobs.is_empty() {
-        return;
-    }
-    let handle = std::thread::Builder::new()
-        .name("workspace-cache-write".into())
-        .spawn(move || jobs.into_iter().for_each(|job| job()));
-    if let Ok(h) = handle {
-        writers.push(h);
-    }
-}
-
-/// Runs the deferred writes and waits for every write of this process (`al-runner test` before it exits, after the
-/// results are printed; serve when it shuts down). A write that did not finish leaves no file (temporary file, rename).
-pub fn wait_for_writes() {
-    let jobs: Vec<Job> = std::mem::take(&mut *DEFERRED.lock().unwrap_or_else(|e| e.into_inner()));
-    jobs.into_iter().for_each(|job| job());
-    let writers: Vec<_> = std::mem::take(&mut *WRITERS.lock().unwrap_or_else(|e| e.into_inner()));
-    for h in writers {
-        let _ = h.join();
-    }
-}
-
 /// The canonical dump of a compile ("Equality requirement"): the program with every body decoded, every field of
 /// `Lowered` but `timings`, `work` and `cached_objects`, the workspace after `drop_trees` with its derived tables, and
 /// the fields of `Compiled` but the timings and the cache reports. Destructured without `..`.
@@ -762,3 +710,7 @@ mod tests {
 /// Decision 2.8: the environment the compile reads (review MED 2).
 #[cfg(test)]
 mod env_scan_tests;
+mod writes;
+
+pub(crate) use writes::defer_write;
+pub use writes::{pending_writes, start_writes, wait_for_writes, wait_for_writes_within};

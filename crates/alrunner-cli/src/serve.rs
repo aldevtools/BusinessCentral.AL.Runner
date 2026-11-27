@@ -183,6 +183,8 @@ pub fn serve(daemon: &[String]) -> Result<(), String> {
         ..WarmCtx::default()
     };
     crate::run::keep_backups();
+    // A stop signal waits for the pending workspace layer writes too (issue 9232).
+    crate::serve_stop::install();
     out(&json!({ "ready": true }));
     let mut n = 0u64;
     while let Ok(Input::Line(line)) = rx.recv() {
@@ -204,6 +206,9 @@ pub fn serve(daemon: &[String]) -> Result<(), String> {
             .to_ascii_lowercase();
         match command.as_str() {
             "shutdown" => {
+                // The reply waits for the pending workspace layer writes (bounded): a client stops the server soon
+                // after it, and the entry would be lost (issue 9232).
+                crate::serve_stop::finish_writes("shutdown", "replying now; the write goes on until the server exits");
                 out(&json!({ "status": "shutting down" }));
                 eprintln!("[server] request {} done", n + 1);
                 return Ok(());

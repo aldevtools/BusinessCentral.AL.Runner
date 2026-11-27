@@ -31,6 +31,7 @@ mod run_inputs;
 mod run_writes_tests;
 mod seed;
 mod serve;
+mod serve_stop;
 mod service_tier;
 mod setup_timings;
 mod sources;

@@ -227,10 +227,10 @@ const APP_TABLES: &[al_builtins::platform::Virtual] = &[
 /// The builtin receivers whose calls touch no lasting resource, or one the recorder notes at its own site: values of the
 /// session (text, numbers, collections, JSON, XML, streams, errors), the store's readers and writers (recorded by the
 /// store), the isolated storage, number sequence and row version natives (noted in `sessionops.rs`), and code run
-/// (`Codeunit`: its objects are entered, so its apps are met). `System`, `Database`, `Blob` and `Query` are kept by
-/// method ([`KEPT_METHODS`]). Every other builtin counts as touching everything: HTTP, files, pages, reports, XMLports,
-/// request pages, TaskScheduler, DataTransfer, Media, CompanyProperty, the test page types and every receiver not named
-/// here (a new one included).
+/// (`Codeunit`: its objects are entered, so its apps are met). `System`, `Database`, `Blob`, `CompanyProperty` and
+/// `Query` are kept by method ([`KEPT_METHODS`]). Every other builtin counts as touching everything: HTTP, files,
+/// pages, reports, XMLports, request pages, TaskScheduler, DataTransfer, Media, the test page types and every receiver
+/// not named here (a new one included).
 const KEPT_RECEIVERS: &[&str] = &[
     "BigInteger",
     "BigText",
@@ -301,13 +301,19 @@ const KEPT_RECEIVERS: &[&str] = &[
 /// records. Every other method of these receivers touches everything (ADR-079 decision 1, "a resource the footprint
 /// recorder does not classify"): the encryption key and its eight methods, ImportObjects, ExportObjects,
 /// ImportStreamWithUrlAccess, the CodeCoverage methods, Hyperlink, GetDotNetType, CanLoadType; of `Database` the key,
-/// data file, license, password, company copy and table connection methods; `Blob` Import and Export; the `Query`
-/// SaveAs methods; and every method not named here (a new one included).
+/// data file, license, password, company copy and table connection methods; `Blob` Import and Export;
+/// `CompanyProperty.UrlName`; the `Query` SaveAs methods; and every method not named here (a new one included).
 const KEPT_METHODS: &[(&str, &[&str])] = &[
     (
         "Blob",
         &["CreateInStream", "CreateOutStream", "HasValue", "Length", "LengthSign"],
     ),
+    // Each answers from the session company's row of the Company table, read through the store, which records the read
+    // (al-runner issue 9260): `ID` is the row's `Id` (corpus
+    // `tests/al-language/session-system/company/CompanyRecord.al:15-27`), `DisplayName` the company name while the
+    // row's `Display Name` is empty (`:29-44`; a set one is refused, `companies.rs`). An install that writes that row
+    // is read from, as by a `Company.Get`.
+    ("CompanyProperty", &["DisplayName", "ID"]),
     (
         "Database",
         &[
@@ -447,8 +453,15 @@ fn dotnet_member_kept(clr_type: &str, member: Option<&str>, args: usize) -> bool
         || member.is_some_and(|m| crate::dotnet::server_classes::keeps_nothing(clr_type, m))
 }
 
-/// The `NavApp` methods kept: the module info reads.
-const NAVAPP_KEPT_METHODS: &[&str] = &["GetModuleInfo", "GetCurrentModuleInfo", "GetCallerModuleInfo"];
+/// The `NavApp` methods kept: the module info reads. `GetCallerCallstackModuleInfos` lists the apps of the methods on
+/// the call stack (corpus `tests/al-language/session-system/TestNavAppCallerCallstackModuleInfos.al:5-7`): apps whose
+/// code ran in the session, which it already meets (al-runner issue 9260).
+const NAVAPP_KEPT_METHODS: &[&str] = &[
+    "GetModuleInfo",
+    "GetCurrentModuleInfo",
+    "GetCallerModuleInfo",
+    "GetCallerCallstackModuleInfos",
+];
 
 /// The `Session` methods that touch everything: they start, stop or look at another session.
 const SESSION_TOUCHING_METHODS: &[&str] = &["StartSession", "StopSession", "IsSessionActive"];

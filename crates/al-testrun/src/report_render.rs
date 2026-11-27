@@ -207,6 +207,17 @@ impl RenderHost {
         st.probe.clone().expect("set above")
     }
 
+    /// The first of `needs` this run's `render_probe` answered unavailable, as [`ReportRenderer::availability`] names it;
+    /// `None` while no call asked the probe. It starts no process.
+    pub fn probed(&self, needs: &[RenderNeed]) -> Option<Result<(), RenderUnavailable>> {
+        let st = self.lock();
+        if let Some(why) = st.used_up() {
+            return Some(Err(process_unavailable(why)));
+        }
+        let answer = st.probe.as_ref()?;
+        Some(needs.iter().try_for_each(|n| need_in(answer, *n)))
+    }
+
     fn call(&self, need: RenderNeed, req: Value) -> Result<Vec<u8>, RenderFailure> {
         self.availability(need)
             .map_err(|u| RenderFailure::Refused(u.to_string()))?;
@@ -291,26 +302,33 @@ fn parse_probe(v: &Value) -> Result<ProbeAnswer, String> {
     Ok(out)
 }
 
+/// The process itself as the missing piece, with why.
+fn process_unavailable(why: String) -> RenderUnavailable {
+    RenderUnavailable {
+        piece: THE_PROCESS.into(),
+        detail: why,
+    }
+}
+
+/// `need` in the run's probe answer, or why no process could answer it.
+fn need_in(answer: &Result<ProbeAnswer, String>, need: RenderNeed) -> Result<(), RenderUnavailable> {
+    match answer {
+        Ok(m) => m.get(&need).cloned().unwrap_or_else(|| {
+            Err(RenderUnavailable {
+                piece: need.wire().into(),
+                detail: "not probed".into(),
+            })
+        }),
+        Err(why) => Err(process_unavailable(why.clone())),
+    }
+}
+
 impl ReportRenderer for RenderHost {
     fn availability(&self, need: RenderNeed) -> Result<(), RenderUnavailable> {
         if let Some(why) = self.lock().used_up() {
-            return Err(RenderUnavailable {
-                piece: THE_PROCESS.into(),
-                detail: why,
-            });
+            return Err(process_unavailable(why));
         }
-        match self.probe() {
-            Ok(m) => m.get(&need).cloned().unwrap_or_else(|| {
-                Err(RenderUnavailable {
-                    piece: need.wire().into(),
-                    detail: "not probed".into(),
-                })
-            }),
-            Err(why) => Err(RenderUnavailable {
-                piece: THE_PROCESS.into(),
-                detail: why,
-            }),
-        }
+        need_in(&self.probe(), need)
     }
 
     fn merge_word(&self, req: &WordMerge) -> Result<Vec<u8>, RenderFailure> {
@@ -592,6 +610,28 @@ mod tests {
         );
         assert_eq!(*log.lock().unwrap(), vec!["render_probe", "word_merge"]);
         assert_eq!((starts.load(Ordering::SeqCst), prepares.load(Ordering::SeqCst)), (1, 1));
+    }
+
+    /// The `--baseline-diff` warning reads the run's probe answer after the run (issue 7977's renderer on a machine that lacks
+    /// its system libraries); asking it must not start a process.
+    #[test]
+    fn the_probe_answer_is_read_without_starting_a_process() {
+        let (h, _, starts, _) = host(false);
+        assert_eq!(h.probed(&[RenderNeed::Merge, RenderNeed::Pdf]), None);
+        assert_eq!(starts.load(Ordering::SeqCst), 0);
+        assert!(h.availability(RenderNeed::Merge).is_ok());
+        assert_eq!(h.probed(&[RenderNeed::Merge, RenderNeed::Html]), Some(Ok(())));
+        assert_eq!(
+            h.probed(&[RenderNeed::Merge, RenderNeed::Pdf]),
+            Some(h.availability(RenderNeed::Pdf))
+        );
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+        let failed = RenderHost::with_transport(
+            Box::new(|| Err("needs the .NET 8 runtime; 'dotnet' not found".to_string())),
+            Box::new(RenderPieces::default),
+        );
+        let e = failed.availability(RenderNeed::Merge).unwrap_err();
+        assert_eq!(failed.probed(&[RenderNeed::Merge]), Some(Err(e)));
     }
 
     #[test]

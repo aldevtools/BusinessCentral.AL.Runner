@@ -469,10 +469,7 @@ fn commit_with(r: &Runner, sha: &str, cli_code: i32) -> Output {
     // Inside .git, so the status of the repository does not see it.
     let cli = r.dir.path().join(".git/fake-cli.sh");
     std::fs::write(&cli, format!("#!/bin/sh\necho \"list changes $*\"\nexit {cli_code}\n")).unwrap();
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    Command::new("chmod").arg("+x").arg(&cli).status().unwrap();
     run(|| {
         let mut cmd = Command::new("bash");
         cmd.arg(root().join("tools/corpus_bump_bot.sh"))
