@@ -263,6 +263,12 @@ fn install_code_that_reads_a_resource_runs_again_for_an_entry_with_other_texts()
     }
     // The second entry has the first one's texts; each other entry has texts of its own.
     assert_eq!(rt.phases.install_runs, 3, "{got:?}");
+    assert_eq!(
+        crate::install_once::install_line(&rt).as_deref(),
+        Some(
+            "install code: ran 3 times for the test codeunits; first rerun: other texts of the resource files it read"
+        ),
+    );
 }
 
 /// An entry that replaces `name` with `text`.
@@ -360,4 +366,8 @@ fn a_run_that_notes_the_code_it_runs_runs_the_install_code_for_each_entry() {
         "{got:?}"
     );
     assert_eq!(rt.phases.install_runs, 3, "{got:?}");
+    assert_eq!(
+        crate::install_once::install_line(&rt).as_deref(),
+        Some("install code: ran 3 times for the test codeunits; first rerun: the run follows the code it runs"),
+    );
 }

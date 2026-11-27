@@ -7,12 +7,13 @@
 //! session) and `start_installed` (run once per run in a session of its own, shared by every test
 //! thread through `RunInstalls` in `Unit` and `Scratch`, frozen with `Baseline::freeze`; again for
 //! other texts of the resource files it read; the codeunit's session restores what
-//! `Session::install_left` returned; when that is `None` the session the install code ran in becomes
+//! `Session::install_left` returned; when that is an error the session the install code ran in becomes
 //! the first codeunit's session and every later codeunit runs the install code itself).
 //! `installs_for` is the install step of `run_codeunit_inner`. `begin_pass` and `end_run` set and
 //! clear the entries' resource texts; `end_run` also gives the install-order notes of the apps under test, each
-//! codeunit's list once per run (al-runner issue 9058). Entry points: `installs_for`, `run_installs_in`, `RunInstalls`,
-//! `begin_pass`, `end_run`.
+//! codeunit's list once per run (al-runner issue 9058), and why the install code first ran again for a codeunit
+//! (`Rerun`, the `--timings` line). Entry points: `installs_for`, `run_installs_in`, `RunInstalls`, `begin_pass`,
+//! `end_run`.
 use super::*;
 
 /// Runs the install code of the apps under test in `session`, as the codeunit's session does when no install baseline ran
@@ -98,6 +99,51 @@ pub(crate) struct RunInstalls {
     /// The notes of the install-order proof of the apps under test, each codeunit's list once (al-runner issue 9058;
     /// [`end_run`]).
     notes: std::sync::Mutex<Vec<Vec<String>>>,
+    /// Why the install code first ran again for a codeunit of the run ([`start_installed`]; `Phases::install_rerun`).
+    rerun: std::sync::OnceLock<Rerun>,
+}
+
+/// Why the install code ran again for a test codeunit instead of the codeunit's session starting from what it left on
+/// its last run for the run: the first term of [`start_installed`] that fails, in the order it tries them. A diagnostic
+/// only: the `--timings` line of the first one names it (a shape whose install never shares is read from it).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Rerun {
+    /// A scratch run (`execute`).
+    Scratch,
+    /// A run that follows the code it runs (coverage, the impact trace, `--explain`, the profiler).
+    FollowsCode,
+    /// The codeunit's session is made otherwise than the session of the last run ([`Key`]).
+    Key,
+    /// The texts of the resource files the last run read differ now (`TextsRead::same_now`).
+    TextsRead,
+    /// Files on a real folder (`--files-dir`): the install code does not run in a session of its own.
+    FilesDir,
+    /// The install code left this session field other than a new session holds it (`Session::install_left`).
+    Left(&'static str),
+    /// Its data cannot be frozen for every thread (`Baseline::freeze`).
+    Freeze,
+}
+
+impl Rerun {
+    /// The reason, for the `--timings` line.
+    fn describe(self) -> String {
+        match self {
+            Rerun::Scratch => "a scratch run".into(),
+            Rerun::FollowsCode => "the run follows the code it runs".into(),
+            Rerun::Key => "another session key than its last run's".into(),
+            Rerun::TextsRead => "other texts of the resource files it read".into(),
+            Rerun::FilesDir => "files on a real folder".into(),
+            Rerun::Left(field) => format!("it left `{field}` not as a new session holds it"),
+            Rerun::Freeze => "its data cannot be frozen for every thread".into(),
+        }
+    }
+}
+
+impl RunInstalls {
+    /// Keeps `why` when it is the first reason of the run.
+    fn note(&self, why: Rerun) {
+        let _ = self.rerun.set(why);
+    }
 }
 
 /// What the install code left the last time it ran for a run ([`start_installed`]).
@@ -106,11 +152,26 @@ struct Installed {
     key: Key,
     /// The resource files it read (`Session::resource_reads`) and the digests of their texts when it ran.
     read: al_vm::TextsRead,
-    /// What a codeunit's session starts from. `None`: the install code left state a new session does not start from
-    /// (`Session::install_left`), or data that cannot be shared between threads (`Baseline::freeze`); each codeunit's session
-    /// then runs the install code itself, as on a run without this path. The run keeps that verdict while the key and the
-    /// texts of the resource files the install code read stay the same.
-    left: Option<Left>,
+    /// What a codeunit's session starts from. An error: why it starts from nothing (the install code left state a new
+    /// session does not start from, `Session::install_left`, or data that cannot be shared between threads,
+    /// `Baseline::freeze`); each codeunit's session then runs the install code itself, as on a run without this path.
+    /// The run keeps that verdict while the key and the texts of the resource files the install code read stay the
+    /// same.
+    left: Result<Left, Rerun>,
+}
+
+impl Installed {
+    /// Why a codeunit's session made with `key` does not start from what this run of the install code left: the first
+    /// failing term, `Key`, `TextsRead`, then why the run left nothing to start from; `None`: it starts from it.
+    fn rerun_why(&self, key: &Key, engine: &Engine) -> Option<Rerun> {
+        if self.key != *key {
+            return Some(Rerun::Key);
+        }
+        if !self.read.same_now(engine) {
+            return Some(Rerun::TextsRead);
+        }
+        self.left.as_ref().err().copied()
+    }
 }
 
 /// What [`Installed`] hands to each codeunit's session.
@@ -142,18 +203,28 @@ pub(super) fn begin_pass(engine: &Engine, resources: &al_vm::ResourceOverrides) 
     }
 }
 
-/// The end of a run's passes: the resource texts of its entries are not the next run's. Returns how many times the
-/// install code ran for the run's codeunits (`Phases::install_runs`), and the notes of its install-order proof, every
-/// reason of every tie (al-runner issue 9058; `--verbose` prints them as the baseline's).
-pub(super) fn end_run(engine: &Engine, installs: &RunInstalls) -> (usize, Vec<String>) {
+/// What [`end_run`] gives of a run's install code.
+pub(super) struct RunEnd {
+    /// How many times the install code ran for the run's codeunits (`Phases::install_runs`).
+    pub(super) runs: usize,
+    /// Why it first ran again for a codeunit, described (`Phases::install_rerun`); `None` when it did not.
+    pub(super) rerun: Option<String>,
+    /// The notes of its install-order proof, every reason of every tie (al-runner issue 9058; `--verbose` prints them
+    /// as the baseline's).
+    pub(super) notes: Vec<String>,
+}
+
+/// The end of a run's passes: the resource texts of its entries are not the next run's.
+pub(super) fn end_run(engine: &Engine, installs: &RunInstalls) -> RunEnd {
     if let Ok(mut o) = engine.resource_overrides.write() {
         o.clear();
     }
     let lists = std::mem::take(&mut *installs.notes.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-    (
-        installs.runs.load(std::sync::atomic::Ordering::Relaxed),
-        lists.into_iter().flatten().collect(),
-    )
+    RunEnd {
+        runs: installs.runs.load(std::sync::atomic::Ordering::Relaxed),
+        rerun: installs.rerun.get().map(|r| r.describe()),
+        notes: lists.into_iter().flatten().collect(),
+    }
 }
 
 /// The install code of the apps under test runs once per run, not once per test codeunit (al-runner issue 8144), in a
@@ -186,7 +257,8 @@ fn start_installed(
     as_made_here: bool,
 ) -> Option<Vec<al_vm::SkippedInstall>> {
     let follows_code = session.notes_code_run() || observed || crate::profiling::active();
-    if execute || follows_code {
+    if let Some(why) = (execute.then_some(Rerun::Scratch)).or_else(|| follows_code.then_some(Rerun::FollowsCode)) {
+        scratch.installs.note(why);
         return None;
     }
     let engine = session.engine.clone();
@@ -203,8 +275,16 @@ fn start_installed(
         .kept
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let fits = kept.as_ref().is_some_and(|i| i.key == key && i.read.same_now(&engine));
-    if !fits {
+    // Nothing kept: the run's first run of the install code, which is no rerun.
+    let stale = match kept.as_ref().map(|i| i.rerun_why(&key, &engine)) {
+        None => true,
+        Some(Some(why @ (Rerun::Key | Rerun::TextsRead))) => {
+            scratch.installs.note(why);
+            true
+        }
+        Some(_) => false,
+    };
+    if stale {
         let (made, ran_in) = install(lowered, &engine, scratch, key);
         *kept = Some(made);
         if let (Some((own, skipped)), true) = (ran_in, as_made_here) {
@@ -213,7 +293,13 @@ fn start_installed(
             return Some(skipped);
         }
     }
-    let left = kept.as_ref().expect("kept or made just now").left.as_ref()?;
+    let left = match &kept.as_ref().expect("kept or made just now").left {
+        Ok(left) => left,
+        Err(why) => {
+            scratch.installs.note(*why);
+            return None;
+        }
+    };
     let mut data = left.data.thaw(Some(&engine));
     data.install_rows = Some(left.install_rows.clone());
     let rest = left.rest.clone();
@@ -236,7 +322,7 @@ fn install(lowered: &Lowered, engine: &Arc<Engine>, scratch: &Scratch, key: Key)
         let none = Installed {
             key,
             read: Default::default(),
-            left: None,
+            left: Err(Rerun::FilesDir),
         };
         return (none, None);
     }
@@ -245,13 +331,20 @@ fn install(lowered: &Lowered, engine: &Arc<Engine>, scratch: &Scratch, key: Key)
     let skipped = run_installs_in(lowered, &mut s, &scratch.installs);
     let read = al_vm::TextsRead::now(s.resource_reads(), engine);
     // Before the capture, which commits and clears part of what the check reads.
-    let Some(rest) = s.install_left() else {
-        let installed = Installed { key, read, left: None };
-        return (installed, Some((s, skipped)));
+    let rest = match s.install_left() {
+        Ok(rest) => rest,
+        Err(field) => {
+            let installed = Installed {
+                key,
+                read,
+                left: Err(Rerun::Left(field)),
+            };
+            return (installed, Some((s, skipped)));
+        }
     };
     let mut data = s.capture_baseline();
     data.workspace_installs = Some(skipped);
-    let left = data.freeze().ok().map(|data| Left {
+    let left = data.freeze().map_err(|_| Rerun::Freeze).map(|data| Left {
         data,
         install_rows: s.install_rows(),
         rest,
