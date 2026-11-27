@@ -3,7 +3,9 @@
 //!
 //! BC does not answer stably what a test leaves of a sequence the codeunit's OnRun inserted during the hub's run: test b
 //! reads it as missing now and then, on BC 29.0 without a commit after OnRun (corpus issue 1595: SeqNextHubFunction.al
-//! E4b, E5b, E1C) and on BC 28.5 even with commits (corpus issue 1614: E2b, O1b). What a test leaves of a sequence it
+//! E4b, E5b, E1C) and on BC 28.5 even with commits (corpus issue 1614: E2b, O1b). The file's header at corpus master
+//! says so (SeqNextHubFunction.al:59-64; cells E2 :232, E4 :409, E5 :503 and E1C, which reads like E2 for all companies
+//! without a commit, all refused here). What a test leaves of a sequence it
 //! changed is not measured for any other shape either (a sequence there before the codeunit began, one a test inserted).
 //! So after each test, every later NumberSequence call on a sequence OnRun inserted, or on one the test changed, is
 //! refused (`Session::refuse_unmeasured_sequence`); main kept them as the test left them, which was wrong for the
