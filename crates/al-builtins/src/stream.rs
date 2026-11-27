@@ -533,6 +533,14 @@ pub fn write_bytes(b: &BlobRef, bytes: &[u8]) {
     write_bytes_at(b, bytes);
 }
 
+/// Replaces the buffer's bytes with `bytes`, the position at their end: a .NET writer rewrote the whole content of the stream
+/// it was handed (al-runner issue 8360). It counts as a write from position 0, then the buffer is cut to the new length.
+pub fn replace_bytes(b: &BlobRef, bytes: &[u8]) {
+    b.borrow_mut().write_pos = 0;
+    write_bytes_at(b, bytes);
+    b.borrow_mut().bytes.truncate(bytes.len());
+}
+
 /// [`write_bytes`]; answers whether the write started at the end of what the buffer held (an append). A write that is no
 /// append into a buffer a marked text was written to leaves bytes that no longer stand for what BC holds: the buffer's mark
 /// becomes `rendered_text::WRITTEN_OVER_KIND` (ADR-040 amendment 2026-11-12, A4).
