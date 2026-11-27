@@ -1,7 +1,8 @@
 //! The committed data of a store as plain values, and a store made from them: for a baseline on disk or on another
 //! thread (al-vm `Baseline::to_bytes`, `Baseline::from_bytes`). The rows, the tables a DeleteAll without filters
-//! emptied ([`MemStore::emptied`]) and the companies deleted with their rows ([`MemStore::committed_deleted_companies`])
-//! travel: a store made from the export holds what the exported one held, marks included. Each export marks a recorded install session as reading everything (`footprint.rs`).
+//! emptied ([`MemStore::emptied`]) and the companies deleted with their rows
+//! ([`MemStore::committed_deleted_companies`]) travel: a store made from the export holds what the exported one held,
+//! marks included. Each export marks a recorded install session as reading everything (`footprint.rs`).
 
 use super::{Key, MemStore, PkStorage, Row, Slot, Table, Tables, next_stamp, slot, table_storage};
 use crate::{AccessContext, Store, TableDef, Value};
