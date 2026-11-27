@@ -3,8 +3,9 @@
 //! (al-runner issue 8210) stops at a failure, `RunOptions::stop_after_timeout` (issue 9213) at a row the time limit
 //! stopped; with both, at the first row either names. The scope is a pass's `stop_group` (issue 8210). `Pass::stop` holds one
 //! `Stop` per pass. `run::run_codeunit_inner` asks it after each test (and after an OnRun cut) and keeps the reason of the
-//! first row that triggered it on the codeunit's scratch (`Scratch::stop_trigger`); `corpus::pass_stopped` reads that
-//! record between passes and never matches the rows' texts again. One owner of which row triggered.
+//! first row that triggered it on the codeunit's scratch (`Scratch::stop_trigger`); the pass keeps it only while the
+//! codeunit's rows still hold that row (`Trigger::kept_in`), and `corpus::pass_stopped` reads that record between passes
+//! and never matches the rows' texts again. One owner of which row triggered.
 
 use crate::Outcome;
 use std::sync::Arc;
@@ -83,9 +84,29 @@ impl Stop {
     }
 }
 
+/// The row of a codeunit that triggered its pass's stop (`Scratch::stop_trigger`): the test and its judged outcome
+/// (`None` for an OnRun cut, whose reason every row carries), and the reason the later tests get.
+#[derive(Debug, Clone)]
+pub(crate) struct Trigger {
+    test: Option<String>,
+    outcome: Outcome,
+    reason: String,
+}
+
+impl Trigger {
+    /// The reason, while the codeunit's rows `done` still hold the row that triggered, as the loop judged it. A step
+    /// after the loop that refuses the codeunit (`corpus::refuse_all`) replaces that row, and then nothing stops: the
+    /// row the output shows is a refusal (review of the pull request for issue 9213, round 2; on main a refused
+    /// failure stops no later entry either). One check here keeps every such step, now and later, out of the stop.
+    pub(crate) fn kept_in(self, done: &[(String, Outcome)]) -> Option<String> {
+        let held = |(n, o): &(String, Outcome)| self.test.as_ref().is_none_or(|t| t == n) && *o == self.outcome;
+        done.iter().any(held).then_some(self.reason)
+    }
+}
+
 impl super::Scratch {
     /// Why the later tests of the codeunit are not run after the row `(codeunit, test, routine)` (judged `outcome`;
-    /// `hit_time_limit`: before the judging it was a time-limit row): the pass's stop, whose reason is kept as the
+    /// `hit_time_limit`: before the judging it was a time-limit row): the pass's stop, whose row is kept as the
     /// codeunit's trigger for the later entries (`stop_trigger`), or else `skip_after_timeout` (issue 7517), which names
     /// the test's procedure.
     pub(super) fn stopped_after(
@@ -94,14 +115,27 @@ impl super::Scratch {
         hit_time_limit: bool,
         (codeunit, test, routine): (u32, &str, &str),
     ) -> Option<String> {
-        self.stop_trigger = (self.stop.as_ref()).and_then(|s| s.after(outcome, hit_time_limit, codeunit, test));
+        let reason = (self.stop.as_ref()).and_then(|s| s.after(outcome, hit_time_limit, codeunit, test));
+        self.stop_trigger = reason.clone().map(|reason| Trigger {
+            test: Some(test.to_string()),
+            outcome: outcome.clone(),
+            reason,
+        });
         let skip = self.skip_after_timeout && hit_time_limit;
-        (self.stop_trigger.clone()).or_else(|| skip.then(|| skipped_after_timeout(routine)))
+        reason.or_else(|| skip.then(|| skipped_after_timeout(routine)))
     }
 
-    /// The time limit stopped the OnRun trigger of codeunit `codeunit`: the codeunit's trigger, if the stop is on.
-    pub(super) fn on_run_cut(&mut self, codeunit: u32) {
-        self.stop_trigger = (self.stop.as_ref()).and_then(|s| s.after_on_run_cut(codeunit));
+    /// The time limit stopped the OnRun trigger of codeunit `codeunit` with the reason `why`, which every row of the
+    /// codeunit gets: the codeunit's trigger, if the stop is on. Returns `why`.
+    pub(super) fn on_run_cut(&mut self, codeunit: u32, why: String) -> String {
+        self.stop_trigger = (self.stop.as_ref())
+            .and_then(|s| s.after_on_run_cut(codeunit))
+            .map(|reason| Trigger {
+                test: None,
+                outcome: Outcome::NotRun(why.clone()),
+                reason,
+            });
+        why
     }
 }
 
@@ -210,6 +244,29 @@ mod tests {
         );
         let untrusted_failure = Outcome::NotRun("an earlier test ...; this failure is not trusted: boom".into());
         assert_eq!(both.after(&untrusted_failure, false, 1, "T"), None);
+    }
+
+    /// Review of the pull request for issue 9213, round 2: a trigger counts only while the codeunit's rows still hold the
+    /// row that triggered, with the outcome the loop judged; a refusal of the whole codeunit after its loop drops it.
+    #[test]
+    fn a_trigger_counts_only_while_its_row_is_unchanged() {
+        let mut scratch = super::super::Scratch::new(crate::host::RunClock::begin());
+        scratch.stop = Stop::of(true, true, None);
+        let fail = Outcome::Fail("x".into());
+        assert!(scratch.stopped_after(&fail, false, (1, "T", "T")).is_some());
+        let trigger = scratch.stop_trigger.clone().unwrap();
+        let refused = [("T".to_string(), Outcome::NotRun("refused after the loop".into()))];
+        assert_eq!(trigger.clone().kept_in(&refused), None);
+        assert!(trigger.kept_in(&[("T".to_string(), fail)]).is_some());
+        let why = scratch.on_run_cut(2, "the OnRun reason".into());
+        let trigger = scratch.stop_trigger.clone().unwrap();
+        assert!(
+            trigger
+                .clone()
+                .kept_in(&[("A".to_string(), Outcome::NotRun(why))])
+                .is_some()
+        );
+        assert_eq!(trigger.kept_in(&refused), None);
     }
 
     /// Issue 9213: never a refusal or a row a stop left out. No stop text reads as a time-limit row, or the outputs would

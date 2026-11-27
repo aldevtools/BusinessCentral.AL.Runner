@@ -725,8 +725,7 @@ fn run_codeunit_inner(
                     }
                 }
                 Err(Signal::Unsupported(r)) if r.starts_with(TIME_LIMIT_REASON) => {
-                    scratch.on_run_cut(obj.id.unwrap_or(0));
-                    return Err(on_run_refused(r.into_reason()));
+                    return Err(on_run_refused(scratch.on_run_cut(obj.id.unwrap_or(0), r.into_reason())));
                 }
                 Err(Signal::Unsupported(r)) => return Err(on_run_refused(format!("OnRun: {r}"))),
                 Err(Signal::Error(e)) => {

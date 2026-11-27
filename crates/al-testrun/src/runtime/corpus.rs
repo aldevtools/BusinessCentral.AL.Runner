@@ -1703,7 +1703,7 @@ impl CorpusRuntime {
                 };
                 match r.result {
                     Ok((done, stacks, times, hits, mut covs, mut scratch)) => {
-                        triggered = triggered.or(scratch.stop_trigger.take());
+                        triggered = triggered.or_else(|| scratch.stop_trigger.take()?.kept_in(&done));
                         for (name, outcome) in done {
                             let stack = stacks.iter().find(|(n, _)| *n == name).map(|(_, s)| s.clone());
                             let marks = hits.iter().find(|(n, _)| *n == name).map(|(_, h)| h.clone());

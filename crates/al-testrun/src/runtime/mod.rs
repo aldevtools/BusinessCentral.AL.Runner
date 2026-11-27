@@ -819,9 +819,9 @@ pub(crate) struct Scratch {
     skip_after_timeout: bool,
     /// The pass's stop (`stop.rs`).
     stop: Option<stop::Stop>,
-    /// The reason the first row of the codeunit that triggered `stop` gives the later tests (`stop.rs`); the pass reads it
-    /// for its later entries (`corpus::pass_stopped`).
-    stop_trigger: Option<String>,
+    /// The first row of the codeunit that triggered `stop` (`stop.rs`); the pass keeps its reason for the later entries
+    /// while the codeunit's rows still hold that row (`stop::Trigger::kept_in`, `corpus::pass_stopped`).
+    stop_trigger: Option<stop::Trigger>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
