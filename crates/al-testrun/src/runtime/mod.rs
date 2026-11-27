@@ -1341,6 +1341,8 @@ mod discovery;
 mod group1_sessions_tests;
 mod grow;
 mod handlers;
+#[cfg(test)]
+mod hub_sequence_tests;
 mod install_once;
 #[cfg(test)]
 mod install_reads_tests;
