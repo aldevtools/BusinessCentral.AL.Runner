@@ -38,7 +38,7 @@ mod sql_range;
 mod sql_range_code;
 pub(crate) use insert_buffer::{DeferredInsert, InsertKind, InsertQueue};
 use sql_range::InsertShape;
-mod ext_trigger_xrec;
+pub(crate) mod ext_trigger_xrec;
 mod nested_validate;
 mod running_call_xrec;
 mod validate_event_xrec;
@@ -1179,11 +1179,13 @@ impl Session {
                 }
             }
         }
+        let at_call = self.rec_at_ext_before_call(t, run, "OnBeforeDelete", "OnDelete", true, rec);
         self.table_event(t, "onbeforedeleteevent", rec, None, run, None)?;
         if run {
             // The table's OnDelete gets the buffer as it was before the extensions' OnBeforeDelete ran.
             let x = Self::xrec_handle(rec, rec.borrow().fields.to_vec());
             self.run_ext_trigger_unmeasured_xrec(t, "OnBeforeDelete", rec)?;
+            let x = at_call.map_or(x, |at| Self::xrec_after_ext_before(at, rec));
             if let Some(tr) = self.table_trigger(t, "OnDelete") {
                 self.run_trigger(t.object as usize, tr, rec, Some(&x))?;
             }
@@ -2428,6 +2430,9 @@ impl Session {
     pub(crate) fn record_op(&mut self, method: RecordOp, rec: &Rec, args: &mut [Value]) -> Result<Value, Signal> {
         if !self.validate_sites.is_empty() {
             self.note_record_op_under_validate(method, rec);
+        }
+        if !self.ext_before_watch.borrow().is_empty() {
+            self.note_ext_before_touch(Some(method), rec);
         }
         self.probed_source_before(method, rec, args);
         Self::rolled_read_before(method, rec);
