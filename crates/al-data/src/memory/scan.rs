@@ -63,6 +63,14 @@ impl<'a> KeyOrder<'a> {
 
     /// How the values of a position in this key (`values`, in the order of its fields) stand to the position `pos`.
     fn cmp_values_to_position<'v>(&self, values: impl Iterator<Item = &'v Value>, pos: &[Value]) -> Ordering {
+        // A shorter position would sort first here, where alt_next's old comparison stopped at its end: every caller
+        // passes a full position (`crate::position`), and a prefix must not change the order unnoticed.
+        debug_assert_eq!(
+            pos.len(),
+            self.t.keys[self.key].len() + self.t.keys[0].len(),
+            "a scan position of key {} that is not a full position",
+            self.key
+        );
         for ((&i, v), x) in self.fields().zip(values).zip(pos) {
             match self.t.cmp_key_field(i, v, x) {
                 Ordering::Equal => continue,
