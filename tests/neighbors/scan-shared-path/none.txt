@@ -1,1 +1,0 @@
-No AL-visible answer changes: the store's scan paths share one order helper and their caches return the row every path returns; random walks over every key and ad hoc keys sharing a key slot give main's rows byte for byte.

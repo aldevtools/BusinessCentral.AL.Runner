@@ -1,3 +1,0 @@
-# key	entry
-# No difference: main and head start a codeunit's first test method at UpdateNoLocks after install code that left Update
-# (the head before review round one of pull request 8607 carried the install code's Update into it).

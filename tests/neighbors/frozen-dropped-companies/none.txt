@@ -1,1 +1,0 @@
-The changed answer needs test data restored from a backup with several companies (--test-data with --companies) and install code that deletes one of them; a neighbor app runs without test data, where no read reaches a deleted company's restored rows on main or head. Rust tests pin it: al-vm baseline.rs and al-testrun companies_opt_in.rs.

@@ -1,1 +1,0 @@
-The neighbor run reaches a copy made from the install baseline's bytes only by thread or cache chance (a cold run on 1 to 4 threads usually refuses on main too), so each Blob mark is pinned by al-vm baseline/blob_tests.rs instead.

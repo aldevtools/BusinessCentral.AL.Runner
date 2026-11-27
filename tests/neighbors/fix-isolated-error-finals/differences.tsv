@@ -1,9 +1,0 @@
-# key	entry
-# A caller writes its var arguments back from the routine the error left (codeunits/TestScopeIsolationContracts.al:65-76, errors/TestTryFunctionContracts.al:85-95).
-# Here the later call fails before its routine starts (a Variant holding an Integer into a by-value Text parameter:
-# types/variant/VariantNumberToTextParam.al:53-71), so no routine left values and the argument keeps its own. No corpus case
-# reaches such a call after an unrelated caught error; main wrote the stale values of the routine the caught error left.
-EF Error Finals Tests::IsolatedEventFailed_ThenCallFailsBeforeStart	PINNED tests/al-language/codeunits/TestScopeIsolationContracts.al:65
-EF Error Finals Tests::AsserterrorValidateSubscriberFailed_ThenRecCallFailsBeforeStart	PINNED tests/al-language/codeunits/TestScopeIsolationContracts.al:65
-EF Error Finals Tests::AsserterrorValidateSubscriberFailed_ThenScalarCallFailsBeforeStart	PINNED tests/al-language/codeunits/TestScopeIsolationContracts.al:65
-EF Error Finals Tests::TestPageNewSwallowedOnNewRecordError_ThenCallFailsBeforeStart	PINNED tests/al-language/codeunits/TestScopeIsolationContracts.al:65

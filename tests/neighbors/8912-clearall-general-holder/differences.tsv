@@ -1,6 +1,0 @@
-# key	entry
-# Not here, the same on main and head: NestedTableWrittenThenEmptied (no row now and no record outside shares the table:
-# main's fresh instance reads the same, with no mark).
-GH ClearAll Tests::TableNoOwnerSharedRegisterThroughSetter	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
-GH ClearAll Tests::NestedTableWithRowsNow	REFUSED ClearAll of a global codeunit variable whose instance holds temporary rows
-GH ClearAll Tests::NestedTableSharedByCopy	REFUSED ClearAll of a global variable that reaches a temporary table that another record shares
