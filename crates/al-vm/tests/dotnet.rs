@@ -1701,6 +1701,45 @@ fn a_rewrite_of_a_bridge_al_wrote_into_since_is_refused() {
     );
 }
 
+// al-runner issue 9291: a host append after an AL write does not hide that write, so the rewrite after it is still refused.
+#[test]
+fn a_host_append_after_an_al_write_keeps_the_rewrite_refused() {
+    let host = Fake::new(|r| {
+        let streams = match r {
+            Req::Invoke(_, m, _) if m == "Open" => StreamEffects {
+                bridges: vec![(0, 9)],
+                ..Default::default()
+            },
+            Req::Invoke(_, m, _) if m == "Append" => StreamEffects {
+                written: vec![(9, b"!".to_vec())],
+                ..Default::default()
+            },
+            Req::Invoke(_, m, _) if m == "Dispose" => StreamEffects {
+                replaced: vec![(9, 8, b"new".to_vec())],
+                ..Default::default()
+            },
+            other => panic!("{other:?}"),
+        };
+        Ok(DotNetReply {
+            value: DotNetValue::Null,
+            by_ref: vec![],
+            streams,
+        })
+    });
+    let r = run(
+        &host,
+        "C: DotNet Convert; B: Record \"ALT Blob\"; O: OutStream;",
+        "B.Code := 'S'; B.Data.CreateOutStream(O); O.WriteText('PK zip'); C.Open(O); O.WriteText('x'); C.Append(); C.Dispose();
+         exit('');",
+        ": Text",
+    );
+    let why = unsupported(&r);
+    assert!(
+        why.contains("a .NET rewrite of an OutStream AL wrote into since the call before"),
+        "{why}"
+    );
+}
+
 // ---- the shipped registry (owner decision 2026-10-14) ------------------------------------
 
 fn no_host() -> Fake {
