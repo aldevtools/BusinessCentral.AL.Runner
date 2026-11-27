@@ -39,8 +39,12 @@ pub(crate) struct TestCtx {
     pub(crate) result_ignored: bool,
     /// What `held_by_temp_blob_impl` answers for every buffer.
     pub(crate) temp_blob_impl: bool,
+    /// The run's target: `gate` and `http_probe_1424_measured` read it.
+    pub(crate) target: Option<al_version::Target>,
     /// What `format_composite` answers for a Record or a RecordRef: `None` as without a table schema.
     pub(crate) composite: Option<String>,
+    /// What `codeunit_shape` answers for every id: `None` as the default of a session without a program.
+    pub(crate) codeunit_shape: Option<super::CodeunitShape>,
 }
 impl FormatCtx for TestCtx {
     fn enum_name(&self, _id: u32, o: i32) -> String {
@@ -48,11 +52,22 @@ impl FormatCtx for TestCtx {
     }
 }
 impl Ctx for TestCtx {
+    fn gate(&self, gate: al_version::Gate) -> bool {
+        al_version::gate_on(self.target.as_ref(), gate)
+    }
+
+    fn http_probe_1424_measured(&self) -> bool {
+        al_version::http_probe_1424_measured(self.target.as_ref())
+    }
+
     fn format_composite(&mut self, _v: &Value) -> Option<Result<String, Signal>> {
         self.composite.clone().map(Ok)
     }
     fn held_by_temp_blob_impl(&self, _b: &crate::stream::BlobRef) -> bool {
         self.temp_blob_impl
+    }
+    fn codeunit_shape(&self, _id: u32) -> super::CodeunitShape {
+        self.codeunit_shape.unwrap_or(super::CodeunitShape::UNKNOWN)
     }
     fn last_error(&self) -> AlError {
         self.err.clone()
@@ -174,10 +189,18 @@ fn every_registered_id_is_in_the_catalog() {
         "System.EvaluateMemberlessVarOptionElement#1",
         "System.EvaluateBounded#1",
         "System.EvaluateDateVariable#1",
+        "System.EvaluateEnumField#1",
+        "System.EvaluateEnumVariable#1",
         "System.EvaluateOptionField#1",
         "System.FormatVariant#1",
         "TextBuilder.AppendVariant#1",
         "RecordRef.GetTableVariant#1",
+        "FieldRef.SetRangeTyped#1",
+        "FieldRef.SetRangeVariant#1",
+        "FieldRef.SetRangeMixed#1",
+        "FieldRef.SetFilterTyped#1",
+        "FieldRef.SetFilterVariant#1",
+        "Record.SetRangeVariant#1",
         "TestField.SetValueVariant#1",
         "Record.ValidateVariant#1",
         "System.FormatDecimalField#1",

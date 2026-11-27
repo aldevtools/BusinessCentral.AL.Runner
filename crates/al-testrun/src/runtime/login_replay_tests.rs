@@ -12,7 +12,7 @@ use crate::login_replay::{Check, first_difference};
 /// `RAISE_ONLY`) registers a row whose id depends on the text of the app's resource `rpl.txt`, and keeps a copy in a temporary record of
 /// a SingleInstance codeunit, shared with a second record (`Copy(x, true)`), as Base Application's "Change Log Management"
 /// keeps temporary records after the login on BC 28.5.
-const MAIN: &str = r#"
+pub(super) const MAIN: &str = r#"
 codeunit 77400 "RPL Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
@@ -53,13 +53,19 @@ codeunit 77403 "RPL Tests B"
 }
 "#;
 
+/// The check line of `engine`'s report: the report's first line (the keys line, `login replay keys: ...`, and the image
+/// line, `login image: ...`, follow it; the tests of `login_image_tests.rs` read the image line).
+fn check_line(engine: &Engine) -> Option<String> {
+    crate::login_replay::report(engine).map(|r| r.lines().next().unwrap_or_default().to_string())
+}
+
 /// The compiled apps (the main app has the resource `rpl.txt` holding `a`) and an engine for them.
-fn compiled() -> (Arc<Engine>, al_sema::lower::Lowered) {
+pub(super) fn compiled() -> (Arc<Engine>, al_sema::lower::Lowered) {
     compiled_with(MAIN)
 }
 
 /// [`compiled`] with the app under test's source `main`.
-fn compiled_with(main: &str) -> (Arc<Engine>, al_sema::lower::Lowered) {
+pub(super) fn compiled_with(main: &str) -> (Arc<Engine>, al_sema::lower::Lowered) {
     let (ws, mut l) = al_sema::lower::compile_apps(
         [
             ("main", vec!["dep".to_string()], main),
@@ -88,12 +94,12 @@ fn compiled_with(main: &str) -> (Arc<Engine>, al_sema::lower::Lowered) {
 }
 
 /// Runs test codeunit `name` once on `engine` with the check on; every test must pass.
-fn run(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str) {
+pub(super) fn run(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str) {
     run_with(engine, l, name, RunOptions::default());
 }
 
 /// [`run`] with the session flags of `opts` (`SessionFlags::of`).
-fn run_with(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) {
+pub(super) fn run_with(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) {
     let o = run_as(
         engine,
         l,
@@ -108,17 +114,17 @@ fn run_with(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts:
 
 /// What a run of a test codeunit gives: each test's outcome, its error stack and its assumption marks.
 #[derive(Debug, PartialEq)]
-struct Ran {
-    outcomes: Vec<(String, Outcome)>,
+pub(super) struct Ran {
+    pub(super) outcomes: Vec<(String, Outcome)>,
     stacks: Vec<(String, String)>,
     marks: Vec<(String, Vec<Assumption>)>,
 }
 
 /// Runs test codeunit `name` once on `engine` under the session flags of `opts`, the check on or off as `opts` says.
-fn run_as(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) -> Ran {
+pub(super) fn run_as(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: RunOptions) -> Ran {
     let mut scratch = Scratch {
         flags: super::session_flags::SessionFlags::of(&opts),
-        ..Default::default()
+        ..Scratch::new(crate::host::RunClock::begin())
     };
     let oi = l.program.objects.iter().position(|o| o.name == name).unwrap();
     let (mut stacks, mut marks) = (Vec::new(), Vec::new());
@@ -144,7 +150,7 @@ fn run_as(engine: &Arc<Engine>, l: &al_sema::lower::Lowered, name: &str, opts: R
 }
 
 /// The text `rpl.txt` of the main app reads as in this pass (a serve entry's `resources`, `Engine::resource_overrides`).
-fn set_resource(engine: &Engine, l: &al_sema::lower::Lowered, text: Option<&str>) {
+pub(super) fn set_resource(engine: &Engine, l: &al_sema::lower::Lowered, text: Option<&str>) {
     let main = l.program.apps.iter().position(|a| a.name == "main").unwrap();
     let mut o = engine.resource_overrides.write().unwrap();
     o.clear();
@@ -160,7 +166,7 @@ fn sessions_of_one_key_hold_the_same_after_the_raised_login() {
         run(&engine, &l, "RPL Tests A");
     }
     assert_eq!(
-        crate::login_replay::report(&engine).as_deref(),
+        check_line(&engine).as_deref(),
         Some(
             "login replay check: 3 sessions over 1 keys (a key seen before: 2 sessions, 66%), 2 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
         )
@@ -168,7 +174,7 @@ fn sessions_of_one_key_hold_the_same_after_the_raised_login() {
     // What the login wrote is in the state compared: the subscriber's row (77400 + 1).
     let firsts = crate::login_replay::check(&engine).firsts();
     assert!(
-        firsts[0].1.rows().iter().any(|r| r.contains("Integer(77401)")),
+        firsts[0].1.rows().iter().any(|r| r.holds("Integer(77401)")),
         "{:?}",
         firsts[0].1.rows()
     );
@@ -180,15 +186,16 @@ fn another_test_codeunit_is_another_key() {
     run(&engine, &l, "RPL Tests A");
     run(&engine, &l, "RPL Tests B");
     assert_eq!(
-        crate::login_replay::report(&engine).as_deref(),
+        check_line(&engine).as_deref(),
         Some(
             "login replay check: 2 sessions over 2 keys (a key seen before: 0 sessions, 0%), 0 compared, 0 differ; across test codeunits: 1 compared, 0 differ"
         )
     );
 }
 
-// Two serve entries with other `resources`: the login reads the text, so what it leaves differs. The key holds the two
-// apart; under one key the comparator reports the difference (the planted case).
+// Two serve entries with other `resources`: the login reads the text, so what it leaves differs. The texts the login
+// read (`login_replay::StartKey`) hold the two apart; under one key the comparator reports the difference (the planted
+// case).
 #[test]
 fn an_entrys_resource_text_is_part_of_the_key_and_changes_what_the_login_leaves() {
     let (engine, l) = compiled();
@@ -198,25 +205,29 @@ fn an_entrys_resource_text_is_part_of_the_key_and_changes_what_the_login_leaves(
     set_resource(&engine, &l, None);
     run(&engine, &l, "RPL Tests A");
     assert_eq!(
-        crate::login_replay::report(&engine).as_deref(),
+        check_line(&engine).as_deref(),
         Some(
             "login replay check: 3 sessions over 2 keys (a key seen before: 1 sessions, 33%), 1 compared, 0 differ; across test codeunits: 0 compared, 0 differ"
         )
     );
     let firsts = crate::login_replay::check(&engine).firsts();
+    // Named by where it differs, never by the value (77401 against 77404).
     let difference = first_difference(&firsts[0].1, &firsts[1].1);
     assert!(
-        difference.as_deref().is_some_and(|d| d.contains("77404")),
+        difference
+            .as_deref()
+            .is_some_and(|d| d.starts_with("row ") && !d.contains("7740")),
         "{difference:?}"
     );
+    assert!(firsts[1].1.rows().iter().any(|r| r.holds("Integer(77404)")));
     // The temporary table of the SingleInstance cache holds the other row too.
     let temp_row = |k: usize, id: &str| {
         (firsts[k].1.state_lines().lines.iter()).any(|l| l.starts_with("temp table 0 row ") && l.contains(id))
     };
     assert!(temp_row(0, "Integer(77401)") && temp_row(1, "Integer(77404)"));
     let planted = Check::default();
-    planted.note(firsts[0].0.clone(), firsts[0].1.clone());
-    planted.note(firsts[0].0.clone(), firsts[1].1.clone());
+    planted.note(&engine, firsts[0].0.clone(), firsts[0].1.clone());
+    planted.note(&engine, firsts[0].0.clone(), firsts[1].1.clone());
     assert!(planted.line().is_some_and(|l| l.contains("1 compared, 1 differ")));
 }
 
@@ -279,7 +290,7 @@ fn another_session_flag_or_license_is_another_key() {
     run(&engine, &l, "RPL Tests A");
     run(&engine, &l, "RPL Tests A");
     assert_eq!(
-        crate::login_replay::report(&engine).as_deref(),
+        check_line(&engine).as_deref(),
         Some(
             "login replay check: 5 sessions over 4 keys (a key seen before: 1 sessions, 20%), 1 compared, 0 differ; \
              across test codeunits: 0 compared, 0 differ"
@@ -330,7 +341,7 @@ fn codeunit_instances_the_login_leaves_compare_by_identity_and_their_state() {
 
 /// [`MAIN`] with a second login subscriber that leaves, in a SingleInstance codeunit, an instance whose own global holds
 /// an HttpClient with a base address.
-const OPAQUE_INSIDE: &str = r#"
+pub(super) const OPAQUE_INSIDE: &str = r#"
 codeunit 77410 "RPL Deep Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
@@ -349,8 +360,9 @@ codeunit 77412 "RPL Ref Holder"
 }
 "#;
 
-// A value with no comparable form inside a codeunit instance is reported with its path: the SingleInstance global, the
-// instance's codeunit and global, and the kind of value (ids, indexes and type names only).
+// A value with no comparable form inside a codeunit instance is reported by the SingleInstance global that holds it (the
+// path before the first `: `); what follows (the instances inside and the kind of value, which can describe a value) is
+// not printed (login_replay/difference.rs).
 #[test]
 fn a_value_with_no_comparable_form_inside_an_instance_is_named_with_its_path() {
     let (engine, l) = compiled_with(&format!("{MAIN}{OPAQUE_INSIDE}"));
@@ -358,7 +370,7 @@ fn a_value_with_no_comparable_form_inside_an_instance_is_named_with_its_path() {
     run(&engine, &l, "RPL Tests A");
     let line = crate::login_replay::report(&engine).unwrap();
     assert!(
-        line.contains("not comparable: codeunit 77411 global 0: instance of codeunit 77412 global 1: HttpClient (a client of the network: what it holds lies outside the session))"),
+        line.contains("first: not comparable: codeunit 77411 global 0); across"),
         "{line}"
     );
 }
@@ -420,7 +432,7 @@ fn arrays_the_login_leaves_compare_element_by_element() {
 /// RecordRef on a temporary table with the record it was taken from, a RecordRef on a real table with a FieldRef that
 /// filters it and a KeyRef, a List and a Dictionary of codeunit instances, Json, a TextBuilder, Xml, a Notification, an
 /// ErrorInfo, a Version and an HttpContent.
-const KINDS_INSIDE: &str = r#"
+pub(super) const KINDS_INSIDE: &str = r#"
 codeunit 77430 "RPL Kinds Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
@@ -508,14 +520,14 @@ fn every_kind_of_value_the_login_leaves_compares_exactly() {
     let state = firsts[0].1.state_lines();
     assert!(state.opaque.is_empty(), "{:?}", state.opaque);
     // The line of the instance of codeunit `id`.
-    fn of(firsts: &[(crate::login_replay::Key, crate::login_replay::LoginState)], k: usize, id: u32) -> String {
+    fn of(firsts: &[(crate::login_replay::StartKey, crate::login_replay::LoginState)], k: usize, id: u32) -> String {
         let lines = &firsts[k].1.state_lines().lines;
         let line =
             (lines.iter()).find(|l| l.starts_with("instance ") && l.contains(&format!(" codeunit {id} globals")));
         line.unwrap_or_else(|| panic!("{id}: {lines:?}")).clone()
     }
     // The instance line of codeunit `id` with the lines of the shared handles it names (`shared <n>`).
-    fn held(firsts: &[(crate::login_replay::Key, crate::login_replay::LoginState)], k: usize, id: u32) -> String {
+    fn held(firsts: &[(crate::login_replay::StartKey, crate::login_replay::LoginState)], k: usize, id: u32) -> String {
         let line = of(firsts, k, id);
         let shared = (firsts[k].1.state_lines().lines.iter()).filter(|l| {
             let n = l.strip_prefix("shared ").and_then(|t| t.split(' ').next());
@@ -566,7 +578,9 @@ fn two_backings_that_do_not_say_who_they_are_are_never_one_key() {
         let mut s = Session::new(engine.clone());
         let store = std::mem::take(s.store_mut());
         *s.store_mut() = store.with_backing(std::rc::Rc::new(Unnamed));
-        crate::login_replay::Key::of(&mut s, false, Default::default())
+        // At rest, as a test session is before its login: SQL counters not at rest have no comparable form (no key).
+        s.commit_transaction();
+        crate::login_replay::Key::of(&mut s, (TestIsolation::Codeunit, false), Default::default(), &[]).expect("a key")
     };
     assert_ne!(key(), key());
 }
@@ -587,7 +601,7 @@ codeunit 77404 "RPL Tests C"
 }
 "#;
 
-const OWN_LOGIN: &str = r#"
+pub(super) const OWN_LOGIN: &str = r#"
 codeunit 77408 "RPL Own Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterAssistedSetup', '', false, false)]
@@ -652,10 +666,12 @@ fn the_check_off_and_on_gives_the_same_outcomes_and_marks() {
     );
 }
 
-/// The key of a new session on `engine` that holds, uncommitted, a "Guided Experience Item" row with id `id`.
-fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> crate::login_replay::Key {
+/// The key of a new session on `engine` that holds, uncommitted, a "Guided Experience Item" row with id `id`, and the
+/// paths of its values with no comparable form.
+fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> (Option<crate::login_replay::Key>, Vec<String>) {
     use al_data::Store;
     let mut session = al_vm::Session::new(engine.clone());
+    session.commit_transaction();
     let at = engine
         .program
         .objects
@@ -674,27 +690,29 @@ fn key_with_uncommitted_row(engine: &Arc<Engine>, id: i32) -> crate::login_repla
     assert!(session.store_mut().insert(&cx, &t, row).is_ok());
     assert!(session.store_mut().has_uncommitted());
     let flags = super::session_flags::SessionFlags::of(&RunOptions::default());
-    crate::login_replay::Key::of(&mut session, false, flags)
+    let opaque = session.state_lines().opaque.iter().map(|o| o.path.clone()).collect();
+    (
+        crate::login_replay::Key::of(&mut session, Default::default(), flags, &[]).ok(),
+        opaque,
+    )
 }
 
-// The rows a session holds uncommitted before the login are an input of the login (it reads them): two sessions whose
-// uncommitted rows differ have other keys.
+// The rows a session holds uncommitted before the login are an input of the login (it reads them). A write since the
+// last Commit leaves the SQL counters with no comparable form (al-vm `state_facts.rs`), so such a session has no key
+// and runs its login: two sessions whose uncommitted rows differ never share one.
 #[test]
-fn uncommitted_rows_before_the_login_are_part_of_the_key_by_content() {
+fn a_session_with_uncommitted_rows_before_the_login_has_no_key() {
     let (engine, _) = compiled();
-    assert_eq!(
-        key_with_uncommitted_row(&engine, 1),
-        key_with_uncommitted_row(&engine, 1)
-    );
-    assert_ne!(
-        key_with_uncommitted_row(&engine, 1),
-        key_with_uncommitted_row(&engine, 2)
-    );
+    for id in [1, 2] {
+        let (key, opaque) = key_with_uncommitted_row(&engine, id);
+        assert_eq!(opaque, ["SQL counters"], "GUARD: the counters are why");
+        assert_eq!(key, None);
+    }
 }
 
 /// A raised login whose subscriber registers one fixed row and calls `Plant` of codeunit "RPL Gap" (77462) with the length
 /// of the resource text: each test of a state the check must compare adds an "RPL Gap" that plants that state.
-const GAP: &str = r#"
+pub(super) const GAP: &str = r#"
 codeunit 77460 "RPL Gap Registration"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
@@ -709,10 +727,15 @@ codeunit 77461 "RPL Gap Tests"
 }
 "#;
 
+/// A planted session: the check's line, the differences, and the first session state line of the base that differs from
+/// the planted session's (the difference text names only its place).
+type Planted = (String, Vec<(usize, String)>, Option<String>);
+
 /// Runs the login of [`GAP`] with `plant` twice with the resource text `base` and once with each text of `others`. Asserts
 /// the two sessions of `base` compare equal; returns, per text of `others`, the check's line when its session is noted
-/// under the key of `base` (a planted difference: what a key that missed the text would compare) and the differences.
-fn planted(plant: &str, base: &str, others: &[&str]) -> Vec<(String, Vec<(usize, String)>)> {
+/// under the key of `base` (a planted difference: what a key that missed the text would compare), the differences and
+/// the first base state line that differs.
+fn planted(plant: &str, base: &str, others: &[&str]) -> Vec<Planted> {
     let (engine, l) = compiled_with(&format!("{GAP}{plant}"));
     for text in std::iter::repeat_n(base, 2).chain(others.iter().copied()) {
         set_resource(&engine, &l, Some(text));
@@ -725,34 +748,38 @@ fn planted(plant: &str, base: &str, others: &[&str]) -> Vec<(String, Vec<(usize,
     (firsts[1..].iter())
         .map(|(_, state)| {
             let check = Check::default();
-            check.note(firsts[0].0.clone(), firsts[0].1.clone());
-            check.note(firsts[0].0.clone(), state.clone());
+            let missed = || crate::login_replay::StartKey::reading_nothing(firsts[0].0.key.clone());
+            check.note(&engine, missed(), firsts[0].1.clone());
+            check.note(&engine, missed(), state.clone());
             let line = check.line().unwrap();
-            (line, crate::login_replay::differences(&firsts[0].1, state))
+            let (base, other) = (&firsts[0].1.state_lines().lines, &state.state_lines().lines);
+            let first = (base.iter().zip(other)).find(|(a, b)| a != b).map(|(a, _)| a.clone());
+            (line, crate::login_replay::differences(&firsts[0].1, state), first)
         })
         .collect()
 }
 
-/// Asserts that each planted session differs from the base in the session state only, and that the first differing
-/// line starts with `what`.
-fn assert_planted_state(planted: &[(String, Vec<(usize, String)>)], what: &str) {
-    for (line, differences) in planted {
+/// Asserts that each planted session differs from the base in the session state only, that the difference names the
+/// first differing line by its place, and that the line starts with `what`.
+fn assert_planted_state(planted: &[Planted], what: &str) {
+    for (line, differences, first) in planted {
         assert!(
             line.contains("1 compared, 1 differ (not comparable 0, rows 0, session state 1, marks 0, open writes 0;"),
             "{line}"
         );
         let state = differences.iter().find(|(kind, _)| *kind == 2);
         assert!(
-            state.is_some_and(|(_, d)| d.split(": ").nth(1).is_some_and(|l| l.starts_with(what))),
+            state.is_some_and(|(_, d)| d.starts_with("session state ") && !d.contains(':')),
             "{differences:?}"
         );
+        assert!(first.as_deref().is_some_and(|l| l.starts_with(what)), "{first:?}");
     }
 }
 
 /// "RPL Gap" holds an instance it may call, and binds one of two instances of a manual subscriber (it calls both, so both
 /// are initialized): text length 1 binds the first, 2 also calls the held instance (it is then initialized), 3 binds the
 /// second.
-const GAP_INSTANCES: &str = r#"
+pub(super) const GAP_INSTANCES: &str = r#"
 codeunit 77462 "RPL Gap"
 {
     SingleInstance = true;
@@ -785,7 +812,7 @@ fn an_instance_s_own_facts_and_the_instance_a_binding_holds_are_compared() {
 
 /// "RPL Gap" writes a row of its table; its `GetDatabaseTableTriggerSetup` subscriber enables OnDatabaseModify for the
 /// table when the text is longer than 1 (no Modify follows: only the setup BC asked differs).
-const GAP_GLOBAL_SETUPS: &str = r#"
+pub(super) const GAP_GLOBAL_SETUPS: &str = r#"
 table 77465 "RPL Gap Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
 codeunit 77462 "RPL Gap"
 {
@@ -805,7 +832,7 @@ fn the_global_trigger_setups_asked_are_compared() {
 }
 
 /// "RPL Gap" raises its own event once per character of the text; a subscriber handles it.
-const GAP_EVENT_CALLS: &str = r#"
+pub(super) const GAP_EVENT_CALLS: &str = r#"
 codeunit 77462 "RPL Gap"
 {
     procedure Plant(N: Integer) var I: Integer; begin for I := 1 to N do OnGap(); end;
@@ -826,7 +853,7 @@ fn the_event_subscriber_call_counts_are_compared() {
 
 /// "RPL Gap" imports the text's length, as text, into the Media field of a temporary record: the record is gone after,
 /// the media object stays in the session's media store.
-const GAP_MEDIA: &str = r#"
+pub(super) const GAP_MEDIA: &str = r#"
 table 77466 "RPL Gap Pic"
 {
     fields { field(1; K; Integer) { } field(2; B; Blob) { } field(3; Pic; Media) { } }
@@ -849,7 +876,7 @@ fn the_media_the_login_imports_are_compared() {
 }
 
 /// "RPL Gap" seeds `Random` with the text's length: no number is drawn, the sequence differs.
-const GAP_RANDOM: &str = r#"
+pub(super) const GAP_RANDOM: &str = r#"
 codeunit 77462 "RPL Gap"
 {
     procedure Plant(N: Integer) begin Randomize(N); end;
@@ -864,7 +891,7 @@ fn the_random_sequence_the_login_leaves_is_compared() {
 
 /// "RPL Gap" looks for a row of its empty table when the text is longer than 1: a find that found nothing while the SQL
 /// counters were inactive is kept for a later read of `SessionInformation.SqlStatementsExecuted`.
-const GAP_SQL: &str = r#"
+pub(super) const GAP_SQL: &str = r#"
 table 77465 "RPL Gap Row" { fields { field(1; K; Integer) { } } keys { key(PK; K) { Clustered = true; } } }
 codeunit 77462 "RPL Gap"
 {
@@ -896,13 +923,13 @@ fn sql_counters_the_login_read_are_not_comparable() {
     }
     let line = crate::login_replay::report(&engine).unwrap();
     assert!(
-        line.contains("1 differ (not comparable 1, ") && line.contains("SQL counters (read, or not at rest"),
+        line.contains("1 differ (not comparable 1, ") && line.contains("first: not comparable: SQL counters)"),
         "{line}"
     );
 }
 
 /// "RPL Gap" commits when the text is longer than 1 (it wrote nothing: only the session's count of commits moves).
-const GAP_COMMIT: &str = r#"
+pub(super) const GAP_COMMIT: &str = r#"
 codeunit 77462 "RPL Gap"
 {
     procedure Plant(N: Integer) begin if N > 1 then Commit(); end;
@@ -934,12 +961,12 @@ codeunit 77462 "RPL Gap"
 // of its own.
 #[test]
 fn what_the_company_open_noted_for_the_tests_is_compared() {
-    for (line, differences) in planted(GAP_OPEN_WRITES, "a", &["ab"]) {
+    for (line, differences, _) in planted(GAP_OPEN_WRITES, "a", &["ab"]) {
         assert!(line.contains(", open writes 1;"), "{line}");
         assert!(
             differences
                 .iter()
-                .any(|(_, d)| d.starts_with("open writes: ") && d.contains("Opened")),
+                .any(|(kind, d)| (*kind, d.as_str()) == (4, "open writes")),
             "{differences:?}"
         );
     }

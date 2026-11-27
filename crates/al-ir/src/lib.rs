@@ -550,6 +550,10 @@ pub const EXT_CAPTION_OVER_OWN: &str = "$ExtCaptionOverOwn";
 /// profile it extends. The All Profile rows read the extension's `Enabled` through it.
 pub const EXTENDS_PROFILE: &str = "$ExtendsProfile";
 
+/// The name of an object property the lowering adds to a codeunit that lists an interface after `implements` (value
+/// `Yes`), resolved or not: an Interface, List or Dictionary of an interface can hold an instance of it.
+pub const IMPLEMENTS_INTERFACE: &str = "$ImplementsInterface";
+
 /// The name of an object property the lowering adds to a test codeunit with ITestHandler callbacks (BC 29): its handler
 /// codeunits in call order, `D<id>` for a DefaultTestHandler handler and `O<id>` for one its TestHandlers names, separated
 /// by commas (al-sema `lower/test_handlers.rs`).
@@ -1857,6 +1861,21 @@ pub struct Slot {
     /// `Lowerer::security_filtering_read_refusal`).
     #[serde(default)]
     pub security_filtering_not_kept: bool,
+    /// A global declared `Label 'text'` with a text that is not empty and no property (al-sema `shared::plain_label`): its
+    /// reads lower to its text, and AL code cannot assign or clear it (corpus must-not-compile 0350, 2628).
+    #[serde(default)]
+    pub plain_label: bool,
+    /// A global declared `Label 'text', Comment = 'text'` with two texts that are not empty and no other property (al-sema
+    /// `shared::comment_label`).
+    #[serde(default)]
+    pub comment_label: bool,
+    /// A global declared `Label 'text', Locked = true` with a text that is not empty and no other property (al-sema
+    /// `shared::locked_label`).
+    #[serde(default)]
+    pub locked_label: bool,
+    /// A global declared `Label` (with or without properties) or `TextConst`: one al-sema `shared::label_text` gives a text.
+    #[serde(default)]
+    pub label: bool,
 }
 
 impl Slot {
@@ -1867,6 +1886,10 @@ impl Slot {
             ty,
             security_filtering: None,
             security_filtering_not_kept: false,
+            plain_label: false,
+            comment_label: false,
+            locked_label: false,
+            label: false,
         }
     }
 }
@@ -2313,6 +2336,17 @@ pub enum Expr {
     /// of Options declared without members: the run tells it from the value of another place, which may hold another member
     /// list than its declared one (al-sema `memberless_option_array_assign`, al-vm `var_option::element_store`).
     VarSectionValue(Box<Expr>),
+}
+
+impl Expr {
+    /// The expression without the type conversions the lowering wraps around it (an assigned value, an argument).
+    pub fn unconverted(&self) -> &Expr {
+        let mut e = self;
+        while let Expr::Convert(_, inner) = e {
+            e = inner;
+        }
+        e
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

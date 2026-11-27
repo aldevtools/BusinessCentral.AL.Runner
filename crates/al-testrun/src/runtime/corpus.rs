@@ -200,6 +200,8 @@ impl CorpusRuntime {
             Ok(c) => c,
             Err(stopped) => return Ok((stopped, None)),
         };
+        // The strict second pass and a redo on a larger compile are passes of this one run: they read its clock.
+        let opts = &*opts.with_run_clock();
         let rt = Self::run_then_strict(&compiled, target, dotnet.clone(), opts);
         // A compile for a selection left things out. A run that met one of their routines was compiled for less than it
         // needs: the apps are compiled with less left out and the tests run again, up to the full run's compile.
@@ -341,6 +343,8 @@ impl CorpusRuntime {
             Ok(c) => c,
             Err(stopped) => return Ok(vec![stopped]), // A hard memory limit stopped the compile (`compile_halt.rs`).
         };
+        // The variants are passes of one run: they read its one clock, as a variant's moved clock does (ADR-058).
+        let opts = &*opts.with_run_clock();
         let mut out: Vec<CorpusRuntime> = Vec::with_capacity(perturbs.len());
         for (i, p) in perturbs.iter().enumerate() {
             each(i);
@@ -387,6 +391,11 @@ impl CorpusRuntime {
             false,
             &mut Grow::Off,
         )
+        .map(|(mut c, store)| {
+            // The caller goes on with the compile: a warm server keeps it, a test runs on it.
+            store.go_on(&mut c);
+            c
+        })
     }
 
     /// [`compile_suites`](Self::compile_suites); with `lean`, selected tests that are free of data are compiled without
@@ -403,7 +412,7 @@ impl CorpusRuntime {
         opts: &RunOptions,
         lean: bool,
         grow: &mut Grow,
-    ) -> Result<Compiled, String> {
+    ) -> Result<(Compiled, super::workspace_layer::Store), String> {
         use al_sema::check::tdd_decl;
         let ranges: std::collections::BTreeMap<String, Vec<(u32, u32)>> = if opts.tdd {
             apps.iter()
@@ -416,7 +425,7 @@ impl CorpusRuntime {
         } else {
             Default::default()
         };
-        let mut compiled =
+        let (mut compiled, mut store) =
             Self::compile_suites_once(apps, kinds, manifests, symbols, target, suites, opts, lean, grow)?;
         // `--tdd` (ADR-051 decision 10): the fields, enum values and objects the test apps need are declared in a stub
         // file of each, and the apps are compiled again (a stub table's fields are found only once it exists).
@@ -428,7 +437,7 @@ impl CorpusRuntime {
             let files = tdd_decl::stub_files(&compiled.ws, &seen, &ranges);
             let (mut apps, kinds) = compiled.into_apps();
             tdd_decl::set_stub_files(&mut apps, files);
-            compiled = Self::compile_suites_once(
+            let (next, more) = Self::compile_suites_once(
                 apps,
                 kinds,
                 manifests,
@@ -439,8 +448,10 @@ impl CorpusRuntime {
                 lean,
                 &mut Grow::Off,
             )?;
+            compiled = next;
+            store = store.and(more);
         }
-        Ok(compiled)
+        Ok((compiled, store))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -454,19 +465,11 @@ impl CorpusRuntime {
         opts: &RunOptions,
         lean: bool,
         grow: &mut Grow,
-    ) -> Result<Compiled, String> {
+    ) -> Result<(Compiled, super::workspace_layer::Store), String> {
         // AL_NO_BASELINE=1 leaves the install baseline out (to measure what it costs).
         let baseline_wanted =
             kinds.contains(&al_sema::AppKind::Dependency) && std::env::var_os("AL_NO_BASELINE").is_none();
-        // The baseline runs only when a selected test can observe it (`observe.rs`).
-        // AL_FORCE_BASELINE=1 runs it always: the other side of the differential check, which
-        // must show no outcome that changes. A run with a custom test runner keeps it too.
-        let try_skip = baseline_wanted
-            && std::env::var_os("AL_FORCE_BASELINE").is_none()
-            && !opts.execute
-            // A company built by a codeunit in the baseline is the company every test runs in.
-            && opts.company_data.is_none()
-            && suites.iter().all(|s| s.runner.is_none());
+        let try_skip = baseline_wanted && may_skip_baseline(suites, opts);
         let compile_started = std::time::Instant::now();
         // The compile cache holds the dependency apps, which come first in the program (ADR-022).
         // The caller's order is kept in `order` (program app -> caller app) for what it gets back.
@@ -476,20 +479,7 @@ impl CorpusRuntime {
         // app would be refused as outside the workspace (al-runner issue 6044). It is compiled with the
         // workspace, after the cached dependency apps.
         let on_workspace = dependency_apps_on_workspace(&apps, &kinds);
-        // ADR-063: a run that grows a kept compile has the kept compile's apps first, in its order, then its own.
-        let grow_order: Option<Vec<usize>> = match &*grow {
-            Grow::From(kept, _) => match kept.order_for(&apps, &kinds, manifests, symbols, target) {
-                Ok(order) => Some(order),
-                Err(why) => {
-                    eprintln!("note: this pass compiles its apps from source: {why}");
-                    None
-                }
-            },
-            _ => None,
-        };
-        if grow_order.is_none() && matches!(grow, Grow::From(..)) {
-            *grow = Grow::Off;
-        }
+        let grow_order = grow.order_or_off(&apps, &kinds, manifests, symbols, target);
         let use_cache = grow_order.is_none()
             && opts.compile_cache.is_some()
             && (0..n_apps).any(|i| kinds[i] == al_sema::AppKind::Dependency && !on_workspace[i])
@@ -497,33 +487,9 @@ impl CorpusRuntime {
         // How many apps, from the first of the program, the compile cache holds.
         let mut n_cached = 0;
         let order: Option<Vec<usize>> = if use_cache {
-            // Dependency apps first, Microsoft's before the others (the layers of the compile
-            // cache follow this order), then the dependency apps that stand on a workspace app,
-            // then the workspace's.
-            let in_order = |deps: Vec<usize>| -> Vec<usize> {
-                let dep_apps: Vec<&al_sema::workspace::AppSource> = deps.iter().map(|&i| &apps[i]).collect();
-                let dep_manifests: Vec<Manifest> = deps
-                    .iter()
-                    .map(|&i| manifests.get(i).cloned().unwrap_or_default())
-                    .collect();
-                crate::compile_cache::dependency_order(&dep_apps, &dep_manifests)
-                    .into_iter()
-                    .map(|k| deps[k])
-                    .collect()
-            };
-            let cached = in_order(
-                (0..n_apps)
-                    .filter(|&i| kinds[i] == al_sema::AppKind::Dependency && !on_workspace[i])
-                    .collect(),
-            );
-            n_cached = cached.len();
-            Some(
-                cached
-                    .into_iter()
-                    .chain(in_order((0..n_apps).filter(|&i| on_workspace[i]).collect()))
-                    .chain((0..n_apps).filter(|&i| kinds[i] != al_sema::AppKind::Dependency))
-                    .collect(),
-            )
+            let (order, cached) = cache_order(&apps, &kinds, manifests, &on_workspace);
+            n_cached = cached;
+            Some(order)
         } else if grow_order.is_some() {
             grow_order
         } else if let Grow::Keep(shared) = &*grow {
@@ -574,20 +540,7 @@ impl CorpusRuntime {
         };
         let suites = &suites_in[..];
         let manifests = &manifests[..];
-        // A dependency app is compiled with the symbols of its own app.json, the project's apps with the
-        // project's (hard rule 6: a project that defines CLEAN25 does not change Base Application).
-        let dep_symbols: Vec<Option<BTreeSet<String>>> = kinds
-            .iter()
-            .enumerate()
-            .map(|(i, k)| {
-                (*k == al_sema::AppKind::Dependency).then(|| {
-                    manifests
-                        .get(i)
-                        .map(|m| m.symbols.iter().cloned().collect())
-                        .unwrap_or_default()
-                })
-            })
-            .collect();
+        let dep_symbols = internals_grant::dependency_symbols(&kinds, manifests);
         let load_ws =
             |apps, kinds, lazy| internals_grant::load_workspace(apps, kinds, symbols, &dep_symbols, lazy, manifests);
         // The apps whose files hold no text yet, in program order.
@@ -636,10 +589,7 @@ impl CorpusRuntime {
         // Whether the install baseline runs, and why it does when it was weighed.
         let mut baseline = baseline_wanted;
         let mut baseline_note: Option<String> = None;
-        let catalog = match target {
-            Some(t) => al_builtins::catalog::Catalog::for_target(t),
-            None => al_builtins::catalog::Catalog::load(),
-        };
+        let catalog = catalog_for(target);
         let mut apps = apps;
         // Selected tests that look free of data are compiled first the way the demand-driven path
         // does it, without the baseline's roots and without the compile cache: that touches only what
@@ -660,7 +610,43 @@ impl CorpusRuntime {
         // A grown compile is the complete compile of its pass (its baseline is weighed on it below).
         let growing = matches!(grow, Grow::From(..));
         let mut grow_kept = None;
-        if try_skip
+        // The workspace layer of the compile cache (ADR-022 amendment 2026-11-15): a compile read from it is the compile.
+        let mut layer = workspace_layer::Layer::plan(&workspace_layer::LayerInputs {
+            opts,
+            apps: &apps,
+            kinds: &kinds,
+            manifests,
+            symbols,
+            target,
+            roots: &roots,
+            n_cached,
+            use_cache,
+            identities: &identities,
+            order: &order,
+            suites,
+            lean,
+            try_skip,
+            baseline_wanted,
+            growing: !matches!(grow, Grow::Off),
+        });
+        let hit = layer.read(
+            &mut apps,
+            &mut kinds,
+            manifests,
+            symbols,
+            target,
+            n_cached,
+            &lazy,
+            &identities,
+            &catalog,
+        );
+        if let Some((d, index)) = hit.as_ref().map(|h| (h.decided.clone(), h.source_index)) {
+            // A read compiles nothing (and so never says the compile was made twice).
+            (baseline, baseline_note, compiles) = (d.baseline, d.baseline_note, 0);
+            (compile_cache_skipped, source_index) = (d.compile_cache_skipped, index);
+        }
+        if hit.is_none()
+            && try_skip
             && !require_cache
             && !growing
             && crate::observe::text_looks_pure(&apps, &kinds, symbols, only.as_deref())
@@ -766,9 +752,10 @@ impl CorpusRuntime {
                 break;
             }
         }
-        let (ws, mut lowered, cache_report, layers) = match compiled {
-            Some((ws, lowered)) => (ws, lowered, None, None),
-            None => match opts.compile_cache.as_ref().filter(|_| use_cache) {
+        let (ws, mut lowered, cache_report, layers) = match (hit, compiled) {
+            (Some(h), _) => (h.ws, h.lowered, h.cache_report, h.layers),
+            (None, Some((ws, lowered))) => (ws, lowered, None, None),
+            (None, None) => match opts.compile_cache.as_ref().filter(|_| use_cache) {
                 Some(cc) => {
                     let (ws, lowered, report, layers) = compile_with_cache(
                         cc,
@@ -895,6 +882,10 @@ impl CorpusRuntime {
                 eprintln!("{}", crate::reach::report(&ws, &lowered));
             }
         }
+        // The workspace layer stores the program as the compile made it, before the run applies the manifests.
+        let pre_apply = layer
+            .wants_store()
+            .then(|| (lowered.program.apps.clone(), lowered.program.sources.clone()));
         // Nothing else holds the program yet (a kept compile leaves it to the run, `al_sema::lower::Growable`), so this
         // does not copy it.
         super::apply_manifests::apply(&mut lowered.program, manifests, &opts.layout_sources);
@@ -923,10 +914,11 @@ impl CorpusRuntime {
             let out = lowered.left_out.iter().filter(|l| **l).count();
             (out > 0).then_some((out, all))
         };
-        Ok(Compiled {
+        let mut compiled = Compiled {
             ws,
             lowered,
             cache_report,
+            workspace_cache: None,
             baseline_wanted,
             baseline,
             baseline_note,
@@ -948,7 +940,9 @@ impl CorpusRuntime {
             kept: Default::default(),
             grow_kept,
             uncovered,
-        })
+        };
+        let store = layer.finish(&mut compiled, pre_apply);
+        Ok((compiled, store))
     }
 
     /// The run phase: engine, install baseline, the test codeunits. Leaves `compiled` as it was, so a warm
@@ -973,10 +967,14 @@ impl CorpusRuntime {
     ) -> CorpusRuntime {
         // Declared first, so it drops last: once the run is done, what its AL code made on this thread is released.
         let _run_end = al_builtins::instance_cycles::RunEnd::new();
+        // The run's clock (`RunClock`), for its sessions, its baseline key and file; begun per run, so per request of a
+        // server (al-runner issue 8457), unless the caller began it for several passes of one run.
+        let clock = opts.run_clock.unwrap_or_else(crate::host::RunClock::begin);
         let Compiled {
             ws,
             lowered,
             cache_report,
+            workspace_cache,
             baseline_wanted,
             baseline,
             baseline_note,
@@ -997,13 +995,7 @@ impl CorpusRuntime {
             (*baseline_wanted, *baseline, *compile_cache_skipped, *source_index);
         let baseline_note = baseline_note.clone();
         // The selection of this request, in program order: a warm compile may reach more than the request asks for.
-        let in_program_order = |v: &[(usize, u32)]| {
-            let mut new_of = vec![0; order.len()];
-            for (new, &old) in order.iter().enumerate() {
-                new_of[old] = new;
-            }
-            v.iter().map(|&(a, id)| (new_of[a], id)).collect::<Vec<_>>()
-        };
+        let in_program_order = |v: &[(usize, u32)]| in_program_order(order, v);
         // The selection the compile was made for: a warm server's request may select less of it.
         let compiled_only = opts_only.as_deref();
         let mut opts_only = match &opts.only {
@@ -1016,15 +1008,10 @@ impl CorpusRuntime {
         if opts.stop_on_compile_errors && !compile_errors.is_empty() {
             // A debugger answers its client's `launch` with the first error; no test runs. A parse error has no AL code.
             if let (Some(ready), Some(e)) = (&opts.debug_ready, compile_errors.first()) {
-                let code = if e.code.is_empty() {
-                    String::new()
-                } else {
-                    format!("{} ", e.code)
-                };
                 (ready.0)(&DebugReady {
                     program: &lowered.program,
                     order,
-                    first_error: Some(format!("error {code}{}:{}:{}: {}", e.file, e.line, e.column, e.message)),
+                    first_error: Some(first_error_line(e)),
                 });
             }
             return CorpusRuntime {
@@ -1036,6 +1023,7 @@ impl CorpusRuntime {
                     compile: *compile_phase,
                     compile_parts: lowered.timings,
                     cache: cache_report.clone(),
+                    workspace_cache: workspace_cache.clone(),
                     lean: *lean,
                     compiles: *compiles,
                     ..Default::default()
@@ -1095,13 +1083,13 @@ impl CorpusRuntime {
         let baseline_key = if baseline {
             // The install baseline depends on the compile, not on which of its tests a request runs: a warm server's
             // requests over one compile share it (al-runner issue 5856). In a run of one request the two are the same.
-            super::baseline_key::baseline_key(compiled, compiled_only, target, &dotnet, opts)
+            super::baseline_key::baseline_key(compiled, compiled_only, target, &dotnet, opts, clock)
         } else {
             None
         };
-        // A kept baseline is taken only when the run clock can start at the instant its run began: the rows carry
-        // it. A clock that has started already at another instant (something read it, or an earlier run in this
-        // process began later) makes the file unusable here, and the install code runs.
+        // A kept baseline is taken only when its run began at this run's instant: the rows carry it. The key holds the
+        // day of this run's start, so a file this build wrote under it holds that instant; another instant makes the
+        // file unusable here, and the install code runs and writes it again. The run never moves its clock to a file.
         let kept = baseline_key
             .as_ref()
             .zip(opts.compile_cache.as_ref())
@@ -1126,10 +1114,7 @@ impl CorpusRuntime {
                     false => crate::baseline_cache::read(&cc.dir, key).map(|(run, at)| (backed(run), at, false)),
                 }
             })
-            .filter(|(_, at, _)| {
-                crate::host::SystemClock::begin_at(*at)
-                    || (crate::host::SystemClock::started() && crate::host::SystemClock::run_start() == *at)
-            })
+            .filter(|(_, at, _)| clock.start() == Some(*at))
             .map(|(run, _, hit)| (run, hit));
         let baseline_kept = kept.as_ref().is_some_and(|(_, hit)| *hit);
         let kept = kept.map(|(run, _)| run);
@@ -1151,6 +1136,7 @@ impl CorpusRuntime {
                         opts.impact_trace || opts.narrow.is_some(),
                         opts.company_data.as_ref(),
                         &opts.perturb,
+                        clock,
                         memory.halt_flag(),
                     )
                 })
@@ -1182,16 +1168,17 @@ impl CorpusRuntime {
         // machine's clock, user assemblies) is not in the key: a baseline whose code made one is not kept, and the next
         // run runs the install code again (`al_vm::dotnet::pure`).
         let install_called_dotnet = engine.dotnet_called.load(std::sync::atomic::Ordering::Relaxed);
-        if let (false, false, Some(key), Some(cc), Some(run)) = (
+        if let (false, false, Some(key), Some(cc), Some(run), Some(started_at)) = (
             from_cache || memory.halted(), // A baseline the memory limit stopped is not kept.
             install_called_dotnet,
             baseline_key.as_ref(),
             opts.compile_cache.as_ref(),
             baseline_run.as_ref(),
+            clock.start(),
         ) {
             let (key, frame) = key;
-            // The clock has started by now if the install code read it; if not, no row carries it and it starts here.
-            crate::baseline_cache::write(&cc.dir, key, run, crate::host::SystemClock::run_start());
+            // The instant of this run, on the day its key holds.
+            crate::baseline_cache::write(&cc.dir, key, run, started_at);
             // A warm server's next request takes the baseline as the file holds it (al-runner issue 5856).
             if keep {
                 let _ = crate::baseline_cache::read_kept(&cc.dir, key, frame, &kept_backing(&engine), |mut run| {
@@ -1217,9 +1204,7 @@ impl CorpusRuntime {
                 if from_cache {
                     eprintln!("baseline: read from the cache of an earlier run of this program");
                 }
-                for n in &b.notes {
-                    eprintln!("baseline: {n}");
-                }
+                crate::baseline::print_notes("baseline", &b.notes, false);
                 for l in b.restored_lines() {
                     eprintln!("baseline: {l}");
                 }
@@ -1317,9 +1302,7 @@ impl CorpusRuntime {
                 }
             }
         }
-        memory
-            .pool()
-            .share(shared_test_rows_meter(&engine, baseline_engine.as_ref()));
+        share_with_pool(memory.pool(), &engine, baseline_engine.as_ref(), opts);
         let baseline_time = started.elapsed();
         let baseline_rows = baseline_run.as_ref().map(|b| b.baseline.rows());
         let mut baseline_run = baseline_run;
@@ -1380,6 +1363,8 @@ impl CorpusRuntime {
         let installs = Arc::new(super::install_once::RunInstalls::default());
         let passes = Pass::of_run(opts, &opts_only, &memory, order, in_program_order);
         let mut entry_ranges: Vec<std::ops::Range<usize>> = Vec::new();
+        // Per finished pass: the reason of its first row that triggered its stop (`Scratch::stop_trigger`).
+        let mut triggers: Vec<Option<String>> = Vec::new();
         let mut pass_times: Vec<PassTime> = Vec::new();
         for pass in &passes {
             let start = list.len();
@@ -1389,7 +1374,8 @@ impl CorpusRuntime {
             // Writing the snapshot the test threads read (the first pass on several threads does it).
             let mut encode_time = std::time::Duration::ZERO;
             super::install_once::begin_pass(&engine, &pass.resources);
-            let (refused, skip) = pass_refused(install_read_resources, pass, &passes, &entry_ranges, &list);
+            let (refused, skip) = pass_refused(install_read_resources, pass, &passes, &triggers);
+            let mut triggered: Option<String> = None;
             let (opts_only, limit) = (&pass.only, pass.limit);
             // The test codeunits to run, in the order the report lists them.
             let mut units: Vec<Unit> = Vec::new();
@@ -1400,7 +1386,7 @@ impl CorpusRuntime {
                 if opts.execute {
                     // A scratch run: the `OnRun` trigger of one codeunit of the suite's app.
                     if let Some(oi) = on_run_target(lowered, suite.app) {
-                        units.push(scratch_unit(lowered, si, oi, opts, &order_arc, &pass.hooks));
+                        units.push(scratch_unit(lowered, si, oi, opts, &order_arc, &pass.hooks, clock));
                     }
                     continue;
                 }
@@ -1411,10 +1397,9 @@ impl CorpusRuntime {
                     let is_test = is_selected_test(lowered, oi, suite, opts_only);
                     let Some(id) = o.id.filter(|_| is_test) else { continue };
                     let hub_path = hub_path(suite, opts, driver);
-                    let this = unit_runner(lowered, &engine, oi, &isolation, hub_path, opts).and_then(|t| {
-                        let refused = plan.as_ref().and_then(|p| p.refusal(&engine, lowered, oi, id));
-                        refused.map_or(Ok(t), Err)
-                    });
+                    let plan_refused = || plan.as_ref().and_then(|p| p.refusal(&engine, lowered, oi, id));
+                    let this = unit_runner(lowered, &engine, oi, &isolation, hub_path, opts)
+                        .and_then(|t| plan_refused().map_or(Ok(t), Err));
                     match &this {
                         Ok((i, hub, runner)) => units.push(Unit {
                             si,
@@ -1434,14 +1419,15 @@ impl CorpusRuntime {
                             capture: opts.capture,
                             order: order_arc.clone(),
                             hooks: pass.hooks.clone(),
-                            clock_start: opts.clock_starts.as_ref().and_then(|m| m.get(&id).copied()),
+                            clock: opts.codeunit_clock(id, clock),
+                            clock_set: opts.clock_starts.as_ref().is_some_and(|m| m.contains_key(&id)),
                             impact: opts.impact_trace,
                             run_only: pass.run_only.clone(),
                             on_run_rows: opts.on_run_rows,
                             flags: super::session_flags::SessionFlags::of(opts),
                             report_unpinned_errors: opts.report_unpinned_errors,
                             skip_after_timeout: opts.skip_after_timeout,
-                            stop_after_first_failure: pass.stop.clone(),
+                            stop: pass.stop.clone(),
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                             runner: *runner,
@@ -1565,7 +1551,7 @@ impl CorpusRuntime {
                 let reset_started = std::time::Instant::now();
                 let own = baseline_engine.as_ref().and_then(|e| {
                     snapshot.and_then(|s| s.thread_copy(e, first_origin)).or_else(|| {
-                        crate::baseline::run_traced(e, lowered, false, opts.company_data.as_ref(), &opts.perturb)
+                        crate::baseline::run_traced(e, lowered, false, opts.company_data.as_ref(), &opts.perturb, clock)
                             .map(|b| b.baseline)
                     })
                 });
@@ -1701,6 +1687,7 @@ impl CorpusRuntime {
                 };
                 match r.result {
                     Ok((done, stacks, times, hits, mut covs, mut scratch)) => {
+                        triggered = triggered.or_else(|| scratch.stop_trigger.take()?.kept_in(&done));
                         for (name, outcome) in done {
                             let stack = stacks.iter().find(|(n, _)| *n == name).map(|(_, s)| s.clone());
                             let marks = hits.iter().find(|(n, _)| *n == name).map(|(_, h)| h.clone());
@@ -1796,14 +1783,16 @@ impl CorpusRuntime {
             if !opts.entries.is_empty() {
                 entry_ranges.push(start..list.len());
             }
+            triggers.push(triggered);
             pass_times.push(PassTime {
                 reset: encode_time
                     + std::time::Duration::from_nanos(reset_ns.load(std::sync::atomic::Ordering::Relaxed)),
                 wall: pass_started.elapsed(),
             });
         }
-        let install_runs = super::install_once::end_run(&engine, &installs);
-        let login_replay = crate::login_replay::report(&engine);
+        let installs_end = super::install_once::end_run(&engine, &installs);
+        baseline_ids.add_printed("install", &installs_end.notes, opts.quiet_baseline);
+        let login_replay = crate::login_start::phases(&engine);
         let tests_time = tests_started.elapsed();
         memory.pool().unwatch();
         if let (Some((key, _)), Some(cc), Some((origin, read))) = (
@@ -1854,6 +1843,7 @@ impl CorpusRuntime {
                 memory: memory.report(),
                 baseline_assumptions: baseline_ids.assumptions,
                 baseline_install_orders: baseline_ids.install_orders,
+                install_order_differences: baseline_ids.install_order_differences,
                 baseline_roots,
                 compile: compile_time,
                 baseline: baseline_time,
@@ -1861,9 +1851,11 @@ impl CorpusRuntime {
                 suites: suite_times,
                 compile_parts,
                 cache: cache_report.clone(),
+                workspace_cache: workspace_cache.clone(),
                 engine: engine_time,
                 baseline_skipped,
-                install_runs,
+                install_runs: installs_end.runs,
+                install_rerun: installs_end.rerun,
                 baseline_why: baseline_note,
                 compile_cache_skipped,
                 source_index,
@@ -1904,6 +1896,7 @@ fn set_run_options(e: &mut Engine, opts: &RunOptions) {
     e.write_in_try_allowed = opts.allow_write_in_try_functions;
     e.dependencies_published_global = opts.dependencies_published_global;
     e.skipped_apps = opts.skipped_dependencies.clone();
+    crate::login_start::starts(e).set_limits(opts.login_replay_limits);
 }
 
 /// What the run did, counted (`Phases::work`, the work ratchet of `al-test-cli`).
@@ -2186,20 +2179,49 @@ fn kept_engine_key(
     )
 }
 
-/// The engines a warm server kept for runs with `key` (al-runner issue 5856), set for this run as a new engine is:
-/// its .NET host, test data and skipped apps, and nothing of what the last run set (the unseeded and demo tables, the
-/// company refusal, the resources it gave or read). An engine something still holds is not taken.
+/// Hands the memory pool what the run's threads share ([`shared_bytes_meter`]) and, when the run keeps login starts, the
+/// room their caps still leave them (`Pool::reserve`): threads are admitted as if the starts held the most they can
+/// (`LoginReplayLimits::most_bytes`, al-runner issue 9173), so a raised `ALRUNNER_LOGIN_REPLAY_MAX_MB` shows in the
+/// budget (ADR-073 amendment 2026-11-26, al-runner issue 8211).
+pub(super) fn share_with_pool(
+    pool: &super::memory::Pool,
+    engine: &Arc<Engine>,
+    install: Option<&Arc<Engine>>,
+    opts: &RunOptions,
+) {
+    pool.share(shared_bytes_meter(engine, install));
+    if opts.keeps_login_starts() {
+        let starts = crate::login_start::starts(engine);
+        let most = opts.login_replay_limits.most_bytes();
+        pool.reserve(Arc::new(move || most.saturating_sub(starts.bytes())));
+    }
+}
+
+/// What the threads of a run share, for the memory pool (`Pool::share`, which counts what it reads beyond its first
+/// reading): the test data rows built once, and the login starts the engine keeps (`login_start.rs`).
 /// ADR-069 decision 10: the test data rows the threads build once count once, in the fixed part of the budget. The first
 /// thread reads them through the tests' engine, the others through the engine that ran the install code; a sibling
 /// engine shares the tests engine's cache (decision 4), which is then counted once.
-fn shared_test_rows_meter(engine: &Arc<Engine>, install: Option<&Arc<Engine>>) -> Arc<dyn Fn() -> u64 + Send + Sync> {
+/// The starts count as what they grew since the meter was made: a kept engine's starts of earlier requests are in the
+/// fixed part already, and when this run evicts them the sum does not fall below that reading, so their eviction never
+/// hides the test rows' growth (it can count up to the evicted bytes, at most the run's
+/// `LoginReplayLimits::most_bytes`, too much).
+pub(super) fn shared_bytes_meter(
+    engine: &Arc<Engine>,
+    install: Option<&Arc<Engine>>,
+) -> Arc<dyn Fn() -> u64 + Send + Sync> {
     let tests = engine.shared_test_rows_meter();
     let others = install
         .filter(|e| !e.shares_test_rows_with(engine))
         .map(|e| e.shared_test_rows_meter());
-    Arc::new(move || tests() + others.as_ref().map_or(0, |m| m()))
+    let starts = crate::login_start::starts(engine);
+    let starts_at = starts.bytes();
+    Arc::new(move || tests() + others.as_ref().map_or(0, |m| m()) + starts.bytes().saturating_sub(starts_at))
 }
 
+/// The engines a warm server kept for runs with `key` (al-runner issue 5856), set for this run as a new engine is:
+/// its .NET host, test data and skipped apps, and nothing of what the last run set (the unseeded and demo tables, the
+/// company refusal, the resources it gave or read). An engine something still holds is not taken.
 fn take_kept_engines(
     kept: &std::sync::Mutex<Option<KeptEngines>>,
     key: &str,
@@ -2281,6 +2303,17 @@ fn run_serially<'a>(
         .collect()
 }
 
+/// Whether the compile may weigh the install baseline and leave it out: it runs only when a selected test can observe
+/// it (`observe.rs`). AL_FORCE_BASELINE=1 runs it always: the other side of the differential check, which must show no
+/// outcome that changes. A run with a custom test runner keeps it too.
+fn may_skip_baseline(suites: &[SuiteRun], opts: &RunOptions) -> bool {
+    std::env::var_os("AL_FORCE_BASELINE").is_none()
+        && !opts.execute
+        // A company built by a codeunit in the baseline is the company every test runs in.
+        && opts.company_data.is_none()
+        && suites.iter().all(|s| s.runner.is_none())
+}
+
 /// Whether test codeunits of `suite` without handlers run on the TestRunnerHub: the corpus CI on BC 28 and later runs
 /// them there, under their RequiredTestIsolation (`RunOptions::required_isolation`); BcContainerHelper has no hub
 /// (ADR-074).
@@ -2296,36 +2329,28 @@ fn pass_refused(
     install_read_resources: bool,
     pass: &Pass,
     passes: &[Pass],
-    ranges: &[std::ops::Range<usize>],
-    list: &[TestResult],
+    triggers: &[Option<String>],
 ) -> (Option<String>, bool) {
     if install_read_resources && !pass.resources.is_empty() {
         return (Some("the install code read a resource file, and an entry with resource files of its own would need an install baseline of its own (al-runner issue 5635)".to_string()), false);
     }
-    let stopped = pass_stopped(pass, passes, ranges, list);
+    let stopped = pass_stopped(pass, passes, triggers);
     let skipped = stopped.is_some();
     (stopped, skipped)
 }
 
-/// The reason `RunOptions::stop_after_first_failure` (al-runner issue 8210) runs no test of `pass`: an earlier pass
-/// with the same stop scope (`Pass::stop`; issue 8210) has a failed test, the first in `list` order. The entries
-/// without a group share one scope (the serve protocol refuses a mix of entries with and without one). `ranges[k]` holds the rows of `passes[k]` in
-/// `list`, one range per finished pass, so the `zip` ends at the current pass. With no entries `ranges` is empty, and
-/// the single pass has no earlier rows.
-fn pass_stopped(
-    pass: &Pass,
-    passes: &[Pass],
-    ranges: &[std::ops::Range<usize>],
-    list: &[TestResult],
-) -> Option<String> {
+/// The reason the stop of `pass` (`stop.rs`) runs no test of it: the first earlier pass with the same stop scope
+/// (`Pass::stop`; issue 8210) whose rows triggered the stop. `triggers[k]` is what the codeunit loop recorded for
+/// `passes[k]` (`Scratch::stop_trigger`, its first triggering row), one per finished pass, so the `zip` ends at the
+/// current pass; the texts of the rows are not matched again (issue 9213). The entries without a group share one scope
+/// (the serve protocol refuses a mix of entries with and without one).
+fn pass_stopped(pass: &Pass, passes: &[Pass], triggers: &[Option<String>]) -> Option<String> {
     let stop = pass.stop.as_ref()?;
-    let failed = ranges
+    triggers
         .iter()
         .zip(passes)
-        .filter(|(_, p)| p.stop.as_ref() == Some(stop))
-        .flat_map(|(r, _)| &list[r.clone()])
-        .find(|r| matches!(r.outcome, Outcome::Fail(_)))?;
-    Some(super::run::stopped_after_failure(stop, failed.codeunit, &failed.test))
+        .filter(|(_, p)| p.stop.as_ref().is_some_and(|s| s.scope == stop.scope))
+        .find_map(|(t, _)| t.clone())
 }
 
 /// The isolation of the runner the test codeunits of `suite` run under, or why none of them runs (`refused`). With
@@ -2554,4 +2579,23 @@ fn note_leaks(units: &mut [Unit], carried: &[super::chain_walk::Carry], sees: &d
             }
         }
     }
+}
+
+/// Test codeunits as (caller app, id), in the program's app numbering (`order`: program app -> caller app).
+fn in_program_order(order: &[usize], v: &[(usize, u32)]) -> Vec<(usize, u32)> {
+    let mut new_of = vec![0; order.len()];
+    for (new, &old) in order.iter().enumerate() {
+        new_of[old] = new;
+    }
+    v.iter().map(|&(a, id)| (new_of[a], id)).collect()
+}
+
+/// The first compile error as a debugger's client is told it (`DebugReady::first_error`); a parse error has no code.
+fn first_error_line(e: &super::CompileError) -> String {
+    let code = if e.code.is_empty() {
+        String::new()
+    } else {
+        format!("{} ", e.code)
+    };
+    format!("error {code}{}:{}:{}: {}", e.file, e.line, e.column, e.message)
 }

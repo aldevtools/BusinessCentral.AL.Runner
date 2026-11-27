@@ -20,7 +20,7 @@
 use super::*;
 use al_builtins::value::RtType;
 use al_ir::{Arg, Const, Expr, ObjKind, Place, Stmt};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::OnceLock;
 
 /// Session state that lasts from one test of a codeunit to the next, as bits of [`ReachFacts::state_reads`] and
@@ -712,29 +712,103 @@ pub(crate) fn root(p: &Place) -> Option<(bool, usize)> {
 /// Calls `note` on every place `body` assigns, its loop variables included (statements only; the places of expressions
 /// are found by walking them).
 pub(crate) fn stmt_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
+    stmt_assigns(body, &mut |p, _| note(p));
+}
+
+/// As [`stmt_places`], with the value a `:=` assigns (`None` for a loop variable).
+fn stmt_assigns(body: &[Stmt], note: &mut dyn FnMut(&Place, Option<&Expr>)) {
     for s in body {
         match s {
-            Stmt::Assign(p, _) => note(p),
+            Stmt::Assign(p, e) => note(p, Some(e)),
             Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {
-                note(var);
-                stmt_places(body, note);
+                note(var, None);
+                stmt_assigns(body, note);
             }
             Stmt::If(_, a, b) => {
-                stmt_places(a, note);
-                stmt_places(b, note);
+                stmt_assigns(a, note);
+                stmt_assigns(b, note);
             }
-            Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => stmt_places(b, note),
+            Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => stmt_assigns(b, note),
             Stmt::Case {
                 branches, otherwise, ..
             } => {
                 for (_, b) in branches {
-                    stmt_places(b, note);
+                    stmt_assigns(b, note);
                 }
-                stmt_places(otherwise, note);
+                stmt_assigns(otherwise, note);
             }
             _ => {}
         }
     }
+}
+
+/// Calls `note` on each place expression `e` itself names: a load, a `var` argument, the receiver a builtin takes by
+/// reference (`R.Insert()`). With [`stmt_places`] and a walk of every expression, every place a body names.
+fn expr_places(e: &Expr, note: &mut dyn FnMut(&Place)) {
+    match e {
+        Expr::Load(p) => note(p),
+        _ => expr_refs(e, note),
+    }
+}
+
+/// Calls `note` on each place expression `e` itself passes by reference: a `var` argument, the receiver a builtin
+/// takes by reference (`R.Insert()`).
+fn expr_refs(e: &Expr, note: &mut dyn FnMut(&Place)) {
+    fn refs(args: &[Arg], note: &mut dyn FnMut(&Place)) {
+        for a in args {
+            if let Arg::Ref(p) = a {
+                note(p);
+            }
+        }
+    }
+    match e {
+        Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => refs(args, note),
+        Expr::Builtin { receiver, args, .. } => {
+            refs(args, note);
+            if let Some(Arg::Ref(p)) = receiver.as_deref() {
+                note(p);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Calls `note` on every place `body` names: the places it assigns ([`stmt_places`]) and those its expressions name
+/// ([`expr_places`]). The one answer to "which slots does this body name".
+fn body_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
+    stmt_places(body, note);
+    al_ir::types::for_each_expr_post(body, &mut |e| expr_places(e, note));
+}
+
+/// Whether a slot holds a handle that can reach the table of a Record bound elsewhere: a RecordRef, FieldRef, KeyRef
+/// or Variant (`RR.GetTable(Row)` in one routine, `RR.Insert()` in another).
+fn is_record_alias(ty: &RtType) -> bool {
+    use al_builtins::library_kind::LibraryKind as K;
+    let mut ty = ty;
+    while let RtType::Array(_, inner) = ty {
+        ty = inner;
+    }
+    matches!(
+        ty,
+        RtType::Variant | RtType::Library(K::RecordRef | K::FieldRef | K::KeyRef)
+    )
+}
+
+/// The global slots of codeunit `obj` that `body` of routine `rt` names, by [`root`]; `None` when it names a
+/// [`is_record_alias`] slot (local or global), whose target is not known and so every global may be used.
+fn globals_named(obj: &al_ir::Object, rt: &al_ir::Routine, body: &[Stmt]) -> Option<BTreeSet<usize>> {
+    let mut named = BTreeSet::new();
+    let mut alias = false;
+    body_places(body, &mut |p| {
+        if let Some((global, i)) = root(p) {
+            let slot = if global { obj.globals.get(i) } else { rt.locals.get(i) };
+            alias |= slot.is_some_and(|s| is_record_alias(&s.ty));
+            if global {
+                named.insert(i);
+            }
+        }
+    });
+    (!alias).then_some(named)
 }
 
 /// The reach facts of a test refused while it ran, when the refusal came from a statement of the test method itself
@@ -775,35 +849,14 @@ pub(crate) fn remainder_reach_facts(
             named.entry(k).or_default().0 += 1;
         }
     }
-    fn refs(named: &mut BTreeMap<(bool, usize), (usize, usize)>, args: &[Arg]) {
-        for a in args {
-            if let Arg::Ref(p) = a {
-                note(named, p);
-            }
-        }
-    }
-    stmt_places(rest, &mut |p| note(&mut named, p));
+    body_places(rest, &mut |p| note(&mut named, p));
     let mut calls = Vec::new();
-    al_ir::types::for_each_expr_post(rest, &mut |e| match e {
-        Expr::Load(p) => note(&mut named, p),
-        Expr::Call {
-            object, routine, args, ..
-        } => {
-            calls.push((*object, *routine));
-            refs(&mut named, args);
-        }
-        Expr::InterfaceCall { targets, args, .. } => {
-            calls.extend(al_ir::walk::interface_routines(targets));
-            refs(&mut named, args);
-        }
-        Expr::DotNet { args, .. } => refs(&mut named, args),
-        Expr::Builtin { id, receiver, args, .. } => {
-            refs(&mut named, args);
-            if let Some(Arg::Ref(p)) = receiver.as_deref() {
-                note(&mut named, p);
-            }
+    al_ir::types::for_each_expr_post(rest, &mut |e| {
+        match e {
+            Expr::Call { object, routine, .. } => calls.push((*object, *routine)),
+            Expr::InterfaceCall { targets, .. } => calls.extend(al_ir::walk::interface_routines(targets)),
             // `TP.Filter.GetFilter(..)`: the use of `TP` under it, counted already, is a filter read.
-            if id.name().split('#').next() == Some("TestFilter.GetFilter") {
+            Expr::Builtin { id, receiver, .. } if id.name().split('#').next() == Some("TestFilter.GetFilter") => {
                 if let Some(Arg::Value(Expr::Builtin {
                     id: filter,
                     receiver: Some(page),
@@ -821,8 +874,8 @@ pub(crate) fn remainder_reach_facts(
                     }
                 }
             }
+            _ => {}
         }
-        _ => {}
     });
     let mut rec = Rec {
         events,
@@ -831,6 +884,7 @@ pub(crate) fn remainder_reach_facts(
         out: ReachFacts::default(),
         summary: Summary::default(),
         unknown: false,
+        unrun: HashSet::new(),
     };
     for (&(global, i), &(uses, _)) in &named {
         let slot = if global { obj.globals.get(i) } else { rt.locals.get(i) };
@@ -869,7 +923,7 @@ pub(crate) fn remainder_reach_facts(
             }
         }
     }
-    rec.places(object, rest);
+    rec.places(object, routine, rest);
     al_ir::types::for_each_expr_post(rest, &mut |e| rec.expr(object, routine, e));
     rec.push(calls);
     rec.push(handlers.iter().map(|&h| (object, h)));
@@ -1277,6 +1331,15 @@ enum Step {
     Write(Option<u32>, bool),
 }
 
+/// Whether a slot of type `ty` holds a Record, also as the elements of an array.
+fn is_record(ty: &RtType) -> bool {
+    let mut ty = ty;
+    while let RtType::Array(_, inner) = ty {
+        ty = inner;
+    }
+    matches!(ty, RtType::Record(..))
+}
+
 /// Records a routine's [`Summary`]: the analysis of its body, with the steps that depend on the walk deferred.
 struct Rec<'a> {
     events: &'a al_vm::events::Registry,
@@ -1286,6 +1349,8 @@ struct Rec<'a> {
     out: ReachFacts,
     summary: Summary,
     unknown: bool,
+    /// The addresses of the member expressions [`Rec::unrun_members`] found in a body that never runs.
+    unrun: HashSet<usize>,
 }
 
 impl Rec<'_> {
@@ -1297,6 +1362,7 @@ impl Rec<'_> {
             out: ReachFacts::default(),
             summary: Summary::default(),
             unknown: false,
+            unrun: HashSet::new(),
         };
         rec.routine(o, r);
         rec.finish()
@@ -1396,12 +1462,28 @@ impl Rec<'_> {
                 self.push([(sub.object, sub.routine)]);
             }
         }
-        for s in rt.locals.iter().chain(&obj.globals) {
-            self.slot(&s.ty);
-        }
         // A walk reads many bodies once and runs none: a compact body stays compact (`Body::read`).
         rt.body.read(|body| {
-            self.places(o, body);
+            // A global Record of a codeunit counts only in a routine that names it: only the codeunit's own routines
+            // can use the variable, except through a RecordRef, FieldRef, KeyRef or Variant bound to it elsewhere (a
+            // body that names such a slot counts every global), and a variable no statement uses raises no event of
+            // its table (al-runner issue 8992: every OnRun took the subscribers of the tables of the codeunit's unused
+            // globals). The globals of other objects and the other types of slot count in every routine of their
+            // object, as before: a page, report, xmlport or table uses some of its globals without a statement naming
+            // them.
+            let named = (obj.kind == ObjKind::Codeunit && obj.globals.iter().any(|s| is_record(&s.ty)))
+                .then(|| globals_named(obj, rt, body))
+                .flatten();
+            for s in &rt.locals {
+                self.slot(&s.ty);
+            }
+            for (g, s) in obj.globals.iter().enumerate() {
+                if is_record(&s.ty) && named.as_ref().is_some_and(|n| !n.contains(&g)) {
+                    continue;
+                }
+                self.slot(&s.ty);
+            }
+            self.places(o, r, body);
             al_ir::types::for_each_expr_post(body, &mut |e| self.expr(o, r, e));
         });
         let mut calls = Vec::new();
@@ -1447,34 +1529,25 @@ impl Rec<'_> {
             // A codeunit, report or xmlport variable: what it runs is in the calls (`Lowered::calls_into`). An
             // xmlport imports into its tables without a record operation in AL.
             RtType::Codeunit(c) if objs[*c as usize].kind == ObjKind::XmlPort => self.note_table_write(None),
-            RtType::DotNet(d) => self.out.state_writes |= self.dotnet_slot(*d),
+            // A `DotNet` variable is null until a constructor or a member call gives it an object
+            // (al-builtins `Value::default_for`); each of those counts where it is ([`Walk::dotnet_member`]).
             _ => {}
         }
     }
 
-    /// What a `DotNet` variable declared through alias `d` (`Program::dotnet_types`) changes by being there: nothing
-    /// for a class with a member that only answers ([`state::SERVER_ANSWER`]); else what the analysis does not follow.
-    fn dotnet_slot(&self, d: u32) -> u16 {
-        let decl = self.lowered.program.dotnet_types.get(d as usize);
-        match decl {
-            Some(decl) if al_vm::dotnet::server_classes::holds_answering_class(&decl.type_name) => state::SERVER_ANSWER,
-            _ => state::OTHER,
-        }
-    }
-
     /// What a `DotNet` member access through alias `ty` changes: nothing for a call or read of a member that only
-    /// answers ([`state::SERVER_ANSWER`]); else what the analysis does not follow. A receiver whose alias is not known
-    /// (the result of another `DotNet` call), a constructor and a property write are not such a member.
+    /// answers ([`state::SERVER_ANSWER`]), or of a constructor listed as one; else what the analysis does not follow. A
+    /// receiver whose alias is not known (the result of another `DotNet` call) and a property write are not such a member.
     fn dotnet_member(&self, ty: Option<usize>, op: &al_ir::DotNetOp) -> u16 {
-        let decl = ty.and_then(|d| self.lowered.program.dotnet_types.get(d));
-        let member = match op {
-            al_ir::DotNetOp::Call(m) | al_ir::DotNetOp::Get(m) => Some(m),
-            _ => None,
+        use al_vm::dotnet::server_classes::{answers_only, constructor_answers_only};
+        let Some(decl) = ty.and_then(|d| self.lowered.program.dotnet_types.get(d)) else {
+            return state::OTHER;
         };
-        match (decl, member) {
-            (Some(decl), Some(m)) if al_vm::dotnet::server_classes::answers_only(&decl.type_name, m) => {
+        match op {
+            al_ir::DotNetOp::Call(m) | al_ir::DotNetOp::Get(m) if answers_only(&decl.type_name, m) => {
                 state::SERVER_ANSWER
             }
+            al_ir::DotNetOp::Construct if constructor_answers_only(&decl.type_name) => state::SERVER_ANSWER,
             _ => state::OTHER,
         }
     }
@@ -1502,27 +1575,156 @@ impl Rec<'_> {
         }
     }
 
-    /// The places statements assign (`:=`, the variable of a `for` or `foreach`).
-    fn places(&mut self, o: usize, body: &[Stmt]) {
+    /// Notes the member calls and reads on `var` in `body` when `body` never runs: the body of a `foreach` whose `var`
+    /// holds the item type of a UserInfo collection whose read raises on this tier (al-vm `unrun_item_type`; corpus PR
+    /// 1612, merged, not in the pin, Y93GraphNoDirectory.al header "Facts" line "ServicePlanInfo / RoleInfo / GroupInfo members
+    /// cannot be reached on this tier" and cells foreach_assigned_plans, foreach_roles, foreach_groups; assumption
+    /// graph-no-directory-members), over a UserInfo [`Rec::null_user`] accepts, and that assigns `var` nowhere, so each such member is the
+    /// item's, as is a call or read on the result of a noted member (`X.DisplayName().ToUpper()`: the receiver chain starts
+    /// at `var`; the post-order walk notes the receiver first). The item from any other source (a `:=`, a parameter,
+    /// another collection, a UserInfo `null_user` refuses) keeps its members' count. The `foreach` itself counts as
+    /// code the walk does not follow only over a variable ([`Rec::places`]); over a member's result, that member counts
+    /// where it is ([`Rec::dotnet_member`]).
+    fn unrun_members(&mut self, o: usize, r: usize, var: &Place, collection: &Expr, body: &[Stmt]) {
+        use al_vm::dotnet::server_classes::unrun_item_type;
+        let types = &self.lowered.program.dotnet_types;
+        let type_of = |d: usize| types.get(d).map(|t| t.type_name.as_str());
+        let Expr::DotNet {
+            ty: Some(c),
+            receiver: Some(u),
+            op: al_ir::DotNetOp::Call(m),
+            args,
+        } = collection
+        else {
+            return;
+        };
+        if !self.null_user(o, r, u) {
+            return;
+        }
+        let item = type_of(*c)
+            .and_then(|c| unrun_item_type(c, m))
+            .filter(|_| args.is_empty());
+        let var_ty = match self.slot_ty(o, r, var) {
+            Some(RtType::DotNet(d)) => type_of(d as usize),
+            _ => None,
+        };
+        let Some(_) = item.filter(|i| var_ty.is_some_and(|v| v.eq_ignore_ascii_case(i))) else {
+            return;
+        };
+        let mut assigned = false;
+        stmt_places(body, &mut |p| assigned |= p == var);
+        al_ir::types::for_each_expr_post(body, &mut |e| {
+            expr_refs(e, &mut |p| assigned |= p == var);
+        });
+        if assigned {
+            return;
+        }
+        al_ir::types::for_each_expr_post(body, &mut |e| {
+            if let Expr::DotNet {
+                receiver: Some(rc),
+                op: al_ir::DotNetOp::Call(_) | al_ir::DotNetOp::Get(_),
+                ..
+            } = e
+                && (matches!(rc.as_ref(), Expr::Load(p) if p == var)
+                    || self.unrun.contains(&(rc.as_ref() as *const Expr as usize)))
+            {
+                self.unrun.insert(e as *const Expr as usize);
+            }
+        });
+    }
+
+    /// Whether `u` is a declared local of routine `r` (not a parameter) whose every assignment in the routine is a call of
+    /// a member that leaves a UserInfo null on this tier (al-vm `null_user_member`) on a local `g` whose every assignment
+    /// is the no-argument constructor of its type (al-vm `null_user_member` names that type), neither passed by
+    /// reference: the sources corpus PR 1612 measures (Y93GraphNoDirectory.al, UserInfo_FromGetCurrentUser_Members and
+    /// UserInfo_Unassigned_Members). A parameter, a global or a UserInfo from anything else (`U.UserInfo()`, a mock
+    /// GraphQuery: Y58MockGraphQuery.al:46-51, 141-158 runs such a body) is not.
+    fn null_user(&self, o: usize, r: usize, u: &Expr) -> bool {
+        use al_vm::dotnet::server_classes::null_user_member;
+        let routine = &self.lowered.program.objects[o].routines[r];
+        let types = &self.lowered.program.dotnet_types;
+        let type_of = |d: &Option<usize>| d.and_then(|d| types.get(d)).map(|t| t.type_name.as_str());
+        let declared_local = |p: &Place| matches!(p, Place::Local(i) if *i >= routine.params);
+        let Expr::Load(u) = u else { return false };
+        if !declared_local(u) {
+            return false;
+        }
+        routine.body.read(|body| {
+            let mut by_ref = false;
+            al_ir::types::for_each_expr_post(body, &mut |e| expr_refs(e, &mut |p| by_ref |= p == u));
+            let mut sources = Vec::new();
+            let mut ok = !by_ref;
+            stmt_assigns(body, &mut |p, e| match (p == u, e.map(Expr::unconverted)) {
+                (false, _) => {}
+                (
+                    true,
+                    Some(Expr::DotNet {
+                        ty,
+                        receiver: Some(g),
+                        op: al_ir::DotNetOp::Call(m),
+                        ..
+                    }),
+                ) if type_of(ty).is_some_and(|t| null_user_member(t, m)) => match g.as_ref() {
+                    Expr::Load(g) if declared_local(g) => sources.push((g.clone(), type_of(ty))),
+                    _ => ok = false,
+                },
+                (true, _) => ok = false,
+            });
+            sources.iter().all(|(g, t)| {
+                let mut by_ref = false;
+                al_ir::types::for_each_expr_post(body, &mut |e| expr_refs(e, &mut |p| by_ref |= p == g));
+                let mut built = !by_ref;
+                stmt_assigns(body, &mut |p, e| match (p == g, e.map(Expr::unconverted)) {
+                    (false, _) => {}
+                    (
+                        true,
+                        Some(Expr::DotNet {
+                            ty,
+                            op: al_ir::DotNetOp::Construct,
+                            args,
+                            ..
+                        }),
+                    ) if args.is_empty() && type_of(ty) == *t => {}
+                    (true, _) => built = false,
+                });
+                built
+            }) && ok
+        })
+    }
+
+    /// The places statements assign (`:=`, the variable of a `for` or `foreach`). A `foreach` over a `DotNet` variable
+    /// enumerates it through members no expression names: code the analysis does not follow.
+    fn places(&mut self, o: usize, r: usize, body: &[Stmt]) {
         for s in body {
             match s {
                 Stmt::Assign(p, _) => self.write_place(o, p),
                 Stmt::For { var, body, .. } | Stmt::Foreach { var, body, .. } => {
+                    if let Stmt::Foreach {
+                        collection: Expr::Load(c),
+                        ..
+                    } = s
+                        && matches!(self.slot_ty(o, r, c), Some(RtType::DotNet(_)))
+                    {
+                        self.out.state_writes |= state::OTHER;
+                    }
+                    if let Stmt::Foreach { collection, .. } = s {
+                        self.unrun_members(o, r, var, collection, body);
+                    }
                     self.write_place(o, var);
-                    self.places(o, body);
+                    self.places(o, r, body);
                 }
                 Stmt::If(_, a, b) => {
-                    self.places(o, a);
-                    self.places(o, b);
+                    self.places(o, r, a);
+                    self.places(o, r, b);
                 }
-                Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => self.places(o, b),
+                Stmt::While(_, b) | Stmt::Repeat(b, _) | Stmt::AssertError(b) => self.places(o, r, b),
                 Stmt::Case {
                     branches, otherwise, ..
                 } => {
                     for (_, b) in branches {
-                        self.places(o, b);
+                        self.places(o, r, b);
                     }
-                    self.places(o, otherwise);
+                    self.places(o, r, otherwise);
                 }
                 Stmt::Expr(_)
                 | Stmt::Exit(_)
@@ -1580,7 +1782,11 @@ impl Rec<'_> {
             } => self.arg_writes(o, args),
             Expr::DotNet { ty, op, args, .. } => {
                 self.arg_writes(o, args);
-                self.out.state_writes |= self.dotnet_member(*ty, op);
+                self.out.state_writes |= if self.unrun.contains(&(e as *const Expr as usize)) {
+                    state::SERVER_ANSWER
+                } else {
+                    self.dotnet_member(*ty, op)
+                };
             }
             Expr::Refused(why) => {
                 let at = format!("{}.{}", objs[o].name, objs[o].routines[r].name);
@@ -1722,6 +1928,17 @@ impl Rec<'_> {
                 "Random" | "Randomize" => self.out.state_writes |= RANDOM,
                 "WorkDate" if has_args => self.out.state_writes |= WORK_DATE,
                 "GlobalLanguage" if has_args => self.out.state_writes |= LANGUAGE,
+                // The text of a DotNet object is its ToString() (al-builtins format_fns.rs `format_1`), a call into the
+                // object that no server-class registry entry answers: Format, and the %n of StrSubstNo, Message and
+                // Error, which format their arguments the same way.
+                "Format" | "StrSubstNo" | "Message" | "Error"
+                    if args.iter().any(|a| {
+                        matches!(a, Arg::Value(Expr::DotNetOperand(x, _))
+                        if matches!(&**x, Expr::Load(p) if matches!(self.slot_ty(o, r, p), Some(RtType::DotNet(_)))))
+                    }) =>
+                {
+                    self.out.state_writes |= OTHER
+                }
                 // Clears every global of the object.
                 "ClearAll" => {
                     let obj = &self.lowered.program.objects[o];
@@ -2129,5 +2346,178 @@ mod tests {
         }
         // The subscriber's reach (table Seen) counts for the tests that write, unless it is skipped; B writes nothing.
         assert_eq!(subscribed, 6);
+    }
+
+    /// A test codeunit with a global Record of table `Cust`, whose `OnAfterInsertEvent` subscriber writes isolated
+    /// storage, and the OnRun body `onrun` (al-runner issue 8992).
+    fn onrun_with_global(onrun: &str) -> (Lowered, usize, usize) {
+        let src = format!(
+            "
+            table 50100 Cust {{ fields {{ field(1; K; Integer) {{ }} }} }}
+            codeunit 50101 Sub {{
+                [EventSubscriber(ObjectType::Table, Database::Cust, 'OnAfterInsertEvent', '', false, false)]
+                local procedure OnAfterInsert(var Rec: Record Cust; RunTrigger: Boolean)
+                var V: Text;
+                begin if IsolatedStorage.Get('K', V) then IsolatedStorage.Set('K', V); end; }}
+            codeunit 50102 Takes {{ procedure Read(var C: Record Cust) begin end;
+                procedure ReadRef(var R: RecordRef) begin end; procedure ReadVar(var V: Variant) begin end; }}
+            codeunit 50103 Tests {{ Subtype = Test;
+                var Customer: Record Cust; Customers: array[2] of Record Cust; IsInitialized: Boolean;
+                    RR: RecordRef; FR: FieldRef; KR: KeyRef; Any: Variant; Refs: array[2] of RecordRef;
+                trigger OnRun() var T: Codeunit Takes; LR: RecordRef; begin {onrun} end;
+                local procedure Helper() begin if Customer.IsEmpty() then; end;
+                [Test] procedure ExampleTest() begin Customer.Insert(); end; }}"
+        );
+        let l = lowered(&src);
+        let (o, r) = routine(&l, "Tests", "OnRun");
+        (l, o, r)
+    }
+
+    fn onrun_writes_storage(onrun: &str) -> bool {
+        let (l, o, r) = onrun_with_global(onrun);
+        let events = al_vm::events::Registry::build(&l.program);
+        let warm = ReachIndex::new(&events, &l);
+        // The test's walk first, so OnRun's walk takes recorded summaries too.
+        let (_, t) = routine(&l, "Tests", "ExampleTest");
+        let _ = reach_facts(&events, &l, &warm, o, t);
+        let f = reach_facts(&events, &l, &warm, o, r);
+        let cold = reach_facts(&events, &l, &ReachIndex::new(&events, &l), o, r);
+        assert!(same_facts(&f, &cold), "{onrun}:\n{f:?}\n{cold:?}");
+        f.state_writes & state::ISOLATED_STORAGE != 0
+    }
+
+    // A global Record of a codeunit that OnRun does not name is not used by OnRun: its table's event subscribers are
+    // not in OnRun's reach (al-runner issue 8992: `IsInitialized := false` made OnRun write isolated storage).
+    #[test]
+    fn a_global_record_onrun_does_not_name_is_not_in_its_reach() {
+        assert!(!onrun_writes_storage("IsInitialized := false;"));
+    }
+
+    // A global Record OnRun names (directly, as a `var` argument, assigned, cleared, as an array element, or in a procedure
+    // it calls) is used by OnRun as before: its table's event subscribers are in the reach.
+    #[test]
+    fn a_global_record_onrun_names_is_in_its_reach() {
+        for onrun in [
+            "if Customer.IsEmpty() then;",
+            "T.Read(Customer);",
+            "Clear(Customer);",
+            "Customer := Customers[2];",
+            "if Customers[1].IsEmpty() then;",
+            "Helper();",
+            "Customer.Insert();",
+        ] {
+            assert!(onrun_writes_storage(onrun), "{onrun}");
+        }
+    }
+
+    // A RecordRef, FieldRef, KeyRef or Variant slot a body names may hold a global Record bound in another routine
+    // (`RR.GetTable(Customer)` in a helper): the table is reached, so the global stays in the reach. Naming counts, a
+    // builtin call is not needed (a `var` argument, a load, an array element, a local slot). Reviewed, al-runner issue 8992.
+    #[test]
+    fn a_global_record_stays_in_the_reach_of_a_body_that_names_a_ref_slot() {
+        for onrun in [
+            "RR.Reset();",
+            "T.ReadRef(RR);",
+            "T.ReadVar(Any);",
+            "if Any.IsRecord() then;",
+            "Refs[1].Reset();",
+            "LR.Reset();",
+            "FR := RR.Field(1);",
+            "KR := RR.KeyIndex(1);",
+        ] {
+            assert!(onrun_writes_storage(onrun), "{onrun}");
+        }
+    }
+
+    // `Rec::null_user` (assumption graph-no-directory-members): only a declared local UserInfo, assigned from GetCurrentUser
+    // on a GraphQuery local the routine builds with the no-argument constructor, makes the foreach body unrun.
+    fn null_user_of(decls: &str, body: &str, extra: &str) -> bool {
+        let src = format!(
+            "dotnet {{
+                assembly(\"Microsoft.Dynamics.Nav.AzureADGraphClient\") {{
+                    type(\"Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery\"; \"GQ\") {{ }} }}
+                assembly(\"Microsoft.Dynamics.Nav.LicensingService.Model\") {{
+                    type(\"Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo\"; \"UI\") {{ }}
+                    type(\"Microsoft.Dynamics.Nav.LicensingService.Model.GroupInfo\"; \"GI\") {{ }} }} }}
+            codeunit 50101 Tests {{ Subtype = Test;
+                var GU: DotNet \"UI\";
+                {extra}
+                [Test] procedure T() {decls} begin {body} end; }}"
+        );
+        let l = lowered(&src);
+        let events = al_vm::events::Registry::build(&l.program);
+        let index = ReachIndex::new(&events, &l);
+        let rec = Rec {
+            events: &events,
+            lowered: &l,
+            index: &index,
+            out: ReachFacts::default(),
+            summary: Summary::default(),
+            unknown: false,
+            unrun: HashSet::new(),
+        };
+        // The foreach is in `T`, or in `P` when the user is a parameter.
+        let (o, r) = routine(&l, "Tests", if extra.contains("procedure P") { "P" } else { "T" });
+        l.program.objects[o].routines[r].body.read(|b| {
+            let u = b
+                .iter()
+                .find_map(|s| match s {
+                    Stmt::Foreach {
+                        collection: Expr::DotNet { receiver: Some(u), .. },
+                        ..
+                    } => Some(u.as_ref()),
+                    _ => None,
+                })
+                .expect("a foreach over a member");
+            rec.null_user(o, r, u)
+        })
+    }
+
+    const LOOP: &str = "foreach I in U.Groups() do if I.DisplayName() = '' then;";
+    const LOCALS: &str = "var G: DotNet \"GQ\"; U: DotNet \"UI\"; I: DotNet \"GI\";";
+
+    #[test]
+    fn null_user_accepts_a_user_from_get_current_user_on_a_constructed_query() {
+        let body = format!("G := G.GraphQuery(); U := G.GetCurrentUser(); {LOOP}");
+        assert!(null_user_of(LOCALS, &body, ""));
+    }
+
+    #[test]
+    fn null_user_refuses_a_parameter() {
+        let extra = format!("procedure P(U: DotNet \"UI\") var I: DotNet \"GI\"; begin {LOOP} end;");
+        assert!(!null_user_of("", "P(GU);", &extra));
+    }
+
+    #[test]
+    fn null_user_refuses_a_global() {
+        let body = LOOP.replace("U.", "GU.");
+        assert!(!null_user_of("var I: DotNet \"GI\";", &body, ""));
+    }
+
+    #[test]
+    fn null_user_refuses_a_constructed_user() {
+        let body = format!("U := U.UserInfo(); {LOOP}");
+        assert!(!null_user_of(LOCALS, &body, ""));
+    }
+
+    #[test]
+    fn null_user_refuses_a_user_passed_by_reference() {
+        let body = format!("G := G.GraphQuery(); U := G.GetCurrentUser(); Q(U); {LOOP}");
+        let extra = "procedure Q(var U: DotNet \"UI\") begin end;";
+        assert!(!null_user_of(LOCALS, &body, extra));
+    }
+
+    #[test]
+    fn null_user_refuses_a_query_that_is_not_only_constructed() {
+        let body = format!("G := G.GraphQuery(); U := G.GetCurrentUser(); G := GG; {LOOP}");
+        let extra = "var GG: DotNet \"GQ\";";
+        assert!(!null_user_of(LOCALS, &body, extra));
+    }
+
+    #[test]
+    fn null_user_refuses_a_query_passed_by_reference() {
+        let body = format!("G := G.GraphQuery(); U := G.GetCurrentUser(); Q(G); {LOOP}");
+        let extra = "procedure Q(var G: DotNet \"GQ\") begin end;";
+        assert!(!null_user_of(LOCALS, &body, extra));
     }
 }

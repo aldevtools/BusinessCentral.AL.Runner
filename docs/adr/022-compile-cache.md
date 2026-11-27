@@ -2,6 +2,8 @@
 
 - Status: Accepted (owner, 2026-10-14; the measurement below amended decisions 2 to 4 and the owner accepted the amendments).
   Amendment 2026-11-15 (cache the compiled workspace apps, changes decision 1): Accepted (owner, 2026-11-19)
+  Amendment 2026-11-22 (a kept baseline is taken only at its own instant, changes item 4 of the 2026-10-16
+  amendment): Accepted (owner, 2026-11-22)
 - Date: 2026-10-14
 - Amends: ADR-013 (decision 6: its "persistent cache only if the warm start needs it" becomes a design; its
   "lowered IR is not cached" is lifted for dependency apps), ADR-016 (the deferral of persistent dependency
@@ -838,6 +840,8 @@ a folder of its own. The owner allows one persistent cache, so this is the same 
    has started already at another instant, the entry is not used and the install code runs. So every value a test can
    see equals what an uncached run started at that instant would show. The day in the key bounds how far back a
    run's clock can start.
+   (Replaced by the amendment of 2026-11-22 below, Accepted (owner, 2026-11-22): a run takes the entry only at its own
+   instant.)
 5. **.NET makes no difference to whether the entry is kept.** A run with a usable .NET host keeps and reads the entry
    like any other. The installed state is a valid result whatever .NET calls happened. The key does hold whether a
    host was usable, because a baseline made without one lacks what the refused calls would have written, and a run
@@ -1319,6 +1323,72 @@ fixed in the compile first; the build is already required to be deterministic (d
    daemon 2's `compileMs` is expected at a small part of today's 858 ms (the read of the entry and the scan); the result
    is recorded here, and the issue gets the numbers.
 
+### Built (2026-11-22, al-runner PR 8446)
+
+- **The entry.** `<tag>-ws-<identity>-<key>.alcw` (`al-cache/src/workspace.rs`): an outer header (the key digest, the
+  lengths, a checksum of the extra section) around an unchanged `al_cache` layer file, then the extra section
+  (`WorkspaceExtra`). `al_cache::FORMAT` is unchanged, so the extra section needs a frame of its own; decision 10's
+  checks still run at open.
+- **Two key fields beyond decision 2's list.** `path`: whether the compile weighed the install baseline on a compile of
+  the selected tests first, whether it was lean, whether a baseline was wanted, how many apps the dependency layers hold,
+  and the suites. Without it a weighed compile or a lean selection could share a key with another compile (decision 5).
+  `granted`: the app ids granted the internals of others, which change what the check accepts.
+- **No parse and no scan on a hit.** The key hashes the decoded text of every file, so the stored index equals a scan of
+  the same text; the equality test compares the workspaces.
+- **When the entry is written (decision 6).** `Layer::finish` takes the parts of a fresh compile into a `Store`, and
+  `Store::go_on` writes or defers the entry only once the run goes on with the compile. A compile the memory limit stops
+  after its last check drops its store: the next run of the same inputs compiles fresh (al-testrun suite test
+  `a_compile_the_memory_limit_stops_after_its_last_check_stores_no_entry`).
+- **Measured.** On the reporter's real app (43,511 mutants, 18 dependency layers), medians of 6: a warm daemon restart
+  compiles in 407 ms instead of 30,919 ms, and a warm one-shot `--codeunit X` in 0.50 s instead of 47.70 s (wall 3.09 s
+  instead of 50.62 s). On the corpus apps over the Microsoft apps (the equality test), a read takes 0.74, 0.95 and
+  1.20 s on BC 27, 28 and 29, against 30.4, 18.3 and 24.2 s for a fresh compile.
+- **What a cold run costs.** A cold run builds the entry, and a cold one-shot costs about 2% more than before. Measured
+  by user-space instructions on an invented workspace of the same size as that app (180 MB) over the BC 28 Microsoft
+  apps, a fresh cache folder for every cold run, medians of 3, against main a7d908375:
+
+  | run | main | with the layer |
+  |---|---:|---:|
+  | one-shot `--codeunit`, cold (the entry's write at exit included) | 413.3 G | 421.8 G (+2%) |
+  | serve first request, cold (whole daemon) | 372.4 G | 364.4 G (about the same) |
+  | one-shot, warm (the entry is read) | 186.4 G | 64.7 G |
+  | serve restart, warm (the entry is read) | 139.5 G | 42.5 G |
+
+### Test plan as built (2026-11-22)
+
+Status of this section: **Accepted** (owner, 2026-11-22). The owner accepted this test plan as written, with its
+deviations below (the outcomes leg's and the serve suite's), as recorded on al-runner PR 8446 on 2026-11-22.
+
+- **Corpus equality:** `al-test-cli` test `workspace_cache_equality` (fresh, built, read, read on one thread, fresh on
+  one thread; equal canonical dumps), a step of the corpus job on BC 27, 28 and 29. As planned.
+- **Modes and incremental after a hit:** the al-testrun suite `workspace_cache`. As planned.
+- **Outcomes:** `tools/cache_vs_uncached.sh workspace`, run on BC 27, 28 and 29: the built run and the read run give the
+  outcomes and reasons of the run without the layer, 0 differences, for the main app and every suite (OnPrem,
+  OnPrem-DotNet, TestLibraries, TryWrite-allowed, and on BC 28 isolation-function and isolation-codeunit): 30,707,
+  30,922 and 31,089 tests, every pass of the read run read. Deviations, for the owner:
+  1. The leg's runs compile every pass from source (`AL_FRESH_PASS_COMPILE=1`). A pass that grows the main pass's
+     compile (ADR-063) does not use the layer (decision 7), so a default corpus run never reads it; the leg tests the
+     layer where a corpus run can use it.
+  2. The reference is the run with the dependency layers and without the workspace layer, compared with `--reasons` and
+     no allow list. The uncached run against the dependency layers is the existing `run` leg.
+  3. Run here without `--require-dotnet` (`LEG_DOTNET=`): the machine has the .NET 8 runtime only, so on BC 29 (whose
+     service tier runs on .NET 10) 249 tests were not run (`dotnet-unavailable`) in all three runs. BC 27 and 28 ran
+     their DotNet tests. The leg's default keeps `--require-dotnet`.
+  4. Not in CI: the nightly step "Corpus with the compile cache, against the uncached run" does not run the leg. It
+     would add three corpus runs per version to the nightly; that is the owner's call.
+- **Serve suite:** alrunner-cli `serve` test `each_request_shape_answers_the_same_on_a_fresh_and_on_a_reading_daemon`:
+  twelve request shapes of the suite (a plain run, a test filter, `excludeTests`, `testIsolation`, `testRunner`,
+  `stopAfterFirstFailure`, coverage, `entries`, two `sourcePaths`, `tdd`, an app that does not compile, `execute`), each
+  sent to a fresh daemon and then to a new daemon over the same cache folder. The second daemon reads the entry the
+  first built, and the answers are equal without the timings. Deviations, for the owner:
+  1. The suite does not run every serve test twice. Many of its tests check one daemon's own state (`built`, `cached`,
+     stderr lines, edits on the kept compile), which a reading daemon changes on purpose; the shapes above are the request
+     options that reach the compile.
+  2. The dumps are not compared across daemons: a daemon is another process. The dumps of serve's shape (two
+     `sourcePaths`, no dependency apps) and of an incremental compile after a read are compared in process by the
+     al-testrun suite (`a_read_compile_of_two_workspace_apps_without_dependencies_equals_a_fresh_one`,
+     `an_incremental_compile_after_a_read_equals_one_after_a_fresh_compile`).
+
 ### Alternatives considered
 
 - **Keep the daemon alive and never restart it.** The daemon already keeps its compile across requests. The restarts come
@@ -1335,12 +1405,46 @@ fixed in the compile first; the build is already required to be deterministic (d
 - **Store the workspace objects in the top dependency layer.** A dependency layer is shared by projects; the workspace
   changes with every edit. Mixing them would rebuild a shared file on every edit. Not taken.
 
-### Open for the owner
+### Decided by the owner
 
-1. Accept or reject this amendment.
-2. The limit of 4 entries per project (decision 9).
-3. The serve field: `cached` keeps its meaning and `workspaceCache` is added (decision 4). The reporter asked for
-   `cached: true` on a restarted daemon; that would change what `cached` means for current clients.
+The three questions this amendment left open were decided on al-runner PR 8155, 2026-11-19 ("I accept the amendment as
+written: the limit of 4 entries, and serve keeps its `cached` field and adds `workspaceCache`"):
+
+1. The amendment: accepted as written.
+2. The limit of 4 entries per project (decision 9): kept.
+3. The serve field (decision 4): `cached` keeps its meaning and `workspaceCache` is added. The reporter asked for
+   `cached: true` on a restarted daemon; that would have changed what `cached` means for current clients.
+
+The test-plan deviations were decided on 2026-11-22 (see "Test plan as built").
+
+## Amendment (Accepted, owner 2026-11-22): a kept baseline is taken only at its own instant (issue 8457)
+
+Status of this amendment: **Accepted** (owner, 2026-11-22, as written). It changes item 4 ("The run clock") of the
+amendment of 2026-10-16 and goes with the ADR-045 amendment of 2026-11-22 (the run clock begins once per run). It does
+not change the entry's file layout, the other parts of the key or the layer entries.
+
+### Why
+
+Item 4 let a run that read an entry start its run clock at the entry's instant. The run clock was one value per
+process, set at its first read, and the day in the key came from a second read of the wall clock. A server kept past
+midnight therefore answered with the day of its first request, and a file written under today's key could hold
+yesterday's instant, which a fresh process then took up (issue 8457).
+
+### Decision
+
+1. **Item 4 reads:** "The rows of a baseline carry the instant the run that made it began (`RunClock`). The entry
+   stores that instant, and the key holds that instant's UTC day. A run takes the entry only when its own clock starts
+   at that instant; otherwise the install code runs and the entry is written again. A run never moves its clock to an
+   entry. So every value a test can see equals what an uncached run would show."
+2. **The day in the key** (item 3, last part) is the UTC day of the run's start, not of another read of the wall clock,
+   so the day in the key and the instant in the file always agree.
+3. **A run on the wall clock** (`ALRUNNER_REAL_CLOCK=1`) keeps and reads no entry, as before: its rows carry no fixed
+   instant.
+
+### Consequences
+
+- Within one UTC day nothing changes: every run starts at the same instant, so it takes the entry as before.
+- After midnight the first run of the new day runs the install code and writes the entry under the new day's key.
 
 ## Consequences
 

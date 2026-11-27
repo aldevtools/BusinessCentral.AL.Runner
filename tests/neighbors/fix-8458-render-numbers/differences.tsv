@@ -1,2 +1,0 @@
-# key	entry
-# No test differs from main: equal renders share a number, and every reader of a number reads only its entry.

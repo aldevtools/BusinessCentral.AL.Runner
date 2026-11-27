@@ -1,0 +1,14 @@
+{
+  "id": "43115a5d-65b1-4ab2-8615-9018b8b0d2bb",
+  "name": "Neighbors 8835 and 8836 a page with code over a table with OnInsert and OnDelete, a FactBox task error",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 96430, "to": 96449 }, { "from": 96480, "to": 96489 }, { "from": 96502, "to": 96541 },
+    { "from": 96600, "to": 96639 }
+  ],
+  "dependencies": []
+}

@@ -403,7 +403,7 @@ pub struct TestResult {
     pub order_hint: Option<OrderHint>,
     /// With `RunOptions::cell_tap`: the `Expect` cells the test matched (`al_vm::observer_tap`); `None` when it did not use the fixture.
     pub cells: Option<al_vm::observer_tap::CellRecord>,
-    /// The test was not run because `RunOptions::stop_after_first_failure` or `RunOptions::skip_after_timeout` left it
+    /// The test was not run because a stop (`stop.rs`) or `RunOptions::skip_after_timeout` left it
     /// out after an earlier test (al-runner issue 8492): a choice of the run, not a refusal.
     pub skipped_by_option: bool,
 }
@@ -458,6 +458,18 @@ impl TestResult {
     }
 }
 
+/// What the login starts of the engine did (`login_start.rs`, al-runner issue 8211), over every request it ran.
+#[derive(Debug, Clone, Default)]
+pub struct LoginReplay {
+    /// The report lines (`login_replay::report`): the check's under `RunOptions::login_replay_check`, and the starts line
+    /// with the replay alone; `None` when neither ran.
+    pub report: Option<String>,
+    /// How many test sessions took a login start in place of running the login.
+    pub replays: u64,
+    /// How many login starts the engine keeps.
+    pub starts: usize,
+}
+
 /// Wall time of the phases of a run (`--timings`).
 #[derive(Debug, Clone, Default)]
 pub struct Phases {
@@ -467,9 +479,11 @@ pub struct Phases {
     pub memory: memory::MemoryReport,
     /// The ids of the assumptions the install baseline relied on (a JUnit suite-level property).
     pub baseline_assumptions: Vec<String>,
-    /// The partner dependency apps the install baseline installed in several orders, one line each (ADR-046
-    /// amendment 7, `--timings`).
+    /// The partner apps the install baseline or the install code of the apps under test installed in several orders,
+    /// one line each (ADR-046 amendment 7, `--timings`).
     pub baseline_install_orders: Vec<String>,
+    /// Every difference those orders left, one note each (al-runner issue 9058; `--verbose` prints them).
+    pub install_order_differences: Vec<String>,
     /// Install roots that ran to their end, and how many there were; `None` when no baseline ran.
     pub baseline_roots: Option<(usize, usize)>,
     pub compile: std::time::Duration,
@@ -481,6 +495,8 @@ pub struct Phases {
     pub compile_parts: al_sema::lower::CompileTimings,
     /// What the compile cache did, when the run used it.
     pub cache: Option<crate::compile_cache::CacheReport>,
+    /// What the workspace layer of the compile cache did, when the run asked for it.
+    pub workspace_cache: Option<crate::workspace_cache::WorkspaceReport>,
     /// With a compile cache whose objects are decoded on first touch (ADR-054): how many the run decoded.
     pub decoded_on_touch: Option<usize>,
     /// Building the engine from the lowered program.
@@ -491,6 +507,10 @@ pub struct Phases {
     /// (`Session::install_left`), the run that found that out being the first codeunit's. A run on files of a real folder
     /// (`--files-dir`) also runs it once per codeunit.
     pub install_runs: usize,
+    /// The first reason noted that the install's run cannot be shared with a test codeunit's session
+    /// (`install_once.rs` `Rerun`); `None` when none was. The first codeunit notes one too, so it is not always the reason
+    /// of a rerun, and a later codeunit's other reason is not shown.
+    pub install_rerun: Option<String>,
     /// The install baseline did not run because no selected test can observe it (`observe.rs`).
     pub baseline_skipped: bool,
     /// Why the baseline ran although the rule was tried: the first construct a selected test
@@ -531,8 +551,8 @@ pub struct Phases {
     pub install_snapshot: Option<String>,
     /// A warm server ran the request on the engines an earlier request over the same compile kept.
     pub engine_kept: bool,
-    /// `RunOptions::login_replay_check`: the check's report line (`login_replay.rs`), counted over every request the engine ran.
-    pub login_replay: Option<String>,
+    /// The login starts (`login_start.rs`) and the login replay check, counted over every request the engine ran.
+    pub login_replay: LoginReplay,
     /// What the run did, counted (the work ratchet of `al-test-cli`).
     pub work: RunWork,
 }
@@ -599,20 +619,27 @@ impl Phases {
     /// One line for `--timings`: whether the install baseline ran, and if the rule that skips it
     /// was tried and said no, the first construct a selected test reaches that could observe it.
     /// `None` when there was nothing to say (no dependency app).
-    /// With partner dependency apps installed in several orders (ADR-046 amendment 7), one more line per group of them.
+    /// With partner apps installed in several orders (ADR-046 amendment 7; by the baseline or by the install code of the
+    /// apps under test, both labeled `install baseline:`), one more line per group of them.
+    /// When the install code of the apps under test ran more than once, one more line: how many times it ran and the
+    /// first reason noted that its run cannot be shared (`install_rerun`).
     pub fn baseline_line(&self) -> Option<String> {
-        let line = self.baseline_rule_line();
-        if self.baseline_install_orders.is_empty() && self.install_snapshot.is_none() {
-            return line;
-        }
         let orders = self
             .baseline_install_orders
             .iter()
             .map(|l| format!("install baseline: {l}"));
-        let lines: Vec<String> = line
-            .into_iter()
+        let rerun = (self.install_rerun.as_ref())
+            .filter(|_| self.install_runs > 1)
+            .map(|why| {
+                format!(
+                    "install code: ran {} times for the test codeunits; first reason noted that its run cannot be shared: {why}",
+                    self.install_runs
+                )
+            });
+        let lines: Vec<String> = (self.baseline_rule_line().into_iter())
             .chain(orders)
             .chain(self.install_snapshot_line())
+            .chain(rerun)
             .collect();
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
@@ -678,8 +705,10 @@ pub(crate) struct Unit {
     /// See `Scratch::order`.
     order: Arc<Vec<usize>>,
     hooks: crate::events::Hooks,
-    /// See `Scratch::clock_start`.
-    clock_start: Option<i64>,
+    /// See `Scratch::clock`.
+    clock: crate::host::RunClock,
+    /// See `Scratch::clock_set`.
+    clock_set: bool,
     /// Note what each test raised and touched (`RunOptions::impact_trace`).
     impact: bool,
     /// See `RunOptions::run_only`.
@@ -700,8 +729,8 @@ pub(crate) struct Unit {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
-    /// See `RunOptions::stop_after_first_failure`.
-    stop_after_first_failure: Option<run::StopAfterFailure>,
+    /// The pass's stop (`stop.rs`).
+    stop: Option<stop::Stop>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -723,8 +752,8 @@ pub(crate) struct Unit {
     installs: Arc<install_once::RunInstalls>,
 }
 
-/// What a scratch run or a capture leaves besides outcomes, per test.
-#[derive(Default)]
+/// What a scratch run or a capture leaves besides outcomes, per test. Made with [`Scratch::new`], which takes the run's
+/// clock: there is no default clock, so a scratch never begins one of its own (ADR-045, amendment of 2026-11-22).
 pub(crate) struct Scratch {
     /// What to capture (`RunOptions::capture`).
     capture: al_vm::CaptureConfig,
@@ -734,8 +763,12 @@ pub(crate) struct Scratch {
     messages: Vec<(String, Vec<String>)>,
     /// What the capture saw.
     captured: Vec<(String, crate::events::CapturedAt)>,
-    /// Where the run clock of the codeunit starts, in Unix milliseconds (`RunOptions::clock_starts`); `None`: now.
-    clock_start: Option<i64>,
+    /// The clock of the codeunit's sessions: the run's (`RunOptions::run_clock`), or where `RunOptions::clock_starts`
+    /// starts this codeunit.
+    clock: crate::host::RunClock,
+    /// `RunOptions::clock_starts` set `clock` for this codeunit: the login replay never takes or records a start then
+    /// (`login_start::RunFacts::perturbed`).
+    clock_set: bool,
     /// Note what each test raised and touched (`RunOptions::impact_trace`).
     trace: bool,
     /// What each test raised and touched, as keys (`impact_trace::keys`).
@@ -748,7 +781,7 @@ pub(crate) struct Scratch {
     cells: Vec<(String, al_vm::observer_tap::CellRecord)>,
     /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
     slept: Vec<(String, u64)>,
-    /// The tests `skip_after_timeout` or `stop_after_first_failure` left out, with the reason they were given
+    /// The tests `skip_after_timeout` or a stop (`stop.rs`) left out, with the reason they were given
     /// (`TestResult::skipped_by_option`).
     skipped: Vec<(String, String)>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).
@@ -784,8 +817,11 @@ pub(crate) struct Scratch {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
-    /// See `RunOptions::stop_after_first_failure`.
-    stop_after_first_failure: Option<run::StopAfterFailure>,
+    /// The pass's stop (`stop.rs`).
+    stop: Option<stop::Stop>,
+    /// The first row of the codeunit that triggered `stop` (`stop.rs`); the pass keeps its reason for the later entries
+    /// while the codeunit's rows still hold that row (`stop::Trigger::kept_in`, `corpus::pass_stopped`).
+    stop_trigger: Option<stop::Trigger>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -844,6 +880,58 @@ pub(crate) struct Ends {
 }
 
 impl Scratch {
+    /// A scratch whose sessions read `clock`, the clock of the run it belongs to; every other part starts empty.
+    pub(crate) fn new(clock: crate::host::RunClock) -> Scratch {
+        Scratch {
+            clock,
+            clock_set: false,
+            capture: Default::default(),
+            order: Default::default(),
+            messages: Default::default(),
+            captured: Default::default(),
+            trace: Default::default(),
+            traces: Default::default(),
+            stubbed: Default::default(),
+            ui_answered: Default::default(),
+            cells: Default::default(),
+            slept: Default::default(),
+            skipped: Default::default(),
+            entered: Default::default(),
+            run_only: Default::default(),
+            hub: Default::default(),
+            hub_leg: Default::default(),
+            leak: Default::default(),
+            leak_hits: Default::default(),
+            onrun_carry: Default::default(),
+            driver: Default::default(),
+            read_tables: Default::default(),
+            discovery: Default::default(),
+            on_run_rows: Default::default(),
+            flags: Default::default(),
+            installs: Default::default(),
+            report_unpinned_errors: Default::default(),
+            skip_after_timeout: Default::default(),
+            stop: Default::default(),
+            stop_trigger: None,
+            perturb: Default::default(),
+            run_seed: Default::default(),
+            runner: Default::default(),
+            watch: Default::default(),
+            singles_past_stop: Default::default(),
+            numbers_unmeasured: Default::default(),
+            singles_out: Default::default(),
+            unfinished_after_start: Default::default(),
+            refused_mid_run: Default::default(),
+            test_panicked: Default::default(),
+            unfinished_at: Default::default(),
+            order_hints: Default::default(),
+            numbers_taken: Default::default(),
+            carry_from: None,
+            carry_at: None,
+            test_numbers: Default::default(),
+        }
+    }
+
     /// Adds the tables `touched` used to `read_tables` under [`TestDriver::watches_reads`], and gives `touched` back.
     pub(crate) fn note_reads(&mut self, touched: al_vm::impact::Touches) -> al_vm::impact::Touches {
         if self.driver.watches_reads() {
@@ -923,7 +1011,7 @@ fn run_unit(
     limit: Option<std::time::Duration>,
 ) -> UnitResult {
     let started = std::time::Instant::now();
-    let clock_start = u.clock_start;
+    let clock = u.clock;
     crate::dotnet::take_start_time();
     let baseline = baseline.filter(|_| !u.without_baseline);
     crate::events::install(u.hooks.clone());
@@ -939,7 +1027,7 @@ fn run_unit(
             Vec::new(),
             Vec::new(),
             Vec::new(),
-            Scratch::default(),
+            Scratch::new(clock),
         );
         let result = Ok(not_reached(lowered, u, empty));
         crate::events::uninstall();
@@ -959,7 +1047,6 @@ fn run_unit(
         let mut scratch = Scratch {
             capture: u.capture,
             order: u.order.clone(),
-            clock_start,
             trace: u.impact,
             run_only: u.run_only.clone(),
             hub: u.hub,
@@ -972,7 +1059,8 @@ fn run_unit(
             flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
             skip_after_timeout: u.skip_after_timeout,
-            stop_after_first_failure: u.stop_after_first_failure.clone(),
+            stop: u.stop.clone(),
+            stop_trigger: None,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             runner: u.runner,
@@ -980,7 +1068,8 @@ fn run_unit(
             singles_past_stop: u.singles_past_stop,
             numbers_unmeasured: u.numbers_unmeasured.clone(),
             installs: u.installs.clone(),
-            ..Default::default()
+            clock_set: u.clock_set,
+            ..Scratch::new(clock)
         };
         if u.coverage {
             crate::coverage::begin();
@@ -1089,6 +1178,7 @@ fn scratch_unit(
     opts: &RunOptions,
     order: &Arc<Vec<usize>>,
     hooks: &crate::events::Hooks,
+    clock: crate::host::RunClock,
 ) -> Unit {
     Unit {
         si,
@@ -1101,7 +1191,8 @@ fn scratch_unit(
         capture: opts.capture,
         order: order.clone(),
         hooks: hooks.clone(),
-        clock_start: None,
+        clock,
+        clock_set: false,
         impact: opts.impact_trace,
         run_only: None,
         hub: false,
@@ -1112,7 +1203,7 @@ fn scratch_unit(
         flags: Default::default(),
         report_unpinned_errors: false,
         skip_after_timeout: false,
-        stop_after_first_failure: None,
+        stop: None,
         perturb: Default::default(),
         run_seed: opts.run_seed,
         runner: None,
@@ -1185,7 +1276,7 @@ fn test_workers() -> usize {
 }
 
 /// Stack of a test thread: the VM recurses on the native stack per AL call (`MAX_CALL_DEPTH`).
-const TEST_STACK: usize = 256 << 20;
+pub(crate) const TEST_STACK: usize = 256 << 20;
 
 /// Drops `value` on another thread. The process does not wait for it when it ends.
 pub fn retire<T: Send + 'static>(value: T) {
@@ -1236,7 +1327,7 @@ mod al_runner_tests;
 #[cfg(test)]
 mod app_outcomes_tests;
 mod apply_manifests;
-mod baseline_key;
+pub(crate) mod baseline_key;
 mod blocked;
 mod cache;
 mod carry_after;
@@ -1256,6 +1347,8 @@ mod discovery;
 mod group1_sessions_tests;
 mod grow;
 mod handlers;
+#[cfg(test)]
+mod hub_sequence_tests;
 mod install_once;
 #[cfg(test)]
 mod install_reads_tests;
@@ -1266,9 +1359,15 @@ mod internals_grant;
 #[cfg(test)]
 mod login_explain_tests;
 #[cfg(test)]
+mod login_image_tests;
+#[cfg(test)]
 mod login_memo_tests;
 #[cfg(test)]
+mod login_reads_tests;
+#[cfg(test)]
 mod login_replay_tests;
+#[cfg(test)]
+mod login_start_tests;
 #[cfg(test)]
 mod login_tests;
 pub mod memory;
@@ -1282,6 +1381,8 @@ mod order_hint;
 mod partner_login_tests;
 mod run;
 #[cfg(test)]
+mod run_clock_tests;
+#[cfg(test)]
 mod run_on_client_reach_tests;
 #[cfg(test)]
 mod runner_frames_tests;
@@ -1289,6 +1390,7 @@ mod runner_reset;
 pub(crate) mod session_flags;
 mod single_fresh;
 mod single_lane;
+mod stop;
 mod strict_taint;
 mod strict_walk;
 mod suite_rows;
@@ -1300,6 +1402,7 @@ mod test_marks;
 #[cfg(test)]
 mod tests;
 mod threads;
+mod workspace_layer;
 pub(crate) mod written;
 
 pub use self::blocked::*;
@@ -1314,6 +1417,7 @@ pub use self::order_hint::{NumbersTaken, OrderHint, TakenAfter};
 pub use self::run::*;
 pub use self::single_fresh::{CarriedCodeunit, CarriedRead};
 pub use self::single_lane::LaneReport;
+pub use self::stop::stop_triggers;
 
 /// The translation files of the app folder `dir`, as the IR keeps them (ADR-053 step 2). A file that cannot be read keeps its
 /// reason, and its language refuses every translated read.

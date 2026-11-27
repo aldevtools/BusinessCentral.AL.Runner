@@ -519,8 +519,5 @@ pub(super) fn parse_duration_text(t: &str) -> Option<i64> {
 
 /// The error of a text that is no Guid (xmlports/shapes-properties/QrXpContainerOccurs.al:2010 TS_Guid_Import_Element).
 fn invalid_guid() -> Signal {
-    xerr(
-        "Invalid format of GUID string. The correct format of the GUID string is: CDEF7890-ABCD-0123-1234-567890ABCDEF where 0-9, A-F symbolizes hexadecimal digits.",
-        "InvalidGuidFormat",
-    )
+    xerr(al_builtins::native::INVALID_GUID_FORMAT, "InvalidGuidFormat")
 }

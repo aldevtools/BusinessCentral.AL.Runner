@@ -131,7 +131,7 @@ const ROW_TRIGGERS: [&str; 5] = [
 
 /// A page property the pinned pages declare: PageType, SourceTable, AutoSplitKey as true, ApplicationArea and UsageCategory
 /// (:105-109, :169-172, :251-255, :347-351).
-fn pinned_property((name, value): &(String, String)) -> bool {
+pub(super) fn pinned_property((name, value): &(String, String)) -> bool {
     match name.to_ascii_lowercase().as_str() {
         "autosplitkey" => value.trim().eq_ignore_ascii_case("true"),
         "pagetype" | "sourcetable" | "applicationarea" | "usagecategory" => true,
@@ -140,6 +140,27 @@ fn pinned_property((name, value): &(String, String)) -> bool {
 }
 
 impl Session {
+    /// Whether part control `control` is a FactBox linked by a SubPageLink of `field(..)` entries that link each field of
+    /// primary key `key` to itself, in key order, with no SubPageView and no Provider (the measured FactBoxes:
+    /// ListNewLineCodeInsertUpdate.al:282, ListNewLineSaveRecordUpdate.al:242, ListNewLineExtraCodeCodedPage.al:337).
+    pub(super) fn part_linked_on_key(control: &ir::Control, key: &[usize]) -> bool {
+        control.factbox
+            && control.part_link.as_ref().is_some_and(|l| {
+                l.provider.is_none()
+                    && l.view.is_none()
+                    && l.entries.len() == key.len()
+                    && l.entries
+                        .iter()
+                        .zip(key)
+                        .all(|(e, k)| matches!(e, ir::LinkEntry::Field(pf, hf) if pf == k && hf == k))
+            })
+    }
+
+    /// Whether page object `object` is a CardPart.
+    pub(super) fn is_card_part(engine: &crate::Engine, object: usize) -> bool {
+        engine.object_facts[object].page_type == Some(ir::PageType::Other("cardpart".into()))
+    }
+
     /// The open of the host of ListNewLineCodeInsertUpdate.al:249-299 (page 97036), every fact by equality: a List page
     /// (:251) over a stored table, unextended and unsubscribed, that declares only the pinned properties with AutoSplitKey
     /// (:251-255, `pinned_property`), whose only trigger is OnAfterGetRecord (:292-295), with exactly two part controls
@@ -177,24 +198,12 @@ impl Session {
             .filter(|c| c.kind == ir::ControlKind::Part)
             .collect();
         let parts = st.borrow().parts.clone();
-        let linked = |c: &ir::Control| {
-            c.factbox
-                && c.part_link.as_ref().is_some_and(|l| {
-                    l.provider.is_none()
-                        && l.view.is_none()
-                        && l.entries.len() == 2
-                        && l.entries
-                            .iter()
-                            .zip(key.iter())
-                            .all(|(e, k)| matches!(e, ir::LinkEntry::Field(pf, hf) if *pf == *k && *hf == *k))
-                })
-        };
         let card_parts = parts.len() == 2
             && parts.iter().all(|(idx, part)| {
                 engine.object_facts[part.borrow().object as usize].page_type_lower() == "cardpart"
                     && self.has_source(part)
                     && self.page_rec(part).borrow().table == host_rec.borrow().table
-                    && linked(&page.controls[*idx])
+                    && Self::part_linked_on_key(&page.controls[*idx], key)
             });
         if part_controls.len() == 2 && card_parts {
             return Err(Signal::unsupported(
@@ -280,6 +289,10 @@ impl Session {
             _ => None,
         };
         let shape = view.is_some() && (!coded || self.no_active_subscriber(page_object));
+        // A page of the shape of the page with code, but not its code: the effect gate (`extra_code_coded_cell`).
+        if shape && coded && st.borrow().coded_objects == super::state::CodedObjects::Extra {
+            self.extra_code_coded_cell(st, opened, view, leave)?;
+        }
         if shape && coded {
             super::code_inserted_coded::coded_assume(st);
             st.borrow_mut().coded_line = CodedLine::Landed;
@@ -388,21 +401,12 @@ impl Session {
         let part_object = part.borrow().object as usize;
         let (host_page, part_page) = (page_of(&engine, st), page_of(&engine, part));
         let control = &host_page.controls[*idx];
-        let link = control.part_link.as_ref().is_some_and(|l| {
-            l.provider.is_none()
-                && l.view.is_none()
-                && l.entries.len() == key.len()
-                && l.entries
-                    .iter()
-                    .zip(&key)
-                    .all(|(e, k)| matches!(e, ir::LinkEntry::Field(pf, hf) if pf == k && hf == k))
-        });
-        let part_control = control.factbox
-            && control
-                .props
-                .iter()
-                .all(|(k, _)| k == "applicationarea" || k == "subpagelink");
-        let card_part = engine.object_facts[part_object].page_type == Some(ir::PageType::Other("cardpart".into()));
+        let link = Self::part_linked_on_key(control, &key);
+        let part_control = control
+            .props
+            .iter()
+            .all(|(k, _)| k == "applicationarea" || k == "subpagelink");
+        let card_part = Self::is_card_part(&engine, part_object);
         let part_properties = engine.program.objects[part_object].properties.iter().all(|(k, _)| {
             matches!(
                 k.to_ascii_lowercase().as_str(),
@@ -630,10 +634,19 @@ impl Session {
         let result = self.control_routine(st, idx, r);
         self.pages.onvalidate_pages.pop();
         let mut s = st.borrow_mut();
-        s.control_onvalidate = outer;
+        let inner = std::mem::replace(&mut s.control_onvalidate, outer);
+        s.control_failed_as_measured = matches!(result, Err(Signal::Error(_)))
+            && inner.as_ref().is_some_and(|c| {
+                matches!(
+                    (c.row_version.is_some(), c.saves.as_slice()),
+                    (_, []) | (false, [crate::pages::state::CurrPageSave::SaveRecord])
+                )
+            });
         // An OnValidate that failed after its save left the new-row line runs no refresh (`ValidateStart::left_new_line`).
-        if let (Err(_), Some(start)) = (&result, s.filters_before_validate.as_mut()) {
-            start.left_new_line = false;
+        match (&result, s.filters_before_validate.as_mut()) {
+            (Err(_), Some(start)) => start.left_new_line = false,
+            (Ok(_), Some(start)) => start.ran = inner,
+            _ => {}
         }
         drop(s);
         result
@@ -652,6 +665,20 @@ impl Session {
                     Some(FactboxStep::CodedTyped { .. })
                 )
         };
+        // On a page of the page-with-code shape with other code, an error before the landing that the cells measure (OnInsert's at
+        // the table field's insert, the table field's own, the control's before its save: `coded_error_measured`) reaches the
+        // test and leaves the handler (ListNewLineExtraCodeCodedTableTriggers.al:746, :1249-:1269): a later call on the page, or
+        // its close after a handler caught it, is refused (`coded_line_before_set_value`, `code_inserted_row_at_close`). Any
+        // other error there is refused (`coded_must_have_landed`; review of al-runner PR 8840, 01:32Z).
+        let extra_line_read = {
+            let s = st.borrow();
+            s.coded_line == CodedLine::LineRead && s.coded_objects == super::state::CodedObjects::Extra
+        };
+        if matches!(&e, Signal::Error(err) if extra_line_read && self.coded_error_measured(st, err)) {
+            st.borrow_mut().forget_code_inserted_line();
+            st.borrow_mut().coded_line = CodedLine::Failed;
+            return e;
+        }
         if matches!(e, Signal::Error(_))
             && let Err(refused) = self.coded_must_have_landed(st)
         {
@@ -729,8 +756,9 @@ impl Session {
                     && self.no_active_subscriber(rec.borrow().table as usize)
                     && self.no_active_subscriber(page_object)
                     && stored.is_some_and(|s| match view.extra {
-                        // The effect gate: the row or Rec changed since the save, not both (`extra_code_kept`).
-                        true => Self::extra_code_kept(&rec.borrow().fields, &s, &view.rec.fields),
+                        // The effect gate: the row or Rec changed since the save, not both (`extra_code_kept`), but at the
+                        // Update(false) of the later SetValue of the page-with-code shape (`SavedView::rec_free`).
+                        true => view.rec_free || Self::extra_code_kept(&rec.borrow().fields, &s, &view.rec.fields),
                         false => Self::same_values(&rec.borrow().fields, &s),
                     })
                     && now.is_some_and(|now| {
@@ -780,6 +808,7 @@ impl Session {
             writes: self.write_mark(),
             rows,
             extra,
+            rec_free: false,
         });
         st.borrow_mut().code_inserted_save = match asked {
             true => CodeInsertedSave::Asked(view),
@@ -844,6 +873,9 @@ impl Session {
             .is_some_and(|r| matches!(r.factbox, FactboxStep::CodedTyped { .. }));
         if typed {
             super::code_inserted_coded::coded_assume(st);
+            if st.borrow().coded_objects == super::state::CodedObjects::Extra {
+                self.extra_code_typed_save(st)?;
+            }
             st.borrow_mut().code_inserted_save = CodeInsertedSave::Pending { asked: false };
             return Ok(());
         }
@@ -865,12 +897,46 @@ impl Session {
         arg: Option<&Value>,
         view: &SavedView,
     ) -> Result<(), Signal> {
-        // Update(true) after the save is measured on the page without triggers only (ListNewLineExtraCode.al:476); on the page
-        // with triggers and a FactBox it stays refused: BC's answer there is measured 3 of 3 on BC 29.1 only by the neighbor
-        // app's tests/neighbors/8734-new-line-extra-code-factbox/src/Neighbors.al:478, which no corpus cell pins.
+        // Update(true) after the save is measured on the page without triggers (ListNewLineExtraCode.al:476) and on the later
+        // SetValue of the page-with-code shape (ListNewLineExtraCodeCodedSecondSetValue.al:804). On the page with triggers and a
+        // FactBox it stays refused: BC's answer there is measured 3 of 3 on BC 29.1 only by the neighbor app's
+        // tests/neighbors/8734-new-line-extra-code-factbox/src/Neighbors.al:478, which no corpus cell pins; at the landing of
+        // the page with code no cell measures it.
+        let typed_extra = st.borrow().coded_typed_extra();
+        // The later SetValue's cells keep Rec as the save left it up to the Update (another table written, :746, or the row
+        // modified through another record, :782), or change it only by writing or reading Rec itself again after the save, at
+        // Update(false) (ListNewLineExtraCodeCodedRecModify.al :594-:651: Rec's SystemRowVersion moves); Update(true) follows
+        // the save with nothing written (:804). Rows of other tables written there are rows inserted (:746). A field of Rec
+        // set without that, a row of another table modified or deleted, or a write before Update(true), is not measured
+        // (reviews of al-runner PR 8847, 01:00Z and 02:55Z).
+        let mut rec_written = false;
+        if typed_extra {
+            let rec = self.page_rec(st);
+            let table = self.table(&rec)?;
+            let rec_kept = Self::same_values(&rec.borrow().fields, &view.rec.fields);
+            rec_written = matches!(
+                (
+                    crate::stale_rename::row_version(&table, &rec.borrow().fields),
+                    crate::stale_rename::row_version(&table, &view.rec.fields),
+                ),
+                (Some(now), Some(saved)) if now > saved
+            );
+            let measured = match matches!(arg, Some(Value::Boolean(true))) {
+                true => rec_kept && self.write_mark() == view.writes,
+                false => (rec_kept || rec_written) && self.extra_typed_other_writes_inserted(st, view)?,
+            };
+            if !measured {
+                st.borrow_mut().forget_code_inserted_line();
+                return unsupported(
+                    "a field of Rec set, a row of another table modified or deleted, or a write before CurrPage.Update(true), \
+                     between CurrPage.SaveRecord and the CurrPage.Update after it in the later SetValue on a List page of the \
+                     shape of the page with code (not measured)",
+                );
+            }
+        }
         if view.extra
             && matches!(arg, Some(Value::Boolean(true)))
-            && matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _)))
+            && (typed_extra || matches!(self.code_inserted_page(st)?, Some((Triggers::Quiet, _))))
         {
             return self.extra_code_update_true(st, view);
         }
@@ -881,11 +947,41 @@ impl Session {
                  table field inserted (not measured)",
             );
         }
-        if !self.view_kept(st, view)? {
+        if st.borrow().coded_objects == super::state::CodedObjects::Extra {
+            self.coded_extra_shape(st)?;
+        }
+        // The later SetValue's code on a page of the page-with-code shape may change both the row and Rec after the save: the
+        // Update(false) shows the row as stored in every case ListNewLineExtraCodeCodedRecModify.al measures (Rec.Modify()
+        // after the save :594, :607; another record's write then Rec read again :618; a field of Rec set after its Modify()
+        // :629; a copy of Rec modified :640; Rec modified, then another record's write :651).
+        let rec_free = view.extra && typed_extra && rec_written;
+        let kept = match rec_free {
+            true => self.view_kept(
+                st,
+                &SavedView {
+                    rec_free: true,
+                    ..view.clone()
+                },
+            )?,
+            false => self.view_kept(st, view)?,
+        };
+        if !kept {
             st.borrow_mut().forget_code_inserted_line();
             return unsupported(
                 "the page's record, its view or the table changed between CurrPage.SaveRecord, which moved the page from its new \
                  line onto the row the table field inserted, and the CurrPage.Update(false) after it (not measured)",
+            );
+        }
+        // At the landing only: the later SetValue of a control with code has its own cells for what it writes between its save
+        // and its Update (ListNewLineExtraCodeCodedSecondSetValue.al).
+        let coded_extra = !typed_extra
+            && st.borrow().coded_objects == super::state::CodedObjects::Extra
+            && matches!(self.code_inserted_page(st)?, Some((Triggers::Coded, _)));
+        if coded_extra && !self.extra_coded_between_kept(st, view)? {
+            st.borrow_mut().forget_code_inserted_line();
+            return unsupported(
+                "a field of Rec set, or another table written, between CurrPage.SaveRecord and the CurrPage.Update(false) after \
+                 it on a List page of the shape of the page with code (not measured)",
             );
         }
         let asked = match view.extra {
@@ -1032,6 +1128,15 @@ impl Session {
     /// the close saves it (ListNewLineSaveRecordUpdate.al:784 `close=P.AGR(X/);T.M(X/V);`, :801 and :846 with OK); on an empty view
     /// it does not (:816, :831, :862 `close=T.M(X/V);`). Other pages close as before.
     pub(super) fn code_inserted_row_at_close(&mut self, st: &St) -> Result<(), Signal> {
+        // The cells' error before the landing (ListNewLineExtraCodeCodedTableTriggers.al:746), or the task error after it
+        // (ListNewLineExtraCodeCodedTaskError.al:589), leaves the handler: a handler that caught it and closes the page is not
+        // measured (review of al-runner PR 8840, 01:32Z).
+        if Self::tree_root(st).0.borrow().coded_line == CodedLine::Failed {
+            return unsupported(
+                "a List page with code and FactBoxes closed after an error of its first SetValue that the handler caught (not \
+                 measured)",
+            );
+        }
         if !matches!(st.borrow().code_inserted_save, CodeInsertedSave::Off) {
             st.borrow_mut().forget_code_inserted_line();
             return unsupported(
@@ -1133,12 +1238,14 @@ impl Session {
                 FactboxStep::ExtraTyped
             }
             (FactboxStep::ExtraTyped, TestCall::Page(PageMethod::OK), None) => FactboxStep::OkAsked,
+            (FactboxStep::CodedExtraTyped, TestCall::Page(PageMethod::OK), None) => FactboxStep::OkAsked,
             (FactboxStep::PreviousNo, TestCall::Page(PageMethod::Next), None) => step,
-            // The page with code: the SetValues of the measured control (`coded_value_control`) its objects are measured with
-            // (`CodedObjects::later_set_value`, ListNewLineFactboxesCode.al:1407 and :1576 `setvalue2`), then OK() and its Invoke
-            // (:1407 `ok=`, `CodedObjects::ok_after`).
+            // The page with code: the SetValues of the measured control (`coded_later_control`) its objects are measured with
+            // (`CodedObjects::later_set_value`, ListNewLineFactboxesCode.al:1407 and :1576 `setvalue2`; on a page of its shape
+            // with other code, ListNewLineExtraCodeCodedSecondSetValue.al:746), then OK() and its Invoke (:1407 `ok=`,
+            // `CodedObjects::ok_after`).
             (FactboxStep::Coded { steps }, TestCall::Write(i), None)
-                if root.borrow().coded_objects.later_set_value(steps) && self.coded_value_control(&root, i) =>
+                if root.borrow().coded_objects.later_set_value(steps) && self.coded_later_control(&root, i) =>
             {
                 FactboxStep::CodedTyped { steps }
             }
@@ -1148,10 +1255,20 @@ impl Session {
                 FactboxStep::CodedOk
             }
             (FactboxStep::CodedOk, TestCall::Other(PageMethod::Invoke), None) => step,
+            // A page of the shape of the page with code: one SetValue of a control without code, then reads and OK only
+            // (ListNewLineExtraCodeCodedPage.al:762-809; review of al-runner PR 8834, 21:06Z: not the FactBox host's
+            // Previous and Close).
+            (FactboxStep::Coded { steps: 0 }, TestCall::Write(i), None)
+                if root.borrow().coded_objects == super::state::CodedObjects::Extra
+                    && self.control_without_code(&root, i) =>
+            {
+                FactboxStep::CodedExtraTyped
+            }
             _ => {
                 root.borrow_mut().forget_code_inserted_line();
                 return unsupported(match step {
                     FactboxStep::ExtraLanded | FactboxStep::ExtraTyped => MOVE_OFF_EXTRA_ROW,
+                    FactboxStep::CodedExtraTyped => MOVE_OFF_CODED_EXTRA_ROW,
                     _ => MOVE_OFF_FACTBOX_ROW,
                 });
             }
@@ -1200,3 +1317,8 @@ const MOVE_OFF_FACTBOX_ROW: &str = "a call on a List page with a CardPart FactBo
 /// The refusal of a call that leaves the row of the page with triggers and a FactBox other than as measured.
 const MOVE_OFF_EXTRA_ROW: &str = "a call on a List page with page triggers and a FactBox, on the row its new line became, other \
                                   than control reads, one SetValue, then OK() (not measured)";
+
+/// The refusal of a call that leaves the row of a page of the shape of the page with code other than as measured.
+const MOVE_OFF_CODED_EXTRA_ROW: &str = "a call on a List page of the shape of the page with code and FactBoxes, on the row its new \
+                                        line became, other than control reads, one SetValue of a control without code, then OK() \
+                                        (not measured)";

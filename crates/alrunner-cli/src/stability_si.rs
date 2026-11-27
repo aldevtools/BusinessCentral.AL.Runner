@@ -108,6 +108,22 @@ impl SiReport {
         }
     }
 
+    /// [`SiReport::new`] from the base variant's run `base`, then [`SiReport::with_fresh_runs`] of `base` and the other
+    /// variants' runs `variants`, in the plan's order.
+    pub fn of_runs(
+        base: &al_testrun::runtime::CorpusRuntime,
+        variants: &[al_testrun::runtime::CorpusRuntime],
+        own_apps: &[String],
+        plan: &crate::stability::Plan,
+        seen: &[Vec<Seen>],
+    ) -> SiReport {
+        let taken: Vec<_> = std::iter::once(base)
+            .chain(variants)
+            .map(|r| r.numbers_taken_after())
+            .collect();
+        SiReport::new(base.single_carried(), own_apps, plan).with_fresh_runs(plan, &taken, seen)
+    }
+
     /// ADR-070 decision 7: what the `fresh` variants' own runs tell: the numbers each of their tests took after an
     /// earlier codeunit took some, and the outcomes of the first. `taken_after` and `seen` hold every variant's, in the
     /// plan's order.

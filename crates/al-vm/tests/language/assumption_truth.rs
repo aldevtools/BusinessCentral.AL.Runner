@@ -255,7 +255,7 @@ codeunit 69875 T
 }
 "#;
 
-/// pages/triggers/NewLineStampsFilters.al:214-237 PartB_ExistingHeaderTypeA_NewLine: the part's
+/// pages/triggers/NewLineStampsFilters.al:235-256 PartB_ExistingHeaderTypeA_NewLine: the part's
 /// SourceTableView `Type = const(B)` is not stamped on the blank line, the link field's OnValidate sees A.
 #[test]
 fn a_new_part_line_keeps_a_view_field_outside_the_key_unstamped() {

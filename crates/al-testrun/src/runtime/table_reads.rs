@@ -203,7 +203,7 @@ pub(crate) fn reads_only(lowered: &Lowered, o: usize, r: usize, t: usize) -> boo
         Expr::Call { args, .. } | Expr::InterfaceCall { args, .. } | Expr::DotNet { args, .. } => refs(args, &mut uses),
         Expr::Builtin { id, receiver, args, .. } => {
             refs(args, &mut uses);
-            let read = read(id.name(), args);
+            let read = read(id.written_base().name(), args);
             match receiver.as_deref() {
                 Some(Arg::Ref(p)) => {
                     uses += usize::from(mine(p));

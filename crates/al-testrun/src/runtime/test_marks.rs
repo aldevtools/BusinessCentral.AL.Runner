@@ -23,7 +23,7 @@ impl Scratch {
         (reached, answered)
     }
 
-    /// The outcome of the test `name` that `skip_after_timeout` or `stop_after_first_failure` leaves out for `why`; the
+    /// The outcome of the test `name` that `skip_after_timeout` or a stop (`stop.rs`) leaves out for `why`; the
     /// test is marked (`TestResult::skipped_by_option`) while its outcome is still that one.
     pub(super) fn skip(&mut self, name: &str, why: &str) -> crate::Outcome {
         self.skipped.push((name.to_string(), why.to_string()));
@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn a_left_out_test_a_later_step_refused_is_not_marked() {
-        let mut scratch = Scratch::default();
+        let mut scratch = Scratch::new(crate::host::RunClock::begin());
         let mut done = vec![("T".to_string(), scratch.skip("T", "stopped"))];
         super::super::corpus::refuse_all(&mut done, "refused after the pass");
         let mut r = bare(done[0].1.clone());
@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn a_left_out_test_keeps_its_mark() {
-        let mut scratch = Scratch::default();
+        let mut scratch = Scratch::new(crate::host::RunClock::begin());
         let mut r = bare(scratch.skip("T", "stopped"));
         scratch.move_marks("T", Some(&mut r));
         assert!(r.skipped_by_option);

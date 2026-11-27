@@ -320,6 +320,7 @@ fn webhook_tables_are_stored_tables() {
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && !m.is_empty());
     let get = |n: &str| out.iter().find(|(x, _)| x == n).map(|(_, o)| o.clone()).expect(n);
@@ -1209,6 +1210,31 @@ codeunit 50000 "T" { Subtype = Test;
     );
     passes(&o, "XmlPort");
     passes(&o, "Query");
+}
+
+/// The APIVersion column holds two to four declared versions (corpus PageMetadataMultiApiVersion.al, assumption
+/// `api-version-list-comma-joined`); five are not measured, so a read of the column is refused while another column of
+/// the same row still reads.
+#[test]
+fn an_api_object_with_five_versions_refuses_its_api_version_column_only() {
+    let o = outcomes(
+        r#"table 50001 "Thing" { fields { field(1; "No."; Integer) { } } keys { key(PK; "No.") { Clustered = true; } } }
+page 50002 "P" { PageType = API; APIPublisher = 'pub'; APIGroup = 'grp'; APIVersion = 'v1.0', 'v2.0', 'v3.0', 'v4.0', 'beta'; EntityName = 'p'; EntitySetName = 'ps';
+  SourceTable = Thing; DelayedInsert = true; ODataKeyFields = "No."; layout { area(Content) { field(no; Rec."No.") { } } } }
+query 50003 "Q" { QueryType = API; APIPublisher = 'pub'; APIGroup = 'grp'; APIVersion = 'v1.0', 'v2.0', 'v3.0', 'v4.0', 'beta'; EntityName = 'q'; EntitySetName = 'qs';
+  elements { dataitem(Thing; Thing) { column(No; "No.") { } } } }
+codeunit 50000 "T" { Subtype = Test;
+  [Test] procedure PageVersion() var M: Record "Page Metadata"; begin M.Get(50002); if M.APIVersion = '' then Error('empty'); end;
+  [Test] procedure PageName() var M: Record "Page Metadata"; begin M.Get(50002); if M.Name <> 'P' then Error('name'); end;
+  [Test] procedure QueryVersion() var M: Record "Query Metadata"; begin M.Get(50003); if M.APIVersion = '' then Error('empty'); end;
+  [Test] procedure QueryName() var M: Record "Query Metadata"; begin M.Get(50003); if M.Name <> 'Q' then Error('name'); end; }"#,
+    );
+    for test in ["PageVersion", "QueryVersion"] {
+        let why = not_run(&o, test);
+        assert!(why.contains("APIVersion declares 5 versions"), "{test}: {why}");
+    }
+    passes(&o, "PageName");
+    passes(&o, "QueryName");
 }
 
 /// An xmlport that leaves `Encoding` out reads UTF16 (xmlports/TestPlatformMetadataDefaultsContracts.al:93),
@@ -2441,6 +2467,7 @@ codeunit 50000 "T" { Subtype = Test;
             &mut Vec::new(),
             &mut hits,
             None,
+            al_testrun::host::RunClock::begin(),
         );
         out.iter()
             .map(|(n, o)| {
@@ -3021,6 +3048,7 @@ fn feature_key_rows_follow_the_platform_build() {
             &mut Vec::new(),
             &mut hits,
             None,
+            al_testrun::host::RunClock::begin(),
         );
         (out, hits)
     };
@@ -4561,6 +4589,7 @@ fn windows_language_primary_language_id_is_the_primary_culture_lcid_on_an_assump
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     let a = al_builtins::assumptions::Assumption::WindowsLanguagePrimaryLanguageId;
     for (n, o) in &out {
@@ -4605,6 +4634,7 @@ codeunit 50000 "T" { Subtype = Test;
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     let flagged = |n: &str| hits.iter().any(|(h, m)| h == n && !m.is_empty());
     let get = |n: &str| out.iter().find(|(x, _)| x == n).map(|(_, o)| o.clone()).expect(n);
@@ -4657,6 +4687,7 @@ fn ext_event_hits(src: &str, dep: Option<&str>) -> Vec<(String, Outcome, Vec<&'s
         &mut Vec::new(),
         &mut hits,
         None,
+        al_testrun::host::RunClock::begin(),
     );
     out.into_iter()
         .map(|(n, o)| {

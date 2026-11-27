@@ -9,24 +9,22 @@
 //! (`Rc::strong_count` > 1) has a number by first sight too, and its content is written once as `shared <n> <content>`. A
 //! handle with one owner cannot be shared, so it is written in place.
 //!
-//! the one owner of how a value reads in `Session::state_lines` (`Render`): every `Value` variant and
-//! every `LibraryValue` variant has a rule (a match with no wildcard, so a new variant has to get
-//! one): an exact form, or `Err` with why it has none and its path (ids, indexes and type names
-//! only). Exact forms: a codeunit instance by a number by first sight, its globals once; an array and
-//! a List element by element with runs of equal elements once (a List with its change count); a
-//! Dictionary entry by entry as stored; a Record and a RecordRef by one rule (`record`): a temporary
-//! table by its number by first sight (its rows once), a real one by its id, and everything the
-//! variable carries (view, position, buffer, marks, load state, company, its table globals'
-//! instances; its own read as whether its counts are current); a FieldRef and a KeyRef by their
-//! record buffer and index; a RecordRef not open or closed as that; JSON and XML nodes by their tree
-//! (a node reached from a variable with the node it hangs in); HTTP messages, content and headers,
-//! ErrorInfo, FilterPageBuilder and a query by their state with the values and handles they hold by
-//! these rules; text, TextBuilder, Version, Notification, ModuleInfo and the other plain library
-//! states by value; plain values by `single_track::fp`. Any handle more than one owner holds is
-//! numbered by first sight and written once (`shared <n>`). No form: a .NET object of the process, a
-//! SQL counter value, a placeholder output's size, a test page or control, SecretText, HttpClient,
-//! File, an open InStream or OutStream, a CRM record, a temporary record whose rows are not measured.
-//! Entry points: `Render::new`, `Render::value`, `content`.
+//! The one owner of how a value reads in `Session::state_lines` (`Render`): every `Value` variant and every
+//! `LibraryValue` variant has a rule (a match with no wildcard, so a new variant has to get one): an exact form, or
+//! `Err` with why it has none and its path (ids, indexes and type names only). Exact forms: a codeunit instance by a
+//! number by first sight, its globals once; an array and a List element by element with runs of equal elements once (a
+//! List with its change count); a Dictionary entry by entry as stored; a Record and a RecordRef by one rule (`record`):
+//! a temporary table by its number by first sight (its rows once), a real one by its id, and everything the variable
+//! carries (view, position, buffer, marks, load state, company, its table globals' instances; its own read as whether
+//! its counts are current); a FieldRef and a KeyRef by their record buffer and index; a RecordRef not open or closed as
+//! that; JSON and XML nodes by their tree (a node reached from a variable with the node it hangs in); HTTP messages,
+//! content and headers, ErrorInfo, FilterPageBuilder and a query by their state with the values and handles they hold
+//! by these rules; text, TextBuilder, Version, Notification, ModuleInfo and the other plain library states by value;
+//! plain values by `single_track::fp`, and a DotNet object the runtime serves itself the same way but numbered as a
+//! handle (its state can change). Any handle more than one owner holds is numbered by first sight and written once
+//! (`shared <n>`). No form: a .NET object of the process, a SQL counter value, a placeholder output's size, a test page
+//! or control, SecretText, HttpClient, File, an open InStream or OutStream, a CRM record, a temporary record whose rows
+//! are not measured. Entry points: `Render::new`, `Render::value`, `content`.
 
 use crate::Session;
 use al_builtins::library_kind::LibraryKind;
@@ -92,12 +90,19 @@ impl<'a> Render<'a> {
             Value::PlaceholderSize(..) => {
                 Err("byte size of a placeholder report output (it answers only in the session that wrote it)".into())
             }
-            Value::DotNet(_) => match crate::single_track::fp(v, &self.session.engine) {
-                crate::single_track::Fp::Val(bytes) => Ok(content(&bytes)),
-                crate::single_track::Fp::Opaque(_) => {
-                    Err("DotNet object (an object of the .NET process: a handle of its session)".into())
-                }
-            },
+            // Numbered when shared: an object the runtime serves itself holds a state that can change.
+            Value::DotNet(d) => {
+                self.shared(
+                    Rc::as_ptr(d) as usize,
+                    Rc::strong_count(d),
+                    |s| match crate::single_track::fp(v, &s.session.engine) {
+                        crate::single_track::Fp::Val(bytes) => Ok(content(&bytes)),
+                        crate::single_track::Fp::Opaque(_) => {
+                            Err("DotNet object (an object of the .NET process: a handle of its session)".into())
+                        }
+                    },
+                )
+            }
             Value::Null
             | Value::Boolean(_)
             | Value::Integer(_)
@@ -637,6 +642,7 @@ impl Render<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use al_builtins::text::Txt;
     use al_builtins::value::{SqlCount, SqlForm, SqlType};
 
     /// A session over a table and a codeunit whose globals are a record of the table and a temporary one; the globals of
@@ -814,5 +820,73 @@ mod tests {
         al_builtins::errorinfo::set_callstack_of(&with, "\"P\"(CodeUnit 1).Collect line 5\r\n");
         let mut render = Render::new(&session);
         assert_ne!(render.value(&with, 0), render.value(&without, 0));
+    }
+
+    // A DotNet object the runtime serves itself holds a state that can change (`DotNetKind::Internal`), so one object two
+    // globals share and two equal objects do not hold the same (issue 8211).
+    #[test]
+    fn one_shared_dotnet_object_and_two_equal_ones_render_apart() {
+        let (session, _) = session_and_records();
+        let object = || {
+            Rc::new(al_builtins::value::DotNetObject::new(
+                al_builtins::value::DotNetKind::Internal {
+                    type_name: "X.Y".into(),
+                    state: RefCell::new(vec![Value::Integer(1)]),
+                },
+            ))
+        };
+        let render = |a: Value, b: Value| {
+            let mut r = Render::new(&session);
+            let texts = (r.value(&a, 0), r.value(&b, 0));
+            (texts, r.lines)
+        };
+        let shared = object();
+        let one = render(Value::DotNet(shared.clone()), Value::DotNet(shared));
+        let two = render(Value::DotNet(object()), Value::DotNet(object()));
+        assert_ne!(one, two);
+    }
+
+    // Issue 9202: the state lines the login replay check compares (and the replay key digests) wrote a lone surrogate
+    // half as the U+FFFD that holds its place, so a session holding the high half, the low half or U+FFFD itself
+    // rendered the same. Every text value the render takes keeps its exact units: a Text and a Code (the byte form,
+    // `value_codec`), a TextConst, a TextBuilder with and without a capacity and a BigText (the text form, `Txt`'s
+    // Debug).
+    #[test]
+    fn texts_that_differ_only_in_a_lone_half_render_apart() {
+        let (session, _) = session_and_records();
+        type Form = fn(Txt) -> Value;
+        let forms: [(&str, Form); 6] = [
+            ("Text", Value::Text),
+            ("Code", Value::Code),
+            ("TextConst", |t| {
+                Value::TextConst(t, al_builtins::value::TextConstFrom::Label)
+            }),
+            ("TextBuilder", |t| {
+                library(LibraryKind::TextBuilder, LibraryValue::Text(t))
+            }),
+            ("TextBuilder with a capacity", |t| {
+                library(LibraryKind::TextBuilder, LibraryValue::TextCap(t, 32))
+            }),
+            ("BigText", |t| library(LibraryKind::BigText, LibraryValue::Text(t))),
+        ];
+        let texts: [&[u16]; 5] = [
+            &[0x61, 0xD83D],
+            &[0x61, 0xD83E],
+            &[0x61, 0xDE01],
+            &[0x61, 0xFFFD],
+            &[0x61, 0x5C, 0x75],
+        ];
+        for (name, form) in forms {
+            let mut render = Render::new(&session);
+            let mut seen: Vec<(Out, &[u16])> = Vec::new();
+            for units in texts {
+                let out = render.value(&form(Txt::from_units(units)), 0);
+                assert!(out.is_ok(), "{name} {units:x?}: {out:?}");
+                if let Some((_, other)) = seen.iter().find(|(o, _)| *o == out) {
+                    panic!("{name}: {units:x?} renders as {other:x?} does: {out:?}");
+                }
+                seen.push((out, units));
+            }
+        }
     }
 }

@@ -79,22 +79,28 @@ impl Session {
     }
 
     /// Notes that a guarded Insert of `rec` answered false (the key existed): the buffer keeps the version it had, and a Modify
-    /// through it is refused when the row is newer (record/crud/Y71FailedInsertModify.al).
+    /// through it is refused when the row is newer (record/crud/Y71FailedInsertModify.al). The version's entry counts
+    /// it.
     pub(crate) fn note_failed_insert(&self, t: &TableDef, rec: &Rec, outcome: &Result<Value, Signal>) {
         if !(self.ret_used && matches!(outcome, Ok(Value::Boolean(false))) && !rec.borrow().temporary) {
             return;
         }
         if let Some(i) = t.fields.iter().position(|f| f.id == 2_000_000_005) {
             let mut b = rec.borrow_mut();
-            b.failed_insert = Some(if let Value::BigInteger(n) = &b.fields[i] { *n } else { 0 });
+            let v = if let Value::BigInteger(n) = &b.fields[i] { *n } else { 0 };
+            b.failed_insert = Some(v);
+            if let Some(e) = b.version_entry.0.as_mut().filter(|e| e.source.version == v) {
+                e.failed_inserts += 1;
+            }
         }
     }
 
     /// A buffer whose Insert failed on the existing key and whose row another writer changed since it was read cannot be saved,
     /// with no Commit in between (Y71FailedInsertModify.al:FailedInsert_ThenModify_*). A buffer never read (version 0) writes.
-    /// A buffer whose version came from its own Modify of another row writes.
+    /// So does one whose version came from its own Modify of another row, or reached it after the open transaction had
+    /// written or locked the table (`version_entry.rs` `version_after_table_write`).
     pub(crate) fn check_failed_insert_stale(
-        &self,
+        &mut self,
         t: &TableDef,
         rec: &Rec,
         stored: Option<&[Value]>,
@@ -107,15 +113,7 @@ impl Session {
         let mine = version(&rec.borrow().fields[i]);
         // Only while the buffer still holds the version it had at the failed Insert (a Get since gives it a new one).
         if failed.is_some_and(|v| v != 0 && v == mine && v < version(&row[i])) {
-            // A version the buffer's own Modify of another row gave it (the key changed before the Insert: `if not Insert then
-            // Modify` over two rows) is not the row's: the Modify writes, in every measured variant (record/crud/
-            // CodeunitRunTableNoWrites.al:828-904 BothRows_Twice_SameNote, _CommitBetween, _NewNote, InRow_Twice,
-            // BothRows_ThenOutOnly, InOnly_ThenBothRows; al-runner issue 7798).
-            let other_row = rec.borrow().last_modify.as_ref().is_some_and(|img| {
-                version(&img[i]) == mine
-                    && !crate::records::same_key(&t.primary_key(img), &t.primary_key(&rec.borrow().fields))
-            });
-            if other_row {
+            if self.version_after_table_write(t, rec, mine)? {
                 return Ok(());
             }
             return Err(self.record_changed(t, rec)?);

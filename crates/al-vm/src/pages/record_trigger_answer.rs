@@ -23,9 +23,7 @@
 //! (from `page_trigger_answer`); `insert_draft` raises the filtered-view error for the insert veto
 //! (`named_false_insert`).
 
-use super::pinned_shape::{
-    PinnedCode, TestCall, code_stmts, rec_text_log_call, text_log_routine, unconverted, without_pos,
-};
+use super::pinned_shape::{PinnedCode, TestCall, code_stmts, rec_text_log_call, text_log_routine, without_pos};
 use super::*;
 use al_builtins::page_op::PageMethod;
 
@@ -296,7 +294,7 @@ fn mod_mode_form(program: &ir::Program, object: usize, r: usize) -> bool {
     let local_log = matches!(&**log, ir::Expr::Load(ir::Place::Local(l))
         if locals.get(*l).is_some_and(|s| matches!(s.ty, RtType::Codeunit(_))));
     fn text(rec: usize, mode: &ir::Expr, e: &ir::Expr) -> bool {
-        match unconverted(e) {
+        match e.unconverted() {
             ir::Expr::Const(ir::Const::Text(_)) => true,
             ir::Expr::Load(ir::Place::Field(base, _)) => matches!(**base, ir::Place::Global(g) if g == rec),
             ir::Expr::Binary(ir::BinOp::Add, a, b) => text(rec, mode, a) && text(rec, mode, b),
@@ -314,7 +312,7 @@ fn mod_mode_form(program: &ir::Program, object: usize, r: usize) -> bool {
     let selects = |set: &[ir::SetElem], n: i32| matches!(set, [ir::SetElem::One(ir::Expr::Const(ir::Const::Integer(i)))] if *i == n);
     let exits = |body: &[ir::Stmt], value: bool| {
         matches!(without_pos(body).as_slice(), [ir::Stmt::Exit(Some(e))]
-            if matches!(unconverted(e), ir::Expr::Const(ir::Const::Boolean(b)) if *b == value))
+            if matches!(e.unconverted(), ir::Expr::Const(ir::Const::Boolean(b)) if *b == value))
     };
     // `Other.Get(<constant>); Rec := Other;` with `Other` a local record.
     let assigns_other = |body: &[ir::Stmt]| match without_pos(body).as_slice() {

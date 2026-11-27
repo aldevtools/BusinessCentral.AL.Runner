@@ -89,6 +89,13 @@ pub trait FormatCtx {
     }
 }
 
+/// Whether the session is the en-US one the probes ran in: GlobalLanguage 1033, no `CurrReport.FormatRegion` and a region that is
+/// pinned. The one check for every path that is measured in that session only. `format/length.rs` `measured_culture` is
+/// deliberately not this check: it does not read the language (its cells name no language) and uses `region_in_force`.
+pub fn en_us_session(c: &dyn FormatCtx) -> bool {
+    c.language() == 1033 && c.region().is_none() && c.region_unpinned().is_none()
+}
+
 /// A context without the format region, for the plain en-US text a region then rewrites.
 struct WithoutRegion<'a>(&'a dyn FormatCtx);
 
@@ -313,7 +320,7 @@ fn bigtext_text(l: &crate::value::LibraryValue) -> Result<String, String> {
         crate::value::LibraryValue::Text(s) if crate::rendered_text::holds(s) => {
             Ok(crate::rendered_text::to_changed(s))
         }
-        crate::value::LibraryValue::Text(s) => Ok(s.clone()),
+        crate::value::LibraryValue::Text(s) => Ok(s.to_string()),
         _ => Err("Format of a BigText of this kind is not pinned".to_string()),
     }
 }
@@ -587,7 +594,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             if matches!(&*l.borrow(), crate::value::LibraryValue::Text(_)) =>
         {
             match &*l.borrow() {
-                crate::value::LibraryValue::Text(s) => s.clone(),
+                crate::value::LibraryValue::Text(s) => s.to_string(),
                 _ => unreachable!(),
             }
         }
@@ -602,7 +609,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
             if name == "TableFilter" && matches!(&*l.borrow(), crate::value::LibraryValue::Text(_)) =>
         {
             match &*l.borrow() {
-                crate::value::LibraryValue::Text(s) => s.clone(),
+                crate::value::LibraryValue::Text(s) => s.to_string(),
                 _ => unreachable!(),
             }
         }
@@ -711,7 +718,7 @@ pub fn format_value(v: &Value, length: i32, standard: i32, ctx: &dyn FormatCtx) 
         }
         // A BigText formats as its text (streams/StTBigText.al:ConvertTextAndBack `format` direct).
         Value::Library(name, l) if name.as_str() == "BigText" && standard == 0 => match &*l.borrow() {
-            crate::value::LibraryValue::Text(t) => t.clone(),
+            crate::value::LibraryValue::Text(t) => t.to_string(),
             crate::value::LibraryValue::Empty => String::new(),
             _ => return Err("Format of a BigText with a capacity".to_string().into()),
         },

@@ -12,7 +12,7 @@
 //! `insert_draft`'s xRec; xRec is put back when the insert does not happen. Entry points:
 //! `insert_at_second_control` (by `activate`).
 
-use super::pinned_shape::{PartStep, PinnedPart, TestCall, code_stmts, table_code, text_log_routine, unconverted};
+use super::pinned_shape::{PartStep, PinnedPart, TestCall, code_stmts, table_code, text_log_routine};
 use super::*;
 use al_builtins::page_op::PageMethod;
 
@@ -173,7 +173,7 @@ impl Session {
 /// constants and `Format(x)` of a value `formatted` accepts.
 fn log_call(program: &ir::Program, routine: &ir::Routine, s: &ir::Stmt, formatted: &dyn Fn(&ir::Expr) -> bool) -> bool {
     fn text(e: &ir::Expr, formatted: &dyn Fn(&ir::Expr) -> bool) -> bool {
-        match unconverted(e) {
+        match e.unconverted() {
             ir::Expr::Const(ir::Const::Text(_)) => true,
             ir::Expr::Binary(ir::BinOp::Add, a, b) => text(a, formatted) && text(b, formatted),
             ir::Expr::Builtin {
@@ -183,7 +183,7 @@ fn log_call(program: &ir::Program, routine: &ir::Routine, s: &ir::Stmt, formatte
                 ..
             } => {
                 *id == al_builtins::builtin_id::ids::SYSTEM_FORMAT_1
-                    && matches!(args.as_slice(), [ir::Arg::Value(v)] if formatted(unconverted(v)))
+                    && matches!(args.as_slice(), [ir::Arg::Value(v)] if formatted(v.unconverted()))
             }
             _ => false,
         }
@@ -226,7 +226,7 @@ fn measured_part_trigger_body(program: &ir::Program, page: usize, name: &str, r:
             || matches!(e, ir::Expr::Load(ir::Place::Local(l)) if *l < routine.params)
     };
     let log = |s: &ir::Stmt| log_call(program, routine, s, &formatted);
-    let exits_true = |e: &ir::Expr| matches!(unconverted(e), ir::Expr::Const(ir::Const::Boolean(true)));
+    let exits_true = |e: &ir::Expr| matches!(e.unconverted(), ir::Expr::Const(ir::Const::Boolean(true)));
     let mut stmts = code_stmts(program, page, r);
     // The lowering ends a trigger with a return value by an `exit` of its default, unreachable after an `exit`.
     if let [.., ir::Stmt::Exit(Some(_)), ir::Stmt::Exit(Some(_))] = stmts.as_slice() {
@@ -251,10 +251,10 @@ fn measured_table_trigger_body(program: &ir::Program, t: usize, r: usize, rec: u
         let ir::Stmt::Assign(ir::Place::Field(base, f), v) = s else {
             return false;
         };
-        let value = match unconverted(v) {
+        let value = match v.unconverted() {
             ir::Expr::Const(_) => true,
             ir::Expr::Binary(ir::BinOp::Add, a, b) => {
-                field_of(unconverted(a), rec) == Some(*f) && matches!(unconverted(b), ir::Expr::Const(_))
+                field_of(a.unconverted(), rec) == Some(*f) && matches!(b.unconverted(), ir::Expr::Const(_))
             }
             _ => false,
         };

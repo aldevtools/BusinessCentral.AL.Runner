@@ -10,6 +10,7 @@
 //! Entry points: `TxModel`, `CommitBehavior`, `codeunit_run`, `commit_transaction` (every commit and
 //! what it ends).
 
+use crate::consistent_marks::{ArgRecord, RunArg, RunEnd, RunStart};
 use crate::{AlError, Session, Signal};
 use al_builtins::builtin_id::ids;
 use al_builtins::native::unsupported;
@@ -313,16 +314,15 @@ impl Session {
         self.gate_used_try_write("COMMIT")?;
         // A table `Consistent(false)` marked fails the Commit (errors/CuCommitTests.al:405-419
         // Consistent_False_ThenCommit); `Consistent(true)` lifts the mark (:422-433).
-        self.refuse_commit_after_other_variable()?;
-        if let Some(m) = self.tx.open.inconsistent.first() {
-            return Err(self.inconsistent_error(m.table as usize));
+        if let Some(e) = self.commit_mark_error() {
+            return Err(e);
         }
         // A deferred duplicate-key Insert comes out here (corpus record/TestRecordRuntimeTextsAndViews.al:
         // Record_Insert_DuplicateKey_WithoutBlobField_IsDeferred_...: "raised by Commit").
         if let Some(d) = self.tx.open.deferred_insert.take() {
             return Err(Signal::Error(Box::new(d.error)));
         }
-        self.commit_transaction();
+        self.commit_as(crate::CommitBy::Statement);
         // A Commit puts LockTimeout back on (session-system/PnBRecordMisc.al:LastUsedRowVersion_AndLockTimeout
         // `lockTimeoutAfterCommit`). The timeout duration is not pinned.
         self.tx.lock_timeout = true;
@@ -333,35 +333,6 @@ impl Session {
         Ok(())
     }
 
-    /// The error of a Commit while `Consistent(false)` marks `table` (errors/CuCommitTests.al:405-419). The
-    /// table is named in the text; only a table whose caption is its name is pinned.
-    pub(crate) fn inconsistent_error(&self, table: usize) -> Signal {
-        let t = &self.engine.program.objects[table];
-        let caption = t
-            .properties
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("Caption"))
-            .map(|(_, v)| v.trim().trim_matches('\'').to_string());
-        if caption.is_some_and(|c| c != t.name) {
-            return Signal::unsupported(format!(
-                "Commit after Consistent(false) on table {}, which has a caption other than its name (which one the error names is not pinned)",
-                t.name
-            ));
-        }
-        al_error_code(
-            &format!(
-                "The transaction cannot be completed because it will cause inconsistencies in the {} table. Check where and how \
-                 the CONSISTENT function is used in the transaction to find the reason for the error.\\\\Contact your system \
-                 administrator.\\\\Tables can be marked as inconsistent during comprehensive tasks, such as posting. This \
-                 prevents data from being updated incorrectly.",
-                t.name
-            ),
-            "DB:TableInConsistent",
-        )
-    }
-
-    /// The name of a table `Consistent(false)` marks in the open transaction, for the test runner's commit at the end of a
-    /// test (not pinned: refused there).
     /// The table of a duplicate-key `Insert` whose error is still deferred: the next access to the table or a `Commit`
     /// raises it (record/TestRecordRuntimeTextsAndViews.al:180-209). `None` when there is none.
     pub fn deferred_insert_table(&self) -> Option<String> {
@@ -375,26 +346,6 @@ impl Session {
     /// Takes the error of a duplicate-key `Insert` that is still deferred, for the test runner at the end of a test.
     pub fn take_deferred_insert_error(&mut self) -> Option<AlError> {
         self.tx.open.deferred_insert.take().map(|d| d.error)
-    }
-
-    pub fn inconsistent_table(&self) -> Option<String> {
-        self.tx
-            .open
-            .inconsistent
-            .first()
-            .map(|m| self.engine.program.objects[m.table as usize].name.clone())
-    }
-
-    /// A transaction that ends other than by `Commit()` while `Consistent(false)` marks a table: what BC does is not
-    /// pinned (only `Commit()` is, errors/CuCommitTests.al:405-419), so it is refused.
-    pub(crate) fn refuse_inconsistent_end(&self, how: &str) -> Result<(), Signal> {
-        match self.tx.open.inconsistent.first() {
-            Some(m) => Err(Signal::unsupported(format!(
-                "{how} ends a transaction while Consistent(false) marks table {} (only Commit() is pinned)",
-                self.engine.program.objects[m.table as usize].name
-            ))),
-            None => Ok(()),
-        }
     }
 
     /// A TryFunction call whose result is used begins: `consumer` is the frame count of the caller that uses the
@@ -454,11 +405,7 @@ impl Session {
 
     /// The `Subtype` object `o` declares, trimmed; `None` when it declares none.
     pub(crate) fn declared_subtype(&self, o: usize) -> Option<&str> {
-        self.engine.program.objects[o]
-            .properties
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
-            .map(|(_, v)| v.trim())
+        declared_subtype(&self.engine.program.objects[o].properties)
     }
 
     pub(crate) fn leave_used_try(&mut self) {
@@ -867,7 +814,8 @@ impl Session {
             if self.in_write_transaction()? {
                 // The same refusal under AutoRollback, and inside a TryFunction, which traps it
                 // and returns false (codeunits/TestCodeunitRunErrorTextsAndModels.al:93-160 and
-                // :248-262).
+                // :248-262). With a Consistent(false) mark it is refused (consistent_marks.rs).
+                self.refuse_write_and_mark_at_run_start()?;
                 return Err(transaction_stopped());
             }
         }
@@ -889,7 +837,10 @@ impl Session {
         // under TransactionModel::None, and the transaction ends with the run
         // (codeunits/TestWriteTxTestBoundary.al:Test10_ARunCodeunitMayWriteUnderNone).
         let began_world = self.tx_model == TxModel::None && self.tx.tx_world == 0;
-        let marks_before = if guarded { self.marks_at_run_start() } else { Vec::new() };
+        let marks_before = if guarded { self.mark_snapshot() } else { Vec::new() };
+        let commits_before = self.commits;
+        let run_arg = RunArg::of(record_arg, &self.engine.field_facts, &self.engine.tables);
+        let arg_record = guarded.then(|| ArgRecord::of(record_arg)).flatten();
         self.tx.tx_world += 1;
         if let Some(t) = self.tx.used_tries.last_mut() {
             t.runs += 1;
@@ -921,17 +872,18 @@ impl Session {
             t.runs -= 1;
         }
         self.tx.tx_world -= 1;
-        // The pin runs Codeunit.Run(Id) without a record, and an inner error it raises is the one of `Error`
-        // (errors/ConsistentGuardedRun.al:180, :100, :221-236).
-        let pinned_end =
-            record_arg.is_none() && (result.is_ok() || matches!(&result, Err(Signal::Error(e)) if e.code == "Dialog"));
-        if guarded && self.pages.bg_worker.is_none() && pinned_end {
-            if let Some(e) = self.guarded_run_end_marks(&marks_before, result.is_ok())? {
+        // What the run does with Consistent(false) marks as it ends (consistent_marks.rs); an inner refusal keeps its own reason.
+        if let Some(end) = RunEnd::of(&result).filter(|_| guarded && self.pages.bg_worker.is_none()) {
+            let start = RunStart {
+                marks: &marks_before,
+                commits: commits_before,
+                arg: run_arg,
+                arg_record: arg_record.as_ref(),
+                marks_dropped_inside: body.as_ref().is_some_and(|b| b.marks_dropped_inside),
+            };
+            if let Some(e) = self.guarded_run_end_marks(start, end)? {
                 return Err(e);
             }
-        } else if guarded && self.pages.bg_worker.is_none() && matches!(&result, Ok(_) | Err(Signal::Error(_))) {
-            // Every other end of a run that leaves a mark is refused; an inner refusal keeps its own reason.
-            self.refuse_inconsistent_end("A guarded Codeunit.Run")?;
         }
 
         match result {
@@ -952,7 +904,7 @@ impl Session {
                     let mut e = Box::new(d.error);
                     self.add_top_frame(&mut e);
                     if self.pages.bg_worker.is_none() {
-                        self.rollback_transaction();
+                        self.rollback_failed_run();
                     }
                     self.catch_error(*e)?;
                     if let Some(c) = caller_rec.take() {
@@ -961,7 +913,7 @@ impl Session {
                     return Ok(Value::Boolean(false));
                 }
                 if self.pages.bg_worker.is_none() {
-                    self.commit_transaction();
+                    self.commit_as(crate::CommitBy::GuardedRun);
                 }
                 Ok(Value::Boolean(true))
             }
@@ -1049,6 +1001,7 @@ impl Session {
 
     /// Makes every change so far durable (and a Truncate of this transaction final).
     pub fn commit_transaction(&mut self) {
+        self.note_commit_for_version_entries();
         self.note_row_locks_commit();
         self.note_commit_for_query_cache();
         self.guarded_body_commit();
@@ -1056,6 +1009,7 @@ impl Session {
         al_data::Store::commit(&mut self.store);
         self.crm_committed();
         self.commits += 1;
+        self.note_tx_end(true);
         self.sql.committed();
         self.truncate_undo.clear();
         // Rows at or below this rowversion are durable: a buffer older than one of them is stale.
@@ -1073,6 +1027,14 @@ impl Session {
         let removed = std::mem::take(&mut self.media_removed.0);
         self.media_removed.1.extend(removed);
     }
+}
+
+/// The `Subtype` an object with these properties declares, trimmed; `None` when it declares none.
+pub(crate) fn declared_subtype(properties: &[(String, String)]) -> Option<&str> {
+    properties
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
+        .map(|(_, v)| v.trim())
 }
 
 #[cfg(test)]

@@ -201,6 +201,9 @@ pub struct TestArgs {
     /// `--stop-after-first-failure` (al-runner issue 8210): once a test fails, the rest of its codeunit and every later
     /// serve entry are not run and end as not run, naming that test; a selection runs only the tests it picks.
     pub stop_after_first_failure: bool,
+    /// `--stop-after-timeout` (al-runner issue 9213): once the time limit stops a test, the rest of its codeunit and every
+    /// later serve entry are not run and end as not run, naming that test; a selection runs only the tests it picks.
+    pub stop_after_timeout: bool,
     pub require_dotnet: bool,
     /// `--require-report-renderer` (ADR-040 amendment 2026-11-15): a save whose real Html needs BC's own merger and converter
     /// refuses when the report renderer is unavailable, instead of keeping the opaque Html.
@@ -639,6 +642,11 @@ COMPILE CACHE
     under a key of the al-runner build, the dependency apps, the app's sources, the BC target, the
     environment, the demo backup and the day, and a run that finds it starts its clock at the
     instant the run that made it began.
+    The compiled workspace apps are kept as well (the workspace layer, <build>-ws-<project>-<key>.alcw
+    files, at most 4 per project): a run with the same sources, apps, options, target and al-runner
+    build reads them instead of compiling the workspace again (a restarted `serve`, a rerun of
+    `al-runner test`). ALRUNNER_NO_WORKSPACE_CACHE=1 turns this layer off; --no-compile-cache turns
+    off both.
     Old entries go by themselves: at the end of `al-runner test`, at most once a day and for at most
     200 ms, the folder is cleaned of entries of other al-runner builds unused for 7 days, entries of
     any build unused for 30 days, and leftover temporary files older than a day. A cache hit
@@ -1271,6 +1279,10 @@ OTHER
                          failed test. Each test codeunit stops on its own; every other test codeunit of
                          the same entry, or of a request without entries, still runs. A selection then runs only the tests it picks, as --run-selected-only.
                          `serve`: a start option; a runTests request can set `stopAfterFirstFailure`.
+    --stop-after-timeout  Once the time limit stops a test, do not run the rest of its codeunit nor, in
+                         `serve`, the later entries (with `stopGroup`s, of its group): as
+                         --stop-after-first-failure, for a timeout instead of a failure; with both, the
+                         first. `serve`: a start option; a runTests request can set `stopAfterTimeout`.
     --dotnet-sidecar PATH, --dotnet-assembly-dir DIR, --dotnet-allow-roll-forward,
     --dotnet-timeout-secs N, --require-dotnet     The optional .NET helper (ADR-014).
     --require-report-renderer  A save whose real Html needs BC's own Word merger and converter refuses
@@ -1279,7 +1291,7 @@ OTHER
 ENVIRONMENT
     ALRUNNER_CACHE       The cache folder when --cache-dir is not given.
     ALRUNNER_SERVER_URL  The address --server-url sets, when it is not given.
-    ALRUNNER_NO_COMPILE_CACHE=1, ALRUNNER_NO_CACHE_PRUNE=1  See COMPILE CACHE.
+    ALRUNNER_NO_COMPILE_CACHE=1, ALRUNNER_NO_WORKSPACE_CACHE=1, ALRUNNER_NO_CACHE_PRUNE=1  See COMPILE CACHE.
     ALRUNNER_BCAPPS_URL  The address --recipe fetches BCApps from.
     ALRUNNER_NO_PATH_NOTE=1  No note about another al-runner on PATH (AL Runner v2's dotnet tool has
                          the same name), and no list of them under --version.
@@ -1303,6 +1315,15 @@ fn optional_count(flag: &str, it: &mut std::iter::Peekable<impl Iterator<Item = 
             Ok(n)
         }
         _ => Ok(DEFAULT_TOP),
+    }
+}
+
+/// `--test-data-company NAME`: the first names the company of the test data, each later one another company.
+fn test_data_company(a: &mut TestArgs, company: String) {
+    if a.test_data_company.is_none() {
+        a.test_data_company = Some(company);
+    } else {
+        a.additional_test_data_companies.push(company);
     }
 }
 
@@ -1725,14 +1746,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--test-timeout-secs" | "--test-timeout" => a.test_timeout_secs = Some(number(&flag, &text()?)? as u64),
             "--skip-after-timeout" => a.skip_after_timeout = true,
             "--stop-after-first-failure" => a.stop_after_first_failure = true,
-            "--test-data-company" => {
-                let company = text()?;
-                if a.test_data_company.is_none() {
-                    a.test_data_company = Some(company);
-                } else {
-                    a.additional_test_data_companies.push(company);
-                }
-            }
+            "--stop-after-timeout" => a.stop_after_timeout = true,
+            "--test-data-company" => test_data_company(&mut a, text()?),
             "--country" => {
                 let v = text()?;
                 if v.contains(',') {

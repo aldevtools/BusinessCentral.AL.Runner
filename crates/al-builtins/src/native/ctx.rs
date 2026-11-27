@@ -15,6 +15,23 @@ pub enum ModuleLookup {
     OrderUnknown(String),
 }
 
+/// What a codeunit id names, for `ErrorInfo.AddAction` (`errorinfo::add_action`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CodeunitShape {
+    /// No codeunit of the program has this id.
+    Missing,
+    /// A compiled codeunit that declares no `Subtype`, with both an `OnRun` trigger and `TableNo` or neither.
+    Normal,
+    /// Any other codeunit, and why it is not `Normal`: it declares a `Subtype` (also `Normal`), it has `OnRun` without
+    /// `TableNo` or `TableNo` without `OnRun`, or it is a dependency shell that was not compiled.
+    Other(&'static str),
+}
+
+impl CodeunitShape {
+    /// What a session that knows no program answers (the default of `Ctx::codeunit_shape`).
+    pub const UNKNOWN: Self = Self::Other("no program in this session");
+}
+
 /// What builtins need from the running session.
 /// A request an `HttpClient` call sends, as a `[HttpClientHandler]` sees it (ADR-027 section 5).
 #[derive(Debug, Clone)]
@@ -73,6 +90,9 @@ pub struct FieldTarget {
     pub option_captions: Option<String>,
 }
 
+/// The bytes `File.Open` opens and the placeholder mark they open with ([`Ctx::fs_read_to_open`]).
+pub type OpenedFile = (Vec<u8>, Option<std::sync::Arc<str>>);
+
 pub trait Ctx: FormatCtx {
     /// Gives `request` to the running test's `[HttpClientHandler]` and answers the response it filled; raises the
     /// policy error without one. No request ever reaches a network.
@@ -118,6 +138,11 @@ pub trait Ctx: FormatCtx {
     fn gate(&self, _gate: al_version::Gate) -> bool {
         true
     }
+    /// `al_version::http_probe_1424_measured` for the run's target: the minors on which the HTTP shapes of corpus PR 1424
+    /// were measured. Without a target nothing is measured.
+    fn http_probe_1424_measured(&self) -> bool {
+        false
+    }
     /// Record methods (`Record.Insert`, ...) need the store, triggers and
     /// table metadata: the VM implements them. `method` is the catalog name.
     fn record(
@@ -140,6 +165,11 @@ pub trait Ctx: FormatCtx {
     /// into the field as `FieldRef.Validate` converts it.
     fn record_validate_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
         self.record(crate::record_op::RecordOp::Validate, rec, args)
+    }
+    /// `Record.SetRange(Field, V)` with `V` written as a Variant (lowering picks `Record.SetRangeVariant#1`): a value of another
+    /// type than the field's converts as al-vm `setrange_convert` says.
+    fn record_setrange_variant(&mut self, rec: Option<&mut Value>, args: &mut [Value]) -> Result<Value, Signal> {
+        self.record(crate::record_op::RecordOp::SetRange, rec, args)
     }
     /// `TestPage` / `TestField` / `TestAction` methods: the VM's test client
     /// implements them (ADR-012). `method` is `Receiver.Name`.
@@ -335,6 +365,10 @@ pub trait Ctx: FormatCtx {
     fn module_by_id(&self, _id: &[u8; 16]) -> ModuleLookup {
         ModuleLookup::NotInstalled
     }
+    /// What codeunit `id` (greater than 0) names in the program.
+    fn codeunit_shape(&self, _id: u32) -> CodeunitShape {
+        CodeunitShape::UNKNOWN
+    }
     /// Whether table `number` (`Database::"Name"`) is declared in the workspace.
     fn workspace_table(&self, _number: i32) -> bool {
         false
@@ -417,9 +451,19 @@ pub trait Ctx: FormatCtx {
     fn fs_exists(&mut self, _path: &str) -> Result<bool, Signal> {
         Err(Signal::Unsupported("File: this context has no file system".into()))
     }
-    /// The bytes of the file at `path`, `None` if there is none.
+    /// The bytes of the file at `path` for a read of its content, `None` if there is none.
     fn fs_read(&mut self, _path: &str) -> Result<Option<Vec<u8>>, Signal> {
         Err(Signal::Unsupported("File: this context has no file system".into()))
+    }
+    /// The bytes of the file at `path` for `File.Open`, with the placeholder mark they open with when a read of their content
+    /// is refused, `None` if there is no file.
+    fn fs_read_to_open(&mut self, path: &str) -> Result<Option<OpenedFile>, Signal> {
+        Ok(self.fs_read(path)?.map(|bytes| (bytes, None)))
+    }
+    /// The bytes of the file at `path` for a copy that looks at none of them (`File.Copy`, `File.Rename`), `None` if there is
+    /// none.
+    fn fs_read_to_move(&mut self, path: &str) -> Result<Option<Vec<u8>>, Signal> {
+        self.fs_read(path)
     }
     /// Creates the file at `path` or replaces its content; the host's reason if it cannot.
     fn fs_write(&mut self, _path: &str, _bytes: &[u8]) -> Result<(), String> {

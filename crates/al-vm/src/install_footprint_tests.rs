@@ -111,7 +111,7 @@ fn the_apps_whose_code_ran_are_met() {
 #[test]
 fn touching_everything_reads_from_and_collides_with_every_session() {
     let mut all = InstallFootprint::default();
-    all.everything.insert("a page".into());
+    all.touch_everything("a page");
     let none = InstallFootprint::default();
     assert!(all.reads_from(&none, 1) && none.reads_from(&all, 1) && all.collides(&none));
     assert!(!none.reads_from(&none, 1) && !none.collides(&none));
@@ -209,7 +209,7 @@ fn a_builtin_that_touches_everything_marks_the_session() {
     let inst = s.codeunit_instance(0);
     let _ = s.call(0, 0, inst, vec![]);
     let fp = s.install_footprint_take().unwrap();
-    assert!(fp.everything.iter().any(|w| w.contains("HttpClient")), "{fp:?}");
+    assert!(fp.everything.keys().any(|w| w.contains("HttpClient")), "{fp:?}");
 }
 
 /// A builtin whose operands are all values runs on the plain path (`run_plain_builtin`), not through `run_builtin`: it
@@ -220,7 +220,7 @@ fn a_plain_builtin_that_touches_everything_marks_the_session() {
         "codeunit 50100 Probe { procedure Run() begin if TaskScheduler.CanCreateTask() then; end; }",
         "Run",
     );
-    assert!(fp.everything.iter().any(|w| w.contains("TaskScheduler")), "{fp:?}");
+    assert!(fp.everything.keys().any(|w| w.contains("TaskScheduler")), "{fp:?}");
 }
 
 const ROW_VERSION_SRC: &str = r#"
@@ -451,4 +451,250 @@ fn indexed_writes_answer_what_the_rules_answer() {
             assert_eq!(x.any_collides_with(&one), collide, "write {r:?} of {set:?}");
         }
     }
+}
+
+/// A pure framework member served in process (al-host `inproc.txt`) and a server class member that keeps nothing touch
+/// no lasting resource; every other .NET member, and a framework member that is not listed, touches everything
+/// (al-runner issue 8954).
+#[test]
+fn the_dotnet_members_that_keep_nothing() {
+    let kept = |t: &str, m: Option<&str>| super::dotnet_member_kept(t, m, 0);
+    assert!(kept("System.Text.StringBuilder", None), "constructor");
+    assert!(kept("System.Text.StringBuilder", Some("Append")));
+    assert!(kept("System.Text.StringBuilder", Some("toString")), "case");
+    assert!(kept(
+        "Microsoft.Dynamics.Nav.Types.ALConfigSettings",
+        Some("ApiServicesEnabled")
+    ));
+    assert!(kept(
+        al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER,
+        Some("TryGetStringTenantSetting")
+    ));
+    assert!(!kept("System.Text.StringBuilder", Some("NoSuchMember")));
+    assert!(
+        !kept("System.Text.StringBuilderX", Some("Append")),
+        "the type matches exactly"
+    );
+    assert!(!kept(
+        al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER,
+        Some("SetTestTenantEnvironmentType")
+    ));
+    assert!(!kept("System.IO.File", Some("WriteAllText")));
+}
+
+/// A member of a CLR array type (`System.Byte[]`, any `T[]`) is the member of `System.Array` that `inproc.txt` lists
+/// (`Byte[].Length` and `Byte[].GetValue` in Cryptography Management Impl.); a member it does not list, a multi-
+/// dimensional array type and a type that only contains `[]` still touch everything (al-runner issue 8954).
+#[test]
+fn an_array_member_is_the_system_array_member() {
+    let kept = |t: &str, m: Option<&str>| super::dotnet_member_kept(t, m, 0);
+    assert!(kept("System.Byte[]", Some("Length")));
+    assert!(kept("System.Byte[]", Some("GetValue")));
+    assert!(kept("System.Byte[]", Some("SetValue")));
+    assert!(kept("System.String[]", Some("GetValue")));
+    assert!(!kept("System.Byte[]", Some("Clone")));
+    assert!(!kept("System.Byte[]", None), "constructor");
+    assert!(!kept("System.Byte[,]", Some("Length")));
+    assert!(!kept("[]", Some("Length")));
+    assert!(!kept(
+        "System.Collections.Generic.List`1[System.Byte[]]",
+        Some("Length")
+    ));
+}
+
+/// An encoding `Encoding.UTF8`, `ASCII` or `Unicode` answers and an algorithm `HashAlgorithm.Create` answers have a
+/// runtime type of their own (`System.Text.UTF8Encoding+UTF8EncodingSealed`, `System.Security.Cryptography.SHA256Managed`);
+/// their members are the `System.Text.Encoding` and `HashAlgorithm` members `inproc.txt` lists. A member it does not list
+/// and another subclass still touch everything (al-runner issue 8954, neighbor app install-order-footprint-dotnet-array).
+#[test]
+fn an_encoding_or_hash_instance_member_is_the_listed_base_member() {
+    let kept = |t: &str, m: Option<&str>| super::dotnet_member_kept(t, m, 0);
+    assert!(kept("System.Text.UTF8Encoding+UTF8EncodingSealed", Some("GetBytes")));
+    assert!(kept("System.Text.ASCIIEncoding+ASCIIEncodingSealed", Some("GetString")));
+    assert!(kept("System.Text.UnicodeEncoding", Some("GetByteCount")));
+    assert!(kept("System.Security.Cryptography.SHA256Managed", Some("ComputeHash")));
+    assert!(kept(
+        "System.Security.Cryptography.MD5CryptoServiceProvider",
+        Some("Dispose")
+    ));
+    assert!(!kept(
+        "System.Text.UTF8Encoding+UTF8EncodingSealed",
+        Some("GetPreamble")
+    ));
+    assert!(!kept("System.Text.UTF32Encoding", Some("GetBytes")));
+    assert!(!kept("System.Security.Cryptography.HMACSHA256", Some("ComputeHash")));
+}
+
+/// The `MemoryStream` that Cryptography Management Impl. `GenerateHash(InStream, ...)` makes, copies an InStream into and
+/// reads with `ToArray` keeps nothing: its no-argument constructor and `ToArray` are served in process (al-host
+/// `inproc.txt`). Every other constructor and member of the type still touches everything (al-runner issue 9046).
+#[test]
+fn the_memory_stream_of_generate_hash_keeps_nothing() {
+    let kept = super::dotnet_member_kept;
+    let ms = "System.IO.MemoryStream";
+    assert!(kept(ms, None, 0), "MemoryStream()");
+    assert!(kept(ms, Some("ToArray"), 0));
+    assert!(!kept(ms, None, 1), "MemoryStream(Byte[]) and MemoryStream(Int32)");
+    assert!(!kept(ms, None, 2), "MemoryStream(Byte[], Boolean)");
+    for member in [
+        "WriteTo",
+        "CopyTo",
+        "GetBuffer",
+        "Write",
+        "Position",
+        "Length",
+        "Dispose",
+    ] {
+        assert!(!kept(ms, Some(member), 1), "{member}");
+        assert!(!kept(ms, Some(member), 0), "{member}");
+    }
+    assert!(!kept("System.IO.FileStream", None, 0));
+}
+
+/// Every method kept by name is the method of a real builtin: an entry no builtin has keeps nothing, and the builtin
+/// it meant still touches everything (issue 9046: `DT2Date` was listed as `DT`).
+#[test]
+fn every_kept_method_names_a_builtin() {
+    let names: Vec<&str> = al_builtins::builtin_id::BuiltinId::all().map(|id| id.name()).collect();
+    for (receiver, methods) in super::KEPT_METHODS {
+        for method in *methods {
+            let prefix = format!("{receiver}.{method}#");
+            assert!(names.iter().any(|n| n.starts_with(&prefix)), "{receiver}.{method}");
+        }
+    }
+    for receiver in super::KEPT_RECEIVERS {
+        let prefix = format!("{receiver}.");
+        assert!(names.iter().any(|n| n.starts_with(&prefix)), "{receiver}");
+    }
+    for method in super::NAVAPP_KEPT_METHODS {
+        let prefix = format!("NavApp.{method}#");
+        assert!(names.iter().any(|n| n.starts_with(&prefix)), "NavApp.{method}");
+    }
+    for method in super::SESSION_TOUCHING_METHODS {
+        let prefix = format!("Session.{method}#");
+        assert!(names.iter().any(|n| n.starts_with(&prefix)), "Session.{method}");
+    }
+}
+
+/// Issue 9046: the date conversions a pinned corpus case measures as functions of their arguments keep nothing. Their
+/// neighbor without a pin (`DaTi2Variant`) and every `TaskScheduler` method still touch everything.
+#[test]
+fn date_conversions_keep_nothing() {
+    let all = |name: &str| {
+        let (r, m) = name.split_once('.').unwrap_or((name, ""));
+        super::builtin_touches_everything(r, m)
+    };
+    for kept in [
+        "System.DT2Date",
+        "System.DT2Time",
+        "System.DMY2Date",
+        "System.DWY2Date",
+        "System.Date2DMY",
+        "System.Date2DWY",
+        "System.Variant2Date",
+        "System.Variant2Time",
+    ] {
+        assert!(!all(kept), "{kept}");
+    }
+    for every in [
+        "System.DaTi2Variant",
+        "TaskScheduler.CanCreateTask",
+        "TaskScheduler.CreateTask",
+        "TaskScheduler.TaskExists",
+        "TaskScheduler.SetTaskReady",
+        "TaskScheduler.CancelTask",
+        "TaskScheduler.SomethingNew",
+    ] {
+        assert!(all(every), "{every}");
+    }
+}
+
+/// Issue 9260: `CompanyProperty.DisplayName` and `CompanyProperty.ID` read the session company's row of the Company
+/// table (corpus `tests/al-language/session-system/company/CompanyRecord.al:15-44`), a read the store records;
+/// `NavApp.GetCallerCallstackModuleInfos` reads the module info of the apps whose code is on the call stack
+/// (`tests/al-language/session-system/TestNavAppCallerCallstackModuleInfos.al:5-7`), apps the session already meets.
+/// The other `CompanyProperty` and `NavApp` methods keep touching everything.
+#[test]
+fn company_property_reads_and_the_caller_callstack_keep_nothing() {
+    let all = |name: &str| {
+        let (r, m) = name.split_once('.').unwrap_or((name, ""));
+        super::builtin_touches_everything(r, m)
+    };
+    for kept in [
+        "CompanyProperty.DisplayName",
+        "CompanyProperty.ID",
+        "NavApp.GetCallerCallstackModuleInfos",
+    ] {
+        assert!(!all(kept), "{kept}");
+    }
+    for every in [
+        "CompanyProperty.UrlName",
+        "CompanyProperty.SomethingNew",
+        "NavApp.IsInstalling",
+        "NavApp.GetArchiveRecordRef",
+    ] {
+        assert!(all(every), "{every}");
+    }
+}
+
+/// The platform table Company as the symbols declare it, and install code that reads the two company properties.
+const COMPANY_SRC: &str = r#"
+table 2000000006 Company
+{
+    DataPerCompany = false;
+    fields
+    {
+        field(1; Name; Text[30]) { }
+        field(2; "Evaluation Company"; Boolean) { }
+        field(3; "Display Name"; Text[250]) { }
+        field(8000; Id; Guid) { }
+        field(8005; "Business Profile Id"; Text[250]) { }
+    }
+    keys { key(PK; Name) { } }
+}
+codeunit 50100 Probe
+{
+    procedure DisplayName(): Text
+    begin
+        exit(CompanyProperty.DisplayName());
+    end;
+    procedure Id(): Guid
+    begin
+        exit(CompanyProperty.ID());
+    end;
+    procedure Callers(): Integer
+    begin
+        exit(Ask().Count());
+    end;
+    local procedure Ask(): List of [ModuleInfo]
+    begin
+        exit(NavApp.GetCallerCallstackModuleInfos());
+    end;
+}
+"#;
+
+/// Issue 9260: each company property reads the session company's row of the Company table, recorded by the store, so an
+/// install that writes that row is read from; the caller call stack reads no lasting resource.
+#[test]
+fn company_property_reads_read_the_company_row() {
+    for routine in ["DisplayName", "Id"] {
+        let fp = run_src(COMPANY_SRC, routine);
+        assert!(!fp.touches_everything() && fp.writes.is_empty(), "{routine}: {fp:?}");
+        // Object 0 of the program: the Company table.
+        let company_row = |r: &Lasting| matches!(r, Lasting::Store(Resource::Row(c, 0, _)) if c.is_empty());
+        assert!(fp.reads.iter().any(company_row), "{routine}: {fp:?}");
+        let writer = InstallFootprint {
+            writes: fp.reads.clone(),
+            ..Default::default()
+        };
+        assert!(
+            fp.reads_from(&writer, 7),
+            "{routine}: a write of the Company row is read"
+        );
+    }
+    let fp = run_src(COMPANY_SRC, "Callers");
+    assert!(
+        !fp.touches_everything() && fp.reads.is_empty() && fp.writes.is_empty(),
+        "{fp:?}"
+    );
 }

@@ -1,1 +1,0 @@
-Speed only, no answer changes: Mat::passing tests each filter against name_only_cols, the set of columns of the rows only a lookup by name finds, built once in Mat::new from the same rows and copied by mapped (the rows never change after), instead of scanning every row per filter per step; both give the same set, so the same filters skip the memo as on main.

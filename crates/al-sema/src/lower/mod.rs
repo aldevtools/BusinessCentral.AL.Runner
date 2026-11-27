@@ -108,7 +108,7 @@ pub struct LowerWork {
 }
 
 /// See [`Lowered::object_hashes`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ObjectHash {
     /// SHA-256 of the symbolic form, as hex.
     pub hash: String,
@@ -644,6 +644,7 @@ mod expr;
 mod ext_order;
 mod ext_request_page;
 mod extend;
+mod setrange_written;
 
 #[cfg(test)]
 mod abp_refusal_tests;
@@ -654,8 +655,11 @@ mod page_client_expr;
 mod pages;
 mod request_procs;
 mod routine_lists;
+#[cfg(test)]
+mod setrange_written_tests;
 mod shared;
 mod stmt;
+pub mod stored;
 mod table_no_rec;
 mod tables;
 mod test_handlers;

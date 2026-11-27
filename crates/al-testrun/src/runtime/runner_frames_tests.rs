@@ -36,7 +36,7 @@ fn outcome(bc: &str, hub_leg: bool) -> Outcome {
     let object = l.program.objects.iter().position(|o| o.id == Some(60400)).unwrap();
     let mut scratch = Scratch {
         hub_leg,
-        ..Default::default()
+        ..Scratch::new(crate::host::RunClock::begin())
     };
     let mut out = run::run_codeunit_core(
         &engine,

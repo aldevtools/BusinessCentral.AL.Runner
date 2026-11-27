@@ -55,6 +55,8 @@ iterate on either). `./target/release/al-test-cli --help` lists every flag.
    by area, the regressions, the stale lines, the cases still listed and the cases without an
    outcome. Then `--prune-not-passing --bc-version N`, one run per major, deletes the stale lines of that major (without
    `--bc-version` it prunes only the newest; it refuses while a selection is active).
+   On a machine that cannot render reports, `--baseline-diff` first warns once with the renderer's reason: the Word-layout
+   report cases it then lists as regressions are the machine's, not the change's.
 5. `--timings` says where a run spent its time (load, compile, install baseline, tests).
 6. `AL_REACH_REPORT=1` prints, after the compile, how many routines each kind of root pulls in, which are refused,
    and how many only matter through a refused routine (slow on a bucket: it walks every test).

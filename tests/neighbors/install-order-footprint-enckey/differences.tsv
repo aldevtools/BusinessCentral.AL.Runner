@@ -1,5 +1,0 @@
-# key	entry
-# Review of PR 8865, finding M2: X deletes the encryption key, Y writes a row from EncryptionKeyExists. Main: no edge, passes.
-# Head: the eight encryption key methods touch everything (ADR-079 decision 1), so X and Y form a tangle; its two orders
-# leave different rows, so the test of Y's row is refused. Control: pass on both.
-RP enc Tests::RowWrittenFromTheKeyState	REFUSED the install order of apps RP Enc X, RP Enc Y is not known (no dependency path between them), and installing them in each order leaves different rows in RP Enc Row

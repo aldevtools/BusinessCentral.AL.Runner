@@ -1,19 +1,6 @@
 # key	entry
-# The reporter's repro: main raised no error when the filter left the tree's first row out; the head saves the row and raises
-# the filtered-view error, as BC does. The neighbors (Update(true), CollapseAll, OnAfterGetCurrRecord, a view left without
-# rows) keep main's path and do not differ.
-Repro Tree Drop Tests::FirstRowSetRangeDropsRow_RaisesValidationError	ASSUMED tree-validate-view-refresh (corpus PR 1539, the issue's shape at :1370)
-# The data shapes of the review on a copy of page 97720 (ShapeNeighbors.al): main raised no error and saved nothing; the head
-# saves the row and raises the filtered-view error, as BC does and as the cells of corpus PR 1539 :1424-:1460 measure. After
-# the error the value the page shows refuses (BC shows the row the view settled on); main read the typed row.
-LT TDN Shape Tests::GroupsG5G1G0_MiddleRowDrops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1424)
-LT TDN Shape Tests::GroupsG0G2G1_FirstRowDrops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1436)
-LT TDN Shape Tests::GroupsG1G0G2_LastRowDrops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1448)
-LT TDN Shape Tests::ChildInG0_LastRowDrops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1460)
-LT TDN Close Tests::FirstRowDrops_ThenValueAndClose	REFUSED a tree page of TreeValidateFilterRefresh.al after a SetValue whose filter left the row out of the view
-# SetRange on G0 from the last row over the flat rows, on the tree and on the List (cells of corpus PR 1539 :1472, :1484), and a
-# page a failed SetValue leaves behind: main raised no error on the tree and read only the typed row; the head reads, saves and
-# raises as BC does. The keep cell after the page left behind does not differ: main has it since 8833.
-LT TDN Shape Tests::FlatLastRowG0Drops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1472)
-LT TDN Shape Tests::ListFlatLastRowG0Drops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1484)
-LT TDN Left Page Tests::LeftPage1_FirstRowDrops	ASSUMED tree-validate-view-refresh (corpus PR 1539 :1300)
+# The neighbors with CollapseAll and with OnAfterGetCurrRecord (al-runner issue 8882): main raised no error and saved nothing
+# when the filter left the tree's first row out; the head saves the row and raises the filtered-view error, as BC does. Their
+# pages read as pages 97678 and 97679 of corpus PR 1554, whose cells measure the same steps.
+LT TDN Tests::DropTreeCollapsed_FirstRow	ASSUMED tree-validate-view-refresh (corpus PR 1554 :968)
+LT TDN Tests::DropTreeCurr_FirstRow	ASSUMED tree-validate-view-refresh (corpus PR 1554 :996)

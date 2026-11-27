@@ -144,6 +144,10 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"System.DateTime\"; \"ClrDateTime\") { }
     type(\"System.DateTimeOffset\"; \"ClrDateTimeOffset\") { }
     type(\"System.Byte\"; \"ClrByte\") { }
+    type(\"System.Int32\"; \"ClrInt32\") { }
+    type(\"System.Boolean\"; \"ClrBoolean\") { }
+    type(\"System.TimeSpan\"; \"ClrTimeSpan\") { }
+    type(\"System.Int64\"; \"ClrInt64\") { }
     type(\"System.IO.File\"; \"File\") { }
     type(\"System.IO.Directory\"; \"Directory\") { }
     type(\"System.IO.DirectoryInfo\"; \"DirectoryInfo\") { }
@@ -167,6 +171,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"Microsoft.Dynamics.Nav.Service.CopilotApi.AL.ALCopilotFunctions\"; \"ALCopilotFunctions\") { }
     type(\"Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery\"; \"GraphQuery\") { }
     type(\"Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo\"; \"UserInfo\") { }
+    type(\"Microsoft.Dynamics.Nav.LicensingService.Model.ServicePlanInfo\"; \"ServicePlanInfo\") { }
     type(\"Microsoft.Dynamics.Nav.LicensingService.Model.TenantInfo\"; \"TenantInfo\") { }
   }
   assembly(\"mscorlib\") {
@@ -212,7 +217,30 @@ fn compile(
     body: &str,
     ret: &str,
 ) -> (std::sync::Arc<al_ir::Program>, Vec<Vec<Option<String>>>, usize, usize) {
-    let src = format!("{DOTNET}{TABLE}\ncodeunit 50100 C {{ procedure F(){ret} var {vars} begin {body} end; }}");
+    compile_extra(vars, body, ret, "")
+}
+
+/// `compile` with `extra`, more procedures of the codeunit (text after `F`).
+fn compile_extra(
+    vars: &str,
+    body: &str,
+    ret: &str,
+    extra: &str,
+) -> (std::sync::Arc<al_ir::Program>, Vec<Vec<Option<String>>>, usize, usize) {
+    compile_in("", vars, body, ret, extra)
+}
+
+/// As `compile_extra`, with `head` before `procedure F()` (for example a `Subtype` and an attribute of `F`).
+fn compile_in(
+    head: &str,
+    vars: &str,
+    body: &str,
+    ret: &str,
+    extra: &str,
+) -> (std::sync::Arc<al_ir::Program>, Vec<Vec<Option<String>>>, usize, usize) {
+    let src = format!(
+        "{DOTNET}{TABLE}\ncodeunit 50100 C {{ {head}procedure F(){ret} var {vars} begin {body} end; {extra} }}"
+    );
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -243,7 +271,19 @@ fn run_with(cfg: DotNetConfig, vars: &str, body: &str, ret: &str) -> Ran {
 
 /// As `run_with`, after `setup` has changed the session (for example `in_test_codeunit`).
 fn run_setup(cfg: DotNetConfig, vars: &str, body: &str, ret: &str, setup: impl FnOnce(&mut Session)) -> Ran {
-    let (program, blocked, oi, ri) = compile(vars, body, ret);
+    run_extra(cfg, vars, body, ret, "", setup)
+}
+
+/// `run_setup` with `extra`, more procedures of the codeunit.
+fn run_extra(
+    cfg: DotNetConfig,
+    vars: &str,
+    body: &str,
+    ret: &str,
+    extra: &str,
+    setup: impl FnOnce(&mut Session),
+) -> Ran {
+    let (program, blocked, oi, ri) = compile_extra(vars, body, ret, extra);
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
         return Ran {
             result: Err(Signal::unsupported(r.clone())),
@@ -793,6 +833,7 @@ fn linux_zone_host() -> Fake {
             reply(DotNetValue::TimeSpan(-34_200 * 10_000_000))
         }
         Req::Invoke(DotNetTarget::Instance(8), m, _) if m == "GetUtcOffset" => reply(DotNetValue::TimeSpan(0)),
+        Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "IsDaylightSavingTime" => reply(DotNetValue::Bool(true)),
         Req::Invoke(DotNetTarget::Instance(7), m, _) if m == "ToString" => {
             reply(DotNetValue::Str("(UTC-10:00) Hawaii-Aleutian Time (Honolulu)".into()))
         }
@@ -854,6 +895,10 @@ fn base_utc_offset_still_reaches_dotnet_off_windows() {
 
 const ZONE_VARS: &str = "Z: DotNet TimeZoneInfo; D: Duration;";
 const HAWAII: &str = "Z := Z.FindSystemTimeZoneById('Hawaiian Standard Time');";
+/// The one origin of an AL DateTime that `GetUtcOffset` runs for (assumption `zone-datetime-utc-instant`): a by-value
+/// DateTime parameter, as in the probe's `DoMember(ZoneId, Dt: DateTime, ...)`.
+const OFFSET_OF_PARAM: &str = "procedure Off(At: DateTime): Text var Z: DotNet TimeZoneInfo; D: Duration; begin \
+    Z := Z.FindSystemTimeZoneById('Hawaiian Standard Time'); D := Z.GetUtcOffset(At); exit(Format(D)); end;";
 
 /// `GetUtcOffset` on `Hawaiian Standard Time` for 1945 (the session clock is in 2024): off Windows the host answers from
 /// the IANA data (DST in 1933-1947), Windows has no DST for the zone. Refused before the host (issue 8012).
@@ -929,8 +974,8 @@ fn a_zone_passed_to_another_member_is_refused_off_windows() {
 #[test]
 fn utc_offset_of_the_session_year_reaches_dotnet_off_windows() {
     let host = linux_zone_host();
-    let body = format!("{HAWAII} D := Z.GetUtcOffset(CreateDateTime(DMY2Date(1, 6, 2024), 120000T)); exit(Format(D));");
-    let r = run_with(zone_cfg(&host, false), ZONE_VARS, &body, ": Text");
+    let body = "exit(Off(CreateDateTime(DMY2Date(1, 6, 2024), 120000T)));";
+    let r = run_extra(zone_cfg(&host, false), "", body, ": Text", OFFSET_OF_PARAM, |_| {});
     assert!(r.result.is_ok(), "{:?}", r.result);
     assert!(reached(&host, "GetUtcOffset"), "{:?}", host.calls());
 }
@@ -977,10 +1022,7 @@ fn utc_offset_of_a_date_is_refused_off_windows() {
 #[test]
 fn every_zone_member_reaches_dotnet_on_windows() {
     for (vars, body) in [
-        (
-            ZONE_VARS,
-            "D := Z.GetUtcOffset(CreateDateTime(DMY2Date(1, 6, 1945), 120000T)); exit(Format(D));",
-        ),
+        ("", "exit(Off(CreateDateTime(DMY2Date(1, 6, 1945), 120000T)));"),
         (
             "Z: DotNet TimeZoneInfo; O: DotNet ClrDateTimeOffset; D: Duration;",
             "O := O.DateTimeOffset(CreateDateTime(DMY2Date(1, 7, 1975), 120000T)); D := Z.GetUtcOffset(O); exit(Format(D));",
@@ -993,7 +1035,12 @@ fn every_zone_member_reaches_dotnet_on_windows() {
         ),
     ] {
         let host = linux_zone_host();
-        let r = run_with(zone_cfg(&host, true), vars, &format!("{HAWAII} {body}"), ": Text");
+        let body = if vars.is_empty() {
+            body.to_string()
+        } else {
+            format!("{HAWAII} {body}")
+        };
+        let r = run_extra(zone_cfg(&host, true), vars, &body, ": Text", OFFSET_OF_PARAM, |_| {});
         assert!(r.result.is_ok(), "{body}: {:?}", r.result);
     }
 }
@@ -1616,6 +1663,99 @@ fn an_outstream_argument_over_written_bytes_carries_them_to_the_bridge() {
     );
 }
 
+/// A fake that bridges the seeded OutStream on `Open` and rewrites its whole content on `Dispose` (the reply shape of the
+/// sidecar for a disposed Update-mode ZipArchive, corpus tests/al-language/streams/blob-tempblob/ZipBlobFieldUpdate.al:5-8).
+fn rewriting_host() -> Fake {
+    Fake::new(|r| match r {
+        Req::Invoke(_, m, _) if m == "Open" => Ok(DotNetReply {
+            value: DotNetValue::Null,
+            by_ref: vec![],
+            streams: StreamEffects {
+                bridges: vec![(0, 9)],
+                ..Default::default()
+            },
+        }),
+        Req::Invoke(_, m, _) if m == "Dispose" => Ok(DotNetReply {
+            value: DotNetValue::Null,
+            by_ref: vec![],
+            streams: StreamEffects {
+                replaced: vec![(9, 6, b"new".to_vec())],
+                ..Default::default()
+            },
+        }),
+        other => panic!("{other:?}"),
+    })
+}
+
+// al-runner issue 8360: a rewrite replaces the Blob's bytes, the new content shorter than the seed included.
+#[test]
+fn a_rewrite_of_a_seeded_bridge_replaces_the_blobs_bytes() {
+    let r = run(
+        &rewriting_host(),
+        "C: DotNet Convert; B: Record \"ALT Blob\"; O: OutStream; I: InStream; T: Text;",
+        "B.Code := 'S'; B.Data.CreateOutStream(O); O.WriteText('PK zip'); C.Open(O); C.Dispose(); B.Insert(); B.Get('S');
+         B.CalcFields(Data); B.Data.CreateInStream(I); I.ReadText(T); exit(T);",
+        ": Text",
+    );
+    assert_eq!(text(r), "new");
+}
+
+// al-runner issue 8360: AL wrote into the Blob between the call that bridged it and the rewrite, so the Blob no longer holds
+// the bridge's bytes; what BC then holds is not measured, so the rewrite is refused.
+#[test]
+fn a_rewrite_of_a_bridge_al_wrote_into_since_is_refused() {
+    let r = run(
+        &rewriting_host(),
+        "C: DotNet Convert; B: Record \"ALT Blob\"; O: OutStream;",
+        "B.Code := 'S'; B.Data.CreateOutStream(O); O.WriteText('PK zip'); C.Open(O); O.WriteText('x'); C.Dispose(); exit('');",
+        ": Text",
+    );
+    let why = unsupported(&r);
+    assert!(
+        why.contains("a .NET rewrite of an OutStream AL wrote into since the call before"),
+        "{why}"
+    );
+}
+
+// al-runner issue 9291: a host append after an AL write does not hide that write, so the rewrite after it is still refused.
+#[test]
+fn a_host_append_after_an_al_write_keeps_the_rewrite_refused() {
+    let host = Fake::new(|r| {
+        let streams = match r {
+            Req::Invoke(_, m, _) if m == "Open" => StreamEffects {
+                bridges: vec![(0, 9)],
+                ..Default::default()
+            },
+            Req::Invoke(_, m, _) if m == "Append" => StreamEffects {
+                written: vec![(9, b"!".to_vec())],
+                ..Default::default()
+            },
+            Req::Invoke(_, m, _) if m == "Dispose" => StreamEffects {
+                replaced: vec![(9, 8, b"new".to_vec())],
+                ..Default::default()
+            },
+            other => panic!("{other:?}"),
+        };
+        Ok(DotNetReply {
+            value: DotNetValue::Null,
+            by_ref: vec![],
+            streams,
+        })
+    });
+    let r = run(
+        &host,
+        "C: DotNet Convert; B: Record \"ALT Blob\"; O: OutStream;",
+        "B.Code := 'S'; B.Data.CreateOutStream(O); O.WriteText('PK zip'); C.Open(O); O.WriteText('x'); C.Append(); C.Dispose();
+         exit('');",
+        ": Text",
+    );
+    let why = unsupported(&r);
+    assert!(
+        why.contains("a .NET rewrite of an OutStream AL wrote into since the call before"),
+        "{why}"
+    );
+}
+
 // ---- the shipped registry (owner decision 2026-10-14) ------------------------------------
 
 fn no_host() -> Fake {
@@ -2039,6 +2179,8 @@ fn the_declared_result_types_match_the_registry() {
             | "GetAzureKeyVaultCertificate" => continue,
             // Needs a length and a minimum; tests/host/server_helpers.rs runs it.
             "GeneratePassword" => continue,
+            // Raise the NullReference corpus PR 1612 measures on a tier without Entra ID; the Graph tests here run them.
+            "GetUserByObjectId" | "IsGroupMember" => continue,
             // Need a user's Guid and the User tables; tests/store/user_account_keys.rs runs them.
             "IsPasswordSet"
             | "TryGetAuthenticationKey"
@@ -2121,6 +2263,194 @@ fn graph_get_current_user_returns_null_without_an_error() {
     );
     assert_eq!(text(r), "Yes");
     assert_eq!(host.log(), vec![]);
+}
+
+// GetUserByObjectId (a guid text and '') and IsGroupMember (two guid texts) on a tier without Entra ID raise the
+// NullReference of the other directory calls (corpus PR 1612, Y93GraphNoDirectory.al GraphQuery_Direct_WithoutDirectory,
+// cells get_user_by_object_id, get_user_by_object_id_empty, is_group_member). Not pinned yet: each call marks the entry.
+#[test]
+fn graph_user_by_object_id_and_is_group_member_raise_the_null_reference() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let host = no_host();
+    take_hits();
+    let r = run(
+        &host,
+        "G: DotNet GraphQuery; U: DotNet UserInfo; s: Text;",
+        "G := G.GraphQuery();
+         asserterror U := G.GetUserByObjectId('00000000-0000-0000-0000-000000000001'); s := GetLastErrorText() + '#' + GetLastErrorCode();
+         asserterror U := G.GetUserByObjectId(''); s += '|' + GetLastErrorText();
+         asserterror if G.IsGroupMember('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002') then; s += '|' + GetLastErrorText() + '#' + GetLastErrorCode();
+         exit(s);",
+        ": Text",
+    );
+    let m = |name: &str| {
+        format!(
+            "A call to Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery.{name} failed with this message: Object reference not set to an instance of an object."
+        )
+    };
+    assert_eq!(
+        text(r),
+        format!(
+            "{}#DotNetInvoke:NullReference|{}|{}#DotNetInvoke:NullReference",
+            m("GetUserByObjectId"),
+            m("GetUserByObjectId"),
+            m("IsGroupMember")
+        )
+    );
+    assert_eq!(take_hits(), vec![Assumption::GraphNoDirectoryMembers]);
+    assert_eq!(host.log(), vec![]);
+}
+
+// Shapes corpus PR 1612 did not measure keep main's refusal: GetUserByObjectId without an argument, IsGroupMember with
+// one.
+#[test]
+fn graph_user_by_object_id_and_is_group_member_refuse_other_argument_shapes() {
+    for body in [
+        "G := G.GraphQuery(); U := G.GetUserByObjectId();",
+        "G := G.GraphQuery(); if G.IsGroupMember('a') then;",
+    ] {
+        let host = no_host();
+        let r = run(&host, "G: DotNet GraphQuery; U: DotNet UserInfo;", body, "");
+        assert!(
+            matches!(r.result, Err(Signal::Unsupported(_))),
+            "{body}: {:?}",
+            r.result
+        );
+    }
+}
+
+// The members ObjectId, AssignedPlans, Roles and Groups of a UserInfo that holds no object (the answer of GetCurrentUser,
+// and a variable never assigned), also as the collection of a foreach, raise DotNetVariableNotCreated naming the member,
+// the codeunit and the procedure (corpus PR 1612, Y93GraphNoDirectory.al UserInfo_FromGetCurrentUser_Members and
+// UserInfo_Unassigned_Members). Not pinned yet: each marks the entry.
+#[test]
+fn members_of_a_null_user_info_raise_variable_not_created() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    for (init, body) in [
+        (
+            "G := G.GraphQuery(); U := G.GetCurrentUser();",
+            "s := Format(U.ObjectId());",
+        ),
+        ("", "s := Format(U.ObjectId());"),
+        ("", "if IsNull(U.AssignedPlans()) then;"),
+        ("", "if IsNull(U.Roles()) then;"),
+        (
+            "G := G.GraphQuery(); U := G.GetCurrentUser();",
+            "if IsNull(U.Groups()) then;",
+        ),
+        ("", "foreach P in U.AssignedPlans() do;"),
+    ] {
+        let host = no_host();
+        take_hits();
+        let r = run(
+            &host,
+            "G: DotNet GraphQuery; U: DotNet UserInfo; P: DotNet ServicePlanInfo; s: Text;",
+            &format!("{init} asserterror begin {body} end; exit(GetLastErrorText() + '#' + GetLastErrorCode());"),
+            ": Text",
+        );
+        let member = ["ObjectId", "AssignedPlans", "Roles", "Groups"]
+            .into_iter()
+            .find(|m| body.contains(&format!("U.{m}(")))
+            .unwrap();
+        assert_eq!(
+            text(r),
+            format!(
+                "A DotNet variable has not been instantiated. Attempting to call Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo.{member} in CodeUnit C: F#DotNetVariableNotCreated"
+            ),
+            "{body}"
+        );
+        assert_eq!(take_hits(), vec![Assumption::GraphNoDirectoryMembers], "{body}");
+        assert_eq!(host.log(), vec![]);
+    }
+}
+
+// Neighbors: another member of a null UserInfo, and one of the four with an argument, keep main's refusal.
+#[test]
+fn other_members_of_a_null_user_info_keep_the_refusal() {
+    for body in ["s := Format(U.DisplayName());", "if IsNull(U.Roles(1)) then;"] {
+        let host = no_host();
+        let r = run(&host, "U: DotNet UserInfo; s: Text;", body, "");
+        assert!(
+            matches!(r.result, Err(Signal::Unsupported(_))),
+            "{body}: {:?}",
+            r.result
+        );
+    }
+}
+
+// The members the static reach walk takes as answer-only (al-testrun `written.rs`): the GraphQuery members and the
+// UserInfo members corpus PR 1612 measures, and the GraphQuery constructor. ServicePlanInfo, RoleInfo and GroupInfo
+// members, unreachable on that tier, and other members are not.
+#[test]
+fn the_graph_members_corpus_pr_1612_measures_are_answer_only() {
+    use al_vm::dotnet::server_classes::answers_only;
+    let (gq, ui) = (
+        al_builtins::dotnet_sigs::GRAPH_QUERY,
+        al_builtins::dotnet_sigs::USER_INFO,
+    );
+    for m in [
+        "GraphQuery",
+        "GetCurrentUser",
+        "GetUserByObjectId",
+        "GetUser",
+        "IsGroupMember",
+        "GetEnvironmentDirectoryGroup",
+    ] {
+        assert!(answers_only(gq, m), "{m}");
+    }
+    for m in ["ObjectId", "AssignedPlans", "Roles", "Groups"] {
+        assert!(answers_only(ui, m), "{m}");
+    }
+    for (t, m) in [
+        (gq, "GetGroupPage"),
+        (gq, "GetTenantDetail"),
+        (ui, "DisplayName"),
+        (
+            "Microsoft.Dynamics.Nav.LicensingService.Model.ServicePlanInfo",
+            "ServicePlanId",
+        ),
+        (
+            "Microsoft.Dynamics.Nav.LicensingService.Model.RoleInfo",
+            "RoleTemplateId",
+        ),
+        ("Microsoft.Dynamics.Nav.LicensingService.Model.GroupInfo", "DisplayName"),
+    ] {
+        assert!(!answers_only(t, m), "{t}.{m}");
+    }
+}
+
+// The walk takes the item members of a foreach over AssignedPlans, Roles or Groups of a UserInfo as answer-only because
+// that body never runs on this tier (corpus PR 1612 cell "ServicePlanInfo/RoleInfo/GroupInfo members: not reachable on
+// this tier"; assumption graph-no-directory-members). The runtime is the backstop: no item member is served, so a call
+// that runs anyway is refused, never answered.
+#[test]
+fn the_items_of_the_unrun_user_info_collections_are_refused_when_called() {
+    use al_vm::dotnet::server_classes::unrun_item_type;
+    let ui = al_builtins::dotnet_sigs::USER_INFO;
+    let model = "Microsoft.Dynamics.Nav.LicensingService.Model.";
+    for (m, item) in [
+        ("AssignedPlans", "ServicePlanInfo"),
+        ("Roles", "RoleInfo"),
+        ("Groups", "GroupInfo"),
+    ] {
+        assert_eq!(unrun_item_type(ui, m), Some(format!("{model}{item}").as_str()), "{m}");
+    }
+    assert_eq!(unrun_item_type(ui, "ObjectId"), None);
+    assert_eq!(unrun_item_type(al_builtins::dotnet_sigs::GRAPH_QUERY, "Roles"), None);
+    for body in [
+        "s := Format(P.ServicePlanId());",
+        "s := P.CapabilityStatus();",
+        "s := P.ServicePlanName();",
+    ] {
+        let host = no_host();
+        let r = run(&host, "P: DotNet ServicePlanInfo; s: Text;", body, "");
+        assert!(
+            matches!(r.result, Err(Signal::Unsupported(_))),
+            "{body}: {:?}",
+            r.result
+        );
+        assert_eq!(host.log(), vec![]);
+    }
 }
 
 // GetTenantDetail answers a TenantInfo, not null, whose InitialDomain, CountryLetterCode and PreferredLanguage are
@@ -2471,6 +2801,11 @@ const ENUMERATE_XML: &str = "DirectoryInfo := DirectoryInfo.DirectoryInfo(Path);
     exit(R);";
 
 fn run_staged_defs(path: &str, pattern: &str, files: bool) -> (Ran, Fake) {
+    let h = al_host::Host::default();
+    run_staged_on(path, pattern, if files { h.with_files(StagedDefs) } else { h })
+}
+
+fn run_staged_on(path: &str, pattern: &str, h: al_host::Host) -> (Ran, Fake) {
     let host = Fake::new(|r| panic!("unexpected request {r:?}"));
     let (program, blocked, oi, ri) = compile(
         "DirectoryInfo: DotNet DirectoryInfo; FileInfo: DotNet FileInfo; Enumerator: DotNet IEnumerator; Path: Text; Pattern: Text; R: Text;",
@@ -2478,8 +2813,7 @@ fn run_staged_defs(path: &str, pattern: &str, files: bool) -> (Ran, Fake) {
         ": Text",
     );
     let engine = Engine::with_dotnet(program, blocked, cfg(&host));
-    let h = al_host::Host::default();
-    let mut s = Session::with_host(engine, if files { h.with_files(StagedDefs) } else { h });
+    let mut s = Session::with_host(engine, h);
     let inst = s.instance(oi);
     let result = s.call(oi, ri, inst, vec![]).map(|(v, _)| v);
     (
@@ -2489,6 +2823,39 @@ fn run_staged_defs(path: &str, pattern: &str, files: bool) -> (Ran, Fake) {
         },
         host,
     )
+}
+
+/// [`StagedDefs`] where `c.xml` holds the start of a placeholder Html page another session wrote (al-runner issues 8702,
+/// 8703).
+struct StagedOutsideOutput;
+
+impl al_host::FileSystem for StagedOutsideOutput {
+    fn read(&self, path: &str) -> Option<Vec<u8>> {
+        match path.rsplit('\\').next()? {
+            "c.xml" => Some(b"<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title></title></head>".to_vec()),
+            _ => StagedDefs.read(path),
+        }
+    }
+    fn write(&mut self, p: &str, b: &[u8]) -> Result<(), String> {
+        StagedDefs.write(p, b)
+    }
+    fn exists(&self, p: &str) -> bool {
+        StagedDefs.exists(p)
+    }
+    fn remove(&mut self, p: &str) -> bool {
+        StagedDefs.remove(p)
+    }
+    fn staged_folder_files(&self, dir: &str) -> Option<Vec<String>> {
+        StagedDefs.staged_folder_files(dir)
+    }
+}
+
+#[test]
+fn file_info_length_of_a_staged_placeholder_another_session_wrote_is_refused() {
+    let (r, host) = run_staged_on(DEFS, "*.xml", al_host::Host::default().with_files(StagedOutsideOutput));
+    let why = unsupported(&r);
+    assert!(why.contains("a placeholder Html written outside this session"), "{why}");
+    assert!(host.calls().is_empty(), "{:?}", host.calls());
 }
 
 #[test]
@@ -3739,7 +4106,24 @@ codeunit 50100 C {{ procedure F(): Text var T: DotNet NavTenantSettingsHelper; V
 
 /// `run` on an engine that runs as `bc` with the fake host `host`.
 fn run_as_with(bc: &str, host: &Fake, vars: &str, body: &str, ret: &str) -> Ran {
-    let (program, blocked, oi, ri) = compile(vars, body, ret);
+    run_as_extra(bc, host, vars, body, ret, "")
+}
+
+/// `run_as_with` with `extra`, more procedures of the codeunit.
+fn run_as_extra(bc: &str, host: &Fake, vars: &str, body: &str, ret: &str, extra: &str) -> Ran {
+    run_compiled(bc, host, compile_extra(vars, body, ret, extra))
+}
+
+/// As `run_as_extra`, with `F` a `[Test]` method of a test codeunit.
+fn run_as_test_extra(bc: &str, host: &Fake, vars: &str, body: &str, extra: &str) -> Ran {
+    run_compiled(bc, host, compile_in("Subtype = Test; [Test] ", vars, body, "", extra))
+}
+
+fn run_compiled(
+    bc: &str,
+    host: &Fake,
+    (program, blocked, oi, ri): (std::sync::Arc<al_ir::Program>, Vec<Vec<Option<String>>>, usize, usize),
+) -> Ran {
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
         return Ran {
             result: Err(Signal::unsupported(r.clone())),
@@ -4639,23 +5023,348 @@ fn an_azure_ml_with_events_variable_runs_flagged_in_the_shape_of_codeunit_2001()
 /// write) that writes no argument back.
 #[test]
 fn the_members_that_only_answer_are_registered_calls() {
-    use al_vm::dotnet::server_classes::{ANSWERS_ONLY, answers_only, holds_answering_class};
+    use al_vm::dotnet::server_classes::{ANSWERS_ONLY, answers_only};
     let reg = Registry::builtin();
     for (clr, member) in ANSWERS_ONLY {
+        // The UserInfo members are served only on the null UserInfo, where they raise (`not_created.rs`; the
+        // null-UserInfo tests here run them): the class is not registered.
+        if *clr == al_builtins::dotnet_sigs::USER_INFO {
+            continue;
+        }
         let t = reg.get(clr).unwrap_or_else(|| panic!("{clr} is not registered"));
+        // A constructor is listed by the class's short name (`constructor_answers_only`).
+        let kind = if clr.rsplit('.').next() == Some(*member) {
+            MemberKind::Construct
+        } else {
+            MemberKind::Call
+        };
         let m = t
-            .member(member, MemberKind::Call)
-            .unwrap_or_else(|| panic!("{clr}.{member} is not a call"));
-        assert_eq!(m.kind, MemberKind::Call, "{clr}.{member}");
+            .member(member, kind)
+            .unwrap_or_else(|| panic!("{clr}.{member} is not a {kind:?}"));
+        assert_eq!(m.kind, kind, "{clr}.{member}");
         assert!(m.call_ref.is_none(), "{clr}.{member} writes an argument back");
         assert!(
             answers_only(&clr.to_lowercase(), &member.to_uppercase()),
             "{clr}.{member}"
         );
-        assert!(holds_answering_class(clr), "{clr}");
     }
     let helper = al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER;
     assert!(!answers_only(helper, "IsProduction"));
     assert!(!answers_only(helper, "SetTestTenantEnvironmentType"));
-    assert!(!holds_answering_class("System.Text.StringBuilder"));
+}
+
+/// The wire values of the arguments of the first request of `member`.
+fn args_of(host: &Fake, member: &str) -> Vec<DotNetValue> {
+    host.calls()
+        .iter()
+        .find_map(|c| match c {
+            Req::Invoke(_, m, a) if m == member => Some(a.iter().map(|a| a.value.clone()).collect()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// Issue 8587: `GetUtcOffset` gets an AL DateTime parameter as a UTC moment (kind Utc on the wire), on a Windows host and, for the
+/// session clock's year, off Windows (assumption `zone-datetime-utc-instant`).
+#[test]
+fn an_al_datetime_parameter_reaches_a_zone_as_a_utc_moment() {
+    let at = "CreateDateTime(DMY2Date(1, 6, 2024), 120000T)";
+    for windows in [true, false] {
+        let host = linux_zone_host();
+        let r = run_extra(
+            zone_cfg(&host, windows),
+            "",
+            &format!("exit(Off({at}));"),
+            ": Text",
+            OFFSET_OF_PARAM,
+            |_| {},
+        );
+        assert!(r.result.is_ok(), "{windows}: {:?}", r.result);
+        assert!(
+            matches!(args_of(&host, "GetUtcOffset").as_slice(), [DotNetValue::DateTimeUtc(_)]),
+            "{windows}: {:?}",
+            host.calls()
+        );
+    }
+}
+
+/// Issue 8587, the shapes the assumption does not cover, on a Windows host where the policy lets every member through: a
+/// DateTime a DotNet variable holds, a Date, and another member that reads a DateTime's kind are refused before the host.
+#[test]
+fn a_zone_refuses_a_datetime_of_unmeasured_kind_on_windows() {
+    let at = "CreateDateTime(DMY2Date(1, 6, 2024), 120000T)";
+    for (member, vars, body) in [
+        (
+            "GetUtcOffset",
+            "Z: DotNet TimeZoneInfo; D: Duration; Dn: DotNet ClrDateTime;",
+            format!("Dn := {at}; D := Z.GetUtcOffset(Dn); exit(Format(D));"),
+        ),
+        (
+            "GetUtcOffset",
+            ZONE_VARS,
+            "D := Z.GetUtcOffset(DMY2Date(1, 6, 2024)); exit(Format(D));".to_string(),
+        ),
+        // Only BC on Linux measured it (corpus pull request 1582); no Windows run yet.
+        (
+            "IsDaylightSavingTime",
+            ZONE_VARS,
+            format!("exit(Format(Z.IsDaylightSavingTime({at})));"),
+        ),
+        (
+            "IsAmbiguousTime",
+            ZONE_VARS,
+            format!("exit(Format(Z.IsAmbiguousTime({at})));"),
+        ),
+        (
+            "ConvertTimeFromUtc",
+            ZONE_VARS,
+            format!("exit(Format(Z.ConvertTimeFromUtc({at}, Z)));"),
+        ),
+        (
+            "GetUtcOffset",
+            ZONE_VARS,
+            format!("D := Z.GetUtcOffset(RoundDateTime({at}, 1000)); exit(Format(D));"),
+        ),
+        // The probe measured a parameter only: every other origin of an AL DateTime is refused.
+        (
+            "GetUtcOffset",
+            ZONE_VARS,
+            format!("D := Z.GetUtcOffset({at}); exit(Format(D));"),
+        ),
+        (
+            "GetUtcOffset",
+            "Z: DotNet TimeZoneInfo; D: Duration; At: DateTime;",
+            format!("At := {at}; D := Z.GetUtcOffset(At); exit(Format(D));"),
+        ),
+        (
+            "GetUtcOffset",
+            ZONE_VARS,
+            "D := Z.GetUtcOffset(CurrentDateTime); exit(Format(D));".to_string(),
+        ),
+    ] {
+        let host = linux_zone_host();
+        let r = run_with(zone_cfg(&host, true), vars, &format!("{HAWAII} {body}"), ": Text");
+        let why = unsupported(&r);
+        assert!(
+            why.contains(&format!("System.TimeZoneInfo.{member}")) && why.contains("not measured"),
+            "{body}: {why}"
+        );
+        assert!(!reached(&host, member), "{body}: {:?}", host.calls());
+    }
+}
+
+/// Issue 9052: BC gives a DotNet DateTime assigned from an AL DateTime the kind Utc (corpus pull request 1582,
+/// `kind_2023-01-15T12:00:00Z`); the runner does not track the kind, so the members that read it are refused before the host.
+#[test]
+fn a_dotnet_datetime_refuses_the_members_that_read_its_kind() {
+    let at = "CreateDateTime(DMY2Date(1, 6, 2024), 120000T)";
+    let vars = "Dn: DotNet ClrDateTime; T: Text;";
+    for (member, body) in [
+        ("Kind", "T := Format(Dn.Kind);"),
+        ("ToString", "T := Dn.ToString('o');"),
+        ("ToString", "T := Dn.ToString('O');"),
+        ("ToString", "T := Dn.ToString('yyyy-MM-ddTHH:mm:ssK');"),
+        ("ToString", "T := Dn.ToString('HH:mm zzz');"),
+        ("ToUniversalTime", "Dn := Dn.ToUniversalTime();"),
+        ("ToLocalTime", "Dn := Dn.ToLocalTime();"),
+    ] {
+        let host = linux_zone_host();
+        let r = run_with(
+            zone_cfg(&host, true),
+            vars,
+            &format!("Dn := {at}; {body} exit(T);"),
+            ": Text",
+        );
+        let why = unsupported(&r);
+        assert!(
+            why.contains(&format!("System.DateTime.{member}")) && why.contains("kind"),
+            "{body}: {why}"
+        );
+        assert!(!reached(&host, member), "{body}: {:?}", host.calls());
+    }
+}
+
+/// Every member of `server_classes::CONSTANT_ANSWERS` is a registered call (al-runner issue 8954), apart from
+/// `ANSWERS_ONLY`; only `TryGetStringTenantSetting` writes an argument back.
+#[test]
+fn the_constant_answers_are_registered_calls() {
+    use al_vm::dotnet::server_classes::{ANSWERS_ONLY, CONSTANT_ANSWERS, answers_only, keeps_nothing};
+    let reg = Registry::builtin();
+    for (clr, member) in CONSTANT_ANSWERS {
+        let t = reg.get(clr).unwrap_or_else(|| panic!("{clr} is not registered"));
+        // A constructor is listed by the class's short name (`constructor_answers_only`).
+        let kind = if clr.rsplit('.').next() == Some(*member) {
+            MemberKind::Construct
+        } else {
+            MemberKind::Call
+        };
+        let m = t
+            .member(member, kind)
+            .unwrap_or_else(|| panic!("{clr}.{member} is not a {kind:?}"));
+        assert_eq!(m.kind, kind, "{clr}.{member}");
+        assert_eq!(
+            m.call_ref.is_some(),
+            *member == "TryGetStringTenantSetting",
+            "{clr}.{member}"
+        );
+        assert!(!answers_only(clr, member), "{clr}.{member} is in ANSWERS_ONLY");
+        assert!(
+            keeps_nothing(&clr.to_lowercase(), &member.to_uppercase()),
+            "{clr}.{member}"
+        );
+    }
+    assert!(ANSWERS_ONLY.iter().all(|(c, m)| keeps_nothing(c, m)));
+    let helper = al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER;
+    assert!(!keeps_nothing(helper, "SetTestTenantEnvironmentType"));
+}
+
+// ---- A null DotNet passed where its declared type is a .NET value type (al-runner issue 8268; assumption
+// dotnet-null-value-type-argument, corpus pull request 1623, dotnet-null-valuetype/N8268DotNetNullValueType.al) ----
+
+/// [TryFunction] helpers that take the null as a by-value parameter, the place the probe measured most cells in
+/// (N8268DotNetNullValueType.al:337-407).
+const TRY_HELPERS: &str = "[TryFunction] local procedure TryToInt32(Bo: DotNet ClrBoolean) var Cv: DotNet Convert; T: Text; begin T := Format(Cv.ToInt32(Bo)); end; \
+    [TryFunction] local procedure TrySbRemove(I: DotNet ClrInt32) var Sb: DotNet StringBuilder; begin Sb := Sb.StringBuilder('abcdef'); Sb.Remove(I, 2); end; \
+    [TryFunction] local procedure TrySbCtor(I: DotNet ClrInt32) var Sb: DotNet StringBuilder; begin Sb := Sb.StringBuilder(I, 5); end; \
+    [TryFunction] local procedure TryLocal() var B: DotNet ClrByte; Cv: DotNet Convert; T: Text; begin T := Cv.ToString(B, 2); end; \
+    local procedure Plain(B: DotNet ClrByte) var Cv: DotNet Convert; T: Text; begin T := Cv.ToString(B, 2); end;";
+
+/// The wire values of the arguments of the first request the host got for `member`.
+fn sent_args(host: &Fake, member: &str) -> Vec<DotNetValue> {
+    host.log()
+        .into_iter()
+        .find_map(|r| match r {
+            Req::Invoke(_, m, a) if m == member => Some(a.into_iter().map(|a| a.value).collect()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no {member} request"))
+}
+
+// N8268DotNetNullValueType.al:167 (Convert.ToString(null Byte, 2) = '0', a local of the test), :211 (Convert.ToInt32(null
+// Boolean) = 0) and :275 (StringBuilder.Remove(null Int32, 2)), both through a by-value parameter of a [TryFunction]
+// (:346, :389): the null goes to .NET as the default value of its declared type.
+#[test]
+fn a_null_value_type_argument_of_a_measured_method_goes_to_dotnet_as_its_default() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(_, m, _) if m == "ToString" => reply(DotNetValue::Str("0".into())),
+        Req::Invoke(_, m, _) if m == "ToInt32" => reply(DotNetValue::Int32(0)),
+        Req::Construct(t, _) if t == "System.Text.StringBuilder" => reply(handle(7, "System.Text.StringBuilder")),
+        Req::Invoke(_, m, _) if m == "Remove" => reply(handle(7, "System.Text.StringBuilder")),
+        _ => reply(DotNetValue::Null),
+    });
+    let vars = "B: DotNet ClrByte; Bo: DotNet ClrBoolean; I: DotNet ClrInt32; Cv: DotNet Convert; Sb: DotNet StringBuilder; T: Text;";
+    let body = "T := Cv.ToString(B, 2); if not TryToInt32(Bo) then Error('x'); if not TrySbRemove(I) then Error('y');";
+    for bc in ["27.5", "28.5", "29.0"] {
+        let r = run_as_test_extra(bc, &host, vars, body, TRY_HELPERS);
+        assert!(r.result.is_ok(), "{bc}: {:?}", r.result);
+    }
+    assert_eq!(
+        sent_args(&host, "ToString"),
+        vec![DotNetValue::Byte(0), DotNetValue::Int32(2)]
+    );
+    assert_eq!(sent_args(&host, "ToInt32"), vec![DotNetValue::Bool(false)]);
+    assert_eq!(
+        sent_args(&host, "Remove"),
+        vec![DotNetValue::Int32(0), DotNetValue::Int32(2)]
+    );
+}
+
+// N8268DotNetNullValueType.al:48-57 (DateTimeOffset(D, null TimeSpan), a local of the test) and :293 (StringBuilder(null
+// Int32, 5) through a by-value parameter of a [TryFunction], :400): a constructor raises DotNetCreate:NullReference naming
+// the assembly BC 27 or BC 28 and later reports; .NET is not called.
+#[test]
+fn a_null_value_type_argument_of_a_measured_constructor_raises_dotnet_create() {
+    let host = Fake::new(|r| match r {
+        Req::Invoke(_, m, _) if m == "UtcNow" => reply(DotNetValue::DateTime(638_000_000_000_000_000)),
+        other => panic!("unexpected request {other:?}"),
+    });
+    let vars = "D: DotNet ClrDateTime; Ts: DotNet ClrTimeSpan; Dto: DotNet ClrDateTimeOffset; I: DotNet ClrInt32; Sb: DotNet StringBuilder;";
+    let cases = [
+        (
+            "D := D.UtcNow(); Dto := Dto.DateTimeOffset(D, Ts);",
+            "System.DateTimeOffset",
+        ),
+        ("TrySbCtor(I);", "System.Text.StringBuilder"),
+    ];
+    for (body, ty) in cases {
+        for (bc, assembly) in [
+            (
+                "27.5",
+                "System.Runtime, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
+            ),
+            (
+                "28.5",
+                "mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+            ),
+            (
+                "29.0",
+                "mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
+            ),
+        ] {
+            match run_as_test_extra(bc, &host, vars, body, TRY_HELPERS).result {
+                Err(Signal::Error(e)) => {
+                    assert_eq!(e.code, "DotNetCreate:NullReference", "{bc} {ty}");
+                    assert_eq!(
+                        e.message,
+                        format!(
+                            "Cannot create an instance of the following .NET Framework object: assembly {assembly}, type {ty}."
+                        ),
+                        "{bc}"
+                    );
+                }
+                other => panic!("{bc} {ty}: {other:?}"),
+            }
+        }
+    }
+}
+
+// Shapes the probe did not measure refuse: a null Int64, a null Int32 into Convert.ToString with a Text second argument, a
+// null Int32 to a property setter, a measured method or constructor on a BC major the probe did not run, a measured call
+// whose null comes through a var parameter, and a measured call with its null in the other place: a local where the probe
+// passed a [TryFunction] parameter, a parameter of a plain procedure, a local of a [TryFunction] or a local of a procedure that
+// is no [Test] method where it used a local of the test (N8268DotNetNullValueType.al:167 against :337-407).
+#[test]
+fn a_null_value_type_argument_outside_the_measured_calls_is_refused() {
+    // The replies of the measured calls, so that only the null argument can refuse.
+    let host = Fake::new(|r| match r {
+        Req::Invoke(_, m, _) if m == "ToString" => reply(DotNetValue::Str("0".into())),
+        Req::Invoke(_, m, _) if m == "ToInt32" => reply(DotNetValue::Int32(0)),
+        Req::Construct(t, _) if t == "System.Text.StringBuilder" => reply(handle(7, "System.Text.StringBuilder")),
+        Req::Invoke(_, m, _) if m == "Remove" => reply(handle(7, "System.Text.StringBuilder")),
+        _ => reply(DotNetValue::Null),
+    });
+    let vars = "L: DotNet ClrInt64; I: DotNet ClrInt32; B: DotNet ClrByte; Bo: DotNet ClrBoolean; Cv: DotNet Convert; Sb: DotNet StringBuilder; T: Text;";
+    let extra = format!(
+        "{TRY_HELPERS} procedure G(var N: DotNet ClrInt32) var Cv: DotNet Convert; T: Text; begin T := Cv.ToString(N, 2); end;"
+    );
+    let refused = [
+        ("29.0", "T := Cv.ToString(L, 2);"),
+        ("29.0", "T := Cv.ToString(I, 'x');"),
+        ("29.0", "Sb := Sb.StringBuilder(); Sb.Capacity := I;"),
+        ("26.5", "Sb := Sb.StringBuilder(I, 5);"),
+        ("26.5", "T := Cv.ToString(B, 2);"),
+        ("30.0", "T := Cv.ToString(B, 2);"),
+        ("26.5", "TrySbCtor(I);"),
+        ("30.0", "TrySbCtor(I);"),
+        ("29.0", "G(I);"),
+        ("29.0", "T := Format(Cv.ToInt32(Bo));"),
+        ("29.0", "Sb := Sb.StringBuilder('abcdef'); Sb.Remove(I, 2);"),
+        ("29.0", "Sb := Sb.StringBuilder(I, 5);"),
+        ("29.0", "Plain(B);"),
+        ("29.0", "TryLocal();"),
+    ]
+    .map(|(bc, body)| (bc, body, run_as_test_extra(bc, &host, vars, body, &extra).result));
+    // The measured Convert.ToString(null Byte, 2) with its null in a local of a procedure that is no [Test] method.
+    let helper_local = (
+        "29.0",
+        "helper local",
+        run_as_extra("29.0", &host, vars, "T := Cv.ToString(B, 2);", "", "").result,
+    );
+    let served: Vec<String> = refused
+        .into_iter()
+        .chain([helper_local])
+        .filter(|(_, _, r)| !matches!(r, Err(Signal::Unsupported(why)) if why.contains(": a null ")))
+        .map(|(bc, body, r)| format!("{bc} {body}: {r:?}"))
+        .collect();
+    assert!(served.is_empty(), "{served:#?}");
 }

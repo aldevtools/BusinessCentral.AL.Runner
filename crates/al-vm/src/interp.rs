@@ -146,6 +146,7 @@ impl Session {
         }
         for (a, slot) in args.iter().zip(values.iter_mut()) {
             if let ir::Arg::Ref(p) = a {
+                self.note_by_ref_write(p, f)?;
                 let v = std::mem::replace(slot, Value::Null);
                 self.native_arg_back(p, v, id, class, f)?;
             }
@@ -334,21 +335,15 @@ impl Session {
         self.alias_any(f)?;
         let globals = f.instance.borrow().globals.clone();
         let bound = self.clear_all_bound_globals(&globals, &keep, true)?;
-        let keep: Vec<usize> = keep.into_iter().chain(bound).collect();
+        let mut keep: Vec<usize> = keep.into_iter().chain(bound).collect();
+        keep.extend(self.clear_all_in_place(object, &globals, &keep)?);
+        let kept_tables = self.clear_all_temp_arrays(object, &globals, &keep)?;
         let fresh = self.slot_defaults(&o.globals);
         let mut inst = f.instance.borrow_mut();
         for (i, v) in fresh.into_iter().enumerate() {
             if !keep.contains(&i) {
-                // A global temporary record keeps its rows, as Clear leaves them
-                // (types/ProbeTypeFormsAndFilters.al:Clear_TemporaryRecordWithRows_ThenCount); ClearAll does the same: real BC 29
-                // keeps both rows of a codeunit's global temporary record and drops its filter, called directly and through
-                // Codeunit.Run (record/PriorityAssumptions.al:247-281, ClearAll_TemporaryGlobalRecord_*).
-                // Pinned for a codeunit's global; the same for a report, a page or a record shared through Copy is not.
-                if let (Value::Record(old), Value::Record(new)) = (&inst.globals[i], &v) {
-                    let id = old.borrow().temp_id.clone();
-                    if id.is_some() && old.borrow().temporary {
-                        new.borrow_mut().temp_id = id;
-                    }
+                if !matches!(v, Value::Array(_)) || kept_tables.contains(&i) {
+                    keep_temp_table(&inst.globals[i], &v);
                 }
                 inst.globals[i] = v;
             }
@@ -627,9 +622,9 @@ impl Session {
             B::Eq => Value::Boolean(ops::equal_operator(l, r)?),
             B::Ne => Value::Boolean(ops::compare_operator(l, r, false)? != Ordering::Equal),
             B::Lt => Value::Boolean(ops::compare_operator(l, r, true)? == Ordering::Less),
-            B::Le => Value::Boolean(ops::compare_operator(l, r, true)? != Ordering::Greater),
+            B::Le => Value::Boolean(ops::compare_operator_or_equal(l, r)? != Ordering::Greater),
             B::Gt => Value::Boolean(ops::compare_operator(l, r, true)? == Ordering::Greater),
-            B::Ge => Value::Boolean(ops::compare_operator(l, r, true)? != Ordering::Less),
+            B::Ge => Value::Boolean(ops::compare_operator_or_equal(l, r)? != Ordering::Less),
             B::DotNetEq => Value::Boolean(dotnet::dotnet_equal(l, r)?),
             B::DotNetNe => Value::Boolean(!dotnet::dotnet_equal(l, r)?),
             B::DotNetLt => Value::Boolean(dotnet::dotnet_order(l, r)? == Ordering::Less),
@@ -833,8 +828,8 @@ impl Session {
                             _ => None,
                         }
                     });
-                    if let (crate::records::ProcXrec::PlainUnpinned, Some(Some(x))) = (&proc_xrec, &plain) {
-                        x.borrow_mut().unpinned_buffer = Some(crate::records::XREC_OF_RUNNING_CALL);
+                    if let (crate::records::ProcXrec::PlainUnpinned(mark), Some(Some(x))) = (&proc_xrec, &plain) {
+                        x.borrow_mut().unpinned_buffer = Some(mark);
                     }
                     let pushed = if let Some(Some(x)) = plain {
                         self.plain_proc_xrec.push((handle, self.call_stack.len() + 1, x));
@@ -913,6 +908,17 @@ impl Session {
         // A publisher's `var` argument that is a global of the caller's instance is that variable itself for its subscribers
         // (events/binding-senders/EventVarThroughSender.al): they alias it, see `Frame::aliases`.
         let facts = self.engine.routine_facts(object, routine);
+        // A memberless `var` Option parameter of the caller handed to one with members (`var_option::carried_args`).
+        let carried_kept = if facts.option_hops {
+            self.carried_args(object, routine, args, &values, f)?
+        } else {
+            Vec::new()
+        };
+        // A `var` Option parameter with members of the caller handed to a memberless one (`var_option::hand_on_args`); a
+        // publisher's is `var_option_publisher_args`'s (OptionVarMemberlessUnheard.al:347, :387).
+        if facts.option_carries && !facts.publisher {
+            self.hand_on_args(object, routine, args, f)?;
+        }
         let mut kept = Vec::new();
         let mut heard = Vec::new();
         if facts.publisher {
@@ -948,6 +954,21 @@ impl Session {
         // handing on to an event publisher (`var_option::option_hops_of`); not through an interface.
         if facts.option_hops && !self.next_interface_call {
             self.events.next_option_hops = self.option_hops_of(object, routine, args, &values, f);
+            self.events.next_hand_on_origins = self.hand_on_origins_of(object, routine, args, f);
+        }
+        // Taken by the callee's binding (`lib.rs`).
+        self.events.next_carried_kept = carried_kept;
+        // The origin marks of a memberless `var` Option parameter (`var_option::option_carried_of`).
+        if facts.option_carries {
+            let carried = self.option_carried_of(object, routine, args, f);
+            if facts.publisher {
+                self.events.publisher_option_carried = carried;
+            } else {
+                self.events.next_option_carried = carried;
+            }
+        }
+        if facts.var_codeunits {
+            self.events.next_var_codeunits = self.var_codeunits_of(object, routine, args, &values, f);
         }
         let var_lens = facts.var_lens;
         if var_lens {
@@ -981,6 +1002,15 @@ impl Session {
         }
         if facts.option_hops {
             self.events.next_option_hops.clear();
+            self.events.next_hand_on_origins.clear();
+            self.events.next_carried_kept.clear();
+        }
+        if facts.option_carries {
+            self.events.next_option_carried.clear();
+            self.events.publisher_option_carried.clear();
+        }
+        if facts.var_codeunits {
+            self.events.next_var_codeunits.clear();
         }
         if var_lens {
             self.events.next_var_lens.clear();
@@ -1391,6 +1421,16 @@ impl Session {
         }
     }
 
+    /// The lengths `var_lens_of` left for the frame of a routine with `var` Text parameters (`RoutineFacts::var_lens`);
+    /// empty for any other routine.
+    pub(crate) fn take_var_lens(&mut self, wanted: bool) -> Vec<Option<i32>> {
+        if wanted {
+            std::mem::take(&mut self.events.next_var_lens)
+        } else {
+            Vec::new()
+        }
+    }
+
     /// For each `var` Text or Code parameter of the callee: the declared length of the variable or field the argument names
     /// (text/text-methods/MaxStrLen.Codeunit.al:91-151, LT_BU_MaxStrLen_TextParameters), `i32::MAX` for one without a
     /// length. A `var` parameter of the caller handed on keeps the length the caller got for it, through any number of hops
@@ -1620,6 +1660,7 @@ impl Session {
                 {
                     return Err(Signal::unsupported(why));
                 }
+                self.note_insert_value_read(&rc, &r, *pos);
                 if r.load.partial {
                     // A Blob counts as loaded (partial.rs `AreFieldsLoaded`), and a FlowField is no column of the row: their
                     // reads load nothing else (P81LoadFields.al:664-689 CalcFields_OnNotLoadedFlowAndBlob `loaded_qty` No).
@@ -1830,9 +1871,14 @@ impl Session {
                         // The row version comes over with the fields, and where it came from (record/crud/
                         // Y76StaleBuffers.al Y76_Part1_FindSet_Assign, `assign/*`).
                         let row_origin = src.borrow().row_origin;
+                        let entry = src
+                            .borrow()
+                            .version_entry
+                            .carried(al_builtins::value::VersionVia::Assigned);
                         let mut d = dst.borrow_mut();
-                        d.fields = fields.into();
+                        self.replace_record_fields(&dst, &mut d, fields.into());
                         d.row_origin = row_origin;
+                        d.version_entry = entry;
                         d.own_read = Default::default();
                         d.rolled_read = Default::default();
                         d.probed_source = crate::blob_transfer::assigned(&d, &src.borrow(), self.commits);
@@ -1840,6 +1886,7 @@ impl Session {
                         // The copy holds what the source's buffer held, if that is known.
                         d.load.buffer = load.buffer;
                         d.load.partial = load.partial;
+                        drop(d);
                     }
                     if let ir::Place::Global(i) = p {
                         self.single_written(&f.instance, *i);
@@ -2461,4 +2508,32 @@ fn stored_as_is(v: &Value) -> bool {
                 _
             )
     )
+}
+
+/// `ClearAll` gives global `new`, the fresh value that replaces `old`, the temporary table of `old` when `old` is a
+/// temporary record, and each element of an array of temporary records the table of its old element (the elements share
+/// one table; `Session::clear_all_temp_arrays` names the arrays of an owner that keep theirs, and a store reset in place
+/// keeps its own, `Session::reset_keeping_rows`): a global temporary record keeps its rows, as Clear leaves them
+/// (types/ProbeTypeFormsAndFilters.al:Clear_TemporaryRecordWithRows_ThenCount); ClearAll does the same: real BC 29 keeps both
+/// rows of a codeunit's global temporary record and drops its filter, called directly and through Codeunit.Run
+/// (record/PriorityAssumptions.al:247-281, ClearAll_TemporaryGlobalRecord_*). Pinned for a codeunit's global temporary record;
+/// the same for a report's or a page's is not. An array keeps its table only in the cells `Session::clear_all_temp_arrays`
+/// names (assumption clear-shared-codeunit).
+pub(crate) fn keep_temp_table(old: &Value, new: &Value) {
+    match (old, new) {
+        (Value::Record(old), Value::Record(new)) => {
+            let id = old.borrow().temp_id.clone();
+            if id.is_some() && old.borrow().temporary {
+                new.borrow_mut().temp_id = id;
+            }
+        }
+        (Value::Array(old), Value::Array(new)) => {
+            for (o, n) in old.borrow().iter().zip(new.borrow().iter()) {
+                if matches!((o, n), (Value::Record(_), Value::Record(_))) {
+                    keep_temp_table(o, n);
+                }
+            }
+        }
+        _ => {}
+    }
 }

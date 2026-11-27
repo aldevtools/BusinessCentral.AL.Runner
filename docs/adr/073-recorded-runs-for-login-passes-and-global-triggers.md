@@ -437,3 +437,99 @@ Risks:
    not built.
 4. A temporary budget limit at today's 333 G that may only go down, removed once the run is under the real budget:
    yes.
+
+## Amendment (Accepted, 2026-11-24): Phase 1 as built, behind an opt-in switch
+
+Status of this section: Accepted (maintainer, 2026-11-24; proposed 2026-11-23). It records how Phase 1 (the login runs once per engine) is built in al-runner issue
+8211, where that differs from decision 1, and which conformance items wait until the replay is on by default.
+
+What is built:
+
+- **The session field table** (`al-vm` `session_fields.rs`) is decision 2: every `Session` field is in exactly one
+  class (`plain`, `runner`, `counter`, `linked`, `fresh`, `refuse`, `rest`, `own`) of one table, with the predicate of
+  each `refuse` and `rest` field next to it. The table generates the pattern that names every field without `..`, the
+  check of a session at rest (`Session::at_rest_why`), the image's refuse check (`Session::image_refused_field`) and the
+  install code's (`Session::install_refused_field`, read by `install_left`). The session state kept outside `Session`'s
+  fields is listed in the same module, and al-test-cli `tests/outside_session_state.rs` keeps that list complete; the
+  `static`s of al-testrun are listed in `login_start/outside.rs` under the same test.
+- **The session image** (`al-vm` `login_image.rs`): `Session::login_image` freezes a session after the raised login
+  into owned data any thread may keep (`LoginImage`: the `plain` fields by value, the nested states, the committed rows
+  the login wrote apart from the store it started from, as their bytes (`login_image/rows.rs`, `LoginRows`), and the
+  SingleInstance object graph as an arena), or names why not (`NotImaged`). A thaw rebuilds each table the login
+  touched from the target's own rows and puts it with al-data `with_committed_tables`. `Session::thaw_login_image` makes a session hold it, or refuses before it changes anything
+  (`NotThawed`), so its caller runs the login instead. The image's classes of values are those `Session::state_lines`
+  renders exactly, which is wider than decision 3: a temporary record, a codeunit instance and a shared collection are
+  imaged as nodes of the graph; the kinds without an exact form are refused, each with its reason.
+- **The replay** (`al-testrun` `login_start.rs`): the first session of a login key runs the login and keeps a login
+  start (the image, the open's writes, the assumption marks); a later session of the key that passes the gate thaws it
+  in place of its login. The gate refuses a run that notes the code it runs, a stability perturbation or a set clock
+  start, single instances moved in, the real clock (`ALRUNNER_REAL_CLOCK`) and a real files directory (`--files-dir`),
+  and a session that is not a thaw target or whose store has another shape; each refusal is counted by reason. A start
+  is kept only from a session that was a thaw target before its login. At most 8 starts and 64 MB per engine.
+- **The key** (`al-testrun` `login_replay.rs` `Key`) holds the inputs of decision 4 as the code shows them: the
+  committed rows and the backing, the session state lines (with every field the thaw writes or keeps from its target,
+  `Session::field_lines`), company, user, run seed, test codeunit, the entry's resource texts (changed by the amendment
+  of 2026-11-25), the client, the session flags, the license, the skipped installs, the isolation and the hub, and the
+  process settings a serve request sets.
+  *Built (2026-11-24, after acceptance):* the key also holds the engine's emit version (by its reader) and
+  `refused_reads`, one digest of the engine's `unseeded` and `demo_tables`, which a kept engine resets per request and
+  the login reads. Every Scratch and "Set by a run" engine field is listed under a test in `login_start/outside.rs`.
+  The key also holds the run clock (`Key::clock`), so a login start kept on one UTC day is never replayed into a run of
+  another day; pull request 8472 (the run clock begins once per run, issue 8457) added it, because the replay (pull
+  request 8665) landed first.
+- **The check** (`ALRUNNER_LOGIN_REPLAY_CHECK=1`) is the state check of the Conformance section: no session takes a
+  start; each new key's session is frozen, thawn into a twin and compared (the round trip), and each later session of a
+  key is compared with a thaw of the key's start (replay vs run). Its report names where two states differ, never a
+  value.
+
+Where it differs from decision 1: the pool of starts and the replay decision live in al-testrun (`login_start.rs`),
+next to the runner's other per-engine state, and the image and its field table in al-vm. `LoginMemo` (al-testrun
+`install.rs`) stays: it records the WorkDate step, which a session that replays its login does not run; it is not
+moved onto the image.
+
+The replay is opt-in: it runs only under `ALRUNNER_LOGIN_REPLAY=1`, read by the front ends (decision 8). With it off,
+every session runs its own login as before.
+
+What waits until the replay is on by default:
+
+- the outcome check of the Conformance section over every suite on BC 27, 28 and 29 and the partner suites, with the
+  replay on and off;
+- the budget measurement of Phase 1 and the lowering of the temporary limit;
+- the counters of recorded runs, replays and runs not recorded in `work.json`, under the work ratchet (today they are in
+  the check's report and in serve's `timings.loginReplays` and `timings.loginStarts`).
+
+### Amendment (Accepted, 2026-11-25): the login key holds the resource texts the login read
+
+Status of this section: Accepted (owner, 2026-11-25), on [al-runner issue 8211](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/8211).
+
+The login key holds only the resource texts the login read, each as its SHA-256 digest, as install-once holds them
+(`Session::resource_reads`; `NavApp.ListResources` counts as reading every file of its app), in place of every resource
+text of the run. The reads are the session's up to the end of its login, those of install code included when it ran in
+the session. The first session of a base key records them with its start. A later session takes that start only when
+its texts of those names are the same. A login that read none matches any texts. al-vm `TextsRead` (`resource_reads.rs`)
+owns "the texts of what was read are still the same" for both install-once and the login start, and al-testrun
+`login_replay::StartKey` is the base key with the texts its login read; the check finds a session's first state by the
+same rule and keeps comparing across test codeunits. The test codeunit stays in the key (al-runner issue 8211).
+
+### Amendment (Accepted, 2026-11-26): the limits of the login-start pool are settings of the run
+
+Status of this section: Accepted (owner, 2026-11-26), on [al-runner issue 8211](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/8211).
+
+The pool's two limits become settings, with the defaults of the 2026-11-24 amendment: `ALRUNNER_LOGIN_REPLAY_MAX_IMAGES`
+(starts kept, default 8) and `ALRUNNER_LOGIN_REPLAY_MAX_MB` (MiB of all kept starts, default 64), read by the front ends
+next to `ALRUNNER_LOGIN_REPLAY` and carried in the run options. A value outside the whole numbers from 1 to
+18446744073709551615 (`ALRUNNER_LOGIN_REPLAY_MAX_IMAGES`) or from 1 to 17592186044415 (`ALRUNNER_LOGIN_REPLAY_MAX_MB`)
+stops the run with an error naming the variable, also when the replay is off. `al-runner serve` reads both once when it
+starts and exits there with that error; its requests use the values read then, since the environment does not change
+while it runs (al-runner issue 9174). The 16 MB limit per start and the 64 refused keys stay fixed. A start larger than
+the smaller of 16 MB and the MB setting is not kept (`too large`). The run sets the caps on every engine it uses, kept
+ones included, and starts beyond the caps go at once, least recently used first. Kept starts are resident memory, and
+they hold at most the smaller of the MB setting and the count at 16 MB a start (al-runner issue 9173). When a memory
+limit is set (`--max-memory`, or serve's `maxMemory` per request) and a run keeps starts, the run stops before it starts
+when that most is not below the limit, with an error that names the limit and the setting that binds; a refused serve
+request leaves the kept engine and its starts as they were. The memory pool counts the room that most still leaves the
+kept starts before it admits a test thread, so a raised setting lowers the test threads of both serve and a one-shot
+run. In a one-shot run it only makes a hard stop less likely: the reserve is part of the admission check, never of the
+hard stop. No start is dropped for memory, so the hit rate never depends on timing.
+Measured on a real suite (al-runner issue 8211): 61% of entries replayed at 8 starts, 87% at 32 and 99% at 128, with 0
+differences in the check and identical answers.

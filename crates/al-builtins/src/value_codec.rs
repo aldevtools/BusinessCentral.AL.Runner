@@ -108,6 +108,14 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
             put_u8(out, 6);
             out.extend_from_slice(&c.to_le_bytes());
         }
+        Value::Text(t) if t.has_lone() => {
+            put_u8(out, 20);
+            put_lone(out, t);
+        }
+        Value::Code(t) if t.has_lone() => {
+            put_u8(out, 21);
+            put_lone(out, t);
+        }
         Value::Text(t) => {
             put_u8(out, 7);
             put_str(out, t.as_str());
@@ -214,6 +222,33 @@ fn encode_in(v: &Value, out: &mut Vec<u8>) -> bool {
     true
 }
 
+/// A text with half of a surrogate pair (issue 9202): its string, which holds U+FFFD at each lone position, then each
+/// half's UTF-16 position and unit. The read of the string is noted as before (`Txt::as_str`): a test that leaves such
+/// a text where the single-instance tracking reads it is still refused.
+fn put_lone(out: &mut Vec<u8>, t: &crate::text::Txt) {
+    put_str(out, t.as_str());
+    put_u32(out, t.lone_units().len() as u32);
+    for &(at, unit) in t.lone_units() {
+        put_u32(out, at);
+        out.extend_from_slice(&unit.to_le_bytes());
+    }
+}
+
+/// The text [`put_lone`] wrote; `None` when a half is not a surrogate unit or does not sit on a U+FFFD of the string.
+fn read_lone(r: &mut Reader) -> Option<crate::text::Txt> {
+    let mut units: Vec<u16> = r.str()?.encode_utf16().collect();
+    for _ in 0..r.u32()? {
+        let at = r.u32()? as usize;
+        let unit = u16::from_le_bytes(r.take(2)?.try_into().ok()?);
+        let slot = units.get_mut(at)?;
+        if *slot != 0xFFFD || !(0xD800..0xE000).contains(&unit) {
+            return None;
+        }
+        *slot = unit;
+    }
+    Some(crate::text::Txt::from_units(&units))
+}
+
 /// Whether a library value of this kind can sit in a stored row and has a form here (RecordId, TableFilter).
 fn stored_library(kind: &crate::library_kind::LibraryKind) -> bool {
     *kind == crate::library_kind::LibraryKind::RecordId || kind.as_str() == "TableFilter"
@@ -231,6 +266,8 @@ pub fn decode(r: &mut Reader) -> Option<Value> {
         6 => Value::Char(u16::from_le_bytes(r.take(2)?.try_into().ok()?)),
         7 => Value::Text(r.str()?.into()),
         8 => Value::Code(r.str()?.into()),
+        20 => Value::Text(read_lone(r)?),
+        21 => Value::Code(read_lone(r)?),
         9 => {
             let d = i32::from_le_bytes(r.take(4)?.try_into().ok()?);
             Value::Date(d, r.u8()? != 0)
@@ -248,7 +285,7 @@ pub fn decode(r: &mut Reader) -> Option<Value> {
             }
             let value = match r.u8()? {
                 0 => crate::value::LibraryValue::Empty,
-                2 => crate::value::LibraryValue::Text(r.str()?),
+                2 => crate::value::LibraryValue::Text(r.str()?.into()),
                 1 => crate::value::LibraryValue::RecordId {
                     table: r.u32()?,
                     table_no: r.u32()?,
@@ -454,5 +491,43 @@ mod tests {
         let row = decode_row(&mut r).unwrap();
         assert_eq!(format!("{row:?}"), "[Integer(1), Text(\"x\")]");
         assert!(r.is_empty());
+    }
+
+    /// Issue 9202: a Text or Code holding half of a surrogate pair wrote the U+FFFD that holds its place, so the high
+    /// half, the low half and U+FFFD itself had one form, and the half was gone after a decode. Each has its own form
+    /// now, and reads back with the same UTF-16 units.
+    #[test]
+    fn a_lone_half_has_its_own_form_and_reads_back_exact() {
+        let texts: [&[u16]; 5] = [
+            &[0x61, 0xD83D],
+            &[0x61, 0xD83E],
+            &[0x61, 0xDE01],
+            &[0x61, 0xFFFD],
+            &[0xDE01, 0xD83D, 0xDE00],
+        ];
+        for wrap in [Value::Text as fn(crate::text::Txt) -> Value, Value::Code] {
+            let mut forms: Vec<Vec<u8>> = Vec::new();
+            for units in texts {
+                let v = wrap(crate::text::Txt::from_units(units));
+                let mut out = Vec::new();
+                assert!(encode(&v, &mut out), "{units:x?} has a form");
+                assert!(!forms.contains(&out), "{units:x?} has the form of another text");
+                let mut r = Reader::new(&out);
+                let back = decode(&mut r).unwrap_or_else(|| panic!("{units:x?} decodes"));
+                assert!(r.is_empty(), "{units:x?}: all bytes used");
+                let (Value::Text(a) | Value::Code(a), Value::Text(b) | Value::Code(b)) = (&v, &back) else {
+                    panic!("{back:?}")
+                };
+                assert_eq!(std::mem::discriminant(&v), std::mem::discriminant(&back));
+                assert_eq!(a.units(), b.units(), "{units:x?}");
+                for cut in 0..out.len() {
+                    assert!(
+                        decode(&mut Reader::new(&out[..cut])).is_none(),
+                        "{units:x?} cut at {cut}"
+                    );
+                }
+                forms.push(out);
+            }
+        }
     }
 }

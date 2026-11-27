@@ -174,10 +174,7 @@ fn measured_cell(datetime: bool, ret_used: bool, text: &str) -> Option<(Shape<'_
 /// Whether `text` is a measured cell for a target of this kind (`datetime`: a DateTime, else a Date), in the en-US session of the
 /// probe: GlobalLanguage 1033 and no `CurrReport.FormatRegion` set in a report (every date cell depends on the region).
 pub(super) fn measured(c: &dyn Ctx, datetime: bool, text: &str) -> bool {
-    c.language() == 1033
-        && c.region().is_none()
-        && c.region_unpinned().is_none()
-        && measured_cell(datetime, c.ret_used(), text).is_some()
+    crate::format::en_us_session(c) && measured_cell(datetime, c.ret_used(), text).is_some()
 }
 
 /// The reading of a text [`measured`] took.

@@ -7,6 +7,7 @@
 //! `baseline_cache::carry`), and what a run asks for. Entry points: `RunOptions`, `Compiled`, `Warm`,
 //! `SuiteRun`.
 use super::*;
+pub use crate::login_start::LoginReplayLimits;
 
 /// How the `OnRun` trigger of a test codeunit shows in the results of a run: what Microsoft's test runner reports, which
 /// AL code does not see.
@@ -100,6 +101,9 @@ pub struct RunOptions {
     /// Use the compile cache of the dependency apps (ADR-022). `None`: the demand-driven compile
     /// of every run, which is the reference path.
     pub compile_cache: Option<crate::compile_cache::CompileCache>,
+    /// Use the workspace layer of the compile cache too (ADR-022 amendment 2026-11-15), with `compile_cache`.
+    /// `None`: off.
+    pub workspace_cache: Option<crate::workspace_cache::WorkspaceCacheOptions>,
     /// A test that runs longer than this is stopped and reported as not run. `None`: no limit.
     pub test_time_limit: Option<std::time::Duration>,
     /// Per app (in the order given to the run): a dependency app whose files hold no text yet, and how
@@ -130,10 +134,14 @@ pub struct RunOptions {
     /// Callbacks while the run goes on: a line per test as it finishes, and a flag that stops the run after the
     /// current test (`al-runner serve`).
     pub hooks: crate::events::Hooks,
-    /// Where the run clock of a test codeunit starts (codeunit id to Unix milliseconds), instead of now: the corpus
-    /// oracle recorded values derived from `Today` on the day real BC ran, so the harness starts each codeunit at the
-    /// time of that codeunit's suite in the oracle.
+    /// Where the run clock of a test codeunit starts (codeunit id to Unix milliseconds), instead of the run's clock: the
+    /// corpus oracle recorded values derived from `Today` on the day real BC ran, so the harness starts each codeunit at
+    /// the time of that codeunit's suite in the oracle.
     pub clock_starts: Option<Arc<std::collections::HashMap<u32, i64>>>,
+    /// The clock of the run (`host::RunClock`), when it began before the run phase; `None`: the run phase begins it
+    /// (`CorpusRuntime::run_compiled`), so each request of a server begins its own. Set once for the passes of one run
+    /// ([`RunOptions::with_run_clock`]).
+    pub run_clock: Option<crate::host::RunClock>,
     /// Do not print the `baseline:` detail lines to stderr (`al-runner test` prints them only with `--verbose`). The counts
     /// stay in `Phases::baseline_roots`. Default `false`: print, as the corpus job does.
     pub quiet_baseline: bool,
@@ -201,9 +209,14 @@ pub struct RunOptions {
     pub skip_after_timeout: bool,
     /// `--stop-after-first-failure` and serve's `stopAfterFirstFailure` (al-runner issue 8210, opt-in, tooling): once a
     /// test fails, the later tests of its codeunit and every later entry (`entries`) are not run and end as not run,
-    /// naming that test (`run::stopped_after_failure`). Each test codeunit stops on its own; every other test
+    /// naming that test (`stop::Stop::after`). Each test codeunit stops on its own; every other test
     /// codeunit of the same entry (or of a request without entries) still runs, also with one thread. Default `false`: every test runs.
     pub stop_after_first_failure: bool,
+    /// `--stop-after-timeout` and serve's `stopAfterTimeout` (al-runner issue 9213, opt-in, tooling): once the time limit
+    /// stops a test (or a test codeunit's OnRun), the later tests of its codeunit and every later entry are not run and
+    /// end as not run, naming that test (`stop::Stop::after`). As `stop_after_first_failure` otherwise, whose scope
+    /// (`EntryRun::stop_group`) it shares. Default `false`: every test runs.
+    pub stop_after_timeout: bool,
     /// `al-runner test --permissions off` (ADR-062 section 5): no access kind is enforced, whatever stages are on by
     /// default. While no stage is on (today) it changes nothing.
     pub permissions_off: bool,
@@ -254,6 +267,45 @@ pub struct RunOptions {
     /// reports it in `Phases::login_replay` (`login_replay.rs`, al-runner issue 8211; `ALRUNNER_LOGIN_REPLAY_CHECK=1`,
     /// read by the front ends). Outcomes do not depend on it.
     pub login_replay_check: bool,
+    /// A test session takes a login start in place of running its login when it can (`login_start.rs`, al-runner issue
+    /// 8211; `ALRUNNER_LOGIN_REPLAY=1`, read by the front ends). Default `false`: off, until the key costs less than the
+    /// Login on every shape (install code that runs in every session gives every table a new stamp, so
+    /// the key digests every row). Outcomes must not depend on it: every input the login reads is a key field
+    /// (`login_replay::Key`), and the login replay check is its differential test.
+    pub login_replay: bool,
+    /// The caps of the login starts an engine keeps (`login_start/limits.rs`; `ALRUNNER_LOGIN_REPLAY_MAX_IMAGES` and
+    /// `ALRUNNER_LOGIN_REPLAY_MAX_MB`, read by the front ends). Default: 8 starts and 64 MB. Only time and memory
+    /// depend on them.
+    pub login_replay_limits: LoginReplayLimits,
+}
+
+impl RunOptions {
+    /// Whether the run keeps login starts: the replay (`login_replay`) or its check (`login_replay_check`), which keeps
+    /// the starts it compares with.
+    pub fn keeps_login_starts(&self) -> bool {
+        self.login_replay || self.login_replay_check
+    }
+
+    /// These options with the run's clock begun, for a run that runs its program more than once (a second pass, a
+    /// redo, the variants of a stability run): every pass then reads the one clock of the run.
+    pub(crate) fn with_run_clock(&self) -> std::borrow::Cow<'_, RunOptions> {
+        match self.run_clock {
+            Some(_) => std::borrow::Cow::Borrowed(self),
+            None => std::borrow::Cow::Owned(RunOptions {
+                run_clock: Some(crate::host::RunClock::begin()),
+                ..self.clone()
+            }),
+        }
+    }
+
+    /// The clock of test codeunit `id`'s sessions in a run whose clock is `run`: where `clock_starts` starts it, else the
+    /// run's.
+    pub(crate) fn codeunit_clock(&self, id: u32, run: crate::host::RunClock) -> crate::host::RunClock {
+        self.clock_starts
+            .as_ref()
+            .and_then(|m| m.get(&id).copied())
+            .map_or(run, crate::host::RunClock::At)
+    }
 }
 
 /// One entry of a run (`RunOptions::entries`).
@@ -285,9 +337,9 @@ pub(crate) struct Pass {
     pub(crate) resources: al_vm::ResourceOverrides,
     /// The time limit of the pass's tests (`RunOptions::test_time_limit`, or the entry's own).
     pub(crate) limit: Option<std::time::Duration>,
-    /// The scope of `RunOptions::stop_after_first_failure` for this pass (`pass_stopped` compares scopes by equality, so
-    /// the entries without a group share one); `None`: the stop is off.
-    pub(crate) stop: Option<super::run::StopAfterFailure>,
+    /// The stop of this pass (`stop.rs`; `pass_stopped` compares scopes by equality, so the entries without a group
+    /// share one); `None`: no stop is on.
+    pub(crate) stop: Option<super::stop::Stop>,
 }
 
 impl Pass {
@@ -311,16 +363,9 @@ impl Pass {
                 hooks: memory.hooks(&opts.hooks),
                 resources: Default::default(),
                 limit: opts.test_time_limit,
-                stop: opts
-                    .stop_after_first_failure
-                    .then_some(super::run::StopAfterFailure::Request),
+                stop: super::stop::Stop::of(opts.stop_after_first_failure, opts.stop_after_timeout, None),
             }];
         }
-        let stop = |e: &EntryRun| match &e.stop_group {
-            _ if !opts.stop_after_first_failure => None,
-            None => Some(super::run::StopAfterFailure::Request),
-            Some(g) => Some(super::run::StopAfterFailure::Group(Arc::from(g.as_str()))),
-        };
         let resources = |e: &EntryRun| {
             e.resources
                 .iter()
@@ -338,7 +383,11 @@ impl Pass {
                 hooks: memory.hooks(&e.hooks),
                 resources: resources(e),
                 limit: e.test_time_limit.unwrap_or(opts.test_time_limit),
-                stop: stop(e),
+                stop: super::stop::Stop::of(
+                    opts.stop_after_first_failure,
+                    opts.stop_after_timeout,
+                    e.stop_group.as_deref(),
+                ),
             })
             .collect()
     }
@@ -395,6 +444,8 @@ pub struct Compiled {
     pub(crate) ws: al_sema::Workspace,
     pub(crate) lowered: Lowered,
     pub(crate) cache_report: Option<crate::compile_cache::CacheReport>,
+    /// What the workspace layer of the compile cache did (ADR-022 amendment 2026-11-15); `None`: the run did not ask for it.
+    pub(crate) workspace_cache: Option<crate::workspace_cache::WorkspaceReport>,
     pub(crate) baseline_wanted: bool,
     pub(crate) baseline: bool,
     pub(crate) baseline_note: Option<String>,
@@ -664,6 +715,11 @@ pub type Resources = [(String, Vec<u8>)];
 pub type ResourceFiles = Vec<(String, Vec<u8>)>;
 
 impl Compiled {
+    /// What the workspace layer of the compile cache did for this compile (ADR-022 amendment 2026-11-15).
+    pub fn workspace_cache(&self) -> Option<&crate::workspace_cache::WorkspaceReport> {
+        self.workspace_cache.as_ref()
+    }
+
     /// The compile of a run that is not edited afterwards (a warm server's is, [`Compiled::update_files`], and keeps its
     /// trees): its workspace drops its parse trees once the program is lowered (`Workspace::drop_trees`). A compile kept
     /// for a later pass that grows it (ADR-063, `grow_kept`) keeps them: that pass reads the trees of most files again
@@ -819,6 +875,8 @@ impl Warm {
                                 let (apps, kinds, manifests) = build.take().expect("built once")();
                                 let compile_opts = RunOptions {
                                     only: None,
+                                    // The reference is a fresh compile: it neither reads nor writes the workspace layer.
+                                    workspace_cache: None,
                                     ..opts.clone()
                                 };
                                 let full = CorpusRuntime::compile_suites(

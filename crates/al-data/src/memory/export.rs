@@ -1,0 +1,208 @@
+//! The committed data of a store as plain values, and a store made from them: for a baseline on disk or on another
+//! thread (al-vm `Baseline::to_bytes`, `Baseline::from_bytes`). The rows, the tables a DeleteAll without filters
+//! emptied ([`MemStore::emptied`]) and the companies deleted with their rows
+//! ([`MemStore::committed_deleted_companies`]) travel: a store made from the export holds what the exported one held,
+//! marks included. Each export marks a recorded install session as reading everything (`footprint.rs`).
+
+use super::{Key, MemStore, PkStorage, Row, Slot, Table, Tables, next_stamp, slot, table_storage};
+use crate::{AccessContext, Store, TableDef, Value};
+
+/// One table of an exported store ([`MemStore::export_committed`]): its company (empty for a table that is not per
+/// company), its object, and its rows with their primary keys, in key order.
+#[derive(Debug, Clone)]
+pub struct ExportedTable {
+    pub company: String,
+    pub object: u32,
+    /// How the table's primary key fields are stored: the order of its keys (`memory/key.rs`).
+    pub pk_storage: PkStorage,
+    pub rows: Vec<(Vec<Value>, Row)>,
+}
+
+/// The slot of table `object` in `company`.
+fn slot_of(company: &str, object: u32) -> Slot {
+    (std::sync::Arc::from(company), object)
+}
+
+/// The emptied marks `tables` names, as a store holds them.
+pub(super) fn emptied_marks(tables: &[(String, u32)]) -> crate::pmap::PMap<Slot, ()> {
+    let mut marks = crate::pmap::PMap::new();
+    for (company, object) in tables {
+        marks.insert(slot_of(company, *object), ());
+    }
+    marks
+}
+
+impl MemStore {
+    /// The committed rows of every table the store holds an entry for, for a snapshot on disk or for
+    /// another thread (the rows are plain values; [`MemStore::from_exported`] is the way back, with
+    /// [`MemStore::committed_emptied`]).
+    /// A store with a backing (test data) exports the tables it holds: those a write reached, which
+    /// carry the backing's rows with the changes, and an emptied one stays empty. The tables it has
+    /// no entry for are the backing's and are not exported; the importer puts the same backing back
+    /// (`with_backing`). The record of changes to restored rows is a log and is not exported.
+    /// Changes that are not committed are not exported.
+    pub fn export_committed(&self) -> Option<Vec<ExportedTable>> {
+        self.footprint_everything("an export of the store");
+        Some(Self::export(&self.committed))
+    }
+
+    /// The tables the store holds now, uncommitted changes included, as [`MemStore::export_committed`] gives the committed
+    /// ones (a temporary table's store, which never commits; al-vm `Session::state_lines`). Counts no store operation.
+    pub fn export_current(&self) -> Vec<ExportedTable> {
+        self.footprint_everything("an export of the store");
+        Self::export(&self.tables)
+    }
+
+    /// Every table of `tables` with its rows in key order ([`MemStore::export_committed`], [`MemStore::export_current`]).
+    fn export(tables: &Tables) -> Vec<ExportedTable> {
+        tables
+            .iter()
+            .map(|((company, object), table)| ExportedTable {
+                company: company.to_string(),
+                object: *object,
+                pk_storage: table_storage(table),
+                rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
+            })
+            .collect()
+    }
+
+    /// The committed tables (company, object) a DeleteAll without filters emptied ([`MemStore::emptied`]), sorted.
+    pub fn committed_emptied(&self) -> Vec<(String, u32)> {
+        self.footprint_everything("an export of the store");
+        let mut emptied: Vec<(String, u32)> = self.committed_emptied.keys().map(|s| (s.0.to_string(), s.1)).collect();
+        emptied.sort();
+        emptied
+    }
+
+    /// The committed companies deleted with their rows ([`MemStore::drop_company`]), sorted. The test data's rows of such a
+    /// company are gone with it: a company inserted again under its name starts empty
+    /// (record/TestChangeCompanyFiltersCopyDeleteContracts.al:352, :356, :449, :456), so every copy of the store carries
+    /// the list (issue 9233): the export ([`MemStore::from_exported`]) and the frozen store (`frozen.rs`).
+    pub fn committed_deleted_companies(&self) -> Vec<String> {
+        self.footprint_everything("an export of the store");
+        let mut deleted: Vec<String> = (self.committed_dropped_backed_companies.keys())
+            .map(|c| c.to_string())
+            .collect();
+        deleted.sort();
+        deleted
+    }
+
+    /// Marks table `object` (object index) as written, in whatever company: [`MemStore::was_written`] answers `true` for it
+    /// in this store and in every copy made from it from now on (al-vm `records/op_inner.rs` marks G/L Entry). The first
+    /// mark is a change of the table ([`MemStore::tables_changed_since`]), whether or not a row changed.
+    pub fn note_written(&mut self, object: u32) {
+        if self.written.insert(object) {
+            self.counter = super::next_stamp();
+            self.written_stamps.insert(object, self.counter);
+        }
+    }
+
+    /// Whether [`MemStore::note_written`] marked table `object` in this store or in the store it was copied from.
+    pub fn was_written(&self, object: u32) -> bool {
+        self.written.contains(&object)
+    }
+
+    /// The tables [`MemStore::note_written`] marked, sorted, for the bytes of a baseline ([`MemStore::with_written`] reads
+    /// them back).
+    pub fn written_tables(&self) -> Vec<u32> {
+        self.written.iter().copied().collect()
+    }
+
+    /// This store with `objects` marked as written ([`MemStore::written_tables`] of the store it was exported from).
+    pub fn with_written(mut self, objects: &[u32]) -> MemStore {
+        self.written.extend(objects.iter().copied());
+        self
+    }
+
+    /// Table `t` no longer counts as emptied by a DeleteAll without filters ([`MemStore::emptied`]); its rows stay as they
+    /// are. The mark then travels no further: not to the commit, the export or a frozen copy.
+    pub fn forget_emptied(&mut self, cx: &AccessContext, t: &TableDef) {
+        self.emptied.remove(&slot(cx, t));
+    }
+
+    /// A store whose committed (and current) data is `tables`, with `emptied` the tables a DeleteAll without filters
+    /// emptied ([`MemStore::committed_emptied`] of the exported store), `deleted` the companies deleted with their rows
+    /// ([`MemStore::committed_deleted_companies`]), and no provider and no backing. Its stamps are new ones: a stamp
+    /// only says whether a table changed, and no cache of this store knows an older one. A deleted company gets a
+    /// source stamp, as `note_copy` gives a copy: its untouched tables read no backing rows (`source_stamps.rs`).
+    pub fn from_exported(tables: Vec<ExportedTable>, emptied: &[(String, u32)], deleted: &[String]) -> MemStore {
+        let mut s = MemStore::default();
+        for t in tables {
+            let slot = slot_of(&t.company, t.object);
+            let table: Table = t
+                .rows
+                .into_iter()
+                .map(|(k, r)| (Key::in_table(k, &t.pk_storage), r))
+                .collect();
+            s.counter = next_stamp();
+            s.versions.insert(slot.clone(), s.counter);
+            s.shapes.insert(slot.clone(), s.counter);
+            s.tables.insert(slot, table);
+        }
+        s.emptied = emptied_marks(emptied);
+        for company in deleted {
+            s.dropped_backed_companies.insert(company.as_str().into(), ());
+            s.source_changed(company);
+        }
+        s.committed_dropped_backed_companies = s.dropped_backed_companies.clone();
+        s.committed_source_stamps = s.source_stamps.clone();
+        s.committed = s.tables.clone();
+        s.committed_versions = s.versions.clone();
+        s.committed_shapes = s.shapes.clone();
+        s.committed_emptied = s.emptied.clone();
+        s.with_held_noted()
+    }
+
+    /// The committed rows of table `object` in `company` that the store holds, and whether a DeleteAll without filters
+    /// emptied it ([`MemStore::emptied`]); `None` when the store holds no entry for it.
+    pub fn committed_table(&self, company: &str, object: u32) -> Option<(ExportedTable, bool)> {
+        self.footprint_everything("an export of the store");
+        let slot = slot_of(company, object);
+        let table = self.committed.get(&slot)?;
+        Some((
+            ExportedTable {
+                company: company.to_string(),
+                object,
+                pk_storage: table_storage(table),
+                rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
+            },
+            self.committed_emptied.contains_key(&slot),
+        ))
+    }
+
+    /// This store, with no change open, holding `tables` (each with whether a DeleteAll emptied it) in place of what it
+    /// held for them and nothing for `gone`; the other tables keep their rows and stamps. The replaced tables get new
+    /// stamps, as a write gives them.
+    pub fn with_committed_tables(mut self, tables: Vec<(ExportedTable, bool)>, gone: &[(String, u32)]) -> MemStore {
+        self.rollback();
+        for (company, object) in gone {
+            let slot = slot_of(company, *object);
+            self.tables.remove(&slot);
+            self.versions.remove(&slot);
+            self.shapes.remove(&slot);
+            self.emptied.remove(&slot);
+        }
+        for (t, emptied) in tables {
+            let slot = slot_of(&t.company, t.object);
+            let table: Table = t
+                .rows
+                .into_iter()
+                .map(|(k, r)| (Key::in_table(k, &t.pk_storage), r))
+                .collect();
+            self.counter = next_stamp();
+            self.versions.insert(slot.clone(), self.counter);
+            self.shapes.insert(slot.clone(), self.counter);
+            if emptied {
+                self.emptied.insert(slot.clone(), ());
+            } else {
+                self.emptied.remove(&slot);
+            }
+            // The rows come in without a write of each, so note their held columns as `from_exported` does: the store
+            // then refuses the reads the store the tables came from refuses.
+            self.note_held_rows(t.object, &table);
+            self.tables.insert(slot, table);
+        }
+        self.commit();
+        self
+    }
+}

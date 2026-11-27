@@ -792,14 +792,6 @@ pub(super) fn rec_text_log_call(program: &ir::Program, object: usize, e: &ir::Ex
                 && args.iter().all(|a| matches!(a, ir::Arg::Value(v) if rec_text(rec, v))))
 }
 
-/// `e` without the type conversions around it.
-pub(super) fn unconverted(e: &ir::Expr) -> &ir::Expr {
-    match e {
-        ir::Expr::Convert(_, inner) => unconverted(inner),
-        e => e,
-    }
-}
-
 /// Routine `routine` of `callee` is a procedure of a codeunit that only appends text to one Text global of the codeunit: it has
 /// value parameters only, no local variable and no return value, and each statement is `G += <text>` or
 /// `if G <> <constant> then G += <text>;`, the text built of constants and the parameters with `+`. The log procedures of the
@@ -808,7 +800,7 @@ pub(super) fn unconverted(e: &ir::Expr) -> &ir::Expr {
 /// testpage/lifecycle/ReopenSameVariableState.al:227-232 (`if Entries <> '' then Entries += ' '; Entries += Line;`).
 pub(super) fn text_log_routine(program: &ir::Program, callee: usize, routine: usize) -> bool {
     fn text(params: usize, e: &ir::Expr) -> bool {
-        match unconverted(e) {
+        match e.unconverted() {
             ir::Expr::Const(ir::Const::Text(_)) => true,
             ir::Expr::Load(ir::Place::Local(l)) => *l < params,
             ir::Expr::Binary(ir::BinOp::Add, a, b) => text(params, a) && text(params, b),
@@ -827,9 +819,9 @@ pub(super) fn text_log_routine(program: &ir::Program, callee: usize, routine: us
     let is_log = |g: usize| o.globals.get(g).is_some_and(|s| matches!(s.ty, RtType::Text(_)));
     // `G += <text>`: the global it appends to.
     let append = |s: &ir::Stmt| match s {
-        ir::Stmt::Assign(ir::Place::Global(g), e) => match unconverted(e) {
+        ir::Stmt::Assign(ir::Place::Global(g), e) => match e.unconverted() {
             ir::Expr::Binary(ir::BinOp::Add, a, b)
-                if matches!(unconverted(a), ir::Expr::Load(ir::Place::Global(h)) if h == g) && text(r.params, b) =>
+                if matches!(a.unconverted(), ir::Expr::Load(ir::Place::Global(h)) if h == g) && text(r.params, b) =>
             {
                 Some(*g)
             }
@@ -852,7 +844,7 @@ pub(super) fn text_log_routine(program: &ir::Program, callee: usize, routine: us
         && stmts.iter().all(|s| match s {
             ir::Stmt::If(ir::Expr::Binary(ir::BinOp::Ne, a, b), then, otherwise) => {
                 let then = without_pos(then);
-                let tested = match (unconverted(a), unconverted(b)) {
+                let tested = match (a.unconverted(), b.unconverted()) {
                     (ir::Expr::Load(ir::Place::Global(g)), ir::Expr::Const(ir::Const::Text(_))) => Some(*g),
                     _ => None,
                 };
@@ -966,7 +958,7 @@ pub(super) fn open_page_filters_then_find(program: &ir::Program, object: usize, 
         return false;
     };
     let on_rec = |e: &ir::Expr, want: al_builtins::builtin_id::BuiltinId| {
-        matches!(e, ir::Expr::Builtin { id, receiver: Some(receiver), .. } if *id == want
+        matches!(e, ir::Expr::Builtin { id, receiver: Some(receiver), .. } if id.written_base() == want
             && matches!(&**receiver, ir::Arg::Value(ir::Expr::Load(ir::Place::Global(g))) | ir::Arg::Ref(ir::Place::Global(g))
                 if *g == rec))
     };

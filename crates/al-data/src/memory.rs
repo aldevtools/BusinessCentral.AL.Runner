@@ -6,9 +6,10 @@
 
 use crate::*;
 use al_builtins::filter::FieldFilter;
-use band::Band;
+use band::pk_band;
 pub use key::PkStorage;
 use key::{Key, table_storage};
+use scan::{KeyOrder, Placed};
 use std::cmp::Ordering;
 
 mod alt_cache;
@@ -17,6 +18,7 @@ mod alt_cache_tests;
 mod band;
 #[cfg(test)]
 mod collation_read_tests;
+mod export;
 mod footprint;
 #[cfg(test)]
 mod footprint_tests;
@@ -29,11 +31,16 @@ mod key_value_tests;
 mod order_carry;
 mod replace;
 mod row_changes;
+mod scan;
+pub use row_changes::BeforeRows;
+mod shape;
+pub use shape::{CommittedMarks, CommittedRows};
 mod source_stamps;
 #[cfg(test)]
 mod source_stamps_tests;
 #[cfg(test)]
 mod storage_tests;
+pub use export::ExportedTable;
 pub use frozen::{FrozenRows, FrozenStore, NotShareable, not_shareable, shareable};
 
 type Table = crate::pmap::PMap<Key, Row>;
@@ -182,6 +189,13 @@ pub struct MemStore {
     /// rollback (and a snapshot), so it holds exactly while that DeleteAll stands.
     emptied: crate::pmap::PMap<Slot, ()>,
     committed_emptied: crate::pmap::PMap<Slot, ()>,
+    /// The tables (object index, in any company) the runtime marked as written ([`MemStore::note_written`]). Never cleared:
+    /// every copy of the store (a clone, a snapshot, a frozen store, the bytes of a baseline) keeps it with the rows.
+    written: std::collections::BTreeSet<u32>,
+    /// The change counter each table of `written` got when this store marked it ([`MemStore::note_written`]): a mark set
+    /// without a row change (a DeleteAll of an empty table) still counts as a change of the table
+    /// ([`MemStore::tables_changed_since`]). A copy made from bytes starts with the mark and no stamp.
+    written_stamps: std::collections::BTreeMap<u32, u64>,
     /// The primary keys of a big table in the order of one of its other keys, as of a shape stamp. Shared by the clones
     /// of the store, so a session restored to a snapshot finds the orders built since the snapshot was taken (al-runner
     /// issue 5884: each test session asks for the last G/L entry by Posting Date). Safe to share because a stamp is
@@ -201,6 +215,11 @@ pub struct MemStore {
     /// nothing wrote to reads the source's backing rows, as the copy took them. Part of the transaction, like `tables`.
     copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
     committed_copies: crate::pmap::PMap<std::sync::Arc<str>, std::sync::Arc<str>>,
+    /// The companies whose rows a company copy made (`copy_company`, `note_copy`, carried by `rename_company`), with a
+    /// backing or without: their rows carry the system fields of the source's rows. Changes no read; the install-order
+    /// comparison reads it (`committed_copy_targets`). A freeze and an export leave it out. Part of the transaction.
+    copy_targets: crate::pmap::PMap<std::sync::Arc<str>, ()>,
+    committed_copy_targets: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     /// Companies whose untouched rows were removed by deleting their Company row.
     dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
     committed_dropped_backed_companies: crate::pmap::PMap<std::sync::Arc<str>, ()>,
@@ -258,17 +277,6 @@ struct Watch {
     window: Option<(std::collections::BTreeSet<u32>, Option<u32>)>,
 }
 
-/// One table of an exported store ([`MemStore::export_committed`]): its company (empty for a table that is not per
-/// company), its object, and its rows with their primary keys, in key order.
-#[derive(Debug, Clone)]
-pub struct ExportedTable {
-    pub company: String,
-    pub object: u32,
-    /// How the table's primary key fields are stored: the order of its keys (`memory/key.rs`).
-    pub pk_storage: PkStorage,
-    pub rows: Vec<(Vec<Value>, Row)>,
-}
-
 /// A change to a row the restored company holds, made while recording was on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestoredChange {
@@ -301,28 +309,6 @@ fn slot(cx: &AccessContext, t: &TableDef) -> Slot {
 fn key_fields_differ(key: &[usize], old: &[Value], new: &[Value]) -> bool {
     key.iter()
         .any(|&i| al_builtins::ops::compare_key_value(&old[i], &new[i]).map_or(true, |o| o != Ordering::Equal))
-}
-
-/// `key_cmp(position(t, key, row), other)` without building the position.
-fn cmp_row_to_position(t: &TableDef, key: usize, row: &[Value], other: &[Value]) -> Ordering {
-    for (&i, x) in t.keys[key].iter().chain(&t.keys[0]).zip(other) {
-        match t.cmp_key_field(i, &row[i], x) {
-            Ordering::Equal => continue,
-            o => return o,
-        }
-    }
-    (t.keys[key].len() + t.keys[0].len()).cmp(&other.len())
-}
-
-/// `key_cmp(position(t, key, a), position(t, key, b))` without building the positions.
-fn cmp_rows(t: &TableDef, key: usize, a: &[Value], b: &[Value]) -> Ordering {
-    for &i in t.keys[key].iter().chain(&t.keys[0]) {
-        match t.cmp_key_field(i, &a[i], &b[i]) {
-            Ordering::Equal => continue,
-            o => return o,
-        }
-    }
-    Ordering::Equal
 }
 
 /// The part of the order of a key that the filters narrow down (ADR-035): the position tuple of the first row a scan
@@ -393,6 +379,8 @@ impl Seek {
     /// The bounds the filters give for key `key` of `t`; `None` when they give none.
     pub fn of(t: &TableDef, key: usize, filters: &[FieldFilter], sample: Option<&Row>) -> Option<Seek> {
         use al_builtins::filter::{FilterExpr as E, OR_GROUP};
+        #[cfg(test)]
+        SEEKS_WORKED_OUT.with(|c| c.set(c.get() + 1));
         if filters.is_empty() {
             return None;
         }
@@ -520,29 +508,8 @@ impl Seek {
 thread_local! {
     /// How many rows `passes` looked at: the tests of the key seek count what a scan reads.
     static ROWS_LOOKED_AT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// The rows of `table` (in primary key order) that can pass `filters`: those between the bounds the filters on the
-/// leading primary key fields give. A row of the band may still fail them, so the caller checks `passes`.
-fn pk_band<'a>(
-    table: &'a Table,
-    t: &TableDef,
-    filters: &[FieldFilter],
-) -> Box<dyn Iterator<Item = (&'a Key, &'a Row)> + 'a> {
-    use std::ops::Bound::{Included, Unbounded};
-    let Some(seek) = Seek::of(t, 0, filters, table.values().next()) else {
-        return Box::new(table.iter());
-    };
-    let lower = if seek.lo.is_empty() {
-        Unbounded
-    } else {
-        Included(Key::of(t, seek.lo.clone()))
-    };
-    Box::new(
-        table
-            .range((lower, Unbounded))
-            .take_while(move |(_, r)| seek.after(r) != Some(true)),
-    )
+    /// How many times `Seek::of` worked out the bounds of a key: the tests of the kept lists count them.
+    static SEEKS_WORKED_OUT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Every read that checks rows here refused a filter whose matching is not pinned first (`unpinned_match_read`).
@@ -734,6 +701,8 @@ impl MemStore {
         let source = self.copy_source(source);
         self.copies.insert(copy.into(), source.clone());
         self.committed_copies.insert(copy.into(), source);
+        self.copy_targets.insert(copy.into(), ());
+        self.committed_copy_targets.insert(copy.into(), ());
         self.source_changed(copy);
         let copy = std::sync::Arc::from(copy);
         self.dropped_backed_companies.remove(&copy);
@@ -747,6 +716,18 @@ impl MemStore {
     fn copy_source(&self, company: &str) -> std::sync::Arc<str> {
         let key: std::sync::Arc<str> = company.into();
         self.copies.get(&key).cloned().unwrap_or(key)
+    }
+
+    /// Whether the untouched tables read rows of a backing (ADR-020); without one, the company copies and deleted
+    /// companies change no read (`backing_rows`, `has_company_rows`).
+    pub fn has_backing(&self) -> bool {
+        self.backing.is_some()
+    }
+
+    /// The companies whose committed rows a company copy made ([`MemStore::copy_company`]): their rows carry the system
+    /// fields of the source's rows.
+    pub fn committed_copy_targets(&self) -> impl Iterator<Item = &str> + '_ {
+        self.committed_copy_targets.keys().map(|c| &**c)
     }
 
     /// The identity of the rows the untouched tables read ([`Backing::identity`]): `Some((0, 0))` without a backing,
@@ -970,13 +951,20 @@ impl MemStore {
     }
 
     /// The table objects (in any company) whose rows changed after the change counter was `counter`, and whose change a
-    /// rollback has not undone (`versions` follows rollback).
+    /// rollback has not undone (`versions` follows rollback), with the tables [`MemStore::note_written`] marked after it
+    /// (the mark is never undone).
     pub fn tables_changed_since(&self, counter: u64) -> std::collections::BTreeSet<u32> {
         self.footprint_changes_since(counter);
+        let marked = self
+            .written_stamps
+            .iter()
+            .filter(|(_, v)| **v > counter)
+            .map(|(object, _)| *object);
         self.versions
             .iter()
             .filter(|(_, v)| **v > counter)
             .map(|((_, object), _)| *object)
+            .chain(marked)
             .collect()
     }
 
@@ -1092,6 +1080,13 @@ impl MemStore {
         }
     }
 
+    /// Whether a table of the store holds a row now, read with no footprint and no access counted: a decision of the VM,
+    /// not a read of AL code (al-vm `clear_shared_codeunit.rs`). The backing is not read; a temporary record's own store
+    /// has none.
+    pub fn holds_rows_unobserved(&self) -> bool {
+        self.tables.iter().any(|(_, t)| !t.is_empty())
+    }
+
     /// Whether table object `object` holds a row now (committed or not) in any company.
     pub fn has_rows(&self, object: u32) -> bool {
         self.seen(object);
@@ -1115,77 +1110,15 @@ impl MemStore {
             })
     }
 
-    /// The table objects that hold a committed row in any company.
-    /// The committed rows of every table the store holds an entry for, for a snapshot on disk or for
-    /// another thread (the rows are plain values; [`MemStore::from_exported`] is the way back).
-    /// A store with a backing (test data) exports the tables it holds: those a write reached, which
-    /// carry the backing's rows with the changes, and an emptied one stays empty. The tables it has
-    /// no entry for are the backing's and are not exported; the importer puts the same backing back
-    /// (`with_backing`). The record of changes to restored rows is a log and is not exported.
-    /// Changes that are not committed are not exported.
-    pub fn export_committed(&self) -> Option<Vec<ExportedTable>> {
-        self.footprint_everything("an export of the store");
-        Some(Self::export(&self.committed))
-    }
-
-    /// The tables the store holds now, uncommitted changes included, as [`MemStore::export_committed`] gives the committed
-    /// ones (a temporary table's store, which never commits; al-vm `Session::state_lines`). Counts no store operation.
-    pub fn export_current(&self) -> Vec<ExportedTable> {
-        self.footprint_everything("an export of the store");
-        Self::export(&self.tables)
-    }
-
-    /// Every table of `tables` with its rows in key order ([`MemStore::export_committed`], [`MemStore::export_current`]).
-    fn export(tables: &Tables) -> Vec<ExportedTable> {
-        tables
-            .iter()
-            .map(|((company, object), table)| ExportedTable {
-                company: company.to_string(),
-                object: *object,
-                pk_storage: table_storage(table),
-                rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
-            })
-            .collect()
-    }
-
-    /// A store whose committed (and current) data is `tables`, with no provider and no backing. Its stamps are new
-    /// ones: a stamp only says whether a table changed, and no cache of this store knows an older one.
-    pub fn from_exported(tables: Vec<ExportedTable>) -> MemStore {
-        let mut s = MemStore::default();
-        for t in tables {
-            let slot: Slot = (std::sync::Arc::from(t.company.as_str()), t.object);
-            let table: Table = t
-                .rows
-                .into_iter()
-                .map(|(k, r)| (Key::in_table(k, &t.pk_storage), r))
-                .collect();
-            s.counter = next_stamp();
-            s.versions.insert(slot.clone(), s.counter);
-            s.shapes.insert(slot.clone(), s.counter);
-            s.tables.insert(slot, table);
-        }
-        s.committed = s.tables.clone();
-        s.committed_versions = s.versions.clone();
-        s.committed_shapes = s.shapes.clone();
-        s.with_held_noted()
-    }
-
     /// The committed tables (company, object) of this store that a write reached since it was `base` (a clone of
     /// `base`, restored, written and committed, as a session's capture of its baseline is): a table whose stamp differs
     /// from `base`'s or that `base` does not hold, and the tables `base` holds that this store does not (second list).
-    /// A write always gives its table a new stamp, so a table with `base`'s stamp holds `base`'s rows. `None` when the
-    /// company copies differ (`MemStore::copy_company`).
+    /// A write always gives its table a new stamp, so a table with `base`'s stamp holds `base`'s rows. What the untouched
+    /// tables answer besides (company copies and deleted companies) is not in the lists: two stores compare it with
+    /// [`MemStore::same_unshown_marks`].
     #[allow(clippy::type_complexity)]
-    pub fn committed_changes_from(&self, base: &MemStore) -> Option<(Vec<(String, u32)>, Vec<(String, u32)>)> {
+    pub fn committed_changes_from(&self, base: &MemStore) -> (Vec<(String, u32)>, Vec<(String, u32)>) {
         self.footprint_everything("a comparison of the store");
-        let same_copies = self.committed_copies.len() == base.committed_copies.len()
-            && self
-                .committed_copies
-                .iter()
-                .all(|(k, v)| base.committed_copies.get(k) == Some(v));
-        if !same_copies {
-            return None;
-        }
         let name = |s: &Slot| (s.0.to_string(), s.1);
         let changed = self
             .committed
@@ -1201,73 +1134,26 @@ impl MemStore {
             .filter(|s| !self.committed.contains_key(*s))
             .map(name)
             .collect();
-        Some((changed, gone))
+        (changed, gone)
     }
 
-    /// The committed rows of table `object` in `company` that the store holds, and whether a DeleteAll without filters
-    /// emptied it ([`MemStore::emptied`]); `None` when the store holds no entry for it.
-    pub fn committed_table(&self, company: &str, object: u32) -> Option<(ExportedTable, bool)> {
-        self.footprint_everything("an export of the store");
-        let slot: Slot = (std::sync::Arc::from(company), object);
-        let table = self.committed.get(&slot)?;
+    /// The committed rows of table `object` in `company` as a read finds them, and whether a DeleteAll without filters
+    /// emptied it: the store's entry ([`MemStore::committed_table`]), or the backing's rows when the store holds none (a
+    /// copy reads its source's, a deleted company none: `backing_rows`). `None` when neither holds any.
+    pub fn committed_table_read(&self, company: &str, object: u32) -> Option<(ExportedTable, bool)> {
+        if let Some(entry) = self.committed_table(company, object) {
+            return Some(entry);
+        }
+        let rows = self.backing_rows(company, object)?.0;
         Some((
             ExportedTable {
                 company: company.to_string(),
                 object,
-                pk_storage: table_storage(table),
-                rows: table.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
+                pk_storage: table_storage(&rows),
+                rows: rows.iter().map(|(k, r)| (k.0.clone(), r.clone())).collect(),
             },
-            self.committed_emptied.contains_key(&slot),
+            false,
         ))
-    }
-
-    /// This store, with no change open, holding `tables` (each with whether a DeleteAll emptied it) in place of what it
-    /// held for them and nothing for `gone`; the other tables keep their rows and stamps. The replaced tables get new
-    /// stamps, as a write gives them.
-    pub fn with_committed_tables(mut self, tables: Vec<(ExportedTable, bool)>, gone: &[(String, u32)]) -> MemStore {
-        self.rollback();
-        for (company, object) in gone {
-            let slot: Slot = (std::sync::Arc::from(company.as_str()), *object);
-            self.tables.remove(&slot);
-            self.versions.remove(&slot);
-            self.shapes.remove(&slot);
-            self.emptied.remove(&slot);
-        }
-        for (t, emptied) in tables {
-            let slot: Slot = (std::sync::Arc::from(t.company.as_str()), t.object);
-            let table: Table = t
-                .rows
-                .into_iter()
-                .map(|(k, r)| (Key::in_table(k, &t.pk_storage), r))
-                .collect();
-            self.counter = next_stamp();
-            self.versions.insert(slot.clone(), self.counter);
-            self.shapes.insert(slot.clone(), self.counter);
-            if emptied {
-                self.emptied.insert(slot.clone(), ());
-            } else {
-                self.emptied.remove(&slot);
-            }
-            self.tables.insert(slot, table);
-        }
-        self.commit();
-        self
-    }
-
-    /// The marks of the committed store an export leaves out ([`MemStore::export_committed`]): the tables a DeleteAll
-    /// emptied and the company copies, sorted.
-    #[allow(clippy::type_complexity)]
-    pub fn committed_marks(&self) -> (Vec<(String, u32)>, Vec<(String, String)>) {
-        self.footprint_everything("an export of the store");
-        let mut emptied: Vec<(String, u32)> = self.committed_emptied.keys().map(|s| (s.0.to_string(), s.1)).collect();
-        emptied.sort();
-        let mut copies: Vec<(String, String)> = self
-            .committed_copies
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        copies.sort();
-        (emptied, copies)
     }
 
     /// How many committed rows the store holds, over every table and company (a count for the work ratchet of the
@@ -1374,6 +1260,9 @@ impl MemStore {
                 self.shapes.insert(target, self.counter);
             }
         }
+        if self.copy_targets.contains_key(&std::sync::Arc::from(old)) {
+            self.copy_targets.insert(new.into(), ());
+        }
         let source = self.copy_source(old);
         self.copies.remove(&std::sync::Arc::from(old));
         if self.backing.is_some() {
@@ -1394,6 +1283,7 @@ impl MemStore {
             let source = self.copy_source(from);
             self.copies.insert(to.into(), source);
         }
+        self.copy_targets.insert(to.into(), ());
         self.dropped_backed_companies.remove(&std::sync::Arc::from(to));
         self.source_changed(to);
         let copied: Vec<(Slot, Table)> = self
@@ -1485,7 +1375,8 @@ impl MemStore {
         let moved = self.moves.get(&ck).copied().unwrap_or(0);
         ORDER_BUILDS.with(|n| n.set(n.get() + 1));
         let mut rows: Vec<(&Key, &Row)> = table.iter().collect();
-        rows.sort_by(|a, b| cmp_rows(t, key, a.1, b.1));
+        let by = KeyOrder::sorting(t, key);
+        rows.sort_by(|a, b| by.cmp_rows(a.1, b.1));
         let order = std::rc::Rc::new(
             rows.into_iter()
                 .map(|(k, _)| std::rc::Rc::new(k.clone()))
@@ -1509,128 +1400,6 @@ impl MemStore {
         order
     }
 
-    /// A scan whose own key is not bounded by the filters, but another key is (an index the filters narrow, as SQL
-    /// picks one): the rows that pass are found in that key's band and put in the order of the scan's key, once
-    /// per table version and set of filters (the cache `alt_cache`). `None`: the caller walks.
-    ///
-    /// The first step of a scan reads the band; the second builds the sorted list; later steps search it. The step
-    /// right after a write walks (a loop that writes in every step must not pay for a band in every step).
-    ///
-    /// `own`: the number of rows of the band of the scan's own key, when the filters bound it (`None`: they do not). Another
-    /// key's band is then read only when it is a clear gain over that band.
-    fn alt_next(
-        &self,
-        cx: &AccessContext,
-        t: &TableDef,
-        scan: &Scan,
-        table: &Table,
-        own: Option<usize>,
-    ) -> Option<Option<Row>> {
-        if scan.filters.is_empty()
-            || (own.is_none() && Seek::of(t, scan.key, scan.filters, table.values().next()).is_some())
-        {
-            return None;
-        }
-        let sample = table.values().next();
-        if !(0..t.keys.len()).any(|j| j != scan.key && Seek::of(t, j, scan.filters, sample).is_some()) {
-            return None;
-        }
-        let slot = slot(cx, t);
-        let stamp = self.stamp_of(&slot, &self.versions);
-        let fields: Vec<usize> = if scan.key == 0 {
-            t.keys[0].clone()
-        } else {
-            t.keys[scan.key].iter().chain(&t.keys[0]).copied().collect()
-        };
-        // How a row stands to the position `a`.
-        let cmp_after = |r: &[Value], a: &[Value]| -> Ordering {
-            for (&i, x) in fields.iter().zip(a) {
-                match t.cmp_key_field(i, &r[i], x) {
-                    Ordering::Equal => continue,
-                    o => return o,
-                }
-            }
-            Ordering::Equal
-        };
-        let after_ok = |r: &[Value]| {
-            scan.after.is_none_or(|a| {
-                let o = cmp_after(r, a);
-                if scan.ascending {
-                    o == Ordering::Greater
-                } else {
-                    o == Ordering::Less
-                }
-            })
-        };
-        let calls = match self.alt_step(&slot, scan.key, scan.filters, stamp) {
-            alt_cache::AltStep::Walk => return None,
-            alt_cache::AltStep::Sorted(keys) => return Some(self.search_sorted(table, &keys, scan, &cmp_after)),
-            alt_cache::AltStep::Band(calls) => calls,
-        };
-        // When `own` is `None` the filters do not bound the scan's key (checked above), so it has no band to leave out.
-        let Some(band) = self.narrowest_band(&slot, t, table, scan.filters, scan.key, own) else {
-            self.alt_keep(&slot, scan.key, scan.filters, None);
-            return None;
-        };
-        let band_keys: Vec<Key> = match &band {
-            Band::Pk => pk_band(table, t, scan.filters).map(|(k, _)| k.clone()).collect(),
-            Band::Order(order, range) => order[range.clone()].iter().map(|k| (**k).clone()).collect(),
-        };
-        if calls < 2 {
-            // The first step: the best row of the band.
-            let mut best: Option<&Row> = None;
-            for k in &band_keys {
-                let Some(r) = table.get(k) else { continue };
-                if !passes(r, scan.filters) || !after_ok(r) {
-                    continue;
-                }
-                let better = best.is_none_or(|b| {
-                    let o = cmp_rows(t, scan.key, r, b);
-                    if scan.ascending {
-                        o == Ordering::Less
-                    } else {
-                        o == Ordering::Greater
-                    }
-                });
-                if better {
-                    best = Some(r);
-                }
-            }
-            return Some(best.cloned());
-        }
-        let mut rows: Vec<(&Key, &Row)> = band_keys
-            .iter()
-            .filter_map(|k| table.get_key_value(k))
-            .filter(|(_, r)| passes(r, scan.filters))
-            .collect();
-        rows.sort_by(|a, b| cmp_rows(t, scan.key, a.1, b.1));
-        let keys = std::rc::Rc::new(rows.into_iter().map(|(k, _)| k.clone()).collect::<Vec<_>>());
-        self.alt_keep(&slot, scan.key, scan.filters, Some(keys.clone()));
-        Some(self.search_sorted(table, &keys, scan, &cmp_after))
-    }
-
-    /// The row after the position of `scan` in `keys` (the rows that pass, in the order of the scan's key).
-    fn search_sorted(
-        &self,
-        table: &Table,
-        keys: &[Key],
-        scan: &Scan,
-        cmp_after: &dyn Fn(&[Value], &[Value]) -> Ordering,
-    ) -> Option<Row> {
-        let at = |i: usize| table.get(&keys[i]);
-        if scan.ascending {
-            let start = scan.after.map_or(0, |a| {
-                keys.partition_point(|k| table.get(k).is_some_and(|r| cmp_after(r, a) != Ordering::Greater))
-            });
-            (start < keys.len()).then(|| at(start).cloned()).flatten()
-        } else {
-            let end = scan.after.map_or(keys.len(), |a| {
-                keys.partition_point(|k| table.get(k).is_some_and(|r| cmp_after(r, a) == Ordering::Less))
-            });
-            (end > 0).then(|| at(end - 1).cloned()).flatten()
-        }
-    }
-
     fn table_mut(&mut self, cx: &AccessContext, t: &TableDef) -> &mut Table {
         self.seen(t.object);
         self.footprint_written(t.object);
@@ -1650,6 +1419,11 @@ impl MemStore {
         );
         table
     }
+}
+
+/// Whether `order` (an order `order_of` gave) holds the rows of `table`: as many, and the first is one of them.
+fn order_fits(order: &[OrderKey], table: &Table) -> bool {
+    order.len() == table.len() && order.iter().take(1).all(|k| table.get(k).is_some())
 }
 
 thread_local! {
@@ -1884,129 +1658,7 @@ impl Store for MemStore {
             filters: &numbers,
             ..scan.clone()
         };
-        if table.len() >= INDEX_MIN_ROWS {
-            if let Some(found) = self.alt_next(cx, t, scan, &table, None) {
-                return Ok(found);
-            }
-        }
-        // In primary key order the table is already in the order of the scan: step to the first row past
-        // the position and look at the rows from there on until one passes the filters.
-        if scan.key == 0 {
-            use std::ops::Bound::{Excluded, Included, Unbounded};
-            let k = t.keys[0].len();
-            let after = scan.after.map(|a| Key::of(t, a[..k.min(a.len())].to_vec()));
-            if scan.ascending {
-                let seek = Seek::of(t, 0, scan.filters, table.values().next());
-                let from = seek
-                    .as_ref()
-                    .filter(|s| !s.lo.is_empty())
-                    .map(|s| Key::of(t, s.lo.clone()));
-                let lower = match (after, from) {
-                    (Some(a), Some(f)) if a.cmp(&f) == Ordering::Less => Included(f),
-                    (Some(a), _) => Excluded(a),
-                    (None, Some(f)) => Included(f),
-                    (None, None) => Unbounded,
-                };
-                return Ok(table
-                    .range((lower, Unbounded))
-                    .map(|(_, r)| r)
-                    // Past the last row the filters allow (a row that does not compare is looked at).
-                    .take_while(|r| seek.as_ref().is_none_or(|s| s.after(r) != Some(true)))
-                    .find(|r| passes(r, scan.filters))
-                    .cloned());
-            }
-            let upper = after.map_or(Unbounded, Excluded);
-            return Ok(table
-                .range((Unbounded, upper))
-                .rev()
-                .map(|(_, r)| r)
-                .find(|r| passes(r, scan.filters))
-                .cloned());
-        }
-        // A big table in another key: step through the table's rows in that key's order.
-        if table.len() >= INDEX_MIN_ROWS {
-            let slot = slot(cx, t);
-            let order = self.order_of(&slot, scan.key, t, &table);
-            let row_at = |k: &Key| table.get(k);
-            if order.len() == table.len() && order.iter().take(1).all(|k| row_at(k).is_some()) {
-                // The slice of the order the filters on the leading fields of the key leave (ADR-035).
-                let seek = Seek::of(t, scan.key, scan.filters, table.values().next());
-                let mut band = 0..order.len();
-                if let Some(sk) = &seek {
-                    let trusted = std::cell::Cell::new(true);
-                    let probe = |k: &Key, f: &dyn Fn(&[Value]) -> Option<bool>| match row_at(k).map(|r| f(r)) {
-                        Some(Some(b)) => b,
-                        _ => {
-                            trusted.set(false);
-                            false
-                        }
-                    };
-                    let start = order.partition_point(|k| probe(k, &|r| sk.before(r)));
-                    let end = order.partition_point(|k| !probe(k, &|r| sk.after(r)));
-                    // Rows that do not compare: the order cannot be trusted, so the whole of it is looked at.
-                    if trusted.get() && start <= end {
-                        band = start..end;
-                    }
-                    // A wide band of this key: another key the filters bound may hold far fewer rows
-                    // (Tests-SCM codeunit 137380 TenThousandSerialNos: "Reservation Entry" by source line and serial number).
-                    if band.len() >= INDEX_MIN_ROWS {
-                        if let Some(found) = self.alt_next(cx, t, scan, &table, Some(band.len())) {
-                            return Ok(found);
-                        }
-                    }
-                }
-                let found = if scan.ascending {
-                    let start = scan.after.map_or(0, |a| {
-                        order.partition_point(|k| {
-                            row_at(k).is_some_and(|r| cmp_row_to_position(t, scan.key, r, a) != Ordering::Greater)
-                        })
-                    });
-                    order[start.max(band.start).min(band.end)..band.end]
-                        .iter()
-                        .filter_map(|k| row_at(k))
-                        .find(|r| passes(r, scan.filters))
-                } else {
-                    let end = scan.after.map_or(order.len(), |a| {
-                        order.partition_point(|k| {
-                            row_at(k).is_some_and(|r| cmp_row_to_position(t, scan.key, r, a) == Ordering::Less)
-                        })
-                    });
-                    order[band.start.min(end)..end.min(band.end)]
-                        .iter()
-                        .rev()
-                        .filter_map(|k| row_at(k))
-                        .find(|r| passes(r, scan.filters))
-                };
-                return Ok(found.cloned());
-            }
-        }
-        // A small table in another key: every row is looked at, without building its position (a copy of the key fields).
-        let mut best: Option<&Row> = None;
-        for row in table.values().filter(|r| passes(r, scan.filters)) {
-            let after_ok = scan.after.is_none_or(|a| {
-                let o = cmp_row_to_position(t, scan.key, row, a);
-                if scan.ascending {
-                    o == Ordering::Greater
-                } else {
-                    o == Ordering::Less
-                }
-            });
-            if !after_ok {
-                continue;
-            }
-            let better = best.is_none_or(|b| {
-                let o = cmp_rows(t, scan.key, row, b);
-                if scan.ascending {
-                    o == Ordering::Less
-                } else {
-                    o == Ordering::Greater
-                }
-            });
-            if better {
-                best = Some(row);
-            }
-        }
-        Ok(best.cloned())
+        Ok(self.step(cx, t, scan, &table))
     }
 
     fn count(&self, cx: &AccessContext, t: &TableDef, f: &[FieldFilter]) -> Result<usize, StoreError> {
@@ -2058,6 +1710,7 @@ impl Store for MemStore {
         self.committed_shapes = self.shapes.clone();
         self.committed_moves = self.moves.clone();
         self.committed_copies = self.copies.clone();
+        self.committed_copy_targets = self.copy_targets.clone();
         self.committed_dropped_backed_companies = self.dropped_backed_companies.clone();
         self.committed_source_stamps = self.source_stamps.clone();
         self.committed_emptied = self.emptied.clone();
@@ -2071,6 +1724,7 @@ impl Store for MemStore {
         self.shapes = self.committed_shapes.clone();
         self.moves = self.committed_moves.clone();
         self.copies = self.committed_copies.clone();
+        self.copy_targets = self.committed_copy_targets.clone();
         self.dropped_backed_companies = self.committed_dropped_backed_companies.clone();
         self.source_stamps = self.committed_source_stamps.clone();
         self.emptied = self.committed_emptied.clone();

@@ -18,6 +18,7 @@ use al_test_cli::{
     cell_report, config, corpus, deps, drift, explain, insight, not_passing, oracle, output, pin, report,
     runner::Runner, runtime, select, target, work,
 };
+use al_testrun::report_render::RenderHost;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -535,6 +536,8 @@ fn run_version_passes(
     // instead of compiling everything again; a grown pass keeps its compile, cut back to the main pass's apps, for the
     // pass after it. AL_FRESH_PASS_COMPILE=1: every pass compiles from source.
     let mut kept: Option<runtime::KeptCompile> = None;
+    // The report renderer's warning is said once for the version, by the first pass whose renderer was unavailable.
+    let mut render_note = not_passing::RenderNote::default();
     let share = multi && !runtime::fresh_pass_compile();
     // The test codeunits of the main app: the same for every pass.
     let index = corpus::discover(&root.join(&cfg.corpus_app)).map_err(|e| format!("corpus: {e}"))?;
@@ -555,6 +558,7 @@ fn run_version_passes(
             process_ends_after && i == last,
             grow,
             &index,
+            &mut render_note,
         )?;
         kept = left;
         if let Some(why) = r.unmatched {
@@ -677,6 +681,18 @@ fn join_reports(a: &mut report::Report, b: report::Report) {
     }
 }
 
+/// The compile cache of a corpus run (ADR-022): with `--compile-cache`, under the cache root.
+fn corpus_compile_cache(args: &Args) -> Option<al_testrun::compile_cache::CompileCache> {
+    args.compile_cache.then(|| al_testrun::compile_cache::CompileCache {
+        dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
+            args.cache_dir.as_deref(),
+        )),
+        require: args.require_compile_cache,
+        rebuild: false,
+        country: String::new(),
+    })
+}
+
 /// `pass-rate.json` becomes `pass-rate-29.json` when several versions run.
 fn per_version(p: &Path, major: u16, all: bool) -> PathBuf {
     if !all {
@@ -716,6 +732,7 @@ fn run_version(
     process_ends_after: bool,
     grow: PassCompile,
     index: &corpus::CorpusIndex,
+    render_note: &mut not_passing::RenderNote,
 ) -> Result<(VersionRun, Option<runtime::KeptCompile>), String> {
     let mut kept_out = None;
     let r = run_version_inner(
@@ -731,6 +748,7 @@ fn run_version(
         grow,
         &mut kept_out,
         index,
+        render_note,
     )?;
     Ok((r, kept_out))
 }
@@ -758,23 +776,25 @@ fn sidecar_config(args: &Args, root: &Path, major: u16) -> SidecarConfig {
 }
 
 /// The DotNet configuration of a run on `host`, with its report renderer (ADR-040 amendment 2026-11-15): BC's Word merger and
-/// Html converter of the pinned build `bc_build`, started on the first measured Html save.
+/// Html converter of the pinned build `bc_build`, started on the first measured Html save. The renderer comes back too, for
+/// what `--baseline-diff` says of it ([`say_renderer`]).
 fn dotnet_config(
     host: Arc<dyn al_host::dotnet::DotNetHost>,
     args: &Args,
     root: &Path,
     major: u16,
     bc_build: Option<&str>,
-) -> al_vm::dotnet::DotNetConfig {
+) -> (al_vm::dotnet::DotNetConfig, Arc<RenderHost>) {
     let mut dotnet = al_test_cli::dotnet::sidecar_config(host);
-    dotnet.renderer = al_testrun::report_render_pieces::run_renderer(
+    let renderer = al_testrun::report_render_pieces::run_renderer(
         sidecar_config(args, root, major),
         bc_build.and_then(|b| al_deps::build::BuildId::parse(b).ok()),
         &al_deps::cache::cache_root_from_env(args.cache_dir.as_deref()),
         !args.no_download,
     );
+    dotnet.renderer = renderer.clone();
     dotnet.require_renderer = args.require_report_renderer;
-    dotnet
+    (dotnet, renderer)
 }
 
 /// The end of a `--fetch-deps` run of one version. With `--fetch-render-pieces` the report render pieces of the build
@@ -995,6 +1015,7 @@ fn run_version_inner(
     grow: PassCompile,
     kept_out: &mut Option<runtime::KeptCompile>,
     index: &corpus::CorpusIndex,
+    render_note: &mut not_passing::RenderNote,
 ) -> Result<VersionRun, String> {
     // ADR-007: the oracle may be recorded for an older corpus commit when the pin only added files.
     pin::check(
@@ -1233,14 +1254,7 @@ fn run_version_inner(
     if args.fetch_deps {
         return fetch_deps_done(args, root, version.major, &chosen.target.bc, bc_build.as_deref());
     }
-    let compile_cache = args.compile_cache.then(|| al_testrun::compile_cache::CompileCache {
-        dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
-            args.cache_dir.as_deref(),
-        )),
-        require: args.require_compile_cache,
-        rebuild: false,
-        country: String::new(),
-    });
+    let compile_cache = corpus_compile_cache(args);
     if args.build_compile_cache {
         let cc = compile_cache
             .as_ref()
@@ -1298,7 +1312,7 @@ fn run_version_inner(
         // starts overlap the compile; a run without them starts nothing (ADR-014 section 6).
         sidecar_host.prewarm(al_test_cli::dotnet::STANDBY_SIDECARS);
     }
-    let dotnet = dotnet_config(host, args, root, version.major, bc_build.as_deref());
+    let (dotnet, renderer) = dotnet_config(host, args, root, version.major, bc_build.as_deref());
     let mut runs = vec![runtime::SuiteRun {
         name: String::new(),
         app: None,
@@ -1333,7 +1347,7 @@ fn run_version_inner(
         v.dedup();
         v
     });
-    let opts = runtime::RunOptions {
+    let mut opts = runtime::RunOptions {
         // ADR-061 section 5: the fixed run seed 1 keeps the ratchet repeatable; `--seed N` is for local checks.
         run_seed: match args.seed {
             Some(n) => al_testrun::seed::RunSeed::new(n, al_testrun::seed::SeedSource::Option),
@@ -1346,6 +1360,7 @@ fn run_version_inner(
         license: license.license.clone(),
         emit_version,
         company_data: None,
+        workspace_cache: al_test_cli::workspace_leg::options(compile_cache.is_some()),
         compile_cache,
         test_time_limit: None,
         lazy: Vec::new(),
@@ -1369,7 +1384,6 @@ fn run_version_inner(
         // The oracle leaves the runner's OnRun row out (oracle::RUNNER_PSEUDO_CASE).
         on_run_rows: runtime::OnRunRows::PerTest,
         tdd: false,
-        object_hashes: false,
         debug_ready: None,
         // The corpus compiles on real BC: an error found here is the front end's, printed, never a reason not to run.
         stop_on_compile_errors: false,
@@ -1389,6 +1403,8 @@ fn run_version_inner(
         // `dev_endpoint_ui` stays off: the corpus runs as Microsoft's Test Runner app does, so unhandled UI is an error.
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
         login_replay_check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(), // issue 8211, internal
+        login_replay: std::env::var_os("ALRUNNER_LOGIN_REPLAY").is_some_and(|v| v == "1"), // issue 8211, internal
+        login_replay_limits: runtime::LoginReplayLimits::read(|v| std::env::var_os(v))?, // issue 8211
         // Internal: the whole corpus in BC's order (`AL_STRICT_ORDER_ALL`; ADR-070 decision 5).
         strict_order: args.strict_order_all,
         ..Default::default()
@@ -1409,7 +1425,6 @@ fn run_version_inner(
         &suite_cases_all,
     )?;
     // The runtime runs them once more over the compile of the pass (no second compile).
-    let mut opts = opts;
     opts.strict_after = (!strict.only.is_empty()).then_some(runtime::StrictAfter {
         only: strict.only,
         listed: strict.listed,
@@ -1425,7 +1440,8 @@ fn run_version_inner(
     // Nothing waits for the drop of the runtime after the report is written.
     let rt = runtime::Retiring::new(rt);
     let p = &rt.phases;
-    p.login_replay.iter().for_each(|l| eprintln!("{l}")); // ALRUNNER_LOGIN_REPLAY_CHECK (issue 8211)
+    al_test_cli::workspace_leg::say(&version.bc_version, &pass.work_name(), p.workspace_cache.as_ref());
+    p.login_replay.report.iter().for_each(|l| eprintln!("{l}")); // ALRUNNER_LOGIN_REPLAY(_CHECK) (issue 8211)
     let sidecar_stats = sidecar_host.stats();
     sidecar_host.shutdown();
     let timings = report::Timings {
@@ -1761,7 +1777,7 @@ fn run_version_inner(
     let code = if args.no_ratchet && !args.baseline_diff {
         0
     } else {
-        check_lists(args, root, &targets)?
+        check_lists(args, root, &targets, Some((&renderer, render_note)))?
     };
     Ok(VersionRun {
         code: if args.no_ratchet { 0 } else { code },
@@ -1770,6 +1786,17 @@ fn run_version_inner(
         rep: Some(rep),
         unmatched: None,
     })
+}
+
+/// Before the diff of a pass, on stderr like the other notes about the machine: the report renderer's own reason when a
+/// Word-layout save of the pass found it unavailable (its probe ran; nothing starts it here). Once a version.
+fn say_renderer(renderer: &RenderHost, note: &mut not_passing::RenderNote, targets: &[Target]) {
+    let Some(major) = targets.first().map(|t| t.major) else {
+        return;
+    };
+    if let Some(line) = note.line(&format!("BC {major}"), renderer.probed(&al_vm::WORD_HTML_NEEDS)) {
+        eprintln!("{line}");
+    }
 }
 
 /// The outcome a run recorded for a case, `None` when it recorded none.
@@ -1797,8 +1824,16 @@ struct Target<'a> {
 /// The rule of ADR-065 section 2 over each target's list: `--list-new-cases` adds the lines of new cases first,
 /// `--prune-not-passing` deletes the stale lines, `--baseline-diff` prints the check. The exit code: 1 when a list
 /// does not hold. Every list is checked before any is written, so an error leaves every file as it was (al-runner
-/// issue 7625).
-fn check_lists(args: &Args, root: &Path, targets: &[Target]) -> Result<u8, String> {
+/// issue 7625). `render`: the pass's report renderer, for the `--baseline-diff` warning when it is unavailable.
+fn check_lists(
+    args: &Args,
+    root: &Path,
+    targets: &[Target],
+    render: Option<(&RenderHost, &mut not_passing::RenderNote)>,
+) -> Result<u8, String> {
+    if let Some((renderer, note)) = render.filter(|_| args.baseline_diff) {
+        say_renderer(renderer, note, targets);
+    }
     let base = match &args.list_new_cases {
         Some(rev) => Some(al_test_cli::base_oracle::Base::open(root, rev)?),
         None => None,
@@ -2211,10 +2246,10 @@ mod tests {
             prune_not_passing: true,
             ..Args::default()
         };
-        assert!(check_lists(&args, d.path(), &[target(&first), target(&second)]).is_err());
+        assert!(check_lists(&args, d.path(), &[target(&first), target(&second)], None).is_err());
         assert_eq!(std::fs::read_to_string(&first).unwrap(), "1 A\n");
         // Neighbor: without the error the stale line is pruned, as before.
-        assert_eq!(check_lists(&args, d.path(), &[target(&first)]).unwrap(), 0);
+        assert_eq!(check_lists(&args, d.path(), &[target(&first)], None).unwrap(), 0);
         assert!(!std::fs::read_to_string(&first).unwrap().contains("1 A"));
     }
 }

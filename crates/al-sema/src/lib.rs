@@ -24,5 +24,6 @@ pub mod workspace;
 pub mod xmlports;
 
 pub use workspace::{
-    AppKind, AppSource, Diagnostic, FileIndex, LazyDep, LazySource, ObjKind, Resolution, SourceLoader, Workspace,
+    AppKind, AppSource, Diagnostic, FileIndex, LazyDep, LazySource, ObjKind, Resolution, SourceLoader, StoredFile,
+    StoredWorkspace, Workspace,
 };

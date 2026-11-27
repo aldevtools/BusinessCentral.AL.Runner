@@ -1326,6 +1326,7 @@ fn a_suite_baseline_ratchets_that_extra_app_and_no_ratchet_ignores_it() {
 /// The JUnit files of a run (the main app's and the extra suites'), with the per-test times
 /// removed: everything else (outcome, reason, flagged assumptions) must be the same between two
 /// runs of one build on one corpus.
+#[cfg(unix)] // its only user, the thread-and-HOME test below, is unix only
 fn outcomes_of(dir: &Path, stem: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for e in std::fs::read_dir(dir).unwrap() {

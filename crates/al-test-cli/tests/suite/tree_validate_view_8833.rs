@@ -11,8 +11,7 @@ const PROBE: &str = include_str!("../../../../tests/neighbors/8833-tree-update-f
 const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8833-tree-update-false-refresh/src/Neighbors.al");
 
 /// The refusal of a call the cells do not make after the rule ran.
-const UNMEASURED: &str =
-    "a call on a tree page of TreeValidateFilterRefresh.al after the page read its row or the view again";
+const UNMEASURED: &str = "a call on a tree page of TreeValidateFilterRefresh.al or TreeValidateFilterShapes.al after the page read its row or the view again";
 
 /// The reporter's test passes: the SetValue reads the row first, the refresh saves the row and reads it, the hidden child and
 /// the first row of the new view, and the tree shows the renamed row alone. Main read only the typed row (`AGR(C2);`), saved
@@ -45,28 +44,14 @@ fn probe_cells_pass_on_the_tree_pages() {
     assert!(bad.is_empty(), "{bad:#?}");
 }
 
-/// The neighbors past the cells: a second SetValue on Name, which no cell makes, refuses once the rule ran; a SetValue on Name
-/// from the first row over the tree's rows, which no cell of page 97720 measures (its drop cell from the first row has rows none
-/// indented, :1300), keeps main's path (BC raises a validation error, main raises none).
+/// The neighbor past the cells: a second SetValue on Name, which no cell makes, refuses once the rule ran. The SetValue on Name
+/// from the first row and the rows the cells do not hold, which stood here, are cells of corpus pull request 1554 now
+/// (`tree_shapes_8882.rs`).
 #[test]
 fn neighbors_past_the_cells() {
-    let src = format!("{PROBE}\n{NEIGHBORS}");
-    let twice = outcomes(&src, "LT TVN Tests");
+    let twice = outcomes(&format!("{PROBE}\n{NEIGHBORS}"), "LT TVN Tests");
     assert!(
         twice.len() == 1 && matches!(&twice[0].1, Outcome::NotRun(why) if why.starts_with(UNMEASURED)),
         "{twice:#?}"
     );
-    let first = outcomes(&src, "LT TVN First Row Tests");
-    assert!(
-        first.len() == 1 && matches!(&first[0].1, Outcome::Fail(_)) && first[0].2.is_empty(),
-        "{first:#?}"
-    );
-}
-
-/// Page 97720 over rows the cells do not hold, by equality of the Indentation of each row (0, 1, 1 and 0, 1, 2 with Last on the
-/// first row, 0, 0, 2, four rows), and Expand(false) after Last or Expand(true) on the first row: main's path, no entry.
-#[test]
-fn shapes_past_the_cells_keep_mains_path() {
-    let o = outcomes(&format!("{PROBE}\n{NEIGHBORS}"), "LT TVN Shape Tests");
-    assert!(o.len() == 6 && o.iter().all(|(_, _, marks)| marks.is_empty()), "{o:#?}");
 }

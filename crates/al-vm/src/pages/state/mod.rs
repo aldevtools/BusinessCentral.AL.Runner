@@ -183,6 +183,10 @@ pub struct SavedView {
     /// The save ran code that is not a pinned page's under the effect gate of `code_inserted_extra.rs`: between the save and
     /// `CurrPage.Update(false)` the row may change through another record, or Rec's fields, but not both (`extra_code_kept`).
     pub extra: bool,
+    /// On the later SetValue of a page of the page-with-code shape with other code, at its `CurrPage.Update(false)`: the row and
+    /// Rec may both have changed since the save, the Update reads the row as stored
+    /// (ListNewLineExtraCodeCodedRecModify.al, `update_after_code_inserted_save`).
+    pub rec_free: bool,
 }
 
 /// The calls measured on the FactBox host after the page left its new line for the row (`code_inserted_new_line.rs`).
@@ -204,6 +208,9 @@ pub enum FactboxStep {
     ExtraLanded,
     /// After that SetValue: reads, then `OK()` (ListNewLineExtraCodeFactbox.al:319-434, :664-837).
     ExtraTyped,
+    /// A page of the shape of the page with code (`CodedObjects::Extra`) after its one SetValue of a control without code:
+    /// reads, then `OK()` (ListNewLineExtraCodeCodedPage.al:762-809).
+    CodedExtraTyped,
     /// The page with code (`code_inserted_coded.rs`) after the landing and `steps` measured SetValues since: reads, a SetValue
     /// whose validation saves and refreshes the row again, or `OK()`.
     Coded { steps: u8 },
@@ -224,6 +231,9 @@ pub enum CodedLine {
     LineRead,
     /// It landed: `code_inserted_row` holds the steps after it, until the page closes.
     Landed,
+    /// The first SetValue's validation raised an error before the landing (`CodedObjects::Extra`): the error reaches the test,
+    /// and any later call on the page is refused.
+    Failed,
 }
 
 /// Whose objects the page with code (`code_inserted_coded.rs`) is, line for line (`code_inserted_pinned.rs` `coded_code`).
@@ -235,6 +245,9 @@ pub enum CodedObjects {
     /// The reporter's repro of al-runner issue 8434, ListNewLineFactboxesRepro.al: assumption
     /// `list-new-line-coded-factboxes-repro`.
     Repro,
+    /// Not either's code, a page of their shape (`code_inserted_coded.rs` `coded_extra_shape`) under the effect gate of
+    /// `code_inserted_extra.rs`: assumption `list-new-line-extra-code-coded` (ListNewLineExtraCodeCodedPage.al).
+    Extra,
 }
 
 impl CodedObjects {
@@ -243,25 +256,28 @@ impl CodedObjects {
         match self {
             Self::Probe => al_builtins::assumptions::Assumption::ListNewLineCodedFactboxes,
             Self::Repro => al_builtins::assumptions::Assumption::ListNewLineCodedFactboxesRepro,
+            Self::Extra => al_builtins::assumptions::Assumption::ListNewLineExtraCodeCoded,
         }
     }
 
     /// Whether a SetValue after the landing and `steps` earlier ones is measured: up to two on the probe's page
     /// (ListNewLineFactboxesCode.al:1407 `setvalue`, :1576 `setvalue2`), the one Value on the repro's
-    /// (ListNewLineFactboxesRepro.al:639-647).
+    /// (ListNewLineFactboxesRepro.al:639-647); on a page of their shape one SetValue of a control with code of its own
+    /// (ListNewLineExtraCodeCodedSecondSetValue.al:746), or of a control without code (`refuse_off_factbox_row`).
     pub fn later_set_value(self, steps: u8) -> bool {
         match self {
             Self::Probe => steps < 2,
-            Self::Repro => steps == 0,
+            Self::Repro | Self::Extra => steps == 0,
         }
     }
 
     /// Whether `OK()` after the landing and `steps` later SetValues is measured: after any of them on the probe's page (:1407
-    /// `ok=`), after the one Value on the repro's (:646).
+    /// `ok=`), after the one Value on the repro's (:646); on a page of their shape after the one SetValue of a control with
+    /// code (ListNewLineExtraCodeCodedSecondSetValue.al:746), or of a control without code (`FactboxStep::CodedExtraTyped`).
     pub fn ok_after(self, steps: u8) -> bool {
         match self {
             Self::Probe => true,
-            Self::Repro => steps == 1,
+            Self::Repro | Self::Extra => steps == 1,
         }
     }
 }
@@ -320,17 +336,25 @@ pub enum ClosedBy {
 pub struct ValidateStart {
     /// The filters of the page's record when the OnValidate began.
     pub filters: Vec<al_builtins::filter::FieldFilter>,
+    /// The field values of the page's record when the OnValidate began (`refresh_new_line.rs` `get_record_free_cell`).
+    pub fields: Vec<Value>,
     /// A save in the OnValidate moved a List from its new-row line onto the row page code found, in the cells of
     /// `refresh_new_line.rs` `found_row_cell`: the refresh reads the view as from that line (`validate_refresh_offers_line`).
     pub left_new_line: bool,
+    /// The control's OnValidate as it returned without an error (`run_control_onvalidate`), for the refresh after it
+    /// (`refresh_new_line.rs` `get_record_free_cell`); `None` while it runs and after an error.
+    pub ran: Option<ControlOnValidate>,
 }
 
 impl ValidateStart {
-    /// The start of an OnValidate with the record's `filters`.
-    pub fn new(filters: Vec<al_builtins::filter::FieldFilter>) -> Self {
+    /// The start of an OnValidate on the page's record `rec`: its filters and field values.
+    pub fn new(rec: &crate::records::Rec) -> Self {
+        let r = rec.borrow();
         Self {
-            filters,
+            filters: r.filters.clone(),
+            fields: r.fields.to_vec(),
             left_new_line: false,
+            ran: None,
         }
     }
 }
@@ -1047,6 +1071,29 @@ pub struct PageState {
     pub coded_line: CodedLine,
     /// Whose objects the page with code is, noted at its open (`coded_open_on_empty_view`).
     pub coded_objects: CodedObjects,
+    /// The store's change counter when the page began to open (`open_page`): `coded_open_on_empty_view` tells by it whether
+    /// OnOpenPage or a part's trigger wrote at the open.
+    pub open_changes: u64,
+    /// Rec as the later SetValue of a page of the page-with-code shape with other code found it (`coded_typed_begins`): its
+    /// save must find Rec's view so (`extra_code_typed_save`).
+    pub coded_typed_view: Option<Box<RecordState>>,
+    /// The store's change counter, write mark and last SystemModifiedAt stamp when that later SetValue began
+    /// (`coded_typed_begins`): before its save, only rows of other tables inserted after this mark are measured.
+    pub coded_typed_begin_at: Option<(u64, (i64, u64), i64)>,
+    /// The store's change counter and the last SystemModifiedAt stamp when the later SetValue's `CurrPage.SaveRecord()` began
+    /// (`extra_code_typed_save`): its Update tells by them which rows of other tables the code wrote since, and whether it
+    /// inserted them (`extra_typed_other_writes_inserted`).
+    pub coded_typed_save_at: Option<(u64, i64)>,
+    /// The control's OnValidate that ran last on the page failed with an AL error in a shape the cells of
+    /// ListNewLineExtraCodeCodedTableTriggers.al measure (`run_control_onvalidate`, read by `coded_error_measured`): before
+    /// any `CurrPage.SaveRecord` or `CurrPage.Update`, after its table field stored the new line (:1269) or skipped its insert
+    /// (:1684); or after one `CurrPage.SaveRecord` that saved a line the table field did not insert (:1674). It does not look
+    /// at what the control wrote before the error: each kind of write is measured, rolled back with the error, the answer
+    /// unchanged (review of al-runner PR 8840, 09:29Z): a row of another table inserted before the save (:2121, :2132) and
+    /// after it (:2143), modified or deleted before it (:2176, :2187) and after it (:2220, :2231); Rec inserted when the table
+    /// field skipped its insert, before the save (:2154) and after it (:2165); and the stored Rec modified or deleted (:2198,
+    /// :2209).
+    pub control_failed_as_measured: bool,
     /// The page control's own OnValidate while it runs (`code_inserted_new_line.rs` `run_control_onvalidate`).
     pub control_onvalidate: Option<ControlOnValidate>,
     /// `CurrPage.SaveRecord()` saved the row page code found from the new-row line through assumption
@@ -1104,6 +1151,16 @@ impl std::fmt::Debug for PageState {
 }
 
 impl PageState {
+    /// Whether the page-with-code shape with other code is running its later SetValue's validation
+    /// (`ListNewLineExtraCodeCodedSecondSetValue.al`).
+    pub(crate) fn coded_typed_extra(&self) -> bool {
+        self.coded_objects == CodedObjects::Extra
+            && matches!(
+                self.code_inserted_row.as_ref().map(|r| r.factbox),
+                Some(FactboxStep::CodedTyped { .. })
+            )
+    }
+
     /// Sets `empty_list_row_behind` to `behind`, with Rec's fields as the action left them (`empty_list_rec_left`).
     pub(crate) fn set_row_behind(&mut self, behind: bool, rec_left: Vec<Value>, action_pinned: bool) {
         self.empty_list_row_behind = behind;
@@ -1234,6 +1291,9 @@ impl PageState {
         self.code_inserted_save = CodeInsertedSave::Off;
         self.code_inserted_extra = false;
         self.coded_line = Default::default();
+        self.coded_typed_view = None;
+        self.coded_typed_begin_at = None;
+        self.coded_typed_save_at = None;
     }
 
     /// The page opens: the captions its controls and fields resolved on the last run are gone.
@@ -1340,12 +1400,13 @@ pub struct ControlRef {
     pub by_id: Option<ById>,
 }
 
-/// What `TestPage.GetField` found by a control id (`get_field.rs`): a field control of the page, one a page extension adds, or
-/// a part, a cuegroup, a fixed or a grid, whose field reads empty.
+/// What `TestPage.GetField` found by a control id (`get_field.rs`): a field control of the page; a field whose Value only the
+/// cells measure (a page extension's field on BC 27, a field control on a Worksheet, a ListPlus or a CardPart a TestPart shows);
+/// or a part, a cuegroup, a fixed or a grid, whose field reads empty.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ById {
     Field,
-    ExtField,
+    ValueOnly,
     Empty,
 }
 

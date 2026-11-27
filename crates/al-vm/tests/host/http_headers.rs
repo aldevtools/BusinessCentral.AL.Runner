@@ -937,3 +937,679 @@ fn user_agent_product_forms_follow_the_probe() {
         assert_eq!(call("a@b"), bad);
     }
 }
+
+const EMPTY_CONTAINS_SRC: &str = r#"
+codeunit 50196 C
+{
+    [TryFunction]
+    local procedure TryContains(var H: HttpHeaders; N: Text; var Found: Boolean)
+    begin
+        Found := H.Contains(N);
+    end;
+
+    local procedure Check(var H: HttpHeaders): Text
+    var
+        Found: Boolean;
+    begin
+        ClearLastError();
+        if TryContains(H, '', Found) then
+            exit('ok=' + Format(Found));
+        exit('error=' + GetLastErrorCode() + '|' + GetLastErrorText());
+    end;
+
+    procedure Req(): Text
+    var
+        R: HttpRequestMessage;
+        H: HttpHeaders;
+    begin
+        R.GetHeaders(H);
+        exit(Check(H));
+    end;
+
+    procedure Fresh(): Text
+    var
+        H: HttpHeaders;
+    begin
+        exit(Check(H));
+    end;
+
+    procedure Cnt(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.GetHeaders(H);
+        exit(Check(H));
+    end;
+
+    procedure Resp(): Text
+    var
+        R: HttpResponseMessage;
+        H: HttpHeaders;
+    begin
+        H := R.Headers();
+        exit(Check(H));
+    end;
+
+    procedure RespContent(): Text
+    var
+        R: HttpResponseMessage;
+        H: HttpHeaders;
+    begin
+        R.Content.GetHeaders(H);
+        exit(Check(H));
+    end;
+
+    procedure Cli(): Text
+    var
+        Client: HttpClient;
+        H: HttpHeaders;
+    begin
+        H := Client.DefaultRequestHeaders();
+        exit(Check(H));
+    end;
+
+    procedure SecretHeader(): Text
+    var
+        R: HttpRequestMessage;
+        H: HttpHeaders;
+        S: SecretText;
+    begin
+        S := SecretStrSubstNo('body');
+        R.GetHeaders(H);
+        H.Add('X-Secret', S);
+        exit(Check(H));
+    end;
+
+    procedure OtherHeader(): Text
+    var
+        R: HttpRequestMessage;
+        H: HttpHeaders;
+    begin
+        R.GetHeaders(H);
+        H.Add('X-Other', 'value');
+        exit(Check(H));
+    end;
+
+    procedure OtherSecretHeader(): Text
+    var
+        R: HttpRequestMessage;
+        H: HttpHeaders;
+        S: SecretText;
+    begin
+        S := SecretStrSubstNo('body');
+        R.GetHeaders(H);
+        H.Add('X-Other', S);
+        exit(Check(H));
+    end;
+
+    procedure SecretContent(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        S: SecretText;
+    begin
+        S := SecretStrSubstNo('body');
+        C.WriteFrom(S);
+        C.GetHeaders(H);
+        exit(Check(H));
+    end;
+}
+"#;
+
+/// `src` compiled and run on BC `major.minor`.
+fn built_on(src: &str, major: u16, minor: u16) -> al_testkit::Built {
+    let lowered = al_testkit::compile(src);
+    let target = al_version::Target::for_bc(al_version::BcVersion::new(major, minor));
+    let engine = al_vm::Engine::with_target(lowered.program.clone(), al_testkit::blocked(&lowered), Some(target));
+    al_testkit::Built {
+        session: al_vm::Session::new(engine),
+        lowered,
+    }
+}
+
+#[test]
+fn empty_name_does_not_bypass_the_secret_content_guard() {
+    let result = al_testkit::run(EMPTY_CONTAINS_SRC, "SecretContent");
+    assert!(
+        matches!(&result, Err(al_builtins::native::Signal::Unsupported(why)) if why.contains("headers of an HttpContent written from a SecretText")),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn empty_name_is_refused_for_unmeasured_header_states() {
+    let mut built = built_on(EMPTY_CONTAINS_SRC, 28, 5);
+    for routine in ["OtherHeader", "OtherSecretHeader"] {
+        assert!(
+            matches!(built.run(routine), Err(al_builtins::native::Signal::Unsupported(_))),
+            "{routine}"
+        );
+    }
+}
+
+#[test]
+fn empty_name_is_refused_on_an_unmeasured_minor() {
+    let mut built = built_on(EMPTY_CONTAINS_SRC, 29, 2);
+    assert!(matches!(
+        built.run("Req"),
+        Err(al_builtins::native::Signal::Unsupported(_))
+    ));
+}
+
+#[test]
+fn measured_versions_contains_with_empty_name_raises_invalid_header_argument() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+
+    for (major, minor) in [(27, 5), (28, 5), (29, 0), (29, 1)] {
+        let mut built = built_on(EMPTY_CONTAINS_SRC, major, minor);
+        for routine in ["Fresh", "Req", "Cnt", "Resp", "RespContent", "Cli", "SecretHeader"] {
+            take_hits();
+            assert_eq!(
+                text(built.run(routine)),
+                "error=InvalidHeader:Argument|Invalid HTTP header. Please, make sure the format of the header is correct.",
+                "BC {major}.{minor} {routine}"
+            );
+            assert!(take_hits().contains(&Assumption::HttpContainsEmptyName));
+        }
+    }
+}
+
+const STREAM_CONTENT_TYPE_SRC: &str = r#"
+table 50197 B
+{
+    TableType = Temporary;
+    fields { field(1; Id; Integer) { } field(2; Data; Blob) { } }
+    keys { key(PK; Id) { } }
+}
+
+codeunit 50197 C
+{
+    local procedure ContainsType(var H: HttpHeaders): Text
+    var
+        Values: List of [Text];
+        Value: Text;
+        Result: Text;
+    begin
+        if not H.GetValues('Content-Type', Values) then
+            exit('No');
+        Result := 'Yes';
+        foreach Value in Values do
+            Result += '[' + Value + ']';
+        exit(Result);
+    end;
+
+    procedure StreamAfterRemove(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        Data: Record B temporary;
+        OutS: OutStream;
+        InS: InStream;
+    begin
+        C.WriteFrom('before');
+        C.GetHeaders(H);
+        H.Remove('Content-Type');
+        Data.Data.CreateOutStream(OutS);
+        OutS.WriteText('after');
+        Data.Data.CreateInStream(InS);
+        C.WriteFrom(InS);
+        exit(ContainsType(H));
+    end;
+
+    procedure FreshStream(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        Data: Record B temporary;
+        OutS: OutStream;
+        InS: InStream;
+    begin
+        C.GetHeaders(H);
+        Data.Data.CreateOutStream(OutS);
+        OutS.WriteText('after');
+        Data.Data.CreateInStream(InS);
+        C.WriteFrom(InS);
+        exit(ContainsType(H));
+    end;
+
+    procedure TextAfterRemove(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.WriteFrom('before');
+        C.GetHeaders(H);
+        H.Remove('Content-Type');
+        C.WriteFrom('after');
+        exit(ContainsType(H));
+    end;
+
+    local procedure WriteStream(var C: HttpContent)
+    var
+        Data: Record B temporary;
+        OutS: OutStream;
+        InS: InStream;
+    begin
+        Data.Data.CreateOutStream(OutS);
+        OutS.WriteText('stream body');
+        Data.Data.CreateInStream(InS);
+        C.WriteFrom(InS);
+    end;
+
+    procedure StreamAfterCopy(): Text
+    var
+        C: HttpContent;
+        Copy: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.WriteFrom('before');
+        C.GetHeaders(H);
+        H.Remove('Content-Type');
+        Copy := C;
+        Copy.GetHeaders(H);
+        WriteStream(Copy);
+        exit(ContainsType(H));
+    end;
+
+    procedure StreamAfterReadd(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.WriteFrom('before');
+        C.GetHeaders(H);
+        H.Remove('Content-Type');
+        H.Add('Content-Type', 'application/json');
+        WriteStream(C);
+        exit(ContainsType(H));
+    end;
+
+    procedure StreamAfterFreshReadd(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.GetHeaders(H);
+        H.Remove('Content-Type');
+        H.Add('Content-Type', 'application/json');
+        WriteStream(C);
+        exit(ContainsType(H));
+    end;
+
+    procedure StreamAfterClearHeaders(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.WriteFrom('before');
+        C.GetHeaders(H);
+        H.Clear();
+        WriteStream(C);
+        exit(ContainsType(H));
+    end;
+
+    procedure StreamAfterContentClear(): Text
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.WriteFrom('before');
+        C.GetHeaders(H);
+        H.Remove('Content-Type');
+        C.Clear();
+        C.GetHeaders(H);
+        WriteStream(C);
+        exit(ContainsType(H));
+    end;
+
+    procedure StreamOnFreshResponse(): Text
+    var
+        R: HttpResponseMessage;
+        H: HttpHeaders;
+        Data: Record B temporary;
+        OutS: OutStream;
+        InS: InStream;
+    begin
+        Data.Data.CreateOutStream(OutS);
+        OutS.WriteText('stream body');
+        Data.Data.CreateInStream(InS);
+        R.Content.WriteFrom(InS);
+        R.Content.GetHeaders(H);
+        exit(ContainsType(H));
+    end;
+
+    procedure SecretThenStream(): Text
+    var
+        C: HttpContent;
+        Secret: SecretText;
+        Body: Text;
+    begin
+        Secret := SecretStrSubstNo('first');
+        C.WriteFrom(Secret);
+        WriteStream(C);
+        C.ReadAs(Body);
+        exit(Format(C.IsSecretContent()) + '|' + Body);
+    end;
+}
+"#;
+
+#[test]
+fn measured_versions_stream_writes_keep_the_current_content_type() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+
+    for (major, minor) in [(27, 5), (28, 5), (29, 0), (29, 1)] {
+        let mut built = built_on(STREAM_CONTENT_TYPE_SRC, major, minor);
+        for (routine, expected) in [
+            ("StreamAfterRemove", "No"),
+            ("StreamOnFreshResponse", "No"),
+            ("StreamAfterCopy", "No"),
+            ("StreamAfterReadd", "Yes[application/json]"),
+            ("StreamAfterClearHeaders", "No"),
+        ] {
+            take_hits();
+            assert_eq!(text(built.run(routine)), expected, "BC {major}.{minor} {routine}");
+            assert!(take_hits().contains(&Assumption::HttpStreamWriteKeepsRemovedContentType));
+        }
+        take_hits();
+        assert_eq!(
+            text(built.run("StreamAfterContentClear")),
+            "Yes[text/plain; charset=utf-8]"
+        );
+        assert!(take_hits().is_empty());
+    }
+}
+
+#[test]
+fn stream_with_changed_type_is_refused_on_an_unmeasured_minor() {
+    let mut built = built_on(STREAM_CONTENT_TYPE_SRC, 29, 2);
+    assert!(matches!(
+        built.run("StreamAfterRemove"),
+        Err(al_builtins::native::Signal::Unsupported(_))
+    ));
+    assert_eq!(text(built.run("FreshStream")), "Yes[text/plain; charset=utf-8]");
+}
+
+#[test]
+fn stream_with_fresh_json_content_type_is_refused_until_measured() {
+    let mut built = built_on(STREAM_CONTENT_TYPE_SRC, 28, 5);
+    assert!(matches!(
+        built.run("StreamAfterFreshReadd"),
+        Err(al_builtins::native::Signal::Unsupported(_))
+    ));
+}
+
+#[test]
+fn http_probe_changes_are_refused_on_unmeasured_versions() {
+    for (source, routine) in [
+        (EMPTY_CONTAINS_SRC, "Req"),
+        (STREAM_CONTENT_TYPE_SRC, "StreamAfterRemove"),
+    ] {
+        assert!(
+            matches!(
+                al_testkit::run(source, routine),
+                Err(al_builtins::native::Signal::Unsupported(_))
+            ),
+            "{routine} with no target"
+        );
+        for (major, minor) in [(27, 4), (28, 0), (28, 4), (28, 6), (29, 2)] {
+            let mut built = built_on(source, major, minor);
+            assert!(
+                matches!(built.run(routine), Err(al_builtins::native::Signal::Unsupported(_))),
+                "{routine} on BC {major}.{minor}"
+            );
+        }
+    }
+}
+
+#[test]
+fn stream_after_secret_content_keeps_the_pinned_plain_body() {
+    // xml/xml/P97ContentSecret.al:169-184.
+    for (major, minor) in [(27, 5), (28, 5), (29, 0)] {
+        let mut built = built_on(STREAM_CONTENT_TYPE_SRC, major, minor);
+        assert_eq!(
+            text(built.run("SecretThenStream")),
+            "No|stream body",
+            "BC {major}.{minor}"
+        );
+    }
+}
+
+#[test]
+fn stream_write_keeps_removed_content_type_but_text_write_restores_it() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+
+    let mut built = built_on(STREAM_CONTENT_TYPE_SRC, 28, 5);
+    take_hits();
+    assert_eq!(text(built.run("StreamAfterRemove")), "No");
+    assert!(take_hits().contains(&Assumption::HttpStreamWriteKeepsRemovedContentType));
+    take_hits();
+    assert_eq!(text(built.run("FreshStream")), "Yes[text/plain; charset=utf-8]");
+    assert!(take_hits().is_empty());
+    assert_eq!(text(built.run("TextAfterRemove")), "Yes[text/plain; charset=utf-8]");
+}
+
+/// The states next to the measured cells of corpus PR 1424 that the runner refuses: a header collection changed by a call the
+/// probe did not make (`HeaderBag::edited`), and a stream write after a ReadAs or from a partly read stream.
+const UNMEASURED_STATES_SRC: &str = r#"
+table 50198 B
+{
+    TableType = Temporary;
+    fields { field(1; Id; Integer) { } field(2; Data; Blob) { } }
+    keys { key(PK; Id) { } }
+}
+
+codeunit 50198 C
+{
+    local procedure Contains(var H: HttpHeaders): Boolean
+    begin
+        exit(H.Contains(''));
+    end;
+
+    local procedure Fill(var Data: Record B temporary; var InS: InStream)
+    var
+        OutS: OutStream;
+    begin
+        Data.Data.CreateOutStream(OutS);
+        OutS.WriteText('after');
+        Data.Data.CreateInStream(InS);
+    end;
+
+    procedure AddRemove(): Boolean
+    var
+        R: HttpRequestMessage;
+        H: HttpHeaders;
+    begin
+        R.GetHeaders(H);
+        H.Add('X-A', 'v');
+        H.Remove('X-A');
+        exit(Contains(H));
+    end;
+
+    procedure ClientClear(): Boolean
+    var
+        Client: HttpClient;
+        H: HttpHeaders;
+    begin
+        H := Client.DefaultRequestHeaders();
+        H.Add('X-A', 'v');
+        H.Clear();
+        exit(Contains(H));
+    end;
+
+    procedure ContentReadd(): Boolean
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.GetHeaders(H);
+        H.Remove('Content-Type');
+        H.Add('Content-Type', 'text/plain; charset=utf-8');
+        exit(Contains(H));
+    end;
+
+    procedure SecondWrite(): Boolean
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.WriteFrom('one');
+        C.WriteFrom('two');
+        C.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure ContentClear(): Boolean
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.WriteFrom('one');
+        C.Clear();
+        C.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure CopyContent(): Boolean
+    var
+        C: HttpContent;
+        Copy: HttpContent;
+        H: HttpHeaders;
+    begin
+        C.WriteFrom('one');
+        Copy := C;
+        Copy.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure StreamWritten(): Boolean
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        Data: Record B temporary;
+        InS: InStream;
+    begin
+        Fill(Data, InS);
+        C.WriteFrom(InS);
+        C.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure RequestReadStream(): Boolean
+    var
+        Req: HttpRequestMessage;
+        H: HttpHeaders;
+        InS: InStream;
+    begin
+        Req.Content.WriteFrom('x');
+        Req.Content.ReadAs(InS);
+        Req.Content.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure FreshReadStream(): Boolean
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        InS: InStream;
+    begin
+        C.ReadAs(InS);
+        C.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure ResponseReadStream(): Boolean
+    var
+        R: HttpResponseMessage;
+        H: HttpHeaders;
+        InS: InStream;
+    begin
+        R.Content.ReadAs(InS);
+        R.Content.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure RequestReadSecret(): Boolean
+    var
+        Req: HttpRequestMessage;
+        H: HttpHeaders;
+        S: SecretText;
+    begin
+        Req.Content.WriteFrom('x');
+        if Req.Content.ReadAs(S) then;
+        Req.Content.GetHeaders(H);
+        exit(Contains(H));
+    end;
+
+    procedure StreamAfterReadAs()
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        Data: Record B temporary;
+        InS: InStream;
+        T: Text;
+    begin
+        C.WriteFrom('x');
+        C.ReadAs(T);
+        C.GetHeaders(H);
+        H.Clear();
+        Fill(Data, InS);
+        C.WriteFrom(InS);
+    end;
+
+    procedure StreamPartlyRead()
+    var
+        C: HttpContent;
+        H: HttpHeaders;
+        Data: Record B temporary;
+        InS: InStream;
+        T: Text;
+    begin
+        C.GetHeaders(H);
+        H.Remove('Content-Type');
+        Fill(Data, InS);
+        InS.ReadText(T, 3);
+        C.WriteFrom(InS);
+    end;
+}
+"#;
+
+#[test]
+fn empty_name_is_refused_after_a_change_the_probe_did_not_make() {
+    for (major, minor) in [(27, 5), (28, 5), (29, 0), (29, 1)] {
+        let mut built = built_on(UNMEASURED_STATES_SRC, major, minor);
+        for routine in [
+            "AddRemove",
+            "ClientClear",
+            "ContentReadd",
+            "SecondWrite",
+            "ContentClear",
+            "CopyContent",
+            "StreamWritten",
+            "RequestReadStream",
+            "FreshReadStream",
+            "ResponseReadStream",
+            "RequestReadSecret",
+        ] {
+            let result = built.run(routine);
+            assert!(
+                matches!(&result, Err(al_builtins::native::Signal::Unsupported(why)) if why.starts_with("HttpHeaders.Contains with an empty name")),
+                "{major}.{minor} {routine}: {result:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_stream_write_after_a_read_or_from_a_partly_read_stream_is_refused() {
+    for (major, minor) in [(27, 5), (28, 5), (29, 0), (29, 1)] {
+        let mut built = built_on(UNMEASURED_STATES_SRC, major, minor);
+        for routine in ["StreamAfterReadAs", "StreamPartlyRead"] {
+            let result = built.run(routine);
+            assert!(
+                matches!(&result, Err(al_builtins::native::Signal::Unsupported(why)) if why.starts_with("HttpContent.WriteFrom(InStream) with a changed Content-Type")),
+                "{major}.{minor} {routine}: {result:?}"
+            );
+        }
+    }
+}

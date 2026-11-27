@@ -13,6 +13,8 @@ pub(crate) enum OptionCaptions {
     Ml,
     /// The field declares no caption: the member names.
     None,
+    /// The field's OptionCaption repeats its member names entry by entry.
+    SameAsNames,
 }
 
 impl Lowerer<'_> {
@@ -476,8 +478,16 @@ impl Lowerer<'_> {
         };
         let list = crate::members::first_string_literal(text)?;
         let captions: Vec<&str> = list.split(',').collect();
-        (captions.len() == names.len() && captions.iter().zip(names).any(|(c, n)| c != n))
-            .then(|| (list.to_string(), OptionCaptions::Caption))
+        if captions.len() != names.len() {
+            return None;
+        }
+        // Captions equal to the names, on a field of an app's table: al-builtins `evaluate::option_field` reads the shapes corpus
+        // PR 1577 and the reporter of al-runner issue 8355 measured, and the rest as a field without captions. A platform
+        // table's field with such captions keeps that reading (`None`): no evidence measured one.
+        if captions.iter().zip(names).all(|(c, n)| c == n) {
+            return (!platform).then(|| (list.to_string(), OptionCaptions::SameAsNames));
+        }
+        Some((list.to_string(), OptionCaptions::Caption))
     }
 
     /// Whether `arg` is the Class column of the Field table (2000000041), an Option field with the members of FieldClass.
@@ -1280,6 +1290,15 @@ impl Lowerer<'_> {
                         if matches!(&v, ir::Expr::Const(ir::Const::Text(s)) if s.encode_utf16().count() == 1) {
                             return self.convert_to(&decl, self.ty_ref(e), v).map(|v| ir::Stmt::Exit(Some(v)));
                         }
+                    }
+                    // `exit(FR.Value())` from a procedure that returns a number converts as `I := FR.Value()` does (al-vm
+                    // `Op::ConvertFieldValue`, which refuses a Date, Time or DateTime value: issue 9265); the result then
+                    // converts into the return type as every exit value does.
+                    if let Some(rt) = self.ret_ty.clone()
+                        && al_builtins::fieldref_value_temporal::is_number_target(&rt)
+                        && self.is_fieldref_value(e)
+                    {
+                        return Ok(ir::Stmt::Exit(Some(ir::Expr::Convert(rt, Box::new(v)))));
                     }
                     Ok(ir::Stmt::Exit(Some(match (self.ty_ref(e), &self.ret_ty) {
                         (Ty::DotNet(a), Some(rt)) if a.is_empty() && !matches!(rt, RtType::DotNet(_)) => {

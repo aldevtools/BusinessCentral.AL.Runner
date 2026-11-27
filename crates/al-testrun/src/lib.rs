@@ -42,6 +42,7 @@ pub mod license;
 mod login;
 mod login_memo;
 mod login_replay;
+mod login_start;
 pub mod observe;
 mod partner_login;
 pub mod profiling;
@@ -53,8 +54,10 @@ pub mod runtime;
 pub mod seed;
 pub mod stability;
 mod stopped_state;
+pub mod switches;
 pub mod target;
 pub mod test_suites;
+pub mod workspace_cache;
 
 /// Stack of the thread a front end runs the whole run on (`al-runner`, `al-test-cli`), and of every thread of the
 /// compile's own rayon pool (`runtime::compile_halt`): the checker and the lowerer recurse once per level of the code's

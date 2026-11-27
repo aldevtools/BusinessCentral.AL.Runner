@@ -127,8 +127,9 @@ fn app(locals: &str, install: &str, on_run: &str, read: &str) -> String {
 
 /// Runs `src` and checks that both test codeunits fail with `want` and that the install code ran once per codeunit, as on a
 /// run that runs it in each codeunit's session: the session it ran in to find out that a codeunit's session cannot start
-/// from what it left is the first codeunit's session.
-fn keeps_install_per_codeunit(src: &str, target: &str, want: &str) {
+/// from what it left is the first codeunit's session. `left`: the first session field the install code left other than a
+/// new session holds it, which the `--timings` line names.
+fn keeps_install_per_codeunit(src: &str, target: &str, want: &str, left: &str) {
     let rt = run_with(src, target, &RunOptions::default());
     let got = failures(&rt);
     assert_eq!(
@@ -137,6 +138,22 @@ fn keeps_install_per_codeunit(src: &str, target: &str, want: &str) {
         "{got:?}"
     );
     assert_eq!(rt.phases.install_runs, 2, "{got:?}");
+    assert_eq!(
+        install_line(&rt).as_deref(),
+        Some(&*format!(
+            "install code: ran 2 times for the test codeunits; first reason noted that its run cannot be shared: it left `{left}` not as a new session holds it"
+        )),
+        "{got:?}"
+    );
+}
+
+/// The `--timings` line on why the install code ran again for a test codeunit; `None` when it ran at most once.
+pub(crate) fn install_line(rt: &CorpusRuntime) -> Option<String> {
+    let lines = rt.phases.baseline_line().unwrap_or_default();
+    lines
+        .lines()
+        .find(|l| l.starts_with("install code:"))
+        .map(str::to_string)
 }
 
 const MEDIA_IN: &str = "T.B.CreateOutStream(OS); OS.WriteText('picture-bytes'); T.B.CreateInStream(IStr);";
@@ -148,7 +165,7 @@ fn install_code_that_imports_a_media_set_runs_per_codeunit() {
         "begin Error('x'); end; }",
         "begin S.Get('SET'); Error('count=%1', S.Pics.Count()); end; }",
     );
-    keeps_install_per_codeunit(&src, "", "count=1");
+    keeps_install_per_codeunit(&src, "", "count=1", "media.objects");
 }
 
 #[test]
@@ -158,7 +175,7 @@ fn install_code_that_imports_a_media_runs_per_codeunit() {
         "begin Error('x'); end; }",
         "begin S.Get('PIC'); T2.B.CreateOutStream(OS); Ok := S.Pic.ExportStream(OS); Error('exported=%1 len=%2', Ok, T2.B.Length()); end; }",
     );
-    keeps_install_per_codeunit(&src, "", "exported=Yes len=13");
+    keeps_install_per_codeunit(&src, "", "exported=Yes len=13", "media.objects");
 }
 
 #[test]
@@ -173,7 +190,7 @@ fn install_code_that_encrypts_runs_per_codeunit() {
         "begin Error('x'); end; }",
         "begin S.Get('ENC'); Error('plain=%1', Decrypt(S.Value)); end; }",
     );
-    keeps_install_per_codeunit(&src, "", "plain=secret");
+    keeps_install_per_codeunit(&src, "", "plain=secret", "encrypted");
 }
 
 #[test]
@@ -184,7 +201,7 @@ fn install_code_that_deletes_the_encryption_key_runs_per_codeunit() {
         "",
         "StrSubstNo('keyexists=%1 enabled=%2', EncryptionKeyExists(), EncryptionEnabled())",
     );
-    keeps_install_per_codeunit(&src, "", "keyexists=No enabled=No");
+    keeps_install_per_codeunit(&src, "", "keyexists=No enabled=No", "encryption_key");
 }
 
 #[test]
@@ -195,7 +212,7 @@ fn install_code_that_creates_a_file_runs_per_codeunit() {
         "",
         "StrSubstNo('exists=%1', Exists(TemporaryPath() + 'io8153.txt'))",
     );
-    keeps_install_per_codeunit(&src, "OnPrem", "exists=Yes");
+    keeps_install_per_codeunit(&src, "OnPrem", "exists=Yes", "host");
 }
 
 #[test]
@@ -210,7 +227,7 @@ fn install_code_that_schedules_a_task_runs_per_codeunit() {
         "begin Error('x'); end; }",
         "begin S.Get('TASK'); Error('task=%1', TaskScheduler.TaskExists(S.G)); end; }",
     );
-    keeps_install_per_codeunit(&src, "", "task=Yes");
+    keeps_install_per_codeunit(&src, "", "task=Yes", "tasks");
 }
 
 #[test]
@@ -221,7 +238,7 @@ fn install_code_that_registers_a_table_connection_runs_per_codeunit() {
         "",
         "StrSubstNo('conn=%1', HasTableConnection(TableConnectionType::CRM, 'ioconn'))",
     );
-    keeps_install_per_codeunit(&src, "", "conn=Yes");
+    keeps_install_per_codeunit(&src, "", "conn=Yes", "crm_stores");
 }
 
 #[test]
@@ -232,7 +249,7 @@ fn install_code_whose_try_function_failed_runs_per_codeunit() {
         "Saw := GetLastErrorText();",
         "StrSubstNo('last=[%1]', Saw)",
     );
-    keeps_install_per_codeunit(&src, "", "last=[install-try-error]");
+    keeps_install_per_codeunit(&src, "", "last=[install-try-error]", "error_raised_in");
 }
 
 #[test]
@@ -243,7 +260,7 @@ fn install_code_that_sets_the_application_area_runs_per_codeunit() {
         "Saw := ApplicationArea();",
         "StrSubstNo('area=[%1]', Saw)",
     );
-    keeps_install_per_codeunit(&src, "", "area=[#IoArea]");
+    keeps_install_per_codeunit(&src, "", "area=[#IoArea]", "application_areas");
 }
 
 #[test]
@@ -254,7 +271,63 @@ fn install_code_that_reseeds_random_runs_per_codeunit() {
         "Saw := Format(Random(100000));",
         "StrSubstNo('rnd=%1', Saw)",
     );
-    keeps_install_per_codeunit(&src, "", "rnd=66811");
+    keeps_install_per_codeunit(&src, "", "rnd=66811", "randomized_with_seed");
+}
+
+/// A seeding helper: a procedure of another codeunit that declares a Record local and inserts a row through it.
+const SEEDER: &str = "codeunit 60508 \"Io Seeder\" {
+        procedure Seed() var R: Record \"Io Row\"; begin R.Code := 'SEED'; R.Insert(); end; }";
+
+/// Issue 9227: install code that calls a procedure declaring a Record local runs once for the run. The record that
+/// local held is gone when the install code ends, so a codeunit's session can start from what it left.
+#[test]
+fn install_code_that_calls_a_procedure_with_a_record_local_runs_once_per_run() {
+    let src = app(
+        "D: Codeunit \"Io Seeder\";",
+        "D.Seed();",
+        "",
+        "StrSubstNo('rows=%1', S.Count())",
+    );
+    let rt = run_with(&format!("{src}\n{SEEDER}"), "", &RunOptions::default());
+    let got = failures(&rt);
+    let want = "rows=1".to_string();
+    assert_eq!(got, vec![(60510, want.clone()), (60511, want)], "{got:?}");
+    assert_eq!(rt.phases.install_runs, 1, "{got:?}");
+    assert_eq!(install_line(&rt), None, "the install code ran once");
+}
+
+/// The neighbor of issue 9227: a record in a SingleInstance codeunit's global does not outlive the install code either.
+/// The test session does not see the SingleInstance state of the install run (al-testrun `install.rs`,
+/// events/platform-triggers/PeVTests.al:297),
+/// so the install code runs once for the run.
+#[test]
+fn install_code_that_leaves_a_record_in_a_single_instance_runs_once_per_run() {
+    let keeper = "codeunit 60509 \"Io Keeper\" { SingleInstance = true; var R: Record \"Io Row\";
+        procedure Keep() begin R.Code := 'KEEP'; end; }";
+    let src = app(
+        "D: Codeunit \"Io Seeder\"; K: Codeunit \"Io Keeper\";",
+        "D.Seed(); K.Keep();",
+        "",
+        "StrSubstNo('rows=%1', S.Count())",
+    );
+    let rt = run_with(&format!("{src}\n{SEEDER}\n{keeper}"), "", &RunOptions::default());
+    let got = failures(&rt);
+    let want = "rows=1".to_string();
+    assert_eq!(got, vec![(60510, want.clone()), (60511, want)], "{got:?}");
+    assert_eq!(rt.phases.install_runs, 1, "{got:?}");
+    assert_eq!(install_line(&rt), None, "the install code ran once");
+}
+
+/// The neighbor of issue 9227: install code that leaves a RecordRef in a Variant keeps running in each codeunit's session.
+#[test]
+fn install_code_that_puts_a_recordref_in_a_variant_runs_per_codeunit() {
+    let src = app(
+        "RR: RecordRef; V: Variant;",
+        "RR.Open(Database::\"Io Row\"); V := RR;",
+        "",
+        "StrSubstNo('rows=%1', S.Count())",
+    );
+    keeps_install_per_codeunit(&src, "", "rows=0", "variant_refs");
 }
 
 /// An automatic subscriber (60504) and a manual one (60506) of the row's OnAfterInsertEvent, and what a test reads of them:
@@ -323,6 +396,13 @@ fn install_code_that_leaves_a_manual_subscriber_bound_runs_per_codeunit() {
     let want = "auto=1 manual=1".to_string();
     assert_eq!(got, vec![(60510, want.clone()), (60511, want)], "{got:?}");
     assert_eq!(rt.phases.install_runs, 2, "{got:?}");
+    assert_eq!(
+        install_line(&rt).as_deref(),
+        Some(
+            "install code: ran 2 times for the test codeunits; first reason noted that its run cannot be shared: it left `events.bindings` not as a new session holds it"
+        ),
+        "{got:?}"
+    );
 }
 
 /// Install code that writes rows, takes a NumberSequence number and an AutoIncrement value.
@@ -368,6 +448,7 @@ fn install_code_that_writes_only_rows_runs_once_per_run() {
     let rt = run_with(&src, "", &RunOptions::default());
     rows_only_wants(&rt, 2, false);
     assert_eq!(rt.phases.install_runs, 1);
+    assert_eq!(install_line(&rt), None, "the install code ran once");
 }
 
 /// A budget with room for many test threads.

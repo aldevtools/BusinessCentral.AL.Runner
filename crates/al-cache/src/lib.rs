@@ -10,10 +10,13 @@
 //!
 //! Crate root of the compile cache format (ADR-022). Core crate: no OS access.
 
+pub mod digest;
 mod format;
 mod index;
 mod key;
+mod workspace;
 
 pub use format::{CacheError, Entry, build, build_layer, build_layer_with_dictionary};
 pub use index::{build_index, index_file_name, open_index};
 pub use key::{AppKey, FORMAT, Key, build_tag, tag_of_file_name};
+pub use workspace::{WORKSPACE_FORMAT, build_workspace, carrier_key, open_workspace};
