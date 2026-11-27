@@ -33,6 +33,16 @@ pub(crate) enum TriggerKind {
     Other,
 }
 
+/// A page trigger running now: its page, its kind, for the OnOpenPage of a page the test opened with `TestPage.OpenView`
+/// its page object, the page's open id (`PageState::open_id`) and the trigger's frame (its index in `Session::frames`).
+pub(crate) struct PageTrigger {
+    pub(crate) page: *const RefCell<PageState>,
+    pub(crate) kind: TriggerKind,
+    pub(crate) view: Option<usize>,
+    pub(crate) open_id: u64,
+    pub(crate) frame: usize,
+}
+
 /// A vetoed `CurrPage.Close()` waiting for the end of the TestPage call it ran in.
 pub(crate) struct CodeCloseVeto {
     page: St,
@@ -56,21 +66,29 @@ impl Session {
             _ => TriggerKind::Other,
         };
         let view = (kind == TriggerKind::OpenPage && st.borrow().test_open_view()).then(|| st.borrow().object as usize);
-        self.pages.trigger_kinds.push((Rc::as_ptr(st), kind, view));
+        let (page, open_id, frame) = (Rc::as_ptr(st), st.borrow().open_id, self.frames.len());
+        self.pages.trigger_kinds.push(PageTrigger {
+            page,
+            kind,
+            view,
+            open_id,
+            frame,
+        });
         let r = f(self);
         self.pages.trigger_kinds.pop();
         r
     }
 
-    /// Whether the innermost page trigger running now is an OnAction of the page whose state is at `page_state`.
-    pub(crate) fn in_page_action(&self, page_state: *const RefCell<PageState>) -> bool {
-        matches!(self.pages.trigger_kinds.last(), Some((p, TriggerKind::Action, _)) if *p == page_state)
+    /// The frame of the innermost page trigger running now when it is an OnAction of the page open `open_id`.
+    pub(crate) fn page_action_frame(&self, open_id: u64) -> Option<usize> {
+        let t = self.pages.trigger_kinds.last()?;
+        (t.kind == TriggerKind::Action && t.open_id == open_id).then_some(t.frame)
     }
 
     /// Whether the innermost page trigger running now is the OnOpenPage of page object `page`, on a page the test opened with
     /// `TestPage.OpenView`.
     pub(crate) fn page_open_by_test_open_view(&self, page: usize) -> bool {
-        matches!(self.pages.trigger_kinds.last(), Some((_, TriggerKind::OpenPage, Some(p))) if *p == page)
+        matches!(self.pages.trigger_kinds.last(), Some(t) if t.kind == TriggerKind::OpenPage && t.view == Some(page))
     }
 
     /// Runs one TestPage call on page `st`; a `CurrPage.Close()` its code vetoed is asked again when it returns.
@@ -204,7 +222,7 @@ impl Session {
             );
         }
         let kind = match self.pages.trigger_kinds.last() {
-            Some((p, k, _)) if *p == Rc::as_ptr(st) => *k,
+            Some(t) if t.page == Rc::as_ptr(st) => t.kind,
             _ => TriggerKind::Other,
         };
         if matches!(kind, TriggerKind::Other | TriggerKind::OpenPage)

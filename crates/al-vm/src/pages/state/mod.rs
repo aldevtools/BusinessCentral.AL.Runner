@@ -369,6 +369,8 @@ pub struct PageState {
     /// raise "The TestPage is not open." (corpus testpage/lifecycle/TestPageTeardown.al:3-24).
     /// The page has been opened at least once (a Page variable that never ran has not).
     pub ran: bool,
+    /// The id of the page's last open, from `PagesState::page_opens` (`consistent_marks/page_view.rs`).
+    pub open_id: u64,
     pub open: bool,
     pub mode: PageMode,
     /// The running page: its globals hold `Rec`, `xRec` and `CurrPage`.

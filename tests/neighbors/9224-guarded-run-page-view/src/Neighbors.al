@@ -376,6 +376,7 @@ codeunit 69180 "GPN Tests"
         OpenRun: TestPage "GPN Open Run";
         Variants: TestPage "GPN Variants";
         CodeKey: TestPage "GPN Code Key List";
+        CallShapes: TestPage "GPN Call Shapes";
     begin
         case Shape of
             'Worksheet':
@@ -415,6 +416,12 @@ codeunit 69180 "GPN Tests"
                     CodeKey.OpenView();
                     CodeKey.First();
                     CodeKey.RunGuarded.Invoke();
+                end;
+            'CallShapes':
+                begin
+                    CallShapes.OpenView();
+                    CallShapes.First();
+                    CallShapes.RunGuarded.Invoke();
                 end;
         end;
         Error('END');
@@ -616,6 +623,86 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'Variants', 'mark,commit', 'clear');
+        Observer.Expect('run end|text', 'END');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure DirectInAction_Ends()
+    var
+        Observer: Codeunit "Probe Observer";
+    begin
+        Cell(Observer, 'CallShapes', 'mark', 'direct');
+        Observer.Expect('run end|code', 'TestWrapped:CSide');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure DirectInAction_PlainCommit()
+    var
+        Observer: Codeunit "Probe Observer";
+    begin
+        Cell(Observer, 'CallShapes', 'mark,commit', 'direct');
+        Observer.Expect('run end|text', 'END');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure LocalProcedure_Ends()
+    var
+        Observer: Codeunit "Probe Observer";
+    begin
+        Cell(Observer, 'CallShapes', 'mark', 'local');
+        Observer.Expect('run end|code', 'TestWrapped:CSide');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure LocalProcedure_PlainCommit()
+    var
+        Observer: Codeunit "Probe Observer";
+    begin
+        Cell(Observer, 'CallShapes', 'mark,commit', 'local');
+        Observer.Expect('run end|text', 'END');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure OtherCodeunitMethod_Ends()
+    var
+        Observer: Codeunit "Probe Observer";
+    begin
+        Cell(Observer, 'CallShapes', 'mark', 'method');
+        Observer.Expect('run end|code', 'TestWrapped:CSide');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure OtherCodeunitMethod_PlainCommit()
+    var
+        Observer: Codeunit "Probe Observer";
+    begin
+        Cell(Observer, 'CallShapes', 'mark,commit', 'method');
+        Observer.Expect('run end|text', 'END');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure EventSubscriber_Ends()
+    var
+        Observer: Codeunit "Probe Observer";
+    begin
+        Cell(Observer, 'CallShapes', 'mark', 'event');
+        Observer.Expect('run end|code', 'TestWrapped:CSide');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure EventSubscriber_PlainCommit()
+    var
+        Observer: Codeunit "Probe Observer";
+    begin
+        Cell(Observer, 'CallShapes', 'mark,commit', 'event');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;

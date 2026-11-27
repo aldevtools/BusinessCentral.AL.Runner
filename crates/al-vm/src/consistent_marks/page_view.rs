@@ -39,17 +39,20 @@ impl Session {
     /// The page just applied its SourceTableView to `rec` (`page_open`): marks it with its group-2 filters when the test
     /// opened the page with OpenView (every cell, :588-:638), without a record or a sub-page view, and the page is measured.
     /// `opened_without_record` is whether the test opened the page itself, without a record or a sub-page view.
-    pub(crate) fn mark_page_view(&self, st: &Rc<RefCell<PageState>>, opened_without_record: bool, rec: &Rec) {
+    /// Every open takes a new open id, so a mark of an earlier open never matches the page again.
+    pub(crate) fn mark_page_view(&mut self, st: &Rc<RefCell<PageState>>, opened_without_record: bool, rec: &Rec) {
+        self.pages.page_opens += 1;
+        let open_id = self.pages.page_opens;
+        st.borrow_mut().open_id = open_id;
         let object = st.borrow().object as usize;
         if !(opened_without_record && st.borrow().test_open_view() && self.page_view_page(object)) {
             return;
         }
-        let page_state = Rc::as_ptr(st) as usize;
         let mut r = rec.borrow_mut();
         let group2 = group2(&r);
         r.page_view = PageViewMark(Some(Rc::new(PageView {
             page: object as u32,
-            page_state,
+            open_id,
             group2,
         })));
     }
@@ -85,7 +88,8 @@ impl Session {
         let mark = arg.rec.borrow().page_view.0.clone()?;
         let now = group2(&arg.rec.borrow());
         let view_kept = mark.group2.len() == now.len() && mark.group2.iter().zip(&now).all(|(a, b)| same_filter(a, b));
-        let in_action = self.in_page_action(mark.page_state as *const _) && self.page_view_page(mark.page as usize);
+        let in_action =
+            self.run_by_action_method(mark.open_id, start.caller_frame) && self.page_view_page(mark.page as usize);
         if !(run_shape && one_mark && view_kept && in_action) {
             return None;
         }
@@ -106,6 +110,27 @@ impl Session {
             }
             _ => None,
         }
+    }
+
+    /// The cells' call path (:117-:121, :464-:486): the OnAction trigger of the page open `open_id` calls a codeunit method
+    /// with one `var` parameter and no attribute, and that method calls `Codeunit.Run` (its frame is `caller_frame - 1`).
+    fn run_by_action_method(&self, open_id: u64, caller_frame: usize) -> bool {
+        let Some(action) = self.page_action_frame(open_id) else {
+            return false;
+        };
+        let method = action + 1;
+        let (Some(&object), Some(call)) = (self.frames.get(method), self.call_stack.get(method)) else {
+            return false;
+        };
+        let object = &self.engine.program.objects[object];
+        let routine = &object.routines[call.routine];
+        caller_frame == method + 1
+            && self.call_stack.len() == self.frames.len()
+            && object.kind == al_ir::ObjKind::Codeunit
+            && !call.event
+            && !routine.is_trigger
+            && routine.attributes.is_empty()
+            && routine.by_var == [true]
     }
 
     /// The code a test page's Invoke gives `e` from action `idx`: `TestWrapped:CSide` for the error a page view run end

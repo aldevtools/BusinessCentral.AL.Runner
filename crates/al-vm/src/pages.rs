@@ -266,7 +266,7 @@ mod code_inserted_pinned;
 mod modal_close_save_error;
 mod own_area_caption;
 mod triggerless_action;
-pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
+pub(crate) use code_close_veto::{CodeCloseVeto, PageTrigger, TriggerKind};
 mod controls;
 mod cue_value;
 mod currpage_run_typed_key;

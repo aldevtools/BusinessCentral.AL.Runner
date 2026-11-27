@@ -751,7 +751,8 @@ impl Clone for PageViewMark {
 #[derive(Debug)]
 pub struct PageView {
     pub page: u32,
-    pub page_state: usize,
+    /// The open of the page that set the mark (al-vm `PageState::open_id`).
+    pub open_id: u64,
     pub group2: Vec<crate::filter::FieldFilter>,
 }
 

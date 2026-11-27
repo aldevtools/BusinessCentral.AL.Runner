@@ -862,6 +862,7 @@ impl Session {
         if runner {
             self.enter_test_runner(object, inst.clone());
         }
+        let caller_frame = self.frames.len();
         let result = self.call(object, on_run, inst, Vec::new());
         if runner {
             self.leave_test_runner();
@@ -885,6 +886,7 @@ impl Session {
                 arg_record: arg_record.as_ref(),
                 marks_dropped_inside: body.as_ref().is_some_and(|b| b.marks_dropped_inside),
                 runs_inside: body.as_ref().is_some_and(|b| b.runs_inside),
+                caller_frame,
             };
             if let Some(e) = self.guarded_run_end_marks(start, end)? {
                 return Err(e);

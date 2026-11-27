@@ -225,6 +225,8 @@ pub(crate) struct RunStart<'a> {
     pub(crate) marks_dropped_inside: bool,
     /// A guarded run started inside this one (`GuardedBody::runs_inside`).
     pub(crate) runs_inside: bool,
+    /// The frames below the run: the caller of `Codeunit.Run` is at index `caller_frame - 1` of `Session::frames`.
+    pub(crate) caller_frame: usize,
 }
 
 /// How a guarded `Codeunit.Run` ended.
