@@ -152,3 +152,101 @@ fn a_clone_shares_until_either_side_writes() {
     assert_eq!(b.len(), 500);
     assert_eq!(a.len(), 501);
 }
+
+/// The first key of every chunk: the keys a spine search compares against.
+fn chunk_firsts(p: &PMap<u64, u64>) -> Vec<u64> {
+    p.spine.iter().map(|c| c[0].0).collect()
+}
+
+/// Every lookup and every range seek on each key from just below the smallest to just above the largest, and on both
+/// sides of each chunk's first key, answers like the model.
+fn every_key_and_seek(p: &PMap<u64, u64>, m: &BTreeMap<u64, u64>) {
+    same(p, m);
+    let hi = m.keys().next_back().map_or(2, |k| k + 2);
+    for k in 0..hi {
+        assert_eq!(p.get(&k), m.get(&k), "get {k}");
+        assert_eq!(p.get_key_value(&k), m.get_key_value(&k), "get_key_value {k}");
+        assert_eq!(p.contains_key(&k), m.contains_key(&k), "contains_key {k}");
+    }
+    for f in chunk_firsts(p) {
+        for k in [f.saturating_sub(1), f, f + 1] {
+            for (lo, hi) in [
+                (Included(k), Unbounded),
+                (Excluded(k), Unbounded),
+                (Unbounded, Included(k)),
+                (Unbounded, Excluded(k)),
+            ] {
+                assert!(p.range((lo, hi)).eq(m.range((lo, hi))), "{lo:?} {hi:?}");
+                assert!(p.range((lo, hi)).rev().eq(m.range((lo, hi)).rev()), "rev {lo:?} {hi:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn lookups_on_chunk_boundaries_survive_splits_front_inserts_and_merges() {
+    // Even keys from 1000 up, so every chunk's first key has an absent neighbor on both sides.
+    let mut m: BTreeMap<u64, u64> = (500..1500u64).map(|k| (2 * k, k)).collect();
+    let mut p: PMap<u64, u64> = m.iter().map(|(k, v)| (*k, *v)).collect();
+    assert!(chunk_firsts(&p).len() > 10);
+    every_key_and_seek(&p, &m);
+    // New smallest keys: each one becomes the first key of the first chunk, which splits as it grows.
+    for k in (0..500u64).rev() {
+        assert_eq!(p.insert(2 * k + 1, k), m.insert(2 * k + 1, k));
+    }
+    every_key_and_seek(&p, &m);
+    // Fill the gaps inside one chunk until it splits, then check the new chunk's first key.
+    let before = chunk_firsts(&p).len();
+    // A chunk of the even run built by collect (48 even keys), so the odd keys are all new.
+    let start = chunk_firsts(&p)[before - 3];
+    for k in start..start + 80 {
+        assert_eq!(p.insert(k | 1, k), m.insert(k | 1, k));
+    }
+    assert!(chunk_firsts(&p).len() > before);
+    every_key_and_seek(&p, &m);
+    // Remove the first key of every chunk, again and again: the next key becomes the first, and small chunks merge.
+    for _ in 0..40 {
+        for f in chunk_firsts(&p) {
+            assert_eq!(p.remove(&f), m.remove(&f));
+        }
+        every_key_and_seek(&p, &m);
+    }
+    // Remove what is left from the front, emptying chunks one by one.
+    while let Some(k) = m.keys().next().copied() {
+        assert_eq!(p.remove(&k), m.remove(&k));
+        if k % 37 == 0 {
+            every_key_and_seek(&p, &m);
+        }
+    }
+    every_key_and_seek(&p, &m);
+}
+
+#[test]
+fn a_fork_keeps_its_chunk_boundaries_when_the_other_side_moves_them() {
+    let ma: BTreeMap<u64, u64> = (10..1010u64).map(|k| (2 * k, k)).collect();
+    let mut a: PMap<u64, u64> = ma.iter().map(|(k, v)| (*k, *v)).collect();
+    let mut ma = ma;
+    let b = a.clone();
+    let mb = ma.clone();
+    // Move boundaries on one side: a new smallest key, removed chunk-first keys, a split.
+    assert_eq!(a.insert(1, 1), ma.insert(1, 1));
+    for f in chunk_firsts(&a).into_iter().skip(1).step_by(2) {
+        assert_eq!(a.remove(&f), ma.remove(&f));
+    }
+    let f = chunk_firsts(&a)[3];
+    for k in f..f + 70 {
+        assert_eq!(a.insert(k | 1, 0), ma.insert(k | 1, 0));
+    }
+    every_key_and_seek(&a, &ma);
+    every_key_and_seek(&b, &mb);
+    // And the other way round: a fork of the changed side, changed again, leaves the first two alone.
+    let mut c = a.clone();
+    let mut mc = ma.clone();
+    for f in chunk_firsts(&c) {
+        assert_eq!(c.remove(&f), mc.remove(&f));
+    }
+    assert_eq!(c.insert(0, 9), mc.insert(0, 9));
+    every_key_and_seek(&c, &mc);
+    every_key_and_seek(&a, &ma);
+    every_key_and_seek(&b, &mb);
+}
