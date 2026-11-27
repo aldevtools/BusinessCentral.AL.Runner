@@ -164,6 +164,15 @@ pub fn after_test(
     if let Some(cp) = checkpoint {
         if !runner_function {
             cp.restore(session);
+            // BC's TestRunnerHub: the number sequences the later tests may not use (al-vm `hub_sequences.rs`, issue 9250).
+            session.refuse_hub_sequences(|key| {
+                format!(
+                    "number sequence '{}' was inserted or changed by this codeunit's OnRun or changed by an earlier test of it, \
+                     {routine}: what BC's TestRunnerHub under RequiredTestIsolation = Function leaves of it is not \
+                     stable or not measured (corpus issues 1595 and 1614)",
+                    key.1
+                )
+            });
             return;
         }
         // A new key's IsolatedStorage.Set and a new NumberSequence.Insert are rolled back

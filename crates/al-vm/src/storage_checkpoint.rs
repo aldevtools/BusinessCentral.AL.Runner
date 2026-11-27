@@ -49,6 +49,8 @@ pub(crate) struct Unmeasured {
     assumed: HashMap<Key, BTreeSet<Assumption>>,
     /// Number sequences refused until the running test body ends (`refuse_sequence_in_body`).
     in_body: HashMap<Key, String>,
+    /// The NumberSequence log of a test codeunit under the hub's Function isolation (`hub_sequences.rs`).
+    pub(crate) hub_log: Option<crate::hub_sequences::Log>,
 }
 
 impl Unmeasured {
@@ -60,8 +62,9 @@ impl Unmeasured {
             sequences,
             assumed,
             in_body,
+            hub_log,
         } = self;
-        isolated.is_empty() && sequences.is_empty() && assumed.is_empty() && in_body.is_empty()
+        isolated.is_empty() && sequences.is_empty() && assumed.is_empty() && in_body.is_empty() && hub_log.is_none()
     }
 }
 
@@ -83,7 +86,8 @@ fn loose(scope: &str, name: &str) -> Key {
 impl Session {
     /// The isolated storage and the number sequences now, for [`Session::restore_storage_checkpoint`] (a test runner's
     /// TestIsolation = Function, al-testrun `isolation::Checkpoint`).
-    pub fn storage_checkpoint(&self) -> StorageCheckpoint {
+    pub fn storage_checkpoint(&mut self) -> StorageCheckpoint {
+        self.hub_log_checkpoint();
         StorageCheckpoint {
             isolated: self.isolated_storage.clone(),
             sequences: self.sequences.clone(),
@@ -166,6 +170,17 @@ impl Session {
     /// the marks of `assume_sequences_after_failure`, end.
     pub fn clear_unmeasured(&mut self) {
         self.unmeasured = Unmeasured::default();
+    }
+
+    /// The running codeunit's tests begin: the refusals and marks an earlier codeunit's tests left end, as in
+    /// [`Session::clear_unmeasured`]; the running codeunit's own hub NumberSequence log (`hub_sequences.rs`), begun before
+    /// its OnRun, stays.
+    pub fn clear_earlier_unmeasured(&mut self) {
+        let hub_log = self.unmeasured.hub_log.take();
+        self.unmeasured = Unmeasured {
+            hub_log,
+            ..Unmeasured::default()
+        };
     }
 
     /// Refuses an `IsolatedStorage` call on `key` in `scope` that an earlier test of the codeunit left unmeasured.

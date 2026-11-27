@@ -15,6 +15,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
 
+mod decimal_overflow;
 mod quotient;
 use quotient::whole_quotient;
 
@@ -600,13 +601,7 @@ pub fn arith(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             let (Some(a), Some(b)) = (as_decimal(l), as_decimal(r)) else {
                 unreachable!("Decimal and Integer are numbers")
             };
-            let res = match op {
-                Arith::Add => a.checked_add(b),
-                Arith::Sub => a.checked_sub(b),
-                _ => a.checked_mul(b),
-            }
-            .ok_or_else(|| Signal::Unsupported("decimal overflow".into()))?;
-            return Ok(V::Decimal(keep_18_digits(res)));
+            return decimal_overflow::sum_difference_product(op, (l, a), (r, b));
         }
     }
     // An arithmetic cell of the conversion matrix (`conv`).
