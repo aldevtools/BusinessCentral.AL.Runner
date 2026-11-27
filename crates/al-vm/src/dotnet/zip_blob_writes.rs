@@ -13,8 +13,9 @@
 //!    that content (BC hands .NET the Blob's own stream; the Blob is not cut). Its Dispose, the Blob unchanged since, makes
 //!    the Blob the archive (108 -> 194 bytes). Temporary and stored records alike (:49 with CalcFields; :85 without it the
 //!    Blob is not loaded and the bridge starts empty, as on main).
-//! 2. ZipBlobUpdateBlobChanged.al:48-152, a temporary record (a Blob no read or Insert gave the record): the 4-argument
-//!    archive over an OutStream AL copied a zip into; its Dispose makes the Blob the archive also after AL changed the Blob,
+//! 2. ZipBlobUpdateBlobChanged.al:48-152, a temporary record (`CreateOutStream` opened the stream on a Blob field of a record
+//!    that is temporary, and no read or Insert gave the record that Blob): the 4-argument archive over an OutStream AL copied a
+//!    zip into; its Dispose makes the Blob the archive also after AL changed the Blob,
 //!    in the measured states only: Clear and a rewrite with as many bytes as the archive read (:48); that rewrite and bytes
 //!    .NET then appended through another stream (:69); Clear only (:98); the Dispose of another archive that read the same
 //!    bytes (:152).
@@ -24,7 +25,7 @@
 //!
 //! Every other rewrite keeps main's answer: an Update archive's rewrite refuses, an overwrite marks the Blob
 //! (`DOTNET_BRIDGE_OVERWRITTEN`). Not measured, so not served: another ZipArchiveMode over a fresh OutStream, the B states on a
-//! stored record, another encoding, a StreamWriter made with more arguments, a .NET append with no AL change before the Dispose.
+//! stored table's record not declared temporary (read, inserted or neither), another encoding, a StreamWriter made with more arguments, a .NET append with no AL change before the Dispose.
 use super::{Bridge, Session};
 use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::stream::{BlobBuf, BlobRef};
@@ -38,6 +39,13 @@ pub(super) struct NetWrite {
     len_before: usize,
     edits_after: u32,
     replace: bool,
+}
+
+/// Part 2's record: `CreateOutStream` opened the stream on a Blob field of a temporary record (declared temporary or of a
+/// `TableType = Temporary` table: `RecordState::temporary`). The VM keeps that open on the stream (al-vm `temp_blob_share.rs`).
+pub(super) fn opened_on_temp_record(open: Option<&al_builtins::stream::OutOpen>) -> bool {
+    open.and_then(|o| o.record.upgrade())
+        .is_some_and(|r| r.borrow().temporary)
 }
 
 /// What `apply_stream_effects` does with one rewrite.
@@ -133,10 +141,14 @@ impl Session {
         }
     }
 
-    /// Part 2: a Blob of a temporary record (no read or Insert gave it), cleared in place, no mark, in one measured state.
+    /// Part 2: a Blob of a temporary record (the stream opened on it, no read or Insert gave it the Blob), cleared in place, no
+    /// mark, in one measured state.
     fn changed_state_measured(&self, bridge: &Bridge, before: usize, buf: &BlobBuf) -> bool {
         let of_no_row = !buf.db_row && !buf.temp_row && !buf.inserted && !buf.temp_inserted;
-        if !(of_no_row && buf.render_pending.is_none() && al_builtins::native::blob_clears_in_place(self, &bridge.blob))
+        if !(bridge.temp_record
+            && of_no_row
+            && buf.render_pending.is_none()
+            && al_builtins::native::blob_clears_in_place(self, &bridge.blob))
         {
             return false;
         }

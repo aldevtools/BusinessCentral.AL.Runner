@@ -100,21 +100,24 @@ const _: fn() = || {
 /// The AL stream behind a host write bridge, and its Blob's [`al_builtins::stream::BlobBuf::content_edits`] when the bridge was made
 /// or a reply last wrote into it: an AL write, `Clear`, `CreateOutStream` or `Import` of the Blob since then changes the count.
 /// `fresh`: the bridge started with the bytes of a Blob `CreateOutStream` made the stream on (`zip_blob_writes`);
-/// `origin_empty`: the Blob held no bytes when the bridge was made.
+/// `origin_empty`: the Blob held no bytes when the bridge was made; `temp_record`: `CreateOutStream` opened the stream on a
+/// Blob field of a temporary record (`zip_blob_writes::opened_on_temp_record`).
 struct Bridge {
     blob: BlobRef,
     edits: u32,
     fresh: bool,
     origin_empty: bool,
+    temp_record: bool,
 }
 
 impl Bridge {
-    fn new(blob: &BlobRef, fresh: bool) -> Self {
+    fn new(blob: &BlobRef, fresh: bool, temp_record: bool) -> Self {
         Bridge {
             blob: blob.clone(),
             edits: blob.borrow().content_edits,
             fresh,
             origin_empty: blob.borrow().bytes.is_empty(),
+            temp_record,
         }
     }
 
@@ -258,7 +261,8 @@ struct StreamBook {
     /// The InStream arguments: argument position, the stream, and where the bytes sent start in it (what .NET reports as
     /// consumed counts from there).
     ins: Vec<(usize, Rc<RefCell<LibraryValue>>, usize)>,
-    outs: Vec<(usize, BlobRef)>,
+    /// The OutStream arguments: argument position, the Blob, and whether the stream was opened on a temporary record.
+    outs: Vec<(usize, BlobRef, bool)>,
     /// The call may seed a bridge from a fresh `CreateOutStream` (`zip_blob_writes::fresh_update_ctor`), and the arguments it did.
     fresh_ok: bool,
     fresh: Vec<usize>,
@@ -1500,10 +1504,10 @@ impl Session {
             }
         }
         for (idx, id) in &reply.streams.bridges {
-            if let Some((_, blob)) = book.outs.iter().find(|(i, _)| i == idx) {
+            if let Some((_, blob, temp)) = book.outs.iter().find(|(i, ..)| i == idx) {
                 self.dotnet
                     .bridges
-                    .insert(*id, Bridge::new(blob, book.fresh.contains(idx)));
+                    .insert(*id, Bridge::new(blob, book.fresh.contains(idx), *temp));
             }
         }
         self.apply_stream_effects(&reply.streams, shown)?;
@@ -1598,7 +1602,7 @@ impl Session {
                         at: st.pos.min(st.len()),
                     }
                 }
-                LibraryValue::OutStream(blob, ..) => {
+                LibraryValue::OutStream(blob, _, open) => {
                     // A Blob whose handed-back bytes .NET wrote over holds bytes that are not known (al-runner issue 7947), and BC
                     // hands .NET that Blob's own stream: refused.
                     if blob.borrow().render_pending.as_deref() == Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN) {
@@ -1606,7 +1610,11 @@ impl Session {
                             "an OutStream of a Blob whose bytes a DotNet call wrote over, handed to .NET",
                         );
                     }
-                    book.outs.push((arg, blob.clone()));
+                    book.outs.push((
+                        arg,
+                        blob.clone(),
+                        zip_blob_writes::opened_on_temp_record(open.as_deref()),
+                    ));
                     // BC hands .NET the Blob's own stream: a ZipArchive in Read mode over an OutStream AL copied a zip into reads
                     // that zip (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al:77-96
                     // WD_Zip_ReadThroughAnOutStream, al-runner issue 6317). The bridge starts with the bytes when the stream
