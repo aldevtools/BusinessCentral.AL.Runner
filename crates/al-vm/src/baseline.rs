@@ -80,8 +80,8 @@ fn new_origin() -> u64 {
 }
 
 /// The first bytes of a snapshot: what it is and which layout it has. A change of the layout changes the last digit.
-/// Layout 11: the companies install code deleted follow the emptied tables (issue 9233).
-const MAGIC: &[u8; 8] = b"ALBASE\0\x0b";
+/// Layout 12: the tables marked as written (`MemStore::written_tables`) follow the deleted companies (al-runner issue 8981).
+const MAGIC: &[u8; 8] = b"ALBASE\0\x0c";
 
 /// The order of a table's keys (`al_data::memory::PkStorage`): the count of its key fields (0 for text order), then one
 /// byte per field.
@@ -133,6 +133,11 @@ impl Baseline {
         put_u32(&mut out, deleted.len() as u32);
         for company in &deleted {
             put_str(&mut out, company);
+        }
+        let written = self.store.written_tables();
+        put_u32(&mut out, written.len() as u32);
+        for object in &written {
+            put_u32(&mut out, *object);
         }
         put_u64(&mut out, self.next_guid);
         put_i64(&mut out, self.next_row_version);
@@ -244,6 +249,7 @@ impl Baseline {
         for _ in 0..r.u32()? {
             deleted.push(r.str()?);
         }
+        let written = (0..r.u32()?).map(|_| r.u32()).collect::<Option<Vec<u32>>>()?;
         let next_guid = r.u64()?;
         let next_row_version = r.i64()?;
         let committed_row_version = r.i64()?;
@@ -320,7 +326,7 @@ impl Baseline {
             return None;
         }
         Some(Baseline {
-            store: al_data::memory::MemStore::from_exported(tables, &emptied, &deleted),
+            store: al_data::memory::MemStore::from_exported(tables, &emptied, &deleted).with_written(&written),
             next_guid,
             next_row_version,
             committed_row_version,

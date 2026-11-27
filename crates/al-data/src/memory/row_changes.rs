@@ -173,6 +173,7 @@ impl MemStore {
             committed_moves: _,
             committed_source_stamps: _,
             counter: _,
+            written_stamps: _,
             // A DeleteAll without filters is a write of its table: the callers read the marks (`committed_marks`,
             // `committed_table`).
             committed_emptied: _,
@@ -183,6 +184,8 @@ impl MemStore {
             // What the rows answer besides themselves: compared here.
             committed_copies,
             committed_dropped_backed_companies,
+            // The tables marked as written (`note_written`): a store built from the rows alone would drop them.
+            written,
             // Caches, notes of what was held and read, and the store's set-up: no committed content.
             order_cache: _,
             alt_cache: _,
@@ -205,6 +208,7 @@ impl MemStore {
             && committed_dropped_backed_companies
                 .keys()
                 .eq(base.committed_dropped_backed_companies.keys())
+            && *written == base.written
     }
 }
 

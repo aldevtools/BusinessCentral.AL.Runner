@@ -1517,8 +1517,6 @@
 77099 ReqPageBaseReportQueryCloseVeto
 77099 ReqPageNoRequestPageHandler
 77099 ReqPagePlainReportOkWithExtensionTriggers
-77323 LoginChecklist_FirstTest_WhatTheSessionSaw
-77323 LoginChecklist_SecondTest_NotRaisedAgain
 77418 BaseFactBoxes_OpenEditGoToKey
 77418 BaseFactBoxes_OpenNew
 77418 BothExt_OpenEditGoToKey
@@ -2785,8 +2783,6 @@
 98480 G1S_Main_InstallSession
 98480 G1S_PerCompany_AllSessions
 98480 G1S_TestSession
-98483 PlA_T1_FirstRead_ThenCntPlusOne
-98483 PlA_T2_AfterCntPlusOne
 98484 PlB_T1_FirstRead_SecondCodeunit
 99520 CardNew_Close_PageInsertRecordError
 99520 Card_Close_AfterEdit_ClosePageConfirmUnhandled
