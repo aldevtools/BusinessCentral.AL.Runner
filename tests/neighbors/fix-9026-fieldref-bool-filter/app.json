@@ -1,0 +1,11 @@
+{
+  "id": "b1c6f7a2-5d3e-4f80-9a1b-902600000001",
+  "name": "Neighbors 9026 Boolean into Code or Text filter",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [ { "from": 51000, "to": 51199 } ],
+  "dependencies": []
+}
