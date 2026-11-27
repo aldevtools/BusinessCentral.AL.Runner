@@ -328,19 +328,12 @@ impl Session {
                     RecordOp::CalcFields => own_pending,
                     _ => false,
                 };
+            let sends = more || super::stale::is_row_version_send_read(method);
             self.note_read_for_row_versions(
                 t.object,
                 &company,
-                more || matches!(
-                    method,
-                    RecordOp::Get
-                        | RecordOp::FindFirst
-                        | RecordOp::FindLast
-                        | RecordOp::FindSet
-                        | RecordOp::IsEmpty
-                        | RecordOp::Count
-                        | RecordOp::CalcSums
-                ),
+                sends,
+                self.measured_send_read(method, find_form, &rec.borrow()),
             );
             self.restamped_find(&cx, &t, &rec.borrow(), method)?;
             use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};

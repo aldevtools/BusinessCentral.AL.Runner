@@ -35,6 +35,9 @@ impl Session {
         }
         let company = rec.borrow().company.clone();
         self.note_row_versions(t.object, &company, kind, pk);
+        if kind == crate::state::TxWriteKind::Insert {
+            self.note_row_version_buffer(rec, t.object, &company);
+        }
         self.push_write(t, company, kind, pk, before, Default::default());
     }
 
@@ -93,6 +96,7 @@ impl Session {
         match kind {
             TxWriteKind::Insert if new_versions => {
                 rv.accounted = rv.handed_out;
+                rv.sent_by.insert();
                 let last = rv.last;
                 match rv
                     .pending_inserts
@@ -106,7 +110,22 @@ impl Session {
             TxWriteKind::Modify if new_versions => {
                 // A row the ModifyAll that sent the inserted rows modifies: its row versions count as a Modify's
                 // (`note_bulk_end` ends that ModifyAll).
-                // The Modify sends the inserted rows of its table first.
+                // The Modify sends the inserted rows of its table first. The send corpus PR 1613 measures
+                // (RowVersionReReadShapes.al `Run`, `Other.Insert(); Other.Modify()`): it sends one entry of one row, and
+                // modifies the row that Insert wrote and nothing wrote since.
+                let one_row = matches!(
+                    rv.pending_inserts
+                        .iter()
+                        .filter(|(o, c, _, _)| *o == table && c == company)
+                        .map(|(_, _, first, last)| first == last)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                    [true]
+                );
+                let measured = (
+                    one_row,
+                    super::write_notes::inserted_unwritten(&self.tx.open.writes, table, company, row),
+                ) == (true, true);
                 while let Some(at) = self
                     .tx
                     .open
@@ -115,11 +134,12 @@ impl Session {
                     .iter()
                     .position(|(o, c, _, _)| *o == table && c == company)
                 {
-                    self.send_pending_insert(at);
+                    self.send_pending_insert(at, false);
                 }
                 let rv = &mut self.tx.open.row_versions;
                 rv.accounted = rv.handed_out;
                 rv.sent = rv.sent.max(rv.last);
+                rv.sent_by.raise(measured);
                 // A Modify grows the value while another table holds unsent inserted rows, and those stay unsent
                 // (PlTRowVersionValue.al UK_InsertThenModifyOtherTable).
             }
@@ -152,9 +172,10 @@ impl Session {
                     rv.write_sends = Some((table, company.clone(), kind));
                 }
                 if let Some(at) = rv.pending_inserts.len().checked_sub(1) {
-                    let v = self.send_pending_insert(at);
+                    let v = self.send_pending_insert(at, false);
                     let rv = &mut self.tx.open.row_versions;
                     rv.sent = rv.sent.max(v);
+                    rv.sent_by.raise(false);
                 }
             }
             TxWriteKind::Delete
@@ -220,6 +241,7 @@ impl Session {
             rv.write_sends = None;
             rv.accounted = rv.handed_out;
             rv.sent = rv.sent.max(rv.last);
+            rv.sent_by.raise(false);
         }
     }
 
@@ -230,8 +252,15 @@ impl Session {
     /// PlTRowVersionValue.al UK_InsertThenFindSet, _FindFirst, _IsEmpty, _Count, _CalcSums, _ReadOtherTable,
     /// _ReadOtherThenSame, UK_InsertTwoTablesThenGetOne, UK_InsertReadInsertRead, UK_InsertThenModifyOtherTable). The rows
     /// get their row versions at the Insert here, so a read after a Modify handed out a higher one takes a new one to grow
-    /// the value as BC does (UK_InsertThenModifyOtherTable `findfirst` greater). Other reads are not pinned.
-    pub(crate) fn note_read_for_row_versions(&mut self, table: u32, company: &Option<String>, sends: bool) {
+    /// the value as BC does (UK_InsertThenModifyOtherTable `findfirst` greater). Other reads are not pinned. `measured`: a read
+    /// corpus PR 1613 sends the row with (`RestampedRows::insert_value_read`).
+    pub(crate) fn note_read_for_row_versions(
+        &mut self,
+        table: u32,
+        company: &Option<String>,
+        sends: bool,
+        measured: bool,
+    ) {
         let rv = &mut self.tx.open.row_versions;
         if rv.pending_inserts.is_empty() {
             return;
@@ -248,12 +277,14 @@ impl Session {
             return;
         };
         let current = self.tx.committed_row_version.max(rv.sent);
-        let v = self.send_pending_insert(pos);
+        let v = self.send_pending_insert(pos, measured);
         if v > current {
             self.tx.open.row_versions.sent = v;
+            self.tx.open.row_versions.sent_by.raise(false);
         } else {
             self.next_row_version += 1;
             self.tx.open.row_versions.sent = self.next_row_version;
+            self.tx.open.row_versions.sent_by.raise(false);
         }
     }
 
@@ -526,4 +557,18 @@ impl Session {
             rec.borrow_mut().fields[i] = v;
         }
     }
+}
+
+/// The reads that send a pending Insert's row version, besides the ones `record_op_inner` already counted as `more`.
+pub(crate) fn is_row_version_send_read(method: RecordOp) -> bool {
+    matches!(
+        method,
+        RecordOp::Get
+            | RecordOp::FindFirst
+            | RecordOp::FindLast
+            | RecordOp::FindSet
+            | RecordOp::IsEmpty
+            | RecordOp::Count
+            | RecordOp::CalcSums
+    )
 }
