@@ -1,0 +1,7 @@
+# key	entry
+# Main read the rows another ad hoc key kept with the same filters at the same table version, in that key's order (issue
+# 9257). An undeclared key orders by its fields, then the primary key, with a filter on a declared key's field too.
+AKN Tests::TwoAdhocKeys_SameFilters_Forward	PINNED tests/al-language/record/keys-sorting/SetCurrentKeyUndeclared.al:210
+AKN Tests::TwoAdhocKeys_SameFilters_Backward	PINNED tests/al-language/record/keys-sorting/SetCurrentKeyUndeclared.al:111
+AKN Tests::TwoAdhocKeys_SameFilters_WriteBetween	PINNED tests/al-language/record/keys-sorting/SetCurrentKeyUndeclared.al:210
+AKN Tests::TwoAdhocKeys_SameFilters_OwnFieldBoundToo	PINNED tests/al-language/record/keys-sorting/SetCurrentKeyUndeclared.al:210

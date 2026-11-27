@@ -152,7 +152,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `contract.rs`: The conformance suite every `Store` must pass. Entry: `table`.
 - `lib.rs`: The Store trait and table definitions. Entry: `Store`.
 - `memory.rs`: In-memory store on persistent maps. Entry: `MemStore`.
-- `memory/` (9 files): In-memory store on persistent maps. Entry: `MemStore`. Files: `key.rs`, `held_cols.rs`, `alt_cache.rs`, `band.rs`, `export.rs`, `footprint.rs`, `order_carry.rs`, `source_stamps.rs`, `shape.rs`
+- `memory/` (10 files): In-memory store on persistent maps. Entry: `MemStore`. Files: `key.rs`, `held_cols.rs`, `alt_cache.rs`, `band.rs`, `scan.rs`, `export.rs`, `footprint.rs`, `order_carry.rs`, `source_stamps.rs`, `shape.rs`
 
 ### al-deps
 
