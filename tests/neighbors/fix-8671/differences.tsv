@@ -9,4 +9,4 @@ RVS Write Shapes::RowVersion_DeleteAllAfterInsert_Unfiltered	ASSUMED row-version
 RVS Write Shapes::RowVersion_DeleteAllAfterInsert_FilteredOtherRows	ASSUMED row-version-delete-all (open corpus PR 1621: RowVersionWriteShapes.al:338)
 RVS Write Shapes::RowVersion_DeleteAllAfterInsert_CommittedRowsToo	ASSUMED row-version-delete-all (open corpus PR 1621: RowVersionWriteShapes.al:363)
 RVN Neighbors::CheckedInsert_AfterPlainInsertSameTable	ASSUMED row-version-checked-insert (open corpus PR 1621: RowVersionWriteShapes.al:524)
-RVS Write Shapes::RowVersion_IssueWriteOrder	ASSUMED row-version-delete-all (open corpus PR 1621: RowVersionWriteShapes.al:524)
+RVS Write Shapes::RowVersion_IssueWriteOrder	ASSUMED row-version-checked-insert,row-version-delete-all (open corpus PR 1621: RowVersionWriteShapes.al:524)
