@@ -1,7 +1,7 @@
 //! The committed data of a store as plain values, and a store made from them: for a baseline on disk or on another
-//! thread (al-vm `Baseline::to_bytes`, `Baseline::from_bytes`). The rows and the tables a DeleteAll without filters
-//! emptied ([`MemStore::emptied`]) both travel: a store made from the export holds what the exported one held, marks
-//! included. Each export marks a recorded install session as reading everything (`footprint.rs`).
+//! thread (al-vm `Baseline::to_bytes`, `Baseline::from_bytes`). The rows, the tables a DeleteAll without filters
+//! emptied ([`MemStore::emptied`]) and the companies deleted with their rows ([`MemStore::committed_deleted_companies`])
+//! travel: a store made from the export holds what the exported one held, marks included. Each export marks a recorded install session as reading everything (`footprint.rs`).
 
 use super::{Key, MemStore, PkStorage, Row, Slot, Table, Tables, next_stamp, slot, table_storage};
 use crate::{AccessContext, Store, TableDef, Value};
@@ -73,6 +73,19 @@ impl MemStore {
         emptied
     }
 
+    /// The committed companies deleted with their rows ([`MemStore::drop_company`]), sorted. The test data's rows of such a
+    /// company are gone with it: a company inserted again under its name starts empty
+    /// (record/TestChangeCompanyFiltersCopyDeleteContracts.al:352, :356, :449, :456), so every copy of the store carries
+    /// the list (issue 9233): the export ([`MemStore::from_exported`]) and the frozen store (`frozen.rs`).
+    pub fn committed_deleted_companies(&self) -> Vec<String> {
+        self.footprint_everything("an export of the store");
+        let mut deleted: Vec<String> = (self.committed_dropped_backed_companies.keys())
+            .map(|c| c.to_string())
+            .collect();
+        deleted.sort();
+        deleted
+    }
+
     /// Table `t` no longer counts as emptied by a DeleteAll without filters ([`MemStore::emptied`]); its rows stay as they
     /// are. The mark then travels no further: not to the commit, the export or a frozen copy.
     pub fn forget_emptied(&mut self, cx: &AccessContext, t: &TableDef) {
@@ -80,9 +93,11 @@ impl MemStore {
     }
 
     /// A store whose committed (and current) data is `tables`, with `emptied` the tables a DeleteAll without filters
-    /// emptied ([`MemStore::committed_emptied`] of the exported store), and no provider and no backing. Its stamps
-    /// are new ones: a stamp only says whether a table changed, and no cache of this store knows an older one.
-    pub fn from_exported(tables: Vec<ExportedTable>, emptied: &[(String, u32)]) -> MemStore {
+    /// emptied ([`MemStore::committed_emptied`] of the exported store), `deleted` the companies deleted with their rows
+    /// ([`MemStore::committed_deleted_companies`]), and no provider and no backing. Its stamps are new ones: a stamp
+    /// only says whether a table changed, and no cache of this store knows an older one. A deleted company gets a
+    /// source stamp, as `note_copy` gives a copy: its untouched tables read no backing rows (`source_stamps.rs`).
+    pub fn from_exported(tables: Vec<ExportedTable>, emptied: &[(String, u32)], deleted: &[String]) -> MemStore {
         let mut s = MemStore::default();
         for t in tables {
             let slot = slot_of(&t.company, t.object);
@@ -97,6 +112,12 @@ impl MemStore {
             s.tables.insert(slot, table);
         }
         s.emptied = emptied_marks(emptied);
+        for company in deleted {
+            s.dropped_backed_companies.insert(company.as_str().into(), ());
+            s.source_changed(company);
+        }
+        s.committed_dropped_backed_companies = s.dropped_backed_companies.clone();
+        s.committed_source_stamps = s.source_stamps.clone();
         s.committed = s.tables.clone();
         s.committed_versions = s.versions.clone();
         s.committed_shapes = s.shapes.clone();
