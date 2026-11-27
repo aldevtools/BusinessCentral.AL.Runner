@@ -2,7 +2,9 @@
 // OnAction calls "GPC Run".RunCopy(Rec), a codeunit method, and that method runs the guarded run. Each extra of GPC Log
 // runs the same steps on another path: 'direct' runs it in the OnAction body itself, 'local' calls RunCopy from a local
 // procedure of the page, 'method' calls RunCopy from a method of another codeunit, 'event' runs it in a subscriber of an
-// event the action raises. The runtime keeps main's result for each.
+// event the action raises. Review round 2: 'param-int' and 'param-other' first copy Rec into a global of GPN Call Wrapper,
+// then call a method whose one var parameter is an Integer or a Record of another table, and that method runs the guarded
+// run on the global. The runtime keeps main's result for each.
 page 69181 "GPN Call Shapes"
 {
     PageType = List;
@@ -36,6 +38,8 @@ page 69181 "GPN Call Shapes"
                     LogCu: Codeunit "GPC Log";
                     Wrapper: Codeunit "GPN Call Wrapper";
                     R: Record "GPC Z";
+                    Other: Record "GPN Code Key";
+                    Dummy: Integer;
                     Ok: Boolean;
                 begin
                     case LogCu.GetExtra() of
@@ -53,6 +57,16 @@ page 69181 "GPN Call Shapes"
                             Wrapper.Run(Rec);
                         'event':
                             OnRunGuarded(Rec);
+                        'param-int':
+                            begin
+                                Wrapper.SetRec(Rec);
+                                Wrapper.GoInt(Dummy);
+                            end;
+                        'param-other':
+                            begin
+                                Wrapper.SetRec(Rec);
+                                Wrapper.GoOther(Other);
+                            end;
                     end;
                 end;
             }
@@ -74,6 +88,37 @@ page 69181 "GPN Call Shapes"
 
 codeunit 69182 "GPN Call Wrapper"
 {
+    var
+        G: Record "GPC Z";
+
+    procedure SetRec(var PageRec: Record "GPC Z")
+    begin
+        G.Copy(PageRec);
+    end;
+
+    // The guarded run sits in the method body itself, so the method is the caller of Codeunit.Run.
+    procedure GoInt(var Dummy: Integer)
+    var
+        LogCu: Codeunit "GPC Log";
+        Ok: Boolean;
+    begin
+        ClearLastError();
+        Ok := Codeunit.Run(Codeunit::"GPC Inner", G);
+        LogCu.Log('run=' + Format(Ok));
+        LogCu.Log('code=' + GetLastErrorCode());
+    end;
+
+    procedure GoOther(var Other: Record "GPN Code Key")
+    var
+        LogCu: Codeunit "GPC Log";
+        Ok: Boolean;
+    begin
+        ClearLastError();
+        Ok := Codeunit.Run(Codeunit::"GPC Inner", G);
+        LogCu.Log('run=' + Format(Ok));
+        LogCu.Log('code=' + GetLastErrorCode());
+    end;
+
     procedure Run(var PageRec: Record "GPC Z")
     var
         Runner: Codeunit "GPC Run";

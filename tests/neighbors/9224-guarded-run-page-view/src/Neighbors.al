@@ -360,7 +360,8 @@ codeunit 69180 "GPN Tests"
         LogCu.Set(Steps, Extra);
     end;
 
-    local procedure Cell(var Observer: Codeunit "Probe Observer"; Shape: Text; Steps: Text; Extra: Text)
+    // Not local: GPN Param Tests runs its cells through it too.
+    procedure Cell(var Observer: Codeunit "Probe Observer"; Shape: Text; Steps: Text; Extra: Text)
     begin
         Initialize(Steps, Extra);
         asserterror RunShape(Shape);
@@ -703,6 +704,58 @@ codeunit 69180 "GPN Tests"
         Observer: Codeunit "Probe Observer";
     begin
         Cell(Observer, 'CallShapes', 'mark,commit', 'event');
+        Observer.Expect('run end|text', 'END');
+        Observer.Verify();
+    end;
+}
+
+// Review round 2 of runner PR 9252: the CallShapes cells whose codeunit method has one var parameter of another type. They
+// run in a test codeunit of their own, so a refusal of an earlier GPN Tests cell cannot hide their own result.
+codeunit 69176 "GPN Param Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure ParamInteger_Ends()
+    var
+        Observer: Codeunit "Probe Observer";
+        Tests: Codeunit "GPN Tests";
+    begin
+        Tests.Cell(Observer, 'CallShapes', 'mark', 'param-int');
+        Observer.Expect('run end|code', 'TestWrapped:CSide');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure ParamInteger_PlainCommit()
+    var
+        Observer: Codeunit "Probe Observer";
+        Tests: Codeunit "GPN Tests";
+    begin
+        Tests.Cell(Observer, 'CallShapes', 'mark,commit', 'param-int');
+        Observer.Expect('run end|text', 'END');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure ParamOtherTable_Ends()
+    var
+        Observer: Codeunit "Probe Observer";
+        Tests: Codeunit "GPN Tests";
+    begin
+        Tests.Cell(Observer, 'CallShapes', 'mark', 'param-other');
+        Observer.Expect('run end|code', 'TestWrapped:CSide');
+        Observer.Verify();
+    end;
+
+    [Test]
+    procedure ParamOtherTable_PlainCommit()
+    var
+        Observer: Codeunit "Probe Observer";
+        Tests: Codeunit "GPN Tests";
+    begin
+        Tests.Cell(Observer, 'CallShapes', 'mark,commit', 'param-other');
         Observer.Expect('run end|text', 'END');
         Observer.Verify();
     end;

@@ -18,7 +18,7 @@ use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::filter::FieldFilter;
 use al_builtins::native::{AlError, ExceptionKind, Signal};
 use al_builtins::record_op::RecordOp;
-use al_builtins::value::{PageView, PageViewMark, RecordState};
+use al_builtins::value::{PageView, PageViewMark, RecordState, RtType};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -88,8 +88,8 @@ impl Session {
         let mark = arg.rec.borrow().page_view.0.clone()?;
         let now = group2(&arg.rec.borrow());
         let view_kept = mark.group2.len() == now.len() && mark.group2.iter().zip(&now).all(|(a, b)| same_filter(a, b));
-        let in_action =
-            self.run_by_action_method(mark.open_id, start.caller_frame) && self.page_view_page(mark.page as usize);
+        let in_action = self.run_by_action_method(mark.open_id, start.caller_frame, table)
+            && self.page_view_page(mark.page as usize);
         if !(run_shape && one_mark && view_kept && in_action) {
             return None;
         }
@@ -113,8 +113,9 @@ impl Session {
     }
 
     /// The cells' call path (:117-:121, :464-:486): the OnAction trigger of the page open `open_id` calls a codeunit method
-    /// with one `var` parameter and no attribute, and that method calls `Codeunit.Run` (its frame is `caller_frame - 1`).
-    fn run_by_action_method(&self, open_id: u64, caller_frame: usize) -> bool {
+    /// with no attribute and one parameter, a `var` Record of the run argument's table `table` (`RunCopy(var PageRec:
+    /// Record "GPC Z")` :466), and that method calls `Codeunit.Run` (its frame is `caller_frame - 1`).
+    fn run_by_action_method(&self, open_id: u64, caller_frame: usize, table: u32) -> bool {
         let Some(action) = self.page_action_frame(open_id) else {
             return false;
         };
@@ -131,6 +132,10 @@ impl Session {
             && !routine.is_trigger
             && routine.attributes.is_empty()
             && routine.by_var == [true]
+            && routine
+                .locals
+                .first()
+                .is_some_and(|p| p.ty == RtType::Record(table, false))
     }
 
     /// The code a test page's Invoke gives `e` from action `idx`: `TestWrapped:CSide` for the error a page view run end
