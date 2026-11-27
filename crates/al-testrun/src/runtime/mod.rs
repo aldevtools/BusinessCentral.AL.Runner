@@ -725,8 +725,8 @@ pub(crate) struct Unit {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
-    /// See `RunOptions::stop_after_first_failure`.
-    stop_after_first_failure: Option<run::StopAfterFailure>,
+    /// The pass's stop (`stop.rs`).
+    stop: Option<stop::Stop>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -817,8 +817,8 @@ pub(crate) struct Scratch {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
-    /// See `RunOptions::stop_after_first_failure`.
-    stop_after_first_failure: Option<run::StopAfterFailure>,
+    /// The pass's stop (`stop.rs`).
+    stop: Option<stop::Stop>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -895,7 +895,7 @@ impl Scratch {
             installs: Default::default(),
             report_unpinned_errors: Default::default(),
             skip_after_timeout: Default::default(),
-            stop_after_first_failure: Default::default(),
+            stop: Default::default(),
             perturb: Default::default(),
             run_seed: Default::default(),
             runner: Default::default(),
@@ -1038,7 +1038,7 @@ fn run_unit(
             flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
             skip_after_timeout: u.skip_after_timeout,
-            stop_after_first_failure: u.stop_after_first_failure.clone(),
+            stop: u.stop.clone(),
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             runner: u.runner,
@@ -1181,7 +1181,7 @@ fn scratch_unit(
         flags: Default::default(),
         report_unpinned_errors: false,
         skip_after_timeout: false,
-        stop_after_first_failure: None,
+        stop: None,
         perturb: Default::default(),
         run_seed: opts.run_seed,
         runner: None,
@@ -1367,6 +1367,7 @@ mod runner_reset;
 pub(crate) mod session_flags;
 mod single_fresh;
 mod single_lane;
+mod stop;
 mod strict_taint;
 mod strict_walk;
 mod suite_rows;

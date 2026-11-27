@@ -3,6 +3,7 @@
 //! Entry points: `run_codeunit`, `run_codeunit_isolated`, `run_codeunit_observed`,
 //! `run_codeunit_core`.
 use super::al_runner::run_unit;
+use super::stop::skipped_after_timeout;
 use super::written::{
     self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,
 };
@@ -791,7 +792,7 @@ fn run_codeunit_inner(
         // codeunit runs on what the earlier one left, as main ran it; whether BC leaves the same is not measured.
         session.clear_unmeasured();
         // Why the later tests of this codeunit are not run: `--skip-after-timeout` (al-runner issue 7517) after the test the
-        // time limit stopped, `RunOptions::stop_after_first_failure` (al-runner issue 8210) after the first failed test.
+        // time limit stopped, a stop of the pass (`stop.rs`) after the first row that triggers it.
         let mut stopped: Option<String> = None;
         let mut queue = data_driven::queue(lowered, object, &tests, &data_driven);
         // The rows of `out` that are results of data-driven procedures: BC reports none of them when it ends the session.
@@ -1208,22 +1209,12 @@ fn run_codeunit_inner(
                 }
             };
             session.store_mut().watch(Default::default());
+            let hit_time_limit = began && matches!(&outcome, Outcome::NotRun(m) if is_time_limit(m));
             // A test the time limit stopped started from the same state as a failure does, so it is judged alike (al-runner
             // issue 5776): `kind` names it in the reason.
-            if scratch.skip_after_timeout
-                && began
-                && matches!(&outcome, Outcome::NotRun(m) if m.starts_with(TIME_LIMIT_REASON))
-            {
-                stopped.get_or_insert_with(|| {
-                    format!(
-                        "an earlier test of this codeunit ({}) was stopped at the time limit, and --skip-after-timeout does not run the rest of the codeunit",
-                        routine.name
-                    )
-                });
-            }
             let judged = match outcome {
                 Outcome::Fail(m) if !unfinished.is_empty() => Ok(("failure", m)),
-                Outcome::NotRun(m) if !unfinished.is_empty() && m.starts_with(TIME_LIMIT_REASON) => Ok(("timeout", m)),
+                Outcome::NotRun(m) if !unfinished.is_empty() && is_time_limit(&m) => Ok(("timeout", m)),
                 o => Err(o),
             };
             // `untrusted`: this test's failure was judged not trusted just above; it holds the failure's own error.
@@ -1291,8 +1282,14 @@ fn run_codeunit_inner(
                 Err(o) => (o, None),
             };
             let ended = ended_of(&outcome, began, untrusted.is_some());
-            if let (Some(stop), Outcome::Fail(_)) = (&scratch.stop_after_first_failure, &outcome) {
-                stopped.get_or_insert_with(|| stopped_after_failure(stop, obj.id.unwrap_or(0), &name));
+            if stopped.is_none() {
+                stopped = (scratch
+                    .stop
+                    .as_ref()
+                    .and_then(|s| s.after(&outcome, obj.id.unwrap_or(0), &name)))
+                .or_else(|| {
+                    (scratch.skip_after_timeout && hit_time_limit).then(|| skipped_after_timeout(&routine.name))
+                });
             }
             note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
             let ended_from = unfinished.len();
@@ -1958,30 +1955,13 @@ fn not_run_reason(r: Refusal) -> String {
     }
 }
 
-/// The scope of `RunOptions::stop_after_first_failure` for one pass (issue 8210); a pass without the stop has none.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum StopAfterFailure {
-    /// The entry has no `stop_group` (or there are no entries): a failure stops every later entry without one (al-runner
-    /// issue 8210).
-    Request,
-    /// The entry's `EntryRun::stop_group`: a failure stops the later entries of this group only.
-    Group(Arc<str>),
-}
-
-/// The reason of a test `RunOptions::stop_after_first_failure` does not run, after test `test` of codeunit `codeunit` failed.
-/// Without a group it is al-runner issue 8210's text, byte for byte; with one it names the group.
-pub(crate) fn stopped_after_failure(stop: &StopAfterFailure, codeunit: u32, test: &str) -> String {
-    let later = match stop {
-        StopAfterFailure::Request => "a later entry".to_string(),
-        StopAfterFailure::Group(g) => format!("a later entry of its stopGroup `{g}`"),
-    };
-    format!(
-        "the test Codeunit{codeunit}.{test} failed before it, and stopAfterFirstFailure (--stop-after-first-failure) runs no test of its codeunit or of {later} after a failure"
-    )
-}
-
 /// How the reason of a test the time limit stopped starts (the outputs turn it into `Test exceeded <N>s timeout.`).
 const TIME_LIMIT_REASON: &str = "the test used more than the time limit of ";
+
+/// Whether `reason` is that of a row the time limit stopped (`TIME_LIMIT_REASON`).
+pub(super) fn is_time_limit(reason: &str) -> bool {
+    reason.starts_with(TIME_LIMIT_REASON)
+}
 
 /// How many times the limit the wall clock may run before a test that does not compute is stopped.
 pub(crate) const WALL_BACKSTOP: u32 = 10;

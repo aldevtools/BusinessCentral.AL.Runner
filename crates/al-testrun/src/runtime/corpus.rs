@@ -1438,7 +1438,7 @@ impl CorpusRuntime {
                             flags: super::session_flags::SessionFlags::of(opts),
                             report_unpinned_errors: opts.report_unpinned_errors,
                             skip_after_timeout: opts.skip_after_timeout,
-                            stop_after_first_failure: pass.stop.clone(),
+                            stop: pass.stop.clone(),
                             perturb: opts.perturb.clone(),
                             run_seed: opts.run_seed,
                             runner: *runner,
@@ -2350,8 +2350,8 @@ fn pass_refused(
     (stopped, skipped)
 }
 
-/// The reason `RunOptions::stop_after_first_failure` (al-runner issue 8210) runs no test of `pass`: an earlier pass
-/// with the same stop scope (`Pass::stop`; issue 8210) has a failed test, the first in `list` order. The entries
+/// The reason the stop of `pass` (`stop.rs`) runs no test of it: an earlier pass with the same stop scope (`Pass::stop`;
+/// issue 8210) has a row that triggers the stop, the first in `list` order. The entries
 /// without a group share one scope (the serve protocol refuses a mix of entries with and without one). `ranges[k]` holds the rows of `passes[k]` in
 /// `list`, one range per finished pass, so the `zip` ends at the current pass. With no entries `ranges` is empty, and
 /// the single pass has no earlier rows.
@@ -2362,13 +2362,12 @@ fn pass_stopped(
     list: &[TestResult],
 ) -> Option<String> {
     let stop = pass.stop.as_ref()?;
-    let failed = ranges
+    ranges
         .iter()
         .zip(passes)
-        .filter(|(_, p)| p.stop.as_ref() == Some(stop))
+        .filter(|(_, p)| p.stop.as_ref().is_some_and(|s| s.scope == stop.scope))
         .flat_map(|(r, _)| &list[r.clone()])
-        .find(|r| matches!(r.outcome, Outcome::Fail(_)))?;
-    Some(super::run::stopped_after_failure(stop, failed.codeunit, &failed.test))
+        .find_map(|r| stop.after(&r.outcome, r.codeunit, &r.test))
 }
 
 /// The isolation of the runner the test codeunits of `suite` run under, or why none of them runs (`refused`). With
