@@ -12,6 +12,8 @@ table 50100 "NB FDI Row"
         field(4; Dt; DateTime) { }
         field(5; N; Integer) { }
         field(6; Target; Integer) { }
+        field(7; Dec; Decimal) { }
+        field(8; Txt; Text[20]) { }
     }
     keys { key(PK; K) { Clustered = true; } }
 }
@@ -36,6 +38,11 @@ codeunit 50101 "NB FDI Test"
     end;
 
     local procedure ReturnDateAsInt(var FR: FieldRef): Integer
+    begin
+        exit(FR.Value());
+    end;
+
+    local procedure ReturnAsDecimal(var FR: FieldRef): Decimal
     begin
         exit(FR.Value());
     end;
@@ -418,5 +425,54 @@ codeunit 50101 "NB FDI Test"
         D := FR.Value();
         if D <> 20260115D then
             Error('got %1', D);
+    end;
+
+    // Same on both: `exit(FR.Value())` of other field types into a number return converts as before.
+    [Test]
+    procedure IntegerFieldExitIntoInteger()
+    var
+        RecRef: RecordRef;
+        FR: FieldRef;
+    begin
+        Fr(5, RecRef, FR);
+        FR.Value := 7;
+        if ReturnDateAsInt(FR) <> 7 then
+            Error('got %1', ReturnDateAsInt(FR));
+    end;
+
+    [Test]
+    procedure DecimalFieldExitIntoInteger()
+    var
+        RecRef: RecordRef;
+        FR: FieldRef;
+        I: Integer;
+    begin
+        Fr(7, RecRef, FR);
+        FR.Value := 2.5;
+        asserterror I := ReturnDateAsInt(FR);
+        Error('got [%1] %2', GetLastErrorText(), I);
+    end;
+
+    [Test]
+    procedure TextFieldExitIntoInteger()
+    var
+        RecRef: RecordRef;
+        FR: FieldRef;
+    begin
+        Fr(8, RecRef, FR);
+        FR.Value := '5';
+        Error('got %1', ReturnDateAsInt(FR));
+    end;
+
+    [Test]
+    procedure IntegerFieldExitIntoDecimal()
+    var
+        RecRef: RecordRef;
+        FR: FieldRef;
+    begin
+        Fr(5, RecRef, FR);
+        FR.Value := 7;
+        if ReturnAsDecimal(FR) <> 7 then
+            Error('got %1', ReturnAsDecimal(FR));
     end;
 }
