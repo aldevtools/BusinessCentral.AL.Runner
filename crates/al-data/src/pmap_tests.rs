@@ -1,6 +1,8 @@
 use super::PMap;
 use std::collections::BTreeMap;
 use std::ops::Bound::{self, Excluded, Included, Unbounded};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
 struct Rng(u64);
 impl Rng {
@@ -254,42 +256,55 @@ fn a_fork_keeps_its_chunk_boundaries_when_the_other_side_moves_them() {
     every_key_and_seek(&b, &mb);
 }
 
-thread_local! {
-    static KEY_CLONES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// A key that counts its clones on this thread.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct Counted(u64);
+/// A key that counts its clones in a counter all keys of one map share.
+#[derive(Debug)]
+struct Counted(u64, Arc<AtomicUsize>);
 
 impl Clone for Counted {
     fn clone(&self) -> Self {
-        KEY_CLONES.with(|c| c.set(c.get() + 1));
-        Counted(self.0)
+        self.1.fetch_add(1, Relaxed);
+        Counted(self.0, self.1.clone())
     }
 }
-
-fn key_clones_in(f: impl FnOnce()) -> usize {
-    let before = KEY_CLONES.with(|c| c.get());
-    f();
-    KEY_CLONES.with(|c| c.get()) - before
+impl PartialEq for Counted {
+    fn eq(&self, o: &Self) -> bool {
+        self.0 == o.0
+    }
+}
+impl Eq for Counted {}
+impl PartialOrd for Counted {
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(o))
+    }
+}
+impl Ord for Counted {
+    fn cmp(&self, o: &Self) -> std::cmp::Ordering {
+        self.0.cmp(&o.0)
+    }
 }
 
 #[test]
 fn a_write_after_a_fork_that_moves_no_chunk_boundary_clones_no_other_key() {
+    let clones = Arc::new(AtomicUsize::new(0));
+    let key = |k: u64| Counted(k, clones.clone());
+    let clones_in = |f: &mut dyn FnMut()| {
+        let before = clones.load(Relaxed);
+        f();
+        clones.load(Relaxed) - before
+    };
     // A large baseline, as a test-data snapshot: about 200 chunks.
-    let base: PMap<Counted, u64> = (0..10_000u64).map(|k| (Counted(2 * k), k)).collect();
+    let base: PMap<Counted, u64> = (0..10_000u64).map(|k| (key(2 * k), k)).collect();
     // A value update copies the one entry it changes, so its key, and no other key.
     let mut a = base.clone();
-    assert_eq!(key_clones_in(|| assert_eq!(a.insert(Counted(5000), 1), Some(2500))), 1);
+    assert_eq!(clones_in(&mut || assert_eq!(a.insert(key(5000), 1), Some(2500))), 1);
     let mut b = base.clone();
-    assert_eq!(key_clones_in(|| *b.get_mut(&Counted(7000)).unwrap() = 1), 1);
+    assert_eq!(clones_in(&mut || *b.get_mut(&key(7000)).unwrap() = 1), 1);
     // A new key inside a chunk that does not split copies no key.
     let mut c = base.clone();
-    assert_eq!(key_clones_in(|| assert_eq!(c.insert(Counted(5001), 1), None)), 0);
+    assert_eq!(clones_in(&mut || assert_eq!(c.insert(key(5001), 1), None)), 0);
     // The baseline did not move.
-    assert_eq!(base.get(&Counted(5000)), Some(&2500));
-    assert_eq!(base.get(&Counted(7000)), Some(&3500));
-    assert_eq!(base.get(&Counted(5001)), None);
+    assert_eq!(base.get(&key(5000)), Some(&2500));
+    assert_eq!(base.get(&key(7000)), Some(&3500));
+    assert_eq!(base.get(&key(5001)), None);
     assert_eq!(base.len(), 10_000);
 }
