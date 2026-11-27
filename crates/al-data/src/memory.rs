@@ -9,7 +9,7 @@ use al_builtins::filter::FieldFilter;
 use band::pk_band;
 pub use key::PkStorage;
 use key::{Key, table_storage};
-use scan::KeyOrder;
+use scan::{KeyOrder, Placed};
 use std::cmp::Ordering;
 
 mod alt_cache;

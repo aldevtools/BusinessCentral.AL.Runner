@@ -186,3 +186,51 @@ fn interleaved_scans_at_one_table_version_each_return_what_a_walk_returns() {
         }
     }
 }
+
+/// A step that searches the list `alt_next` keeps reads one row of the table: the row it returns. The list holds the
+/// place of each row in the scan's key, so its binary search reads no row (issue 7671: a lookup in the table per probe
+/// was about 1 % of a large suite's warm CPU).
+#[test]
+fn a_step_through_a_kept_list_reads_only_the_row_it_returns() {
+    let t = seek_table(vec![vec![0, 1], vec![3, 0, 1]]);
+    let mut s = MemStore::default();
+    for a in 0..2000 {
+        let row = vec![
+            Value::Integer(a),
+            Value::Integer(0),
+            Value::Code("X".into()),
+            Value::Integer(a % 50),
+        ];
+        s.insert(&cx(), &t, row).unwrap();
+    }
+    // D = 7 bounds key 1 to 40 rows; the scan runs in the primary key, which the filter does not bound.
+    let f = [range(3, Some(Value::Integer(7)), Some(Value::Integer(7)))];
+    let lookups = || super::super::scan::SORTED_LOOKUPS.with(|c| c.get());
+    for ascending in [true, false] {
+        let mut after: Option<Vec<Value>> = None;
+        let mut got = Vec::new();
+        for step in 0.. {
+            let before = lookups();
+            let scan = Scan {
+                key: 0,
+                filters: &f,
+                ascending,
+                after: after.as_deref(),
+            };
+            let Some(row) = s.next(&cx(), &t, &scan).unwrap() else {
+                break;
+            };
+            // The first step reads the band and the second builds the list; the later ones search it.
+            if step >= 2 {
+                assert!(
+                    lookups() - before <= 1,
+                    "ascending {ascending} step {step}: {} rows looked up",
+                    lookups() - before
+                );
+            }
+            after = Some(crate::position(&t, 0, &row));
+            got.push(row);
+        }
+        assert_eq!(format!("{got:?}"), format!("{:?}", reference(&s, &t, 0, &f, ascending)));
+    }
+}

@@ -23,18 +23,18 @@ pub(super) type AltCache = std::collections::HashMap<(Slot, usize), Vec<AltEntry
 #[derive(Clone)]
 pub(super) struct AltEntry {
     /// The fields of the scan's key: an ad hoc key takes the slot after the table's keys, so the key index alone does
-    /// not name the order of `keys` (issue 9257).
+    /// not name the order of `sorted` (issue 9257).
     fields: Vec<usize>,
     /// The filters of the scan, as the store reads them (after `number_filters`).
     filters: Vec<FieldFilter>,
     stamp: u64,
     /// How many scan steps came at this stamp: the first is answered by a pass over the band, the second builds
-    /// `keys`, the later ones search it.
+    /// `sorted`, the later ones search it.
     calls: u32,
     /// No other key narrows this scan: the caller walks.
     not_applicable: bool,
-    /// The primary keys of the rows that pass the filters, in the order of the scan's key.
-    keys: Option<std::rc::Rc<Vec<Key>>>,
+    /// The rows that pass the filters, in the order of the scan's key: each row's position and primary key.
+    sorted: Option<std::rc::Rc<Vec<Placed>>>,
 }
 
 impl AltEntry {
@@ -50,7 +50,7 @@ pub(super) enum AltStep {
     /// Walk the table: no other key narrows the scan, or this is the first step after a write.
     Walk,
     /// Search the rows kept in the order of the scan's key.
-    Sorted(std::rc::Rc<Vec<Key>>),
+    Sorted(std::rc::Rc<Vec<Placed>>),
     /// Read the band: the `n`-th step at this stamp.
     Band(u32),
 }
@@ -80,7 +80,7 @@ impl MemStore {
                     stamp,
                     calls: 1,
                     not_applicable: false,
-                    keys: None,
+                    sorted: None,
                 },
             );
             kept.truncate(ALT_SCANS_PER_KEY);
@@ -96,15 +96,15 @@ impl MemStore {
                 stamp,
                 calls: 1,
                 not_applicable: false,
-                keys: None,
+                sorted: None,
             };
             return AltStep::Walk;
         }
         if e.not_applicable {
             return AltStep::Walk;
         }
-        if let Some(keys) = &e.keys {
-            return AltStep::Sorted(keys.clone());
+        if let Some(sorted) = &e.sorted {
+            return AltStep::Sorted(sorted.clone());
         }
         e.calls += 1;
         AltStep::Band(e.calls)
@@ -117,7 +117,7 @@ impl MemStore {
         t: &TableDef,
         key: usize,
         filters: &[FieldFilter],
-        keys: Option<std::rc::Rc<Vec<Key>>>,
+        sorted: Option<std::rc::Rc<Vec<Placed>>>,
     ) {
         let mut cache = self.alt_cache.borrow_mut();
         let Some(e) = cache
@@ -126,9 +126,9 @@ impl MemStore {
         else {
             return;
         };
-        match keys {
+        match sorted {
             None => e.not_applicable = true,
-            Some(keys) => e.keys = Some(keys),
+            Some(sorted) => e.sorted = Some(sorted),
         }
     }
 

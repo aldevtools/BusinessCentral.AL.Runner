@@ -61,13 +61,26 @@ impl<'a> KeyOrder<'a> {
 
     /// `key_cmp(position(row), pos)` without building the position: field by field, then the shorter first.
     pub(super) fn cmp_to_position(&self, row: &[Value], pos: &[Value]) -> Ordering {
-        for (&i, x) in self.fields().zip(pos) {
-            match self.t.cmp_key_field(i, &row[i], x) {
+        self.cmp_values_to_position(self.fields().map(|&i| &row[i]), pos)
+    }
+
+    /// How the values of a position in this key (`values`, in the order of its fields) stand to the position `pos`.
+    fn cmp_values_to_position<'v>(&self, values: impl Iterator<Item = &'v Value>, pos: &[Value]) -> Ordering {
+        for ((&i, v), x) in self.fields().zip(values).zip(pos) {
+            match self.t.cmp_key_field(i, v, x) {
                 Ordering::Equal => continue,
                 o => return o,
             }
         }
         (self.t.keys[self.key].len() + self.t.keys[0].len()).cmp(&pos.len())
+    }
+
+    /// The place of `row` (with primary key `key`) in this order, as a list `alt_next` keeps holds it.
+    pub(super) fn placed(&self, key: &Key, row: &[Value]) -> Placed {
+        Placed {
+            position: self.fields().map(|&i| row[i].clone()).collect(),
+            key: key.clone(),
+        }
     }
 
     /// Whether a row that stands `o` to the scan's position lies past it in the scan's direction.
@@ -129,6 +142,15 @@ impl<'a> KeyOrder<'a> {
             slice.iter().rev().find_map(pick)
         }
     }
+}
+
+/// A row of a list `alt_next` keeps (`alt_cache`): its position in the scan's key and its primary key. A step places
+/// the scan's position in the list by the positions alone and looks up only the row it returns (issue 7671: a lookup
+/// in the table per probe of the binary search was about 1 % of a large suite's warm CPU). The list is read only at
+/// the table version it was made at, so the positions are those of the rows the table holds.
+pub(super) struct Placed {
+    position: Box<[Value]>,
+    key: Key,
 }
 
 /// The part two ranges of one list share; empty (at the end of the shared part) when they share none.
@@ -221,7 +243,7 @@ impl MemStore {
         let by = KeyOrder::of(t, scan);
         let calls = match self.alt_step(&slot, t, scan.key, scan.filters, stamp) {
             alt_cache::AltStep::Walk => return None,
-            alt_cache::AltStep::Sorted(keys) => return Some(search_sorted(table, &keys, scan, by)),
+            alt_cache::AltStep::Sorted(list) => return Some(search_sorted(table, &list, scan, by)),
             alt_cache::AltStep::Band(calls) => calls,
         };
         // When `own` is `None` the filters do not bound the scan's key (checked above), so it has no band to leave out.
@@ -238,9 +260,9 @@ impl MemStore {
         }
         let mut rows: Vec<(&Key, &Row)> = rows.collect();
         rows.sort_by(|a, b| by.cmp_rows(a.1, b.1));
-        let keys = std::rc::Rc::new(rows.into_iter().map(|(k, _)| k.clone()).collect::<Vec<_>>());
-        self.alt_keep(&slot, t, scan.key, scan.filters, Some(keys.clone()));
-        Some(search_sorted(table, &keys, scan, by))
+        let list = std::rc::Rc::new(rows.into_iter().map(|(k, r)| by.placed(k, r)).collect::<Vec<_>>());
+        self.alt_keep(&slot, t, scan.key, scan.filters, Some(list.clone()));
+        Some(search_sorted(table, &list, scan, by))
     }
 }
 
@@ -279,8 +301,25 @@ fn pk_step(t: &TableDef, scan: &Scan, table: &Table) -> Option<Row> {
         .cloned()
 }
 
-/// The row after the position of `scan` in `keys` (the rows that pass, in the order of the scan's key `by`).
-fn search_sorted(table: &Table, keys: &[Key], scan: &Scan, by: KeyOrder) -> Option<Row> {
-    let past = by.past_in(keys, scan.after, |k, a| table.get(k).map(|r| by.cmp_to_position(r, a)));
-    by.first_in(&keys[past], Some).and_then(|k| table.get(k).cloned())
+#[cfg(test)]
+thread_local! {
+    /// How many rows `search_sorted` looked up in the table: the tests of the kept lists count them.
+    pub(super) static SORTED_LOOKUPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// One more row looked up by `search_sorted`.
+fn looked_up() {
+    #[cfg(test)]
+    SORTED_LOOKUPS.with(|c| c.set(c.get() + 1));
+}
+
+/// The row after the position of `scan` in `list` (the rows that pass, in the order of the scan's key `by`).
+fn search_sorted(table: &Table, list: &[Placed], scan: &Scan, by: KeyOrder) -> Option<Row> {
+    let past = by.past_in(list, scan.after, |p, a| {
+        Some(by.cmp_values_to_position(p.position.iter(), a))
+    });
+    by.first_in(&list[past], Some).and_then(|p| {
+        looked_up();
+        table.get(&p.key).cloned()
+    })
 }
