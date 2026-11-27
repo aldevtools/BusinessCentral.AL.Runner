@@ -37,6 +37,9 @@ impl Session {
         self.note_row_versions(t.object, &company, kind, pk);
         if kind == crate::state::TxWriteKind::Insert {
             self.note_row_version_buffer(rec, t.object, &company);
+            if self.ret_used {
+                self.send_checked_insert(rec, t.object, &company);
+            }
         }
         self.push_write(t, company, kind, pk, before, Default::default());
     }
@@ -228,6 +231,39 @@ impl Session {
         }
     }
 
+    /// A checked Insert (`if not Rec.Insert() then`, the return value used) sends its row at once: `Database.LastUsedRowVersion`
+    /// becomes that row's SystemRowVersion (corpus PR 1621, open, not pinned: session-system/row-version-writes/
+    /// RowVersionWriteShapes.al:172 RowVersion_CheckedInsert, :524 RowVersion_IssueWriteOrder; assumption
+    /// `row-version-checked-insert`). The measured shape: a Record (not a RecordRef) Insert into a database table whose
+    /// statement-form Insert is queued, no LockTable in the open transaction, and the Insert just handed out the one row version
+    /// of its table's only unsent entry (other tables may hold unsent rows, :524). Every other checked Insert is refused.
+    fn send_checked_insert(&mut self, rec: &Rec, table: u32, company: &Option<String>) {
+        let queued = self.insert_is_queued(rec);
+        let rv = &self.tx.open.row_versions;
+        let own: Vec<usize> = (0..rv.pending_inserts.len())
+            .filter(|&i| rv.pending_inserts[i].0 == table && rv.pending_inserts[i].1 == *company)
+            .collect();
+        let one_row =
+            matches!(own.as_slice(), [i] if rv.pending_inserts[*i].2 == rv.last && rv.pending_inserts[*i].3 == rv.last);
+        let measured = (
+            queued,
+            self.through_recordref,
+            self.tx.open.locked_tables.is_empty(),
+            one_row,
+            rv.handed_out == rv.accounted,
+            rv.unpinned.is_none(),
+        ) == (true, false, true, true, true, true);
+        if !measured {
+            self.tx.open.row_versions.unpinned = Some("a checked Insert in a shape corpus PR 1621 does not measure");
+            return;
+        }
+        let v = self.send_pending_insert(own[0], false);
+        let rv = &mut self.tx.open.row_versions;
+        rv.sent = rv.sent.max(v);
+        rv.sent_by.raise(false);
+        rv.assumed_checked_insert = true;
+    }
+
     /// The end of a plain Rename of `table` that `note_row_versions` let send (`RowVersionTx::write_sends`): the row version it
     /// handed out counts, and the value grows to it (RowVersionWrites.al of corpus PR 1509: :192 and :517, the renamed row's
     /// SystemRowVersion equals the value).
@@ -315,6 +351,9 @@ impl Session {
         }
         if rv.assumed_write {
             assume(Assumption::RowVersionWriteAfterInsert);
+        }
+        if rv.assumed_checked_insert {
+            assume(Assumption::RowVersionCheckedInsert);
         }
         Ok(self.tx.committed_row_version.max(rv.sent).max(1))
     }

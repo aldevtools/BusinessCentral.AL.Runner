@@ -301,6 +301,8 @@ pub(crate) struct RowVersionTx {
     /// The value moved by a write after an Insert through the assumption `row-version-write-after-insert`
     /// (`Session::note_row_versions`); `Session::last_used_row_version` marks the answer.
     pub(crate) assumed_write: bool,
+    /// The value moved by a checked Insert through the assumption `row-version-checked-insert` (`Session::send_checked_insert`).
+    pub(crate) assumed_checked_insert: bool,
 }
 
 /// The rows of `table` whose SystemRowVersion lies in (`from`, `to`], in any company: the open transaction inserted them, and a row
