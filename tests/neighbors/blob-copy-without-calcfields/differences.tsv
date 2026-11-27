@@ -1,0 +1,8 @@
+# key	entry
+# Main stored the content of a Blob that was never loaded; head refuses the Insert (issue 9286, no corpus pin).
+NB BI Case 01::Assign_NoCalc_Insert	REFUSED an Insert into NB BI Row of a Blob whose stored content was not loaded
+NB BI Case 07::SameVariable_NoCalc_Insert	REFUSED an Insert into NB BI Row of a Blob whose stored content was not loaded
+NB BI Case 08::SameVariable_NoCalc_DeleteInsert	REFUSED an Insert into NB BI Row of a Blob whose stored content was not loaded
+NB BI Case 09::Copy_NoCalc_Insert	REFUSED an Insert into NB BI Row of a Blob whose stored content was not loaded
+NB BI Case 10::ByValue_NoCalc_Insert	REFUSED an Insert into NB BI Row of a Blob whose stored content was not loaded
+NB BI Case 12::Temporary_NoCalc_Insert	REFUSED an Insert into NB BI Row of a Blob whose stored content was not loaded
