@@ -1,1 +1,0 @@
-Test-only cfg gates: the src edits sit inside #[cfg(test)] modules, so the built binary is unchanged and no AL-visible behavior changes.

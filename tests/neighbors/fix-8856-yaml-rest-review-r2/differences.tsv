@@ -1,7 +1,0 @@
-# key	entry
-YN Yaml Review R2 Tests::Assumed_Escape_LowSurrogateThenHighU	ASSUMED read-from-yaml-final-shapes,read-from-yaml-probed-shapes (corpus PR 1549)
-YN Yaml Review R2 Tests::Refused_Escape_LowSurrogateThenLowU	REFUSED ReadFromYaml of a lone surrogate escape before a character no probe measured
-YN Yaml Review R2 Tests::Refused_Escape_LowSurrogateThenOtherU	REFUSED ReadFromYaml of a lone surrogate escape before a character no probe measured
-YN Yaml Review R2 Tests::Refused_Tag_TopIntEmptyQuoted	REFUSED ReadFromYaml of a document that is a tagged scalar no probe measured
-YN Yaml Review R2 Tests::Refused_Tag_TopStrEmptyQuoted	REFUSED ReadFromYaml of a document that is a tagged scalar no probe measured
-YN Yaml Review R2 Tests::Refused_Tag_TopStrEmptySingleQuoted	REFUSED ReadFromYaml of a document that is a tagged scalar no probe measured

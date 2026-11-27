@@ -1,5 +1,0 @@
-# key	entry
-# No difference: CompanyProperty.UrlName still touches everything on head and ties the three installs on both sides;
-# three tied installs have every order tried. Four such installs stay refused (no test runs on either side, so a
-# neighbor app cannot show it; the rule is al-vm install_footprint_tests.rs
-# company_property_reads_and_the_caller_callstack_keep_nothing).

@@ -1,0 +1,3 @@
+# key	entry
+NVP Tests::Measured_DateTimeAddNullTimeSpanTryParam	ASSUMED dotnet-null-value-type-argument (corpus PR 1623)
+NVP Tests::Neighbor_ConvertToInt32NullBooleanLocalDirect	REFUSED DotNet ToInt32 of System.Convert: a null argument declared as a .NET value type

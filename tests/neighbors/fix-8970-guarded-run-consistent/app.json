@@ -1,2 +1,0 @@
-{ "id": "8d1a2b3c-0000-4000-8000-000000089700", "name": "GC Guarded Run Consistent", "publisher": "YN Neighbors", "version": "1.0.0.0",
-  "platform": "27.0.0.0", "runtime": "15.0", "idRanges": [ { "from": 61400, "to": 61419 } ] }

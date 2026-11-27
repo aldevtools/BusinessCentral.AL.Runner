@@ -1,5 +1,0 @@
-# key	entry
-# Main installs once and passes; the rows differ between the orders (ADR-079 decisions 3 and 6). The reader whose row
-# does not depend on the order, the source row and the pair writing the same value run on both.
-FP data Tests::ReaderWhoseRowDependsOnTheOrder	REFUSED the install order of apps FP Data X, FP Data Y is not known (no dependency path between them), and installing them in each order leaves different rows in FP Data Differs
-FP data Tests::PairWritingOneRowWithDifferentValues	REFUSED the install order of apps FP Data T1, FP Data T2 is not known (no dependency path between them), and installing them in each order leaves different rows in FP Data Tangle

@@ -1,3 +1,0 @@
-# key	entry
-GM Tests::GetUserByObjectId_Raises	ASSUMED graph-no-directory-members (corpus PR 1612)
-GM Tests::IsGroupMember_Raises	ASSUMED graph-no-directory-members (corpus PR 1612)

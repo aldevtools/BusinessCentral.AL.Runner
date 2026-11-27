@@ -1,5 +1,0 @@
-# key	entry
-PXD Tests::AfterEvent_DotNetTryGetValueField	REFUSED xRec in a table procedure called through other code on a record whose trigger or procedure runs
-PXD Tests::AfterEvent_DotNetTryParseField	REFUSED xRec in a table procedure called through other code on a record whose trigger or procedure runs
-PXD Tests::Plain_DotNetTryGetValueField	REFUSED xRec in a table procedure called through other code on a record whose trigger or procedure runs
-PXD Tests::Plain_DotNetTryParseField	REFUSED xRec in a table procedure called through other code on a record whose trigger or procedure runs

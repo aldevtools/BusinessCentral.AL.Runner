@@ -1,7 +1,0 @@
-# key	entry
-SBN Tests::SubstituteReport_ById_ReportRun_Logged	ASSUMED subscriber-publisher-by-id (corpus PR 1466, SbiSubscriberByIdTests.al:231)
-SBN Tests::SubstituteReport_ById_GetSubstituteReportId_Swaps	ASSUMED subscriber-publisher-by-id (corpus PR 1466, SbiSubscriberByIdTests.al:231; another raise site of the bound subscriber)
-SBN Tests::SubstituteReport_ById_OtherReport_Unseen	ASSUMED subscriber-publisher-by-id (corpus PR 1466; a reader of the mark that cannot see the subscriber)
-SBN Tests::MakeDateFilter_ById_Repairs	ASSUMED subscriber-publisher-by-id (corpus PR 1466, SbiSubscriberByIdTests.al:245)
-SBN Tests::CaptionClassTranslate_ById_Seen	ASSUMED subscriber-publisher-by-id (corpus PR 1466, SbiSubscriberByIdTests.al:171)
-SBN Tests::MakeDateFilter_ById_ManualBound	REFUSED event makedatefilter: codeunit "SBN Manual Subs".ManualId subscribes to the platform codeunit Filter Helper Triggers by its id 2000000007

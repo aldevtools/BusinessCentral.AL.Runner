@@ -1,6 +1,0 @@
-# key	entry
-# Review round 4 of PR 8865, finding R1: P's install raises OnOne and writes a constant row; L and X answer OnOne, and X
-# depends on L (a base app and its extension). L and X are two inputs of P with a dependency path between them.
-# Main: PRowIsConst passes (3 orders, same database). Head before the fix (434755925): not run, the proof stopped on the
-# subset "X before P, L after P", which no real order gives. Head: that subset is skipped (ADR-079 decision 3,
-# clarification of 2026-11-23, review round 4); the 3 real orders run and leave the same database. No difference.

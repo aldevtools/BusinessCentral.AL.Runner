@@ -1158,7 +1158,7 @@ impl Session {
             let r = match r {
                 Err(Signal::Error(mut e)) => {
                     let add_in = e.code == crate::control_add_in::NOT_CREATED;
-                    e.code = action_error_code(&e.code, &e.message);
+                    e.code = self.page_view_action_code(st, idx, &e, action_error_code);
                     if add_in {
                         self.read_row_after_add_in_error(st)?;
                     }

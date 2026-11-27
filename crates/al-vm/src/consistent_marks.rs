@@ -32,6 +32,8 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
 mod page_args;
+mod page_view;
+pub(crate) use page_view::{page_view_copied, page_view_ended};
 
 /// How the variables of a table have called `Consistent` on its mark.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -221,6 +223,10 @@ pub(crate) struct RunStart<'a> {
     pub(crate) arg_record: Option<&'a ArgRecord>,
     /// A guarded run nested in this one failed and dropped its marks (`GuardedBody::marks_dropped_inside`).
     pub(crate) marks_dropped_inside: bool,
+    /// A guarded run started inside this one (`GuardedBody::runs_inside`).
+    pub(crate) runs_inside: bool,
+    /// The frames below the run: the caller of `Codeunit.Run` is at index `caller_frame - 1` of `Session::frames`.
+    pub(crate) caller_frame: usize,
 }
 
 /// How a guarded `Codeunit.Run` ended.
@@ -486,6 +492,9 @@ impl Session {
         }
         if before.is_empty() && after.is_empty() {
             return Ok(None);
+        }
+        if let Some(r) = self.page_view_run_end(&start, end, &after, top_level, no_commit) {
+            return Ok(r);
         }
         let caller_unchanged =
             before == after.as_slice() && matches!(before, [(_, MarkState::Marked | MarkState::ReleasedByAnother)]);

@@ -1,1 +1,0 @@
-Speed only: the secondary-key read cache tells filter sets apart by the filters themselves (field, group, language and value, Text apart from Code, decimals by scale), at least as strictly as their Debug text did, so equal filters hit the same rows and different filters miss; every scan returns the rows main returns.

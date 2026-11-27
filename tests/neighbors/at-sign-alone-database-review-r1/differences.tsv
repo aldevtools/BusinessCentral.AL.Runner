@@ -1,5 +1,0 @@
-# key	entry
-AS Review Group1 Tests::Group1Temp_MainIntegerPrimaryKeySequence	PINNED tests/al-language/record/filters/FilterGroupOtherVariable.al:822
-AS Review Reader Tests::Readers_Language1031_DateSum	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:651, :935)
-AS Review Reader Tests::Readers_Language1030_DateSum	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneTypes.al:651, :974)
-AS Review Reader Tests::Readers_Language1044_DateSum	ASSUMED at-sign-alone-database-blank (corpus PR 1495: AtSignAloneMethods.al:395)
