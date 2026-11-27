@@ -44,6 +44,9 @@ pub const PERMISSION_TEST_HELPER: &str = "Microsoft.Dynamics.Nav.Runtime.Permiss
 /// Azure AD Graph's query object (System Application "Azure AD Graph Impl.").
 pub const GRAPH_QUERY: &str = "Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery";
 /// `Microsoft.Dynamics.Nav.LicensingService.Model.TenantInfo` (the answer of `GraphQuery.GetTenantDetail`).
+/// `Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo` (the answer of `GraphQuery.GetCurrentUser`, null on a tier
+/// without Entra ID).
+pub const USER_INFO: &str = "Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo";
 pub const TENANT_INFO: &str = "Microsoft.Dynamics.Nav.LicensingService.Model.TenantInfo";
 pub const USER_ACCOUNT_HELPER: &str = "Microsoft.Dynamics.Nav.NavUserAccount.NavUserAccountHelper";
 /// `System.Environment`: only `GetEnvironmentVariable` is served, and it answers "not set" for every variable (owner
@@ -175,6 +178,8 @@ pub const SIGS: &[(&str, &str, Ret)] = &[
     (GRAPH_QUERY, "GetGroupInfo", Ret::Object),
     (GRAPH_QUERY, "FindFirstGroupInfoForDisplayName", Ret::Object),
     (GRAPH_QUERY, "GetUser", Ret::Object),
+    (GRAPH_QUERY, "GetUserByObjectId", Ret::Object),
+    (GRAPH_QUERY, "IsGroupMember", Ret::Boolean),
     (GRAPH_QUERY, "GetCurrentUser", Ret::Object),
     (GRAPH_QUERY, "GetTenantDetail", Ret::Object),
     (TENANT_INFO, "InitialDomain", Ret::Text),
