@@ -1,5 +1,6 @@
-// Issue 9244 neighbors: install code that renames a temporary Company record and a company other than the session
-// company. The refusal reads only a database row of the session company; both keep main's behavior.
+// Issue 9244 neighbors: install code that renames a temporary Company record. The refusal reads only a database row of the session
+// company, so this keeps main's behavior. The rename of another company is NOT run here: no test data means no such
+// row, and inserting a Company row in install stops on its Media fields (ADR-013 decision 5).
 codeunit 50930 "NB SCR Other Install"
 {
     Subtype = Install;
