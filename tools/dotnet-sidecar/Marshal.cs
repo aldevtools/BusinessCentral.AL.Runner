@@ -290,6 +290,8 @@ public sealed class Bridge : MemoryStream
     /// AL set `Position` of this stream to 0 ([Server] "set"), or AL's `SetLength` call on it runs.
     public bool AlPositionZero;
     public bool AlSetLength;
+    /// AL's call of a method of this stream other than SetLength runs ([Server] "InvokeMethod").
+    public bool AlDirectCall;
     public bool Seeded => seeded > 0;
 
     public Bridge(byte[] seed)
@@ -301,9 +303,11 @@ public sealed class Bridge : MemoryStream
 
     // The measured .NET overwrite of handed-back bytes (corpus PR 1633, tests/al-language-onprem-dotnet/dotnet/zip-blob-writes/
     // ZipBlobDotNetOverwrite.al, al-runner issue 7947; assumption zip-blob-writes): a bridge that started empty, whose one writer
-    // is a StreamWriter made with the stream alone, after AL set its Position to 0 or while AL's SetLength runs. The host hands
-    // the whole content to the Blob only when the Blob held just the bridge's bytes.
-    bool OverwriteMeasured => seeded == 0 && PlainWriters == 1 && OtherWriters == 0 && (AlPositionZero || AlSetLength);
+    // is a StreamWriter made with the stream alone, after AL set its Position to 0 or while AL's SetLength runs; the write over
+    // them is that StreamWriter's (AL's call of a method of the stream itself, such as WriteByte, keeps the mark). The host
+    // hands the whole content to the Blob only when the Blob held just the bridge's bytes.
+    bool OverwriteMeasured => seeded == 0 && PlainWriters == 1 && OtherWriters == 0 && AlDirectCall == false
+        && (AlPositionZero || AlSetLength);
 
     void Check(long at)
     {

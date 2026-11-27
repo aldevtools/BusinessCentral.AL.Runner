@@ -20,7 +20,8 @@
 //!    .NET then appended through another stream (:69); Clear only (:98); the Dispose of another archive that read the same
 //!    bytes (:152).
 //! 3. ZipBlobDotNetOverwrite.al:25-96: the helper reports "overwrite" only for a bridge that started empty whose one writer is
-//!    `StreamWriter(OutStream)`, after AL set the stream's Position to 0 or while AL calls SetLength. The Blob then takes the
+//!    `StreamWriter(OutStream)`, for a write of that StreamWriter after AL set the stream's Position to 0, or while AL calls
+//!    SetLength (AL's own WriteByte on the stream keeps the mark). The Blob then takes the
 //!    whole content (48 x B; 10 x A after SetLength(10); 10 x B + 38 x A) when it held just the bridge's bytes from its start.
 //!
 //! Every other rewrite keeps main's answer: an Update archive's rewrite refuses, an overwrite marks the Blob

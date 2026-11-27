@@ -13,3 +13,4 @@ NB SZ Overwrite 59418::ZB_SetLength10	ASSUMED zip-blob-writes (corpus PR 1633)
 NB SZ Overwrite 59419::ZB_Overwrite10_AtPosition0	ASSUMED zip-blob-writes (corpus PR 1633)
 NB SZ Overwrite 59420::ZB_Stored_Overwrite48_AtPosition0	ASSUMED zip-blob-writes (corpus PR 1633)
 NB SZ Changed DeclTemp 59429::ZB_DeclaredTemporary_ClearAndRewrite_Dispose	ASSUMED zip-blob-writes (corpus PR 1633)
+NB SZ Fresh ALWrite 59427::ZB_Temp_FreshOutStream_Update4_ALWriteBeforeDispose	REFUSED DotNet System.IO.Compression.ZipArchive.Dispose: a .NET rewrite of an OutStream AL wrote into since the call before

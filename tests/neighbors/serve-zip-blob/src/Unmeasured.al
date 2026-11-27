@@ -306,3 +306,31 @@ codeunit 59429 "NB SZ Changed DeclTemp 59429"
         Observer.Verify();
     end;
 }
+
+codeunit 59430 "NB SZ Overwrite Direct 59430"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    // AL writes through the stream itself (WriteByte) after Position := 0: the probe measured the StreamWriter's write only.
+    [Test]
+    procedure ZB_Overwrite_AtPosition0_DirectWriteByte()
+    var
+        Observer: Codeunit "NB SZ Observer";
+        Helper: Codeunit "NB SZ Zip Helper";
+        Buffer: Record "NB SZ Zip File" temporary;
+        Writer: DotNet NbSzStreamWriter;
+        Base: DotNet NbSzStream;
+        BufferOut: OutStream;
+    begin
+        Buffer.Content.CreateOutStream(BufferOut);
+        Writer := Writer.StreamWriter(BufferOut);
+        Writer.Write(PadStr('', 48, 'A'));
+        Writer.Flush();
+        Base := Writer.BaseStream;
+        Base.Position := 0;
+        Base.WriteByte(66);
+        Observer.Observe('text', Helper.BlobText(Buffer));
+        Observer.Verify();
+    end;
+}

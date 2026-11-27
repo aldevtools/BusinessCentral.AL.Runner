@@ -1010,9 +1010,10 @@ fn a_seeded_outstream_bridge_holds_the_bytes_appends_after_them_and_refuses_a_wr
 
 // al-runner issue 8360: the one writer allowed over a seed, a ZipArchive made by `ZipArchive(Stream, Update, Boolean, Encoding)`
 // over a seeded bridge, disposed, hands back its whole content with the seed's length (corpus
-// tests/al-language/streams/blob-tempblob/ZipBlobFieldUpdate.al:5-8). The three-argument constructor keeps the refusal.
+// tests/al-language/streams/blob-tempblob/ZipBlobFieldUpdate.al:5-8). The three-argument constructor hands it back too, tagged
+// "update": the VM serves that one only over a fresh CreateOutStream (al-vm `dotnet/zip_blob_writes.rs`).
 #[test]
-fn a_disposed_update_zip_over_a_seeded_bridge_hands_back_its_whole_content_and_other_shapes_stay_refused() {
+fn a_disposed_update_zip_over_a_seeded_bridge_hands_back_its_whole_content_tagged_by_constructor() {
     let Some(h) = host() else { return };
     let mut sess = h.open_session(&DotNetSessionConfig::default());
     let mut empty_zip = b"PK\x05\x06".to_vec();
@@ -1045,13 +1046,18 @@ fn a_disposed_update_zip_over_a_seeded_bridge_hands_back_its_whole_content_and_o
     let r = sess.invoke(DotNetTarget::Instance(zip), "Dispose", vec![]).unwrap();
     assert!(r.streams.written.is_empty(), "{:?}", r.streams.written);
     assert_eq!(r.streams.replaced.len(), 1);
-    let (id, before, bytes) = &r.streams.replaced[0];
-    assert_eq!((*id, *before), (bridge, 22));
+    let (id, before, bytes, kind) = &r.streams.replaced[0];
+    assert_eq!(
+        (*id, *before, *kind),
+        (bridge, 22, Some(al_host::dotnet::Rewrite::ZipUpdate4))
+    );
     assert!(bytes.starts_with(b"PK\x03\x04") && bytes.len() > 22, "{bytes:?}");
     let three = vec![DotNetValue::OutStreamWith(empty_zip), update, DotNetValue::Bool(false)];
-    let (zip, _) = open(&mut sess, three);
-    let why = refused(sess.invoke(DotNetTarget::Instance(zip), "Dispose", vec![]));
-    assert!(why.contains("over the bytes an AL OutStream held"), "{why}");
+    let (zip, bridge) = open(&mut sess, three);
+    let r = sess.invoke(DotNetTarget::Instance(zip), "Dispose", vec![]).unwrap();
+    assert_eq!(r.streams.replaced.len(), 1);
+    let (id, kind) = (r.streams.replaced[0].0, r.streams.replaced[0].3);
+    assert_eq!((id, kind), (bridge, Some(al_host::dotnet::Rewrite::ZipUpdate)));
     sess.close();
 }
 
