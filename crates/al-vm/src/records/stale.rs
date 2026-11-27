@@ -558,3 +558,17 @@ impl Session {
         }
     }
 }
+
+/// The reads that send a pending Insert's row version, besides the ones `record_op_inner` already counted as `more`.
+pub(crate) fn is_row_version_send_read(method: RecordOp) -> bool {
+    matches!(
+        method,
+        RecordOp::Get
+            | RecordOp::FindFirst
+            | RecordOp::FindLast
+            | RecordOp::FindSet
+            | RecordOp::IsEmpty
+            | RecordOp::Count
+            | RecordOp::CalcSums
+    )
+}

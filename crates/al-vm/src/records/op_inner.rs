@@ -328,17 +328,7 @@ impl Session {
                     RecordOp::CalcFields => own_pending,
                     _ => false,
                 };
-            let sends = more
-                || matches!(
-                    method,
-                    RecordOp::Get
-                        | RecordOp::FindFirst
-                        | RecordOp::FindLast
-                        | RecordOp::FindSet
-                        | RecordOp::IsEmpty
-                        | RecordOp::Count
-                        | RecordOp::CalcSums
-                );
+            let sends = more || super::stale::is_row_version_send_read(method);
             self.note_read_for_row_versions(
                 t.object,
                 &company,
