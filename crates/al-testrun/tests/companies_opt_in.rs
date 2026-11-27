@@ -737,7 +737,7 @@ fn a_read_of_the_session_company_leaves_the_queue_of_the_other_company() {
     assert_eq!(o[0].1, Outcome::Pass, "{o:?}");
 }
 
-/// A database whose other company ("My Company") holds one row of table "DC Row".
+/// A database whose companies each hold one row of table "DC Row": Id 7 in the session company, Id 1 in "My Company".
 struct OtherCompanyRow;
 
 impl al_host::testdata::TableProvider for OtherCompanyRow {
@@ -764,13 +764,15 @@ impl al_host::testdata::TableProvider for OtherCompanyRow {
         company: &str,
         t: &al_host::testdata::TableRequest,
     ) -> Result<Arc<al_host::testdata::TableRows>, al_host::testdata::TableError> {
-        match (t.name.as_str(), company) {
-            ("DC Row", OTHER) => Ok(Arc::new(al_host::testdata::TableRows {
-                columns: vec!["Id".into()],
-                rows: vec![vec![al_host::testdata::Cell::Int(1)]],
-            })),
-            _ => Err(al_host::testdata::TableError::Absent),
-        }
+        let id = match (t.name.as_str(), company) {
+            ("DC Row", SESSION) => 7,
+            ("DC Row", OTHER) => 1,
+            _ => return Err(al_host::testdata::TableError::Absent),
+        };
+        Ok(Arc::new(al_host::testdata::TableRows {
+            columns: vec!["Id".into()],
+            rows: vec![vec![al_host::testdata::Cell::Int(id)]],
+        }))
     }
 }
 
@@ -811,11 +813,20 @@ fn deleted_company_tests(id: u32) -> String {
 // copy, the baseline cache).
 #[test]
 fn a_company_install_code_deleted_starts_empty_on_every_baseline_copy() {
+    for (copy, o) in on_every_baseline_copy(&deleting_base(DELETES_MY_COMPANY), &deleted_company_tests(70102)) {
+        assert_eq!(o.len(), 2, "{copy}: {o:?}");
+        for (t, x) in &o {
+            assert_eq!(*x, Outcome::Pass, "{copy}: {t}");
+        }
+    }
+}
+
+/// The outcomes of test codeunit `tests` (an app on the Base Application `base`, over [`OtherCompanyRow`]) on each copy
+/// of the install baseline a test session starts from: the captured one (the install thread), the thawed shared one (the
+/// other test threads) and the one read back from its bytes (a thread's own copy, the baseline cache).
+fn on_every_baseline_copy(base: &str, tests: &str) -> Vec<(&'static str, Vec<(String, Outcome)>)> {
     let (engine, l, run, oi) = compiled(
-        &[
-            (BASE_APP, &[], &deleting_base(DELETES_MY_COMPANY)),
-            ("main", &[BASE_APP], &deleted_company_tests(70102)),
-        ],
+        &[(BASE_APP, &[], base), ("main", &[BASE_APP], tests)],
         Some(Arc::new(OtherCompanyRow)),
         true,
     );
@@ -825,12 +836,62 @@ fn a_company_install_code_deleted_starts_empty_on_every_baseline_copy() {
     let read_back = al_vm::Baseline::from_bytes(&bytes)
         .expect("read back")
         .backed_by(&engine);
-    for (copy, b) in [("captured", &captured), ("thawed", &thawed), ("read back", &read_back)] {
-        let o = al_testrun::runtime::run_codeunit_from(&engine, &l, oi, Some(b));
-        assert_eq!(o.len(), 2, "{copy}: {o:?}");
-        for (t, x) in &o {
-            assert_eq!(*x, Outcome::Pass, "{copy}: {t}");
-        }
+    [("captured", &captured), ("thawed", &thawed), ("read back", &read_back)]
+        .into_iter()
+        .map(|(copy, b)| (copy, al_testrun::runtime::run_codeunit_from(&engine, &l, oi, Some(b))))
+        .collect()
+}
+
+/// A test codeunit that reads the untouched table "DC Row" in company `company`: fails with its count and first Id.
+fn reads_in(company: &str) -> String {
+    format!(
+        "codeunit 70104 \"DC Renamed Tests\" {{ Subtype = Test;
+            [Test] procedure ReadsTheRenamedCompany() var R: Record \"DC Row\"; begin
+                if not R.ChangeCompany('{company}') then Error('ChangeCompany answered false');
+                if R.FindFirst() then;
+                Error('count=%1 id=%2', R.Count(), R.Id);
+            end; }}"
+    )
+}
+
+// Review of PR 9235: install code renames a company. Renaming a company `--companies` selected (one whose restored rows
+// the test data holds) is refused (al-vm `Session::refuse_selected_company_rename`), so no copy of the baseline holds a
+// renamed backed company: the install code stops at the Rename, and the test's read of the new name answers the same on
+// every copy.
+#[test]
+fn install_code_that_renames_a_selected_company_answers_alike_on_every_baseline_copy() {
+    let install = "codeunit 70101 \"DC Installer\" { Subtype = Install;
+        trigger OnInstallAppPerDatabase() var Co: Record Company; begin Co.Get('My Company'); Co.Rename('Renamed Co'); end; }";
+    let copies = on_every_baseline_copy(&deleting_base(install), &reads_in("Renamed Co"));
+    let captured = format!("{:?}", copies[0].1);
+    for (copy, o) in &copies {
+        assert_eq!(format!("{o:?}"), captured, "{copy}");
+    }
+    assert!(captured.contains("ChangeCompany answered false"), "{captured}");
+}
+
+// Review of PR 9235: install code copies the session company and renames the copy. The renamed company takes the copy's
+// data with it (record/TestChangeCompanyFiltersCopyDeleteContracts.al:345-347), and the copy holds the restored session
+// company's rows (session-system/company/Y22CopyCompany.al:Y22_CopyCompany_CopiesCompanyAndRows). A Rename moves the
+// name in `Session::full_copies` (al-vm `records/op_inner.rs`), and `restore_baseline` links each full copy to the
+// session company's restored rows again, so a copy read back from bytes reads them too.
+#[test]
+fn install_code_that_renames_a_copy_of_the_session_company_keeps_its_rows_on_every_baseline_copy() {
+    let install = "codeunit 70101 \"DC Installer\" { Subtype = Install;
+        trigger OnInstallAppPerCompany() var Co: Record Company; begin
+            if CompanyName() <> 'CRONUS International Ltd.' then exit;
+            CopyCompany(CompanyName(), 'Copy Co'); Commit();
+            Co.Get('Copy Co'); Co.Rename('Renamed Copy');
+        end; }";
+    for (copy, o) in on_every_baseline_copy(&deleting_base(install), &reads_in("Renamed Copy")) {
+        assert_eq!(
+            o,
+            vec![(
+                "ReadsTheRenamedCompany".to_string(),
+                Outcome::Fail("count=1 id=7".into())
+            )],
+            "{copy}"
+        );
     }
 }
 
