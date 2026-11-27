@@ -6,7 +6,7 @@
 
 use crate::*;
 use al_builtins::filter::FieldFilter;
-use band::Band;
+use band::pk_band;
 pub use key::PkStorage;
 use key::{Key, table_storage};
 use scan::{KeyOrder, search_sorted};
@@ -499,29 +499,6 @@ impl Seek {
 thread_local! {
     /// How many rows `passes` looked at: the tests of the key seek count what a scan reads.
     static ROWS_LOOKED_AT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// The rows of `table` (in primary key order) that can pass `filters`: those between the bounds the filters on the
-/// leading primary key fields give. A row of the band may still fail them, so the caller checks `passes`.
-fn pk_band<'a>(
-    table: &'a Table,
-    t: &TableDef,
-    filters: &[FieldFilter],
-) -> Box<dyn Iterator<Item = (&'a Key, &'a Row)> + 'a> {
-    use std::ops::Bound::{Included, Unbounded};
-    let Some(seek) = Seek::of(t, 0, filters, table.values().next()) else {
-        return Box::new(table.iter());
-    };
-    let lower = if seek.lo.is_empty() {
-        Unbounded
-    } else {
-        Included(Key::of(t, seek.lo.clone()))
-    };
-    Box::new(
-        table
-            .range((lower, Unbounded))
-            .take_while(move |(_, r)| seek.after(r) != Some(true)),
-    )
 }
 
 /// Every read that checks rows here refused a filter whose matching is not pinned first (`unpinned_match_read`).
@@ -1444,23 +1421,14 @@ impl MemStore {
             self.alt_keep(&slot, t, scan.key, scan.filters, None);
             return None;
         };
-        let band_keys: Vec<Key> = match &band {
-            Band::Pk => pk_band(table, t, scan.filters).map(|(k, _)| k.clone()).collect(),
-            Band::Order(order, range) => order[range.clone()].iter().map(|k| (**k).clone()).collect(),
-        };
+        let rows = band
+            .into_rows(table, t, scan.filters)
+            .filter(|(_, r)| passes(r, scan.filters));
         if calls < 2 {
             // The first step: the best row of the band.
-            let rows = band_keys.iter().filter_map(|k| table.get(k));
-            return Some(
-                by.first_of(rows.filter(|r| passes(r, scan.filters)), scan.after)
-                    .cloned(),
-            );
+            return Some(by.first_of(rows.map(|(_, r)| r), scan.after).cloned());
         }
-        let mut rows: Vec<(&Key, &Row)> = band_keys
-            .iter()
-            .filter_map(|k| table.get_key_value(k))
-            .filter(|(_, r)| passes(r, scan.filters))
-            .collect();
+        let mut rows: Vec<(&Key, &Row)> = rows.collect();
         rows.sort_by(|a, b| by.cmp_rows(a.1, b.1));
         let keys = std::rc::Rc::new(rows.into_iter().map(|(k, _)| k.clone()).collect::<Vec<_>>());
         self.alt_keep(&slot, t, scan.key, scan.filters, Some(keys.clone()));
@@ -1486,6 +1454,11 @@ impl MemStore {
         );
         table
     }
+}
+
+/// Whether `order` (an order `order_of` gave) holds the rows of `table`: as many, and the first is one of them.
+fn order_fits(order: &[OrderKey], table: &Table) -> bool {
+    order.len() == table.len() && order.iter().take(1).all(|k| table.get(k).is_some())
 }
 
 thread_local! {
@@ -1764,24 +1737,14 @@ impl Store for MemStore {
             let slot = slot(cx, t);
             let order = self.order_of(&slot, scan.key, t, &table);
             let row_at = |k: &Key| table.get(k);
-            if order.len() == table.len() && order.iter().take(1).all(|k| row_at(k).is_some()) {
+            if order_fits(&order, &table) {
                 // The slice of the order the filters on the leading fields of the key leave (ADR-035).
                 let seek = Seek::of(t, scan.key, scan.filters, table.values().next());
                 let mut band = 0..order.len();
                 if let Some(sk) = &seek {
-                    let trusted = std::cell::Cell::new(true);
-                    let probe = |k: &Key, f: &dyn Fn(&[Value]) -> Option<bool>| match row_at(k).map(|r| f(r)) {
-                        Some(Some(b)) => b,
-                        _ => {
-                            trusted.set(false);
-                            false
-                        }
-                    };
-                    let start = order.partition_point(|k| probe(k, &|r| sk.before(r)));
-                    let end = order.partition_point(|k| !probe(k, &|r| sk.after(r)));
                     // Rows that do not compare: the order cannot be trusted, so the whole of it is looked at.
-                    if trusted.get() && start <= end {
-                        band = start..end;
+                    if let Some(b) = band::band(&order, |k| row_at(k), sk) {
+                        band = b;
                     }
                     // A wide band of this key: another key the filters bound may hold far fewer rows
                     // (Tests-SCM codeunit 137380 TenThousandSerialNos: "Reservation Entry" by source line and serial number).
