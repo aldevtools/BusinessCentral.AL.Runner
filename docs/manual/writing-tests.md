@@ -74,6 +74,12 @@ Install code runs more than once only in the second case. `--timings` then print
 one `install baseline: install order: ...` line that names the apps and says how
 many orders ran. Add the dependency to `app.json` to give two apps a fixed order.
 
+Without an install baseline, the install code of your own apps runs once and every
+test codeunit starts from what it left. When it runs more than once, `--timings`
+prints `install code: ran N times for the test codeunits; first reason noted that its
+run cannot be shared: ...`, for example a session field the install code left
+changed, as in ``it left `encrypted` not as a new session holds it``.
+
 ## A test codeunit
 
 ```al

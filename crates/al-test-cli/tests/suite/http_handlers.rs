@@ -270,6 +270,11 @@ fn cache_control_is_written_in_net_order_and_a_lower_case_known_name_is_canonica
 
 /// The tests of codeunit `T` on the target of BC `bc`.
 fn run_on(bc: &str, header: &str, body: &str) -> Vec<(String, Outcome)> {
+    run_on_with(bc, header, body, "")
+}
+
+/// `run_on` with more objects (`extra`) in the file beside the test codeunit.
+fn run_on_with(bc: &str, header: &str, body: &str, extra: &str) -> Vec<(String, Outcome)> {
     let target = al_version::Target::for_bc(al_version::BcVersion::parse(bc).unwrap());
     let (ws, l) = al_sema::lower::compile_for(
         vec![AppSource {
@@ -278,7 +283,7 @@ fn run_on(bc: &str, header: &str, body: &str) -> Vec<(String, Outcome)> {
             dependencies: vec![],
             files: vec![(
                 "f.al".into(),
-                format!("codeunit 69400 T {{ Subtype = Test; {header} {body} }}"),
+                format!("codeunit 69400 T {{ Subtype = Test; {header} {body} }} {extra}"),
             )],
         }],
         &Default::default(),
@@ -1164,5 +1169,42 @@ fn set_cookie_max_age_past_the_integer_range_is_refused() {
             ),
         );
         assert!(why.contains("Max-Age"), "{v}: {why}");
+    }
+}
+
+// A handler-filled response content is not a state corpus PR 1424 measured for a stream write
+// (tests/al-language/http/content/HttpContent.al:717-793 measures only contents the test made): the write refuses.
+#[test]
+fn a_stream_write_on_a_handler_filled_response_content_is_refused() {
+    let tests = r#"
+        [HttpClientHandler]
+        procedure Plain(Request: TestHttpRequestMessage; var Response: TestHttpResponseMessage): Boolean
+        begin
+            Response.HttpStatusCode := 200;
+            exit(false);
+        end;
+        [Test]
+        [HandlerFunctions('Plain')]
+        procedure StreamWrite()
+        var Client: HttpClient; Resp: HttpResponseMessage; Data: Record B temporary; OutS: OutStream; InS: InStream;
+        begin
+            Client.Get('http://localhost/a', Resp);
+            Data.Data.CreateOutStream(OutS);
+            OutS.WriteText('body');
+            Data.Data.CreateInStream(InS);
+            Resp.Content.WriteFrom(InS);
+        end;
+    "#;
+    let table = "table 69401 B { fields { field(1; Id; Integer) { } field(2; Data; Blob) { } } }";
+    for bc in ["27.5", "28.5", "29.1"] {
+        let outcome = run_on_with(bc, "TestHttpRequestPolicy = AllowOutboundFromHandler;", tests, table)
+            .into_iter()
+            .find(|(name, _)| name == "StreamWrite")
+            .unwrap()
+            .1;
+        assert!(
+            matches!(&outcome, Outcome::NotRun(why) if why.contains("HttpContent.WriteFrom(InStream) with a changed Content-Type")),
+            "{bc}: {outcome:?}"
+        );
     }
 }

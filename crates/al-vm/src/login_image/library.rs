@@ -9,6 +9,7 @@ use super::arena::{Frozen, NodeId};
 use super::freeze::{Holder, Walker, deferred, never};
 use super::thaw::Maker;
 use al_builtins::library_kind::LibraryKind;
+use al_builtins::text::Txt;
 use al_builtins::value::{
     CookieState, EmptiedRef, ErrorInfoBuilt, ErrorInfoState, HandlerContext, LibraryValue, ModuleInfoState,
     NotificationState, SessionSettingsState, WebServiceActionState,
@@ -23,8 +24,10 @@ pub(crate) enum LibraryNode {
     ClosedRecordRef,
     HandedContext,
     XmlNameTable,
-    Text(String),
-    TextCap(String, i32),
+    /// A TextBuilder's or BigText's text as the cell holds it: a `Txt` keeps a lone surrogate half, a `String` would
+    /// hold U+FFFD in its place (issue 9202).
+    Text(Txt),
+    TextCap(Txt, i32),
     SystemTable(i64),
     Version([i32; 4]),
     RecordId {

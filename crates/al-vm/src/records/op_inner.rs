@@ -328,19 +328,12 @@ impl Session {
                     RecordOp::CalcFields => own_pending,
                     _ => false,
                 };
+            let sends = more || super::stale::is_row_version_send_read(method);
             self.note_read_for_row_versions(
                 t.object,
                 &company,
-                more || matches!(
-                    method,
-                    RecordOp::Get
-                        | RecordOp::FindFirst
-                        | RecordOp::FindLast
-                        | RecordOp::FindSet
-                        | RecordOp::IsEmpty
-                        | RecordOp::Count
-                        | RecordOp::CalcSums
-                ),
+                sends,
+                self.measured_send_read(method, find_form, &rec.borrow()),
             );
             self.restamped_find(&cx, &t, &rec.borrow(), method)?;
             use crate::recmeta::{ISOLATION_REPEATABLE_READ, ISOLATION_UPDLOCK};
@@ -432,10 +425,7 @@ impl Session {
                 // Rec carries its SystemId from the Before event on, the one that is stored (record/TestXRecStampFields.al:80-90;
                 // events/TestProbeEventContracts.al:SystemId_BeforeOnInsert_AndPresetBuffer, `sysid_null=No` in the Before event);
                 // the stamps and the key come below it.
-                let keep_id = match args.get(1) {
-                    Some(v) => ops::truthy(v)?,
-                    None => false,
-                };
+                let keep_id = args.get(1).map(ops::truthy).transpose()?.unwrap_or(false);
                 // xRec in the insert triggers is the buffer as it was before the SystemId is given: the SystemId an
                 // earlier insert left in the variable, else the null Guid (Insert_Events_TriggerFalseAndTrue).
                 let before_id = t
@@ -443,6 +433,7 @@ impl Session {
                     .iter()
                     .position(|f| f.id == 2_000_000_000)
                     .map(|i| rec.borrow().fields[i].clone());
+                let at_call = self.rec_at_ext_before_call(&t, run, "OnBeforeInsert", "OnInsert", false, rec);
                 self.assign_system_id(&t, rec, keep_id);
                 let id_slot = t.fields.iter().position(|f| f.id == 2_000_000_000);
                 // The id the platform gave the row, before any event or trigger could change it.
@@ -458,12 +449,13 @@ impl Session {
                 if run {
                     // The extension's triggers bracket the base table's own (tableextensiontrigger/
                     // TestTableExtensionTableTriggers_Tests.al); Insert(false) runs none of them.
-                    self.run_ext_trigger(&t, "OnBeforeInsert", rec, insert_xrec.as_ref())?;
+                    self.run_ext_trigger_unmeasured_xrec(&t, "OnBeforeInsert", rec)?;
+                    let insert_xrec = at_call.map(|at| Self::xrec_after_ext_before(at, rec)).or(insert_xrec);
                     if let Some(tr) = self.table_trigger(&t, "OnInsert") {
                         self.run_trigger(t.object as usize, tr, rec, insert_xrec.as_ref())?;
                     }
                     self.document_service_insert(&t, rec)?;
-                    self.run_ext_trigger(&t, "OnInsert", rec, insert_xrec.as_ref())?;
+                    self.run_ext_trigger_unmeasured_xrec(&t, "OnInsert", rec)?;
                 }
                 // The SystemId the OnBeforeInsertEvent subscribers and the insert triggers left in the buffer.
                 let mut set_by_code = id_slot.map(|i| rec.borrow().fields[i].clone());
@@ -636,8 +628,7 @@ impl Session {
                             .position(|f| f.id == 2_000_000_005)
                             .map(|i| rec.borrow().fields[i].clone());
                         if let Some(Value::BigInteger(v)) = version {
-                            let commits = self.commits;
-                            rec.borrow_mut().row_origin = Some(al_builtins::value::RowOrigin::new(true, v, commits));
+                            self.set_own_insert_origin(&t, rec, v);
                         }
                         // The Blob content an Insert of a temporary record stored is persisted, as one a Modify stored (see Rename).
                         if rec.borrow().temp_id.is_some() {
@@ -654,7 +645,7 @@ impl Session {
                             self.user_after_insert(&t, rec)?;
                         }
                         if run {
-                            self.run_ext_trigger(&t, "OnAfterInsert", rec, None)?;
+                            self.run_ext_trigger_unmeasured_xrec(&t, "OnAfterInsert", rec)?;
                         }
                         self.table_event(&t, "onafterinsertevent", rec, None, run, None)?;
                         Ok(Value::Boolean(true))
@@ -719,7 +710,7 @@ impl Session {
                             // DK_AfterEvent_InsertFalse, DK_ExtAfterTrigger_Statement, DK_AfterEvent_ReadInsideSubscriber;
                             // events/binding-senders/DbtEvents.al:347 Insert_DuplicateKey).
                             if run {
-                                self.run_ext_trigger(&t, "OnAfterInsert", rec, None)?;
+                                self.run_ext_trigger_unmeasured_xrec(&t, "OnAfterInsert", rec)?;
                             }
                             self.table_event(&t, "onafterinsertevent", rec, None, run, None)?;
                             return Ok(Value::Boolean(true));
@@ -929,30 +920,8 @@ impl Session {
                             rec.borrow_mut().fields[i] = old[i].clone();
                         }
                         if !rec.borrow().temporary {
-                            let image = rec.borrow().fields.to_vec();
-                            rec.borrow_mut().last_modify = Some(image);
-                            // The variable's own Modify (false or true, the first or a later one) after its own Insert or Get, in that
-                            // transaction, makes the buffer's new version its own write (record/crud/SbStaleOwnModify.al:
-                            // 132-264, :410-448). An own Modify in a later transaction leaves the origin behind, as before.
-                            if let Some((i, was, Some(o))) = version_before
-                                && o.version == was
-                            {
-                                let now = if let Value::BigInteger(n) = &rec.borrow().fields[i] {
-                                    *n
-                                } else {
-                                    0
-                                };
-                                if now != was {
-                                    let keep = o.commits == self.commits;
-                                    rec.borrow_mut().row_origin = keep.then_some(al_builtins::value::RowOrigin {
-                                        own_write: true,
-                                        version: now,
-                                        read_in_write_tx: false,
-                                        own_modified: true,
-                                        ..o
-                                    });
-                                }
-                            }
+                            self.note_own_modify(&t, rec);
+                            self.set_own_modify_origin(rec, version_before);
                             let company = rec.borrow().company.clone();
                             self.tx.open.rows_touched.push((t.object, company, pk.clone()));
                         }
@@ -1934,7 +1903,8 @@ impl Session {
             }
             RecordOp::Rename => {
                 let from_al = std::mem::take(&mut self.tx.rename_from_al);
-                let rename_note = (self.tx.open.writes.len(), self.store.change_counter());
+                // The statement form of Rename called from AL code, read before the triggers run.
+                let (statement_from_al, rename_note) = (from_al && !self.ret_used, self.rename_note(rec, &t));
                 let old_key = Self::sql_key(rec, &t, &rec.borrow().fields);
                 self.note_bulk_write(rec, &t, crate::state::TxWriteKind::Other, &old_key);
                 if !rec.borrow().temporary {
@@ -2128,6 +2098,7 @@ impl Session {
                                 r.row_origin = keep.then_some(al_builtins::value::RowOrigin { version: now, ..o });
                             }
                         }
+                        self.note_own_rename(&t, rec, rename_note);
                         // The record itself shows no Blob value after a Rename of a temporary record; the row keeps one only when a write came
                         // after the last Insert or Modify (record/PnABlobAssignRename.al:RenameTemporary_* `A..E-rec-content`).
                         // So does a database record for every Blob field, while the renamed row keeps the bytes
@@ -2172,7 +2143,7 @@ impl Session {
                             self.profile_after_rename(&t, &old_fields, &row)?;
                         }
                         if !same_key {
-                            self.propagate_rename(rec, &t, &refs, &old_fields, &row)?;
+                            self.propagate_rename(rec, &t, &refs, &old_fields, &row, statement_from_al)?;
                             // The platform moves the record's links with system rights: a set without any grant on
                             // Record Link renames (corpus record/Y19PermWrites.al
                             // Y19_P1_Rename, rename_rim), so the session's sets do not apply here (ADR-062).

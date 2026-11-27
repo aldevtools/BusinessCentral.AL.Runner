@@ -43,6 +43,8 @@ pub(crate) struct TestCtx {
     pub(crate) result_ignored: bool,
     /// What `held_by_temp_blob_impl` answers for every buffer.
     pub(crate) temp_blob_impl: bool,
+    /// The run's target: `gate` and `http_probe_1424_measured` read it.
+    pub(crate) target: Option<al_version::Target>,
     /// What `format_composite` answers for a Record or a RecordRef: `None` as without a table schema.
     pub(crate) composite: Option<String>,
 }
@@ -52,6 +54,14 @@ impl FormatCtx for TestCtx {
     }
 }
 impl Ctx for TestCtx {
+    fn gate(&self, gate: al_version::Gate) -> bool {
+        al_version::gate_on(self.target.as_ref(), gate)
+    }
+
+    fn http_probe_1424_measured(&self) -> bool {
+        al_version::http_probe_1424_measured(self.target.as_ref())
+    }
+
     fn format_composite(&mut self, _v: &Value) -> Option<Result<String, Signal>> {
         self.composite.clone().map(Ok)
     }

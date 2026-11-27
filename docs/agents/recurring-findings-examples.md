@@ -394,7 +394,16 @@ State the pin's lines (`pinned_body::page_lines`, `table_lines`) and require the
   explicit argument per caller (`BeforeRows::Backing` for the safety net, `BeforeRows::Empty` for the login image).
 - PR 8665: `same_unshown_marks` was added for the login reader while the footprint reader also uses it.
 
-## 31. An ADR clarification that loosens a decision leaves the decision text unchanged (al-runner PR 9075, PR 9126)
+## 31. A new store cell admits reference kinds the as-measured walk does not check (al-runner PR 9211 round 1, and the earlier ClearAll register PRs)
+
+- PR 9211: the tree cell (`Store::Tree`) admitted List, Dictionary and RecordRef globals at three levels of nodes, while
+  `register_as_measured` checked only Records and codeunits. A register List another variable shared, a node RecordRef
+  that read a row, and a node RecordRef or FieldRef another variable shared ran flagged through the entry. A first fix
+  counted holders of the RecordRef handle; `X := RR` gives `X` a new handle on the same record buffer
+  (`recordref_variant::own_copy`), so the count stayed 1. Fix: `tree_ref_as_measured` counts holders of the buffer,
+  less the instance's own RecordRef, FieldRef and KeyRef globals, and checks `state_stamp::no_row_io`.
+
+## 32. An ADR clarification that loosens a decision leaves the decision text unchanged (al-runner PR 9075, PR 9126)
 
 - PR 9126: a "Clarification of 2026-11-25" of ADR-079 kept `TaskScheduler.CanCreateTask` by method, while decision 1
   (`:84`) still listed `TaskScheduler` as touching everything and the kept-builtins clarification (`:174`) still kept by

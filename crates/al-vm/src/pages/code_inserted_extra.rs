@@ -300,13 +300,14 @@ impl Session {
     /// `CurrPage.SaveRecord()` in the OnValidate of the later SetValue on a page of the page-with-code shape with other code
     /// (`FactboxStep::CodedTyped`, `CodedObjects::Extra`), on the row its new line became: measured when Rec is that row, its
     /// view as the SetValue found it (`coded_typed_begins`; a filter set before the save, review of al-runner PR 8847, 01:00Z),
-    /// and the control wrote no row of the page's table since its OnValidate began, and every row of another table written
-    /// since the SetValue began was inserted after it (ListNewLineExtraCodeCodedSecondSetValue.al:771); the Update after it and
-    /// the step end then run under the effect gate
+    /// and nothing wrote a row of the page's table since the SetValue began, the table field's OnValidate and the control's,
+    /// and every row of another table written since it began was inserted after the later-step stamp
+    /// (ListNewLineExtraCodeCodedSecondSetValue.al:771; ListNewLineExtraCodeCodedFieldOnValidate.al:799 the field's log; a row
+    /// of the page's table inserted :823 or the row written through another record :834 by the field, refused); the Update after
+    /// it and the step end then run under the effect gate
     /// (`SavedView::extra`: :746, :760, :782 run; a filter set, :793, and a write after the Update, :837, are refused).
     pub(super) fn extra_code_typed_save(&mut self, st: &St) -> Result<(), Signal> {
-        let began = st.borrow().control_onvalidate.as_ref().map(|c| c.writes);
-        let other_at = st.borrow_mut().coded_typed_begin_at.take();
+        let later_at = st.borrow_mut().coded_typed_begin_at.take();
         let rec = self.page_rec(st);
         let key = self.row_key(&rec)?;
         let landed = st
@@ -316,9 +317,9 @@ impl Session {
             .is_some_and(|row| Self::same_key(&row.key, &key));
         let found = st.borrow_mut().coded_typed_view.take();
         let view_found = found.is_some_and(|v| Self::same_view(&rec.borrow(), &v));
-        let kept = match (began, other_at) {
-            (Some(mark), Some((counter, writes, stamp))) if landed && view_found => {
-                self.page_table_kept_since(st, mark)?
+        let kept = match later_at {
+            Some((counter, writes, stamp)) if landed && view_found => {
+                self.page_table_kept_since(st, writes)?
                     && self.typed_other_writes_inserted_since(st, counter, writes, stamp)?
             }
             _ => false,
@@ -472,6 +473,7 @@ impl Session {
             writes: self.write_mark(),
             rows: Some(self.extra_code_rows(st)?),
             extra: true,
+            rec_free: false,
         })
     }
 

@@ -9,6 +9,17 @@
 #
 #   tools/cache_vs_uncached.sh compare DIR   compare the files in DIR (what CI runs after its runs)
 #   tools/cache_vs_uncached.sh run [DIR]     make the runs, then compare (the local recipe)
+#   tools/cache_vs_uncached.sh workspace [DIR]  the leg of the workspace layer (ADR-022 amendment 2026-11-15,
+#                                            "Equality requirement", Outcomes), one BC version at a time
+#
+# The workspace leg: for each version of VERSIONS (default "27 28 29"), three runs with the compile cache in which
+# every pass compiles from source (AL_FRESH_PASS_COMPILE=1; a pass that grows the main pass's compile does not use the
+# layer): without the workspace layer (wscached-junit-<v>*.xml), with it (wsbuilt-, each pass builds its entry or reads
+# one already there) and with it again (wsread-, each pass reads). The built and the read runs must give the outcomes
+# and reasons of the first, with no allow list, for the main app and every suite (OnPrem, isolation), and every pass of
+# the read run must say "workspace layer read". AL_TEST_CLI names the binary (default target/release/al-test-cli);
+# LEG_DOTNET= (empty) leaves out --require-dotnet on a machine without the .NET runtime of the version: its DotNet tests
+# then have no outcome in any of the three runs, so the leg compares fewer tests.
 #
 # File names in DIR, which is what `al-test-cli --all-versions --junit` writes:
 #   uncached:  runtime-junit-<v>.xml          runtime-junit-<suite>-<v>.xml
@@ -20,6 +31,7 @@ set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(dirname "$here")"
 versions="27 28 29"
+bin="${AL_TEST_CLI:-$root/target/release/al-test-cli}"
 
 compare() {
   local dir="$1" status=0 n=0 f v partner
@@ -63,7 +75,7 @@ compare() {
 }
 
 run() {
-  local dir="$1" bin="$root/target/release/al-test-cli" status=0
+  local dir="$1" status=0
   [ -x "$bin" ] || { echo "build first: cargo build --release -p al-test-cli" >&2; return 2; }
   mkdir -p "$dir"
   rm -f "$dir"/runtime-junit*.xml "$dir"/cached-junit*.xml "$dir"/eagerdecode-junit*.xml
@@ -81,8 +93,57 @@ run() {
   return $status
 }
 
+# The workspace leg (header): the runs of one version, then their comparison.
+workspace_version() {
+  local dir="$1" v="$2" status=0 kind f base partner passes reads
+  for kind in wscached wsbuilt wsread; do
+    rm -f "$dir/$kind-junit-$v"*.xml
+    local env=(AL_FRESH_PASS_COMPILE=1)
+    [ "$kind" = wscached ] || env+=(AL_CORPUS_WORKSPACE_CACHE=1)
+    # shellcheck disable=SC2086 # LEG_DOTNET is one flag or none
+    (cd "$dir" && env "${env[@]}" "$bin" --root "$root" --bc-version "$v" ${LEG_DOTNET---require-dotnet} --no-ratchet \
+      --compile-cache --junit "$kind-junit-$v.xml" > "$kind-$v.log" 2>&1) ||
+      { echo "the $kind run of BC $v failed, see $dir/$kind-$v.log" >&2; status=1; }
+  done
+  for kind in wsbuilt wsread; do
+    for f in "$dir/wscached-junit-$v"*.xml; do
+      [ -e "$f" ] || { echo "MISSING: the wscached run of BC $v wrote no JUnit file"; status=1; continue; }
+      base="$(basename "$f")"
+      partner="$dir/$kind-${base#wscached-}"
+      echo "== $kind ${base#wscached-junit-}"
+      if [ ! -f "$partner" ]; then
+        echo "MISSING: $partner"
+        status=1
+        continue
+      fi
+      python3 "$here/compare_junit.py" --reasons "$f" "$partner" || status=1
+    done
+  done
+  # Every pass of the read run read its entry: otherwise the leg compared a fresh compile with itself.
+  passes="$(grep -c "): workspace layer " "$dir/wsread-$v.log")"
+  reads="$(grep -c "): workspace layer read" "$dir/wsread-$v.log")"
+  grep "): workspace layer " "$dir/wsbuilt-$v.log" "$dir/wsread-$v.log"
+  if [ "$passes" = 0 ] || [ "$passes" != "$reads" ]; then
+    echo "BC $v: $reads of $passes passes of the read run read the workspace layer"
+    status=1
+  fi
+  return $status
+}
+
+workspace() {
+  local dir="$1" status=0 v
+  [ -x "$bin" ] || { echo "build first: cargo build --release -p al-test-cli" >&2; return 2; }
+  mkdir -p "$dir"
+  for v in ${VERSIONS:-$versions}; do
+    echo "== BC $v"
+    workspace_version "$dir" "$v" || status=1
+  done
+  return $status
+}
+
 case "${1:-}" in
   compare) compare "${2:?usage: cache_vs_uncached.sh compare DIR}" ;;
   run) run "${2:-$root/target/cache-vs-uncached}" ;;
-  *) sed -n '2,17p' "$0"; exit 2 ;;
+  workspace) workspace "${2:-$root/target/cache-vs-uncached}" ;;
+  *) sed -n '2,28p' "$0"; exit 2 ;;
 esac

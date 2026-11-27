@@ -403,7 +403,7 @@ pub struct TestResult {
     pub order_hint: Option<OrderHint>,
     /// With `RunOptions::cell_tap`: the `Expect` cells the test matched (`al_vm::observer_tap`); `None` when it did not use the fixture.
     pub cells: Option<al_vm::observer_tap::CellRecord>,
-    /// The test was not run because `RunOptions::stop_after_first_failure` or `RunOptions::skip_after_timeout` left it
+    /// The test was not run because a stop (`stop.rs`) or `RunOptions::skip_after_timeout` left it
     /// out after an earlier test (al-runner issue 8492): a choice of the run, not a refusal.
     pub skipped_by_option: bool,
 }
@@ -501,6 +501,8 @@ pub struct Phases {
     pub compile_parts: al_sema::lower::CompileTimings,
     /// What the compile cache did, when the run used it.
     pub cache: Option<crate::compile_cache::CacheReport>,
+    /// What the workspace layer of the compile cache did, when the run asked for it.
+    pub workspace_cache: Option<crate::workspace_cache::WorkspaceReport>,
     /// With a compile cache whose objects are decoded on first touch (ADR-054): how many the run decoded.
     pub decoded_on_touch: Option<usize>,
     /// Building the engine from the lowered program.
@@ -511,6 +513,10 @@ pub struct Phases {
     /// (`Session::install_left`), the run that found that out being the first codeunit's. A run on files of a real folder
     /// (`--files-dir`) also runs it once per codeunit.
     pub install_runs: usize,
+    /// The first reason noted that the install's run cannot be shared with a test codeunit's session
+    /// (`install_once.rs` `Rerun`); `None` when none was. The first codeunit notes one too, so it is not always the reason
+    /// of a rerun, and a later codeunit's other reason is not shown.
+    pub install_rerun: Option<String>,
     /// The install baseline did not run because no selected test can observe it (`observe.rs`).
     pub baseline_skipped: bool,
     /// Why the baseline ran although the rule was tried: the first construct a selected test
@@ -621,19 +627,25 @@ impl Phases {
     /// `None` when there was nothing to say (no dependency app).
     /// With partner apps installed in several orders (ADR-046 amendment 7; by the baseline or by the install code of the
     /// apps under test, both labeled `install baseline:`), one more line per group of them.
+    /// When the install code of the apps under test ran more than once, one more line: how many times it ran and the
+    /// first reason noted that its run cannot be shared (`install_rerun`).
     pub fn baseline_line(&self) -> Option<String> {
-        let line = self.baseline_rule_line();
-        if self.baseline_install_orders.is_empty() && self.install_snapshot.is_none() {
-            return line;
-        }
         let orders = self
             .baseline_install_orders
             .iter()
             .map(|l| format!("install baseline: {l}"));
-        let lines: Vec<String> = line
-            .into_iter()
+        let rerun = (self.install_rerun.as_ref())
+            .filter(|_| self.install_runs > 1)
+            .map(|why| {
+                format!(
+                    "install code: ran {} times for the test codeunits; first reason noted that its run cannot be shared: {why}",
+                    self.install_runs
+                )
+            });
+        let lines: Vec<String> = (self.baseline_rule_line().into_iter())
             .chain(orders)
             .chain(self.install_snapshot_line())
+            .chain(rerun)
             .collect();
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
@@ -723,8 +735,8 @@ pub(crate) struct Unit {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
-    /// See `RunOptions::stop_after_first_failure`.
-    stop_after_first_failure: Option<run::StopAfterFailure>,
+    /// The pass's stop (`stop.rs`).
+    stop: Option<stop::Stop>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -779,7 +791,7 @@ pub(crate) struct Scratch {
     cells: Vec<(String, al_vm::observer_tap::CellRecord)>,
     /// The time each test that slept asked `Sleep` for (`TestResult::slept_ms`).
     slept: Vec<(String, u64)>,
-    /// The tests `skip_after_timeout` or `stop_after_first_failure` left out, with the reason they were given
+    /// The tests `skip_after_timeout` or a stop (`stop.rs`) left out, with the reason they were given
     /// (`TestResult::skipped_by_option`).
     skipped: Vec<(String, String)>,
     /// With `trace`: the workspace objects each test entered and whether it ran DotNet (`TestResult::entered`).
@@ -815,8 +827,11 @@ pub(crate) struct Scratch {
     report_unpinned_errors: bool,
     /// See `RunOptions::skip_after_timeout`.
     skip_after_timeout: bool,
-    /// See `RunOptions::stop_after_first_failure`.
-    stop_after_first_failure: Option<run::StopAfterFailure>,
+    /// The pass's stop (`stop.rs`).
+    stop: Option<stop::Stop>,
+    /// The first row of the codeunit that triggered `stop` (`stop.rs`); the pass keeps its reason for the later entries
+    /// while the codeunit's rows still hold that row (`stop::Trigger::kept_in`, `corpus::pass_stopped`).
+    stop_trigger: Option<stop::Trigger>,
     /// See `RunOptions::perturb`.
     perturb: crate::stability::Perturb,
     /// See `RunOptions::run_seed`.
@@ -893,7 +908,8 @@ impl Scratch {
             installs: Default::default(),
             report_unpinned_errors: Default::default(),
             skip_after_timeout: Default::default(),
-            stop_after_first_failure: Default::default(),
+            stop: Default::default(),
+            stop_trigger: None,
             perturb: Default::default(),
             run_seed: Default::default(),
             runner: Default::default(),
@@ -1036,7 +1052,8 @@ fn run_unit(
             flags: u.flags,
             report_unpinned_errors: u.report_unpinned_errors,
             skip_after_timeout: u.skip_after_timeout,
-            stop_after_first_failure: u.stop_after_first_failure.clone(),
+            stop: u.stop.clone(),
+            stop_trigger: None,
             perturb: u.perturb.clone(),
             run_seed: u.run_seed,
             runner: u.runner,
@@ -1179,7 +1196,7 @@ fn scratch_unit(
         flags: Default::default(),
         report_unpinned_errors: false,
         skip_after_timeout: false,
-        stop_after_first_failure: None,
+        stop: None,
         perturb: Default::default(),
         run_seed: opts.run_seed,
         runner: None,
@@ -1304,7 +1321,7 @@ mod al_runner_tests;
 #[cfg(test)]
 mod app_outcomes_tests;
 mod apply_manifests;
-mod baseline_key;
+pub(crate) mod baseline_key;
 mod blocked;
 mod cache;
 mod carry_after;
@@ -1365,6 +1382,7 @@ mod runner_reset;
 pub(crate) mod session_flags;
 mod single_fresh;
 mod single_lane;
+mod stop;
 mod strict_taint;
 mod strict_walk;
 mod suite_rows;
@@ -1376,6 +1394,7 @@ mod test_marks;
 #[cfg(test)]
 mod tests;
 mod threads;
+mod workspace_layer;
 pub(crate) mod written;
 
 pub use self::blocked::*;
@@ -1390,6 +1409,7 @@ pub use self::order_hint::{NumbersOrder, OrderHint};
 pub use self::run::*;
 pub use self::single_fresh::{CarriedCodeunit, CarriedRead};
 pub use self::single_lane::LaneReport;
+pub use self::stop::stop_triggers;
 
 /// The translation files of the app folder `dir`, as the IR keeps them (ADR-053 step 2). A file that cannot be read keeps its
 /// reason, and its language refuses every translated read.

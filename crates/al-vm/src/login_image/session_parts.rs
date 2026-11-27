@@ -24,7 +24,7 @@ pub(crate) struct SessionParts {
 }
 
 /// What a Commit leaves in `TxState` for a later test to read (state_facts.rs `transaction`); every other field holds a
-/// new session's value (`install_left::tx_left_as_new`). `commit_counter` equals the store's change counter, a fact the
+/// new session's value (`install_left::tx_not_as_new`). `commit_counter` equals the store's change counter, a fact the
 /// thaw writes again for the thawn store.
 struct TxPart {
     phase: crate::transactions::TxPhase,
@@ -35,6 +35,8 @@ struct TxPart {
     committed_row_version: i64,
     rolled_back: bool,
     last_commit_wrote: bool,
+    /// Read against the counts a record's row version source took (`version_entry.rs`), some taken in the login.
+    write_counts: crate::state::WriteCounts,
 }
 
 /// The event state besides the manual bindings (the arena holds those) and what holds a new session's value
@@ -115,6 +117,7 @@ impl TxPart {
             committed_row_version: tx.committed_row_version,
             rolled_back: tx.rolled_back,
             last_commit_wrote: tx.last_commit_wrote,
+            write_counts: tx.write_counts.clone(),
         }
     }
 
@@ -128,6 +131,7 @@ impl TxPart {
             committed_row_version,
             rolled_back,
             last_commit_wrote,
+            ref write_counts,
         } = *self;
         let tx = &mut s.tx;
         tx.phase = phase;
@@ -138,6 +142,7 @@ impl TxPart {
         tx.committed_row_version = committed_row_version;
         tx.rolled_back = rolled_back;
         tx.last_commit_wrote = last_commit_wrote;
+        tx.write_counts = write_counts.clone();
         tx.commit_counter = s.store.change_counter();
     }
 }

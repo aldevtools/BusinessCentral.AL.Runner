@@ -167,6 +167,7 @@ const DOTNET: &str = "dotnet { assembly(\"netstandard\") {
     type(\"Microsoft.Dynamics.Nav.Service.CopilotApi.AL.ALCopilotFunctions\"; \"ALCopilotFunctions\") { }
     type(\"Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery\"; \"GraphQuery\") { }
     type(\"Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo\"; \"UserInfo\") { }
+    type(\"Microsoft.Dynamics.Nav.LicensingService.Model.ServicePlanInfo\"; \"ServicePlanInfo\") { }
     type(\"Microsoft.Dynamics.Nav.LicensingService.Model.TenantInfo\"; \"TenantInfo\") { }
   }
   assembly(\"mscorlib\") {
@@ -2069,6 +2070,8 @@ fn the_declared_result_types_match_the_registry() {
             | "GetAzureKeyVaultCertificate" => continue,
             // Needs a length and a minimum; tests/host/server_helpers.rs runs it.
             "GeneratePassword" => continue,
+            // Raise the NullReference corpus PR 1612 measures on a tier without Entra ID; the Graph tests here run them.
+            "GetUserByObjectId" | "IsGroupMember" => continue,
             // Need a user's Guid and the User tables; tests/store/user_account_keys.rs runs them.
             "IsPasswordSet"
             | "TryGetAuthenticationKey"
@@ -2151,6 +2154,194 @@ fn graph_get_current_user_returns_null_without_an_error() {
     );
     assert_eq!(text(r), "Yes");
     assert_eq!(host.log(), vec![]);
+}
+
+// GetUserByObjectId (a guid text and '') and IsGroupMember (two guid texts) on a tier without Entra ID raise the
+// NullReference of the other directory calls (corpus PR 1612, Y93GraphNoDirectory.al GraphQuery_Direct_WithoutDirectory,
+// cells get_user_by_object_id, get_user_by_object_id_empty, is_group_member). Not pinned yet: each call marks the entry.
+#[test]
+fn graph_user_by_object_id_and_is_group_member_raise_the_null_reference() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let host = no_host();
+    take_hits();
+    let r = run(
+        &host,
+        "G: DotNet GraphQuery; U: DotNet UserInfo; s: Text;",
+        "G := G.GraphQuery();
+         asserterror U := G.GetUserByObjectId('00000000-0000-0000-0000-000000000001'); s := GetLastErrorText() + '#' + GetLastErrorCode();
+         asserterror U := G.GetUserByObjectId(''); s += '|' + GetLastErrorText();
+         asserterror if G.IsGroupMember('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002') then; s += '|' + GetLastErrorText() + '#' + GetLastErrorCode();
+         exit(s);",
+        ": Text",
+    );
+    let m = |name: &str| {
+        format!(
+            "A call to Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery.{name} failed with this message: Object reference not set to an instance of an object."
+        )
+    };
+    assert_eq!(
+        text(r),
+        format!(
+            "{}#DotNetInvoke:NullReference|{}|{}#DotNetInvoke:NullReference",
+            m("GetUserByObjectId"),
+            m("GetUserByObjectId"),
+            m("IsGroupMember")
+        )
+    );
+    assert_eq!(take_hits(), vec![Assumption::GraphNoDirectoryMembers]);
+    assert_eq!(host.log(), vec![]);
+}
+
+// Shapes corpus PR 1612 did not measure keep main's refusal: GetUserByObjectId without an argument, IsGroupMember with
+// one.
+#[test]
+fn graph_user_by_object_id_and_is_group_member_refuse_other_argument_shapes() {
+    for body in [
+        "G := G.GraphQuery(); U := G.GetUserByObjectId();",
+        "G := G.GraphQuery(); if G.IsGroupMember('a') then;",
+    ] {
+        let host = no_host();
+        let r = run(&host, "G: DotNet GraphQuery; U: DotNet UserInfo;", body, "");
+        assert!(
+            matches!(r.result, Err(Signal::Unsupported(_))),
+            "{body}: {:?}",
+            r.result
+        );
+    }
+}
+
+// The members ObjectId, AssignedPlans, Roles and Groups of a UserInfo that holds no object (the answer of GetCurrentUser,
+// and a variable never assigned), also as the collection of a foreach, raise DotNetVariableNotCreated naming the member,
+// the codeunit and the procedure (corpus PR 1612, Y93GraphNoDirectory.al UserInfo_FromGetCurrentUser_Members and
+// UserInfo_Unassigned_Members). Not pinned yet: each marks the entry.
+#[test]
+fn members_of_a_null_user_info_raise_variable_not_created() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    for (init, body) in [
+        (
+            "G := G.GraphQuery(); U := G.GetCurrentUser();",
+            "s := Format(U.ObjectId());",
+        ),
+        ("", "s := Format(U.ObjectId());"),
+        ("", "if IsNull(U.AssignedPlans()) then;"),
+        ("", "if IsNull(U.Roles()) then;"),
+        (
+            "G := G.GraphQuery(); U := G.GetCurrentUser();",
+            "if IsNull(U.Groups()) then;",
+        ),
+        ("", "foreach P in U.AssignedPlans() do;"),
+    ] {
+        let host = no_host();
+        take_hits();
+        let r = run(
+            &host,
+            "G: DotNet GraphQuery; U: DotNet UserInfo; P: DotNet ServicePlanInfo; s: Text;",
+            &format!("{init} asserterror begin {body} end; exit(GetLastErrorText() + '#' + GetLastErrorCode());"),
+            ": Text",
+        );
+        let member = ["ObjectId", "AssignedPlans", "Roles", "Groups"]
+            .into_iter()
+            .find(|m| body.contains(&format!("U.{m}(")))
+            .unwrap();
+        assert_eq!(
+            text(r),
+            format!(
+                "A DotNet variable has not been instantiated. Attempting to call Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo.{member} in CodeUnit C: F#DotNetVariableNotCreated"
+            ),
+            "{body}"
+        );
+        assert_eq!(take_hits(), vec![Assumption::GraphNoDirectoryMembers], "{body}");
+        assert_eq!(host.log(), vec![]);
+    }
+}
+
+// Neighbors: another member of a null UserInfo, and one of the four with an argument, keep main's refusal.
+#[test]
+fn other_members_of_a_null_user_info_keep_the_refusal() {
+    for body in ["s := Format(U.DisplayName());", "if IsNull(U.Roles(1)) then;"] {
+        let host = no_host();
+        let r = run(&host, "U: DotNet UserInfo; s: Text;", body, "");
+        assert!(
+            matches!(r.result, Err(Signal::Unsupported(_))),
+            "{body}: {:?}",
+            r.result
+        );
+    }
+}
+
+// The members the static reach walk takes as answer-only (al-testrun `written.rs`): the GraphQuery members and the
+// UserInfo members corpus PR 1612 measures, and the GraphQuery constructor. ServicePlanInfo, RoleInfo and GroupInfo
+// members, unreachable on that tier, and other members are not.
+#[test]
+fn the_graph_members_corpus_pr_1612_measures_are_answer_only() {
+    use al_vm::dotnet::server_classes::answers_only;
+    let (gq, ui) = (
+        al_builtins::dotnet_sigs::GRAPH_QUERY,
+        al_builtins::dotnet_sigs::USER_INFO,
+    );
+    for m in [
+        "GraphQuery",
+        "GetCurrentUser",
+        "GetUserByObjectId",
+        "GetUser",
+        "IsGroupMember",
+        "GetEnvironmentDirectoryGroup",
+    ] {
+        assert!(answers_only(gq, m), "{m}");
+    }
+    for m in ["ObjectId", "AssignedPlans", "Roles", "Groups"] {
+        assert!(answers_only(ui, m), "{m}");
+    }
+    for (t, m) in [
+        (gq, "GetGroupPage"),
+        (gq, "GetTenantDetail"),
+        (ui, "DisplayName"),
+        (
+            "Microsoft.Dynamics.Nav.LicensingService.Model.ServicePlanInfo",
+            "ServicePlanId",
+        ),
+        (
+            "Microsoft.Dynamics.Nav.LicensingService.Model.RoleInfo",
+            "RoleTemplateId",
+        ),
+        ("Microsoft.Dynamics.Nav.LicensingService.Model.GroupInfo", "DisplayName"),
+    ] {
+        assert!(!answers_only(t, m), "{t}.{m}");
+    }
+}
+
+// The walk takes the item members of a foreach over AssignedPlans, Roles or Groups of a UserInfo as answer-only because
+// that body never runs on this tier (corpus PR 1612 cell "ServicePlanInfo/RoleInfo/GroupInfo members: not reachable on
+// this tier"; assumption graph-no-directory-members). The runtime is the backstop: no item member is served, so a call
+// that runs anyway is refused, never answered.
+#[test]
+fn the_items_of_the_unrun_user_info_collections_are_refused_when_called() {
+    use al_vm::dotnet::server_classes::unrun_item_type;
+    let ui = al_builtins::dotnet_sigs::USER_INFO;
+    let model = "Microsoft.Dynamics.Nav.LicensingService.Model.";
+    for (m, item) in [
+        ("AssignedPlans", "ServicePlanInfo"),
+        ("Roles", "RoleInfo"),
+        ("Groups", "GroupInfo"),
+    ] {
+        assert_eq!(unrun_item_type(ui, m), Some(format!("{model}{item}").as_str()), "{m}");
+    }
+    assert_eq!(unrun_item_type(ui, "ObjectId"), None);
+    assert_eq!(unrun_item_type(al_builtins::dotnet_sigs::GRAPH_QUERY, "Roles"), None);
+    for body in [
+        "s := Format(P.ServicePlanId());",
+        "s := P.CapabilityStatus();",
+        "s := P.ServicePlanName();",
+    ] {
+        let host = no_host();
+        let r = run(&host, "P: DotNet ServicePlanInfo; s: Text;", body, "");
+        assert!(
+            matches!(r.result, Err(Signal::Unsupported(_))),
+            "{body}: {:?}",
+            r.result
+        );
+        assert_eq!(host.log(), vec![]);
+    }
 }
 
 // GetTenantDetail answers a TenantInfo, not null, whose InitialDomain, CountryLetterCode and PreferredLanguage are
@@ -4706,25 +4897,34 @@ fn an_azure_ml_with_events_variable_runs_flagged_in_the_shape_of_codeunit_2001()
 /// write) that writes no argument back.
 #[test]
 fn the_members_that_only_answer_are_registered_calls() {
-    use al_vm::dotnet::server_classes::{ANSWERS_ONLY, answers_only, holds_answering_class};
+    use al_vm::dotnet::server_classes::{ANSWERS_ONLY, answers_only};
     let reg = Registry::builtin();
     for (clr, member) in ANSWERS_ONLY {
+        // The UserInfo members are served only on the null UserInfo, where they raise (`not_created.rs`; the
+        // null-UserInfo tests here run them): the class is not registered.
+        if *clr == al_builtins::dotnet_sigs::USER_INFO {
+            continue;
+        }
         let t = reg.get(clr).unwrap_or_else(|| panic!("{clr} is not registered"));
+        // A constructor is listed by the class's short name (`constructor_answers_only`).
+        let kind = if clr.rsplit('.').next() == Some(*member) {
+            MemberKind::Construct
+        } else {
+            MemberKind::Call
+        };
         let m = t
-            .member(member, MemberKind::Call)
-            .unwrap_or_else(|| panic!("{clr}.{member} is not a call"));
-        assert_eq!(m.kind, MemberKind::Call, "{clr}.{member}");
+            .member(member, kind)
+            .unwrap_or_else(|| panic!("{clr}.{member} is not a {kind:?}"));
+        assert_eq!(m.kind, kind, "{clr}.{member}");
         assert!(m.call_ref.is_none(), "{clr}.{member} writes an argument back");
         assert!(
             answers_only(&clr.to_lowercase(), &member.to_uppercase()),
             "{clr}.{member}"
         );
-        assert!(holds_answering_class(clr), "{clr}");
     }
     let helper = al_builtins::dotnet_sigs::TENANT_SETTINGS_HELPER;
     assert!(!answers_only(helper, "IsProduction"));
     assert!(!answers_only(helper, "SetTestTenantEnvironmentType"));
-    assert!(!holds_answering_class("System.Text.StringBuilder"));
 }
 
 /// The wire values of the arguments of the first request of `member`.
@@ -4866,10 +5066,16 @@ fn the_constant_answers_are_registered_calls() {
     let reg = Registry::builtin();
     for (clr, member) in CONSTANT_ANSWERS {
         let t = reg.get(clr).unwrap_or_else(|| panic!("{clr} is not registered"));
+        // A constructor is listed by the class's short name (`constructor_answers_only`).
+        let kind = if clr.rsplit('.').next() == Some(*member) {
+            MemberKind::Construct
+        } else {
+            MemberKind::Call
+        };
         let m = t
-            .member(member, MemberKind::Call)
-            .unwrap_or_else(|| panic!("{clr}.{member} is not a call"));
-        assert_eq!(m.kind, MemberKind::Call, "{clr}.{member}");
+            .member(member, kind)
+            .unwrap_or_else(|| panic!("{clr}.{member} is not a {kind:?}"));
+        assert_eq!(m.kind, kind, "{clr}.{member}");
         assert_eq!(
             m.call_ref.is_some(),
             *member == "TryGetStringTenantSetting",

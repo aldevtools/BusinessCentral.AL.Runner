@@ -112,7 +112,7 @@ fn big_text(s: &str) -> Value {
     use al_builtins::value::LibraryValue;
     Value::Library(
         LibraryKind::BigText,
-        std::rc::Rc::new(std::cell::RefCell::new(LibraryValue::Text(s.to_string()))),
+        std::rc::Rc::new(std::cell::RefCell::new(LibraryValue::Text(s.into()))),
     )
 }
 

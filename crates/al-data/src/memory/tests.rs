@@ -917,7 +917,7 @@ fn exported_rows_import_into_a_store_that_reads_and_writes_like_the_original() {
         (exported[0].company.as_str(), exported[0].object, exported[0].rows.len()),
         ("C", 9, 70)
     );
-    let mut back = MemStore::from_exported(exported);
+    let mut back = MemStore::from_exported(exported, &[], &[]);
     s.rollback();
     for key in 0..2 {
         assert_eq!(
@@ -973,7 +973,7 @@ fn a_backed_store_exports_the_tables_it_holds_and_not_the_backing() {
     assert_eq!(exported.len(), 1);
     assert_eq!(exported[0].rows.len(), 3, "B, C and D");
     // The way back: the same backing, and the held table now says what it said.
-    let back = MemStore::from_exported(exported).with_backing(b);
+    let back = MemStore::from_exported(exported, &[], &[]).with_backing(b);
     assert_eq!(back.count(&cx, &t, &[]).unwrap(), 3);
     assert!(back.get(&cx, &t, &[Value::Code("A".into())]).unwrap().is_none());
     assert!(back.get(&cx, &t, &[Value::Code("D".into())]).unwrap().is_some());
@@ -986,7 +986,7 @@ fn a_deleted_out_backed_table_stays_empty_after_the_way_back() {
     let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
     s.delete_all(&cx, &t, &[]).unwrap();
     s.commit();
-    let back = MemStore::from_exported(s.export_committed().unwrap()).with_backing(b);
+    let back = MemStore::from_exported(s.export_committed().unwrap(), &[], &[]).with_backing(b);
     assert_eq!(back.count(&cx, &t, &[]).unwrap(), 0, "not restored again");
 }
 

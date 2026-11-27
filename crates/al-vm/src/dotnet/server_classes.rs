@@ -18,7 +18,7 @@ use crate::Session;
 use al_builtins::describe::Describe;
 use al_builtins::dotnet_sigs::{
     AKV_PROVIDER, AL_CONFIG_SETTINGS, COPILOT_FUNCTIONS, ENVIRONMENT, GRAPH_QUERY, PERMISSION_TEST_HELPER, TENANT_INFO,
-    TENANT_SETTINGS_HELPER, TEST_EXECUTION, USER_ACCOUNT_HELPER,
+    TENANT_SETTINGS_HELPER, TEST_EXECUTION, USER_ACCOUNT_HELPER, USER_INFO,
 };
 use al_builtins::native::Signal;
 use al_builtins::value::{DotNetKind, DotNetObject, Value};
@@ -32,11 +32,26 @@ type Args<'a> = &'a [Value];
 /// `ALConfigSettings.IsSaaS` flag). A call of one leaves nothing in the session, the store or another object, so the
 /// static reach analysis (al-testrun `written.rs`) counts it apart from code it does not follow. These are the members
 /// System Application's login memos call (Environment Information Impl.`IsSandbox`, Server Setting
-/// Impl.`GetEnableMembershipEntitlement`); a member is added only with the same reading of its implementation.
+/// Impl.`GetEnableMembershipEntitlement`), and the Graph members System Application's Azure AD Plan Impl. reaches on a
+/// tier without Entra ID (corpus PR 1612, Y93GraphNoDirectory.al): the GraphQuery constructor (a new object that holds
+/// nothing, [`graph_query_new`]), its members that answer a constant or null or raise ([`graph_current_user`],
+/// [`graph_directory_group`], [`graph_user`], [`graph_user_by_object_id`], [`graph_is_group_member`]), and the UserInfo
+/// members that raise on the null UserInfo (`not_created.rs`). A member is added only with the same reading of its
+/// implementation.
 pub const ANSWERS_ONLY: &[(&str, &str)] = &[
     (TENANT_SETTINGS_HELPER, "IsSandbox"),
     (AL_CONFIG_SETTINGS, "Instance"),
     (AL_CONFIG_SETTINGS, "IsSaaS"),
+    (GRAPH_QUERY, "GraphQuery"),
+    (GRAPH_QUERY, "GetCurrentUser"),
+    (GRAPH_QUERY, "GetUserByObjectId"),
+    (GRAPH_QUERY, "GetUser"),
+    (GRAPH_QUERY, "IsGroupMember"),
+    (GRAPH_QUERY, "GetEnvironmentDirectoryGroup"),
+    (USER_INFO, "ObjectId"),
+    (USER_INFO, "AssignedPlans"),
+    (USER_INFO, "Roles"),
+    (USER_INFO, "Groups"),
 ];
 
 /// The members, (CLR type, member), whose implementation here answers with a constant or the host identity and keeps
@@ -80,6 +95,49 @@ pub fn answers_only(clr_type: &str, member: &str) -> bool {
     listed(ANSWERS_ONLY, clr_type, member)
 }
 
+/// Whether the constructor of `clr_type` is one of [`ANSWERS_ONLY`]: the registry names a constructor by the class's
+/// short name (`GraphQuery`).
+pub fn constructor_answers_only(clr_type: &str) -> bool {
+    answers_only(clr_type, clr_type.rsplit('.').next().unwrap_or(clr_type))
+}
+
+/// The UserInfo collections (member, CLR type of an item) whose read raises on a tier without Entra ID: the UserInfo
+/// is null there (`GetCurrentUser` answers null, `GetUser` and `GetUserByObjectId` raise), so reading one raises
+/// DotNetVariableNotCreated (`not_created.rs`) and the body of a `foreach` over it never runs (corpus PR 1612, merged, not in the pin,
+/// Y93GraphNoDirectory.al header "Facts" line "ServicePlanInfo / RoleInfo / GroupInfo members cannot be reached on this
+/// tier", cells foreach_assigned_plans, foreach_roles, foreach_groups; assumption graph-no-directory-members). No item
+/// member is served: a body that runs anyway raises `Signal::Unsupported`.
+const UNRUN_ITEMS: &[(&str, &str)] = &[
+    (
+        "AssignedPlans",
+        "Microsoft.Dynamics.Nav.LicensingService.Model.ServicePlanInfo",
+    ),
+    ("Roles", "Microsoft.Dynamics.Nav.LicensingService.Model.RoleInfo"),
+    ("Groups", "Microsoft.Dynamics.Nav.LicensingService.Model.GroupInfo"),
+];
+
+/// The CLR type of an item of `member` of `clr_type` when that member is one of [`UNRUN_ITEMS`] of [`USER_INFO`]
+/// (both without regard to case): the body of a `foreach` over it never runs on this tier.
+pub fn unrun_item_type(clr_type: &str, member: &str) -> Option<&'static str> {
+    let item = (UNRUN_ITEMS.iter()).find(|(m, _)| m.eq_ignore_ascii_case(member));
+    item.filter(|_| clr_type.eq_ignore_ascii_case(USER_INFO))
+        .map(|(_, t)| *t)
+}
+
+/// The GraphQuery members whose UserInfo is null on this tier, on a GraphQuery the no-argument constructor built:
+/// `GetCurrentUser` answers null, `GetUser` and `GetUserByObjectId` raise (corpus PR 1612, Y93GraphNoDirectory.al cells
+/// get_user_by_object_id, UserInfo_FromGetCurrentUser_Members; assumption graph-no-directory-members).
+const NULL_USER_MEMBERS: &[(&str, &str)] = &[
+    (GRAPH_QUERY, "GetCurrentUser"),
+    (GRAPH_QUERY, "GetUser"),
+    (GRAPH_QUERY, "GetUserByObjectId"),
+];
+
+/// Whether `member` of `clr_type` (both without regard to case) is one of [`NULL_USER_MEMBERS`].
+pub fn null_user_member(clr_type: &str, member: &str) -> bool {
+    listed(NULL_USER_MEMBERS, clr_type, member)
+}
+
 /// Whether `list` holds (`clr_type`, `member`), both without regard to case.
 fn listed(list: &[(&str, &str)], clr_type: &str, member: &str) -> bool {
     (list.iter()).any(|(t, m)| t.eq_ignore_ascii_case(clr_type) && m.eq_ignore_ascii_case(member))
@@ -89,12 +147,6 @@ fn listed(list: &[(&str, &str)], clr_type: &str, member: &str) -> bool {
 /// implementation here keeps nothing (al-vm `install_footprint.rs`).
 pub fn keeps_nothing(clr_type: &str, member: &str) -> bool {
     answers_only(clr_type, member) || listed(CONSTANT_ANSWERS, clr_type, member)
-}
-
-/// Whether a variable of the declared CLR type `clr_type` can only hold an object of a class served here whose members
-/// include one of [`ANSWERS_ONLY`]: the variable itself changes nothing; each member called on it counts on its own.
-pub fn holds_answering_class(clr_type: &str) -> bool {
-    (ANSWERS_ONLY.iter()).any(|(t, _)| t.eq_ignore_ascii_case(clr_type))
 }
 
 fn no_args(args: Args, what: &str) -> Result<(), Signal> {
@@ -733,6 +785,9 @@ fn member_ref(name: &str, pin: Pin, f: MemberRefFn) -> RegistryMember {
 const GRAPH_PIN: &str =
     "probe tests/al-language-onprem/session-system/PXAzureAdGraph.al:1-12,86-109 (corpus branch al-runtime-rs-staging)";
 
+/// The cells of corpus PR 1612 (merged on corpus master, not in the pin): every run marks the assumption `graph-no-directory-members`.
+const GRAPH_1612_PIN: &str = "probe tests/al-language-onprem-dotnet/dotnet/graph-mock/Y93GraphNoDirectory.al (corpus PR 1612, merged, not in the pin; assumption graph-no-directory-members)";
+
 fn graph_query_new(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "GraphQuery constructor")?;
     Ok(Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
@@ -798,6 +853,44 @@ const TENANT_INFO_PIN: &str = "session-system/TestEnvironmentUserTenantContracts
 fn tenant_info_empty_text(_: &mut Session, _: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
     no_args(args, "TenantInfo member")?;
     Ok(Value::Text(String::new().into()))
+}
+
+/// Whether `this` is a GraphQuery that [`graph_query_new`] built: corpus PR 1612 measures its members only on such a
+/// receiver (Y93GraphNoDirectory.al, GraphQuery_Direct_WithoutDirectory calls `GraphQuery.GraphQuery()` first). A null
+/// receiver is not measured and refuses. No other GraphQuery constructor is served, so the type name names that object.
+fn built_graph_query(this: Option<&Rc<DotNetObject>>, member: &str) -> Result<(), Signal> {
+    match this.map(|o| &o.kind) {
+        Some(DotNetKind::Internal { type_name, .. }) if type_name == GRAPH_QUERY => Ok(()),
+        _ => Err(Signal::unsupported(format!(
+            "GraphQuery.{member} on a GraphQuery the no-argument constructor did not build (corpus PR 1612 measures only that receiver)"
+        ))),
+    }
+}
+
+/// Corpus PR 1612 (merged, not in the pin), Y93GraphNoDirectory.al cells get_user_by_object_id and get_user_by_object_id_empty: one Text
+/// argument (a guid, or '') on a GraphQuery [`graph_query_new`] built; other shapes refuse.
+fn graph_user_by_object_id(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    built_graph_query(this, "GetUserByObjectId")?;
+    let [Value::Text(_)] = args else {
+        return Err(Signal::unsupported(
+            "GraphQuery.GetUserByObjectId with arguments other than one Text (corpus PR 1612 measures one Text)",
+        ));
+    };
+    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GraphNoDirectoryMembers);
+    graph_null_reference("GetUserByObjectId")
+}
+
+/// Corpus PR 1612 (merged, not in the pin), Y93GraphNoDirectory.al cell is_group_member: two Text arguments on a GraphQuery
+/// [`graph_query_new`] built; other shapes refuse.
+fn graph_is_group_member(_: &mut Session, this: Option<&Rc<DotNetObject>>, args: Args) -> Result<Value, Signal> {
+    built_graph_query(this, "IsGroupMember")?;
+    let [Value::Text(_), Value::Text(_)] = args else {
+        return Err(Signal::unsupported(
+            "GraphQuery.IsGroupMember with arguments other than two Text (corpus PR 1612 measures two Text)",
+        ));
+    };
+    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::GraphNoDirectoryMembers);
+    graph_null_reference("IsGroupMember")
 }
 
 fn graph_user(_: &mut Session, _: Option<&Rc<DotNetObject>>, _: Args) -> Result<Value, Signal> {
@@ -1048,6 +1141,12 @@ fn own_types() -> Vec<RegistryType> {
                     g("GetGroupInfo", graph_group_info),
                     g("FindFirstGroupInfoForDisplayName", graph_first_group),
                     g("GetUser", graph_user),
+                    member(
+                        "GetUserByObjectId",
+                        Pin::Probe(GRAPH_1612_PIN.into()),
+                        graph_user_by_object_id,
+                    ),
+                    member("IsGroupMember", Pin::Probe(GRAPH_1612_PIN.into()), graph_is_group_member),
                     member(
                         "GetTenantDetail",
                         Pin::Corpus(TENANT_INFO_PIN.into()),

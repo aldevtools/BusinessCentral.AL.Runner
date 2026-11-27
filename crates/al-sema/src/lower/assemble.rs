@@ -1001,7 +1001,7 @@ pub(crate) fn lower_core(
             .cloned()
             .collect(),
         pos_ranges: Vec::new(),
-        checker_diags: checked.from_checker.clone(),
+        checker_diags: sorted_diagnostics(&checked.from_checker),
         skipped: checked.skipped.clone(),
         left_out: (0..ws.objects.len()).map(|oi| checked.is_left_out(oi)).collect(),
         tdd_sites,
@@ -2642,4 +2642,74 @@ fn with_request_page_slots(
         }
     }
     slots
+}
+
+/// The checker's diagnostics in one order: the demand threads report them in the order they finish, and a compile must
+/// be deterministic (ADR-022 decision 5; the workspace layer's equality test found two fresh compiles of the corpus that
+/// differed here). A stable sort by position: two findings at one position keep the order the check found them in, as in
+/// `CheckResult::diagnostics`.
+fn sorted_diagnostics(d: &[crate::workspace::Diagnostic]) -> Vec<crate::workspace::Diagnostic> {
+    let mut d = d.to_vec();
+    d.sort_by(|a, b| (&a.file, a.app, a.offset).cmp(&(&b.file, b.app, b.offset)));
+    d
+}
+
+#[cfg(test)]
+mod sorted_diagnostics_tests {
+    use super::sorted_diagnostics;
+    use crate::workspace::Diagnostic;
+
+    fn d(file: &str, app: usize, offset: usize, code: &'static str) -> Diagnostic {
+        Diagnostic {
+            file: file.into(),
+            app,
+            offset,
+            code,
+            message: format!("{code} at {offset}"),
+        }
+    }
+
+    fn sites(v: &[Diagnostic]) -> Vec<(usize, &str, usize, &'static str)> {
+        v.iter().map(Diagnostic::site).collect()
+    }
+
+    /// The demand threads report in the order they finish; the findings at one position come from the one thread that
+    /// checks its object, in the check's order. Each order of the threads gives one order of the findings, and the same
+    /// set: two findings at one position (AL0118 and AL0133 at offset 40 of b.al) stay in the check's order.
+    #[test]
+    fn every_order_of_the_threads_gives_one_order_and_the_same_findings() {
+        let thread_a = vec![d("a.al", 0, 90, "AL0118"), d("a.al", 0, 10, "AL0132")];
+        let thread_b = vec![
+            d("b.al", 0, 40, "AL0118"),
+            d("b.al", 0, 40, "AL0133"),
+            d("b.al", 1, 5, "AL0185"),
+        ];
+        let a_first: Vec<Diagnostic> = thread_a.iter().chain(&thread_b).cloned().collect();
+        let b_first: Vec<Diagnostic> = thread_b.iter().chain(&thread_a).cloned().collect();
+        let interleaved = vec![
+            thread_b[0].clone(),
+            thread_a[0].clone(),
+            thread_b[1].clone(),
+            thread_a[1].clone(),
+            thread_b[2].clone(),
+        ];
+        let want = vec![
+            ("a.al", 0, 10, "AL0132"),
+            ("a.al", 0, 90, "AL0118"),
+            ("b.al", 0, 40, "AL0118"),
+            ("b.al", 0, 40, "AL0133"),
+            ("b.al", 1, 5, "AL0185"),
+        ]
+        .into_iter()
+        .map(|(f, a, o, c)| (a, f, o, c))
+        .collect::<Vec<_>>();
+        for arrived in [a_first, b_first, interleaved] {
+            let sorted = sorted_diagnostics(&arrived);
+            assert_eq!(sites(&sorted), want, "from {:?}", sites(&arrived));
+            let (mut x, mut y) = (sites(&sorted), sites(&arrived));
+            x.sort();
+            y.sort();
+            assert_eq!(x, y, "the same findings");
+        }
+    }
 }

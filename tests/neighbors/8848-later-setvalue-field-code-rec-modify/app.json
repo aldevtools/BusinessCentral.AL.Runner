@@ -1,0 +1,13 @@
+{
+  "id": "381796d8-9d1b-432a-820b-2a372033ca16",
+  "name": "Neighbors 8848 and 8849 a later SetValue on a field with code, Rec modified after the save",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 96696, "to": 96744 }
+  ],
+  "dependencies": []
+}

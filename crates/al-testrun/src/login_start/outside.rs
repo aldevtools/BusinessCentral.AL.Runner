@@ -36,7 +36,7 @@
 //!   `field messages`, `field captured`, `field traces`, `field stubbed`, `field ui_answered`, `field cells`,
 //!   `field slept`, `field skipped`, `field entered`, `field run_only`, `field hub_leg`, `field leak`,
 //!   `field leak_hits`, `field onrun_carry`, `field read_tables`, `field discovery`, `field on_run_rows`,
-//!   `field report_unpinned_errors`, `field skip_after_timeout`, `field stop_after_first_failure`, `field runner`,
+//!   `field report_unpinned_errors`, `field skip_after_timeout`, `field stop`, `field stop_trigger`, `field runner`,
 //!   `field watch`, `field singles_past_stop`, `field singles_out`, `field unfinished_after_start`,
 //!   `field refused_mid_run`, `field test_panicked`, `field unfinished_at`, `field order_hints`: after (what to
 //!   capture, the runner codeunit, the single instance watch, the carries and the leak are taken after the open; the
@@ -78,6 +78,8 @@
 //!   new session, so a login that started a sidecar has no start).
 //! - `crates/al-testrun/src/compile_cache.rs` `static COUNTER`, `static HASH`, `static PINNED_EXECUTABLE`: run (the compile
 //!   cache's file counter, the hash of the runner's own build and the executable it is read from).
+//! - `crates/al-testrun/src/workspace_cache.rs` `static DEFERRED`, `static WRITERS`: run (the workspace layer's entries
+//!   a compile made, written after the results or the response, and the threads writing them; no session reads them).
 //! - `crates/al-testrun/src/crash.rs` `static RUNNING`, `static PREVIOUS`, `static INSTALL`, `static TOLD`: run (the crash
 //!   handler's note of the codeunit that runs and its signal state).
 //! - `crates/al-testrun/src/login_replay.rs` `static NEXT`: run (the numbers a backing that does not say who it is gets,

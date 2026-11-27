@@ -1,0 +1,23 @@
+{
+  "id": "4b8e2f6a-9c3d-4e21-8a7f-896400000003",
+  "name": "Neighbors fix-8964 single instance",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [
+    {
+      "from": 69160,
+      "to": 69163
+    },
+    {
+      "from": 86270,
+      "to": 86270
+    },
+    {
+      "from": 86310,
+      "to": 86430
+    }
+  ],
+  "dependencies": []
+}

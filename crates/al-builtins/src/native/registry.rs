@@ -396,7 +396,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         let text = crate::format::format_guid(g);
         Ok(Value::Library(
             crate::library_kind::LibraryKind::Media,
-            std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Text(text))),
+            std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Text(text.into()))),
         ))
     }),
     // The routine that created this InStream on its own local hands it back and ends: it reads as empty

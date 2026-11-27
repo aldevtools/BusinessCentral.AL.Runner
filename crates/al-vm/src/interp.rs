@@ -146,6 +146,7 @@ impl Session {
         }
         for (a, slot) in args.iter().zip(values.iter_mut()) {
             if let ir::Arg::Ref(p) = a {
+                self.note_by_ref_write(p, f)?;
                 let v = std::mem::replace(slot, Value::Null);
                 self.native_arg_back(p, v, id, class, f)?;
             }
@@ -621,9 +622,9 @@ impl Session {
             B::Eq => Value::Boolean(ops::equal_operator(l, r)?),
             B::Ne => Value::Boolean(ops::compare_operator(l, r, false)? != Ordering::Equal),
             B::Lt => Value::Boolean(ops::compare_operator(l, r, true)? == Ordering::Less),
-            B::Le => Value::Boolean(ops::compare_operator(l, r, true)? != Ordering::Greater),
+            B::Le => Value::Boolean(ops::compare_operator_or_equal(l, r)? != Ordering::Greater),
             B::Gt => Value::Boolean(ops::compare_operator(l, r, true)? == Ordering::Greater),
-            B::Ge => Value::Boolean(ops::compare_operator(l, r, true)? != Ordering::Less),
+            B::Ge => Value::Boolean(ops::compare_operator_or_equal(l, r)? != Ordering::Less),
             B::DotNetEq => Value::Boolean(dotnet::dotnet_equal(l, r)?),
             B::DotNetNe => Value::Boolean(!dotnet::dotnet_equal(l, r)?),
             B::DotNetLt => Value::Boolean(dotnet::dotnet_order(l, r)? == Ordering::Less),
@@ -827,8 +828,8 @@ impl Session {
                             _ => None,
                         }
                     });
-                    if let (crate::records::ProcXrec::PlainUnpinned, Some(Some(x))) = (&proc_xrec, &plain) {
-                        x.borrow_mut().unpinned_buffer = Some(crate::records::XREC_OF_RUNNING_CALL);
+                    if let (crate::records::ProcXrec::PlainUnpinned(mark), Some(Some(x))) = (&proc_xrec, &plain) {
+                        x.borrow_mut().unpinned_buffer = Some(mark);
                     }
                     let pushed = if let Some(Some(x)) = plain {
                         self.plain_proc_xrec.push((handle, self.call_stack.len() + 1, x));
@@ -1659,6 +1660,7 @@ impl Session {
                 {
                     return Err(Signal::unsupported(why));
                 }
+                self.note_insert_value_read(&rc, &r, *pos);
                 if r.load.partial {
                     // A Blob counts as loaded (partial.rs `AreFieldsLoaded`), and a FlowField is no column of the row: their
                     // reads load nothing else (P81LoadFields.al:664-689 CalcFields_OnNotLoadedFlowAndBlob `loaded_qty` No).
@@ -1869,9 +1871,14 @@ impl Session {
                         // The row version comes over with the fields, and where it came from (record/crud/
                         // Y76StaleBuffers.al Y76_Part1_FindSet_Assign, `assign/*`).
                         let row_origin = src.borrow().row_origin;
+                        let entry = src
+                            .borrow()
+                            .version_entry
+                            .carried(al_builtins::value::VersionVia::Assigned);
                         let mut d = dst.borrow_mut();
                         self.replace_record_fields(&dst, &mut d, fields.into());
                         d.row_origin = row_origin;
+                        d.version_entry = entry;
                         d.own_read = Default::default();
                         d.rolled_read = Default::default();
                         d.probed_source = crate::blob_transfer::assigned(&d, &src.borrow(), self.commits);

@@ -38,7 +38,7 @@ impl CorpusRuntime {
     ) -> Result<Result<Compiled, CorpusRuntime>, String> {
         let Some(mut watch) = super::memory::CompileWatch::start(opts.memory.as_ref()) else {
             return Self::compile_suites_with(apps, kinds, manifests, symbols, target, suites, opts, lean, grow)
-                .map(Compiled::for_one_run)
+                .map(goes_on)
                 .map(Ok);
         };
         let started = std::time::Instant::now();
@@ -65,20 +65,18 @@ impl CorpusRuntime {
         drop(pool);
         let message = watch.stop();
         match (compiled, message) {
-            (Ok(compiled), None) => compiled.map(Compiled::for_one_run).map(Ok),
-            // Stopped at the limit, or passed it after the compile's last check: the run does not go on.
+            (Ok(compiled), None) => compiled.map(goes_on).map(Ok),
+            // Stopped at the limit, or passed it after the compile's last check: the run does not go on, and the
+            // workspace layer writes no entry of the compile (its store goes with it, ADR-022 amendment 2026-11-15,
+            // decision 6): the next run of the same inputs compiles as this one did. The compile ended, so the memory
+            // report says what the process held after it (`MemoryReport::after_compile`), as a run that goes on does.
             (Ok(compiled), Some(message)) => {
                 if let Ok(c) = compiled {
                     retire(c);
                 }
-                Ok(Err(halted(
-                    tests,
-                    suites,
-                    opts,
-                    watch.reason(),
-                    message,
-                    started.elapsed(),
-                )))
+                let mut rt = halted(tests, suites, opts, watch.reason(), message, started.elapsed());
+                rt.phases.memory.read_after_compile(opts.memory.as_ref());
+                Ok(Err(rt))
             }
             // The stop unwinds the compile (`al_sema::halt::Halted`, or the panic of a scoped thread that carried it).
             (Err(_), Some(message)) => Ok(Err(halted(
@@ -92,6 +90,12 @@ impl CorpusRuntime {
             (Err(payload), _) => std::panic::resume_unwind(payload),
         }
     }
+}
+
+/// The compile the run goes on with: the workspace layer writes its entry ([`super::workspace_layer::Store::go_on`]).
+fn goes_on((mut c, store): (Compiled, super::workspace_layer::Store)) -> Compiled {
+    store.go_on(&mut c);
+    c.for_one_run()
 }
 
 /// One test a stopped compile reports: suite, app, codeunit id and name, test name.

@@ -234,6 +234,8 @@ pub(crate) enum Op {
         d: u16,
         a: u16,
         t: u32,
+        /// The slot of a Date, Time or DateTime variable that takes the value (`fieldref_value_temporal`); None otherwise.
+        slot: Option<al_builtins::fieldref_value_temporal::TemporalSlot>,
     },
     Jump {
         t: u32,

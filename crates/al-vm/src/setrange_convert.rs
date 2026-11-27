@@ -6,8 +6,9 @@
 //! (recordref-fieldref/fieldref/SrcSetRangeConvert.al, SrcFilterConvertKinds.al, not yet pinned: assumption
 //! setrange-other-type-convert). A value of a pair of types those cells measure is refused in a shape or of a size they do
 //! not measure; a cell that passes on the conversion `setrange_filter` and the filter parser give keeps it in the measured
-//! shape only (through the same assumption), unless a pin or another assumption covers every shape (`Cell::MainEveryShape`). A pair of types they do not
-//! measure keeps that conversion.
+//! shape only (through the same assumption), unless a pin or another assumption covers every shape (`Cell::MainEveryShape`). A Boolean
+//! into a Code or Text field has its own entry (al-runner issues 9026 and 9205, assumption setrange-bool-into-text). A pair of
+//! types they do not measure keeps that conversion.
 
 use crate::Session;
 use al_builtins::assumptions::{Assumption, assume};
@@ -18,6 +19,9 @@ use al_builtins::value::{LibraryValue, RecordState, RtType, Value};
 use rust_decimal::Decimal;
 use std::cell::RefCell;
 use std::rc::Rc;
+
+/// The entry of the cells of corpus PR 1552.
+const ENTRY: Assumption = Assumption::SetRangeOtherTypeConvert;
 
 /// How the values of a call are written (al-sema `setrange_written`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,15 +67,19 @@ pub(crate) enum Call {
 enum Cell {
     /// BC converts it into this value or raises this error, where main's conversion gives another answer.
     Convert(Result<Value, Signal>),
-    /// BC gives what main's conversion gives (the cell passes on main) in the shape the cells measure, through the entry
-    /// setrange-other-type-convert; refused in another.
-    Main,
+    /// BC gives what main's conversion gives (the cell passes on main) in the shape the cells measure, through this entry
+    /// (setrange-other-type-convert, or setrange-bool-into-text for a Boolean into a Code or Text field); refused in another.
+    Main(Assumption),
     /// Main's answer, pinned in the measured shape of this call: run there without the flag; refused in another.
     MainPinned,
     /// Main's conversion in every shape: pinned there, or run through another assumption entry.
     MainEveryShape,
+    /// BC raises this error in the shape the cells of this entry measure; refused in another.
+    Raise(Assumption, Signal),
     /// A value of a pair the probe measures, but not this value: refused.
     Unmeasured,
+    /// A value of the pair of this entry that its cells do not measure: refused, the message names this entry.
+    Refused(Assumption),
 }
 
 /// The measured calls: the routes of the probe (a, aLit, c: typed SetRange; b: Variant SetRange; d1, d2: a Variant and a typed
@@ -177,17 +185,33 @@ impl Session {
             match self.setrange_cell(v, &f.ty, at) {
                 None | Some(Cell::MainEveryShape) => {}
                 // Main's answer, measured by the open probe alone.
-                Some(Cell::Main) if measured() => assume(Assumption::SetRangeOtherTypeConvert),
+                Some(Cell::Main(entry)) if measured() => assume(entry),
                 Some(Cell::MainPinned) if measured() => {}
                 Some(Cell::Convert(converted)) if measured() => {
                     assume(Assumption::SetRangeOtherTypeConvert);
                     *v = converted?;
                 }
-                Some(Cell::Main | Cell::MainPinned | Cell::Convert(_) | Cell::Unmeasured) => {
+                Some(Cell::Raise(entry, e)) if measured() => {
+                    assume(entry);
+                    return Err(e);
+                }
+                Some(
+                    cell @ (Cell::Main(_)
+                    | Cell::MainPinned
+                    | Cell::Convert(_)
+                    | Cell::Raise(..)
+                    | Cell::Unmeasured
+                    | Cell::Refused(_)),
+                ) => {
+                    let entry = match cell {
+                        Cell::Refused(entry) | Cell::Main(entry) | Cell::Raise(entry, _) => entry,
+                        _ => ENTRY,
+                    };
                     return Err(Signal::unsupported(format!(
-                        "SetRange or SetFilter of {} into a {} field in a shape no cell measures (assumption setrange-other-type-convert)",
+                        "SetRange or SetFilter of {} into a {} field in a shape no cell measures (assumption {})",
                         v.describe(),
-                        f.ty.describe()
+                        f.ty.describe(),
+                        entry.info().id
                     )));
                 }
             }
@@ -204,12 +228,11 @@ impl Session {
             _ => None,
         };
         match ty {
-            // SrcFilterConvertKinds.al:452-686 (Int5_Cod .. DecNeg125_Txt): the Format text, `1,000.5` and `-1.25` too; true is
-            // Yes (BoolTrue_Cod, BoolTrue_Txt: main's answer).
+            // SrcFilterConvertKinds.al:452-686 (Int5_Cod .. DecNeg125_Txt): the Format text, `1,000.5` and `-1.25` too; a Boolean
+            // has its own evidence (`bool_into_text`).
             RtType::Code(_) | RtType::Text(_) => match v {
                 Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) => Some(number_into_text(v, ty, self)),
-                Value::Boolean(true) => Some(Cell::Main),
-                Value::Boolean(false) => Some(Cell::Unmeasured),
+                Value::Boolean(b) => Some(bool_into_text(*b, ty)),
                 _ => None,
             },
             // SrcFilterConvertKinds.al:729-1381 (CodeABC_Int .. TxtEmpty_Dec, Code1000_Int, Code1000_Big); digits (Code123_Int,
@@ -229,7 +252,7 @@ impl Session {
                 } else if decimal && matches!(v, Value::Text(t) if t.as_str() == "1.5") && variant_setrange(at) {
                     Cell::MainPinned
                 } else if decimal && (digits(s) || decimal_point(s) || one_group(s)) {
-                    Cell::Main
+                    Cell::Main(ENTRY)
                 } else {
                     Cell::Unmeasured
                 })
@@ -279,7 +302,7 @@ impl Session {
                 return Some(Cell::Unmeasured);
             }
             // Date_DT, DateZero_DT: that day at midnight, main's answer.
-            Value::Date(..) if matches!(ty, RtType::DateTime) => return Some(Cell::Main),
+            Value::Date(..) if matches!(ty, RtType::DateTime) => return Some(Cell::Main(ENTRY)),
             // SrcSetRangeConvert.al Date_T, Time_D, DT_D, DT_T and the undefined values (DateZero_T, TimeZero_D, TimeZero_DT,
             // DTZero_D, DTZero_T): the same on every major.
             Value::Date(0, false) if matches!(ty, RtType::Time) => return Some(Cell::Convert(Ok(Value::Time(0)))),
@@ -344,8 +367,8 @@ fn guid_cell(s: &str, at: CellAt, from28: bool) -> Cell {
     let hex32 = || al_builtins::ops::parse_guid_without_hyphens(s).is_some();
     match (at.call, at.written) {
         (_, Some(Written::Variant)) if !s.is_empty() => Cell::Convert(Err(variant_guid_error(s, from28))),
-        (Call::FieldRefSetRange, Some(Written::Typed)) if !s.is_empty() => Cell::Main,
-        (Call::FieldRefSetFilter, Some(Written::Typed)) if guid() => Cell::Main,
+        (Call::FieldRefSetRange, Some(Written::Typed)) if !s.is_empty() => Cell::Main(ENTRY),
+        (Call::FieldRefSetFilter, Some(Written::Typed)) if guid() => Cell::Main(ENTRY),
         (Call::FieldRefSetFilter, Some(Written::Typed)) if hex32() => Cell::Unmeasured,
         (Call::FieldRefSetFilter, Some(Written::Typed)) if letters(s) || digits(s) => {
             Cell::Convert(al_builtins::native::invalid_guid_format())
@@ -374,6 +397,30 @@ fn number_into_text(v: &Value, ty: &RtType, ctx: &Session) -> Cell {
         Some(Err(e)) => Cell::Convert(Err(e)),
         None => Cell::Unmeasured,
     }
+}
+
+/// A Boolean `b` into a Code or Text field `ty`, through the entry setrange-bool-into-text, on every route of `measured_call`
+/// (the same on the Business Central majors 27, 28 and 29): the Format text when it fits the field, `NO` / `YES` in a Code field
+/// and `No` / `Yes` in a Text field (the earlier conversion); a field shorter than the Format text raises the string-length error
+/// with the Format text, not upper case in a Code field. Corpus PR 1575, SrcFilterBoolIntoText.al:262-629 (BoolFalse_Cod ..
+/// BoolTrue_Txt2048: false into Code[1, 2, 3, 10, 20, 50, 250] and Text[1, 2, 3, 50, 100, 2048], true into Code[1, 2, 3, 10, 50,
+/// 250] and Text[1, 2, 3, 100, 2048]), and corpus PR 1552 (SrcFilterConvertKinds.al BoolTrue_Cod, BoolTrue_Txt: true into
+/// Code[20] and Text[50]). The cells measure both sides of the boundary for each value and kind (length 1 and 2 against 3 for
+/// `Yes`, length 1 against 2 for `No`) and lengths up to 250 (Code) and 2048 (Text), so the rule serves every field length.
+fn bool_into_text(b: bool, ty: &RtType) -> Cell {
+    let entry = Assumption::SetRangeBoolIntoText;
+    let (RtType::Code(Some(len)) | RtType::Text(Some(len))) = ty else {
+        return Cell::Refused(entry);
+    };
+    let format = if b { "Yes" } else { "No" };
+    if format.len() <= *len as usize {
+        return Cell::Main(entry);
+    }
+    // `string_length_error` raises for every length it is given.
+    Cell::Raise(
+        entry,
+        al_builtins::ops::string_length_error::<()>(format, *len).unwrap_err(),
+    )
 }
 
 /// A text the probe measures as no number of the field's type: letters, empty, and, into an Integer or BigInteger field, digits

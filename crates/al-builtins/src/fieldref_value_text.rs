@@ -92,35 +92,3 @@ pub fn fieldref_value_into_blob(
         Err(e) => Err(Signal::unsupported(e)),
     })
 }
-
-/// A `FieldRef.Value()` of an Integer, BigInteger, Decimal, Duration or Boolean field assigned to a DateTime, Date or
-/// Time `var` parameter (al-vm `Compiler::assign`): an error, the variable keeps its value. From BC 28 (`from28`,
-/// the gate FieldRefTextNumberEvaluateErrorFrom28) the Evaluate error of the value's text, code Evaluate:Conversion; in BC 27
-/// `Unable to convert from Microsoft.Dynamics.Nav.Runtime.Nav<Type> to System.DateTime.`, code Conversion, for all three targets.
-/// Measured cells only (assumption fieldref-value-temporal-error, corpus PR 1511, recordref-fieldref/fieldref-value-convert/
-/// FvcIntegerField.al, FvcBigIntegerField.al, FvcOtherFields.al): an Integer or BigInteger into each target, written as its
-/// digits (`1000`, `2147483647`, `3000000000`); a Decimal of exactly 1.5, a Duration of exactly 65000 ms (`1 minute 5 seconds`)
-/// and a Boolean (`Yes`, `No`) into a DateTime. Every other Decimal or Duration value is not measured. `None`: any other
-/// value or target.
-pub fn fieldref_value_into_temporal(
-    v: &Value,
-    t: &RtType,
-    from28: bool,
-    ctx: &dyn crate::format::FormatCtx,
-) -> Option<Result<Value, Signal>> {
-    let text = match (v, t) {
-        (Value::Integer(n), RtType::DateTime | RtType::Date | RtType::Time) => n.to_string(),
-        (Value::BigInteger(n), RtType::DateTime | RtType::Date | RtType::Time) => n.to_string(),
-        (Value::Decimal(d), RtType::DateTime) if *d == rust_decimal::Decimal::new(15, 1) => {
-            crate::format::try_format(v, 0, 0, ctx).ok()?
-        }
-        (Value::Duration(ms), RtType::DateTime) if *ms == 65000 => crate::format::try_format(v, 0, 0, ctx).ok()?,
-        (Value::Boolean(_), RtType::DateTime) => crate::format::try_format(v, 0, 0, ctx).ok()?,
-        _ => return None,
-    };
-    let nav = crate::fieldref_variant_cells::nav_of(v)?;
-    crate::assumptions::assume(crate::assumptions::Assumption::FieldRefValueTemporalError);
-    Some(Err(crate::fieldref_variant_cells::temporal_value_error(
-        nav, &text, t, from28,
-    )))
-}

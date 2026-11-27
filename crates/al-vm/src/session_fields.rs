@@ -40,7 +40,8 @@
 //! - emptied marks (`MemStore::committed_marks`): session.
 //! - company copies (`committed_copies`): follows, `restore_baseline` puts them back from `full_copies` (plain).
 //! - deleted companies (`committed_dropped_backed_companies`, in `MemStore::committed_marks`): session; the image takes
-//!   no login that changes them (al-data `committed_row_changes_from`), and the base shape holds them.
+//!   no login that changes them (al-data `committed_row_changes_from`), and the base shape holds them; a baseline's
+//!   bytes and its frozen copy carry them (issue 9233, `MemStore::committed_deleted_companies`).
 //! - held columns (`unknown_cols`, `accent_cols`, `ae_cols`): follows, `MemStore::from_exported` notes every row
 //!   (test `baseline::tests::a_baseline_read_back_from_bytes_refuses_what_the_captured_one_refuses`).
 //! - stamps, `moves`, `shapes`, the read caches: run (a stamp only says whether a table changed, and the facts that
@@ -296,6 +297,8 @@ macro_rules! session_fields {
                 validate_site => |s: &Session| s.validate_site.is_none(),
                 validate_sites => |s: &Session| s.validate_sites.is_empty(),
                 plain_proc_xrec => |s: &Session| s.plain_proc_xrec.is_empty(),
+                ext_xrec_triggers => |s: &Session| s.ext_xrec_triggers == 0,
+                ext_before_watch => |s: &Session| s.ext_before_watch.borrow().is_empty(),
                 shared_proc_xrec => |s: &Session| s.shared_proc_xrec.is_empty(),
                 iface_frames => |s: &Session| s.iface_frames.is_empty(),
                 field_error_form => |s: &Session| s.field_error_form.is_none(),
