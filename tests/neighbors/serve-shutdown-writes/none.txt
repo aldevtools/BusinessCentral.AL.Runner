@@ -1,0 +1,1 @@
+No AL code sees it: serve now waits for its pending workspace cache write before the shutdown reply and on SIGTERM/SIGINT; a cache hit and a miss give the same answers.

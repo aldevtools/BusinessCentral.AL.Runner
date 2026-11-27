@@ -42,6 +42,10 @@ const NOT_COMPILE: &[(&str, &str)] = &[
     ),
     ("ALRUNNER_NO_CACHE_PRUNE", "the cleanup of the cache folder"),
     ("ALRUNNER_REAL_CLOCK", "the run phase's clock"),
+    (
+        "ALRUNNER_TEST_SLOW_CACHE_WRITE_MS",
+        "a test of serve's shutdown: the writes of the workspace layer wait",
+    ),
     ("AL_BLOCK_PATH", "a test of the run phase"),
     (
         "AL_CHECK_BASELINE_RULE",

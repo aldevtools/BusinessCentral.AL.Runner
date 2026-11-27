@@ -290,6 +290,23 @@ now compares with the rows the store before the session read for it (`row_change
 the safety net only; the login image keeps taking such a table whole). The refusal of a unit larger
 than three apps names, per reason, the call site, the install that reached it and the apps.
 
+### Clarification (Proposed, al-runner issue 9260): builtins whose reads the recorder attributes
+
+Status: Proposed; the maintainer accepts or rejects it on the pull request.
+
+This adds three methods to the kept builtins of the clarification "Decision 1, kept builtins" of 2026-11-23. Each one
+is attributable by decision 1's own rule: what it reads is a resource the recorder already notes. It changes no other
+rule. `CompanyProperty` joins `System`, `Database`, `Blob` and `Query` as a receiver kept by method. Its other methods
+(`UrlName`, and any method added later) keep touching everything.
+
+- `CompanyProperty.DisplayName` and `CompanyProperty.ID` read the session company's row of the Company table (corpus
+  `session-system/company/CompanyRecord.al:15-44`). The native reads that row through the store, which records it as a
+  table row read. An install that writes the row is then read from, as with a `Company.Get`.
+- `NavApp.GetCallerCallstackModuleInfos` lists the apps of the methods on the call stack (corpus
+  `session-system/TestNavAppCallerCallstackModuleInfos.al:5-7`). Their code ran in the session, so the session already
+  meets them. The app manifests it reads do not change with the install order. It joins the module info reads
+  `GetModuleInfo`, `GetCurrentModuleInfo` and `GetCallerModuleInfo` (`NAVAPP_KEPT_METHODS`).
+
 ## Options considered
 
 1. **Try every order for 4 to 5 apps.** 24 or 120 group installs, and still refuses at 23 apps. Rejected.
