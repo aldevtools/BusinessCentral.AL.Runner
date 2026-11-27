@@ -1,7 +1,0 @@
-# key	entry
-# Review of PR 8865, finding M1: a reader whose row differs by the order (X reads what Y writes) next to four apps that
-# collide on one row. Main installs once and passes both. Head: the four colliding apps cannot be proven (more than 3),
-# and the difference measured for X and Y stays refused with them (ADR-079 clarification of decision 3, 2026-11-23).
-# On BC both rows depend on the install order. Control: pass on both.
-RP mixed Tests::ReaderWhoseRowDependsOnTheOrder	REFUSED install order: RP Mixed C1, RP Mixed C2, RP Mixed C3, RP Mixed C4: the runner cannot prove that every order of the apps with no dependency path between them leaves the same database: 4 apps tied by their installs
-RP mixed Tests::SharedRowExists	REFUSED install order: RP Mixed C1, RP Mixed C2, RP Mixed C3, RP Mixed C4: the runner cannot prove that every order of the apps with no dependency path between them leaves the same database: 4 apps tied by their installs

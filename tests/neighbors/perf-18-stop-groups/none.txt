@@ -1,1 +1,0 @@
-No answer changes: the change adds the serve entry field stopGroup, which only scopes which later tests stopAfterFirstFailure skips as notRun (no AL test result changes; a neighbor app runs without entries or the stop, which keep main's path and text byte for byte), and its two refusals cover requests main already refused as an unknown field.

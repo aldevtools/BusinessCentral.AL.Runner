@@ -1,1 +1,0 @@
-Diagnostic only, no answer changes: a --timings line names why the install code ran again for a test codeunit; the decision to share it is unchanged.

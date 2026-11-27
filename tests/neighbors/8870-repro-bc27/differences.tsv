@@ -1,2 +1,0 @@
-# key	entry
-SetRange Error Text Test::SetRangeWithTextOnIntegerFieldRaisesBcsText	ASSUMED setrange-other-type-convert (corpus PR 1552, open)

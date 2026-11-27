@@ -1,7 +1,0 @@
-# key	entry
-# The global lives no longer than the install session (fact 1), so the shape answers as the local one.
-FP Dotnet Single Tests::RowOfAExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
-FP Dotnet Single Tests::RowOfBExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
-FP Dotnet Single Tests::RowOfCExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
-FP Dotnet Single Tests::RowOfDExists	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)
-FP Dotnet Single Tests::ControlTouchesNoInstalledTable	PINNED tests/al-language/record/BfInstallTests.al:125 (fact 1: fresh session state per install session)

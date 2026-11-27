@@ -1,8 +1,0 @@
-# key	entry
-# Review round 3 of PR 8865, finding N2: Q (A) depends on K (P); K's install meets M (G) through OnOne and writes its row
-# from M's answer; M's install meets Q through OnTwo. K sorts before M. The read order (Q, M, K) runs against the
-# dependency order (K before Q), so the run "M before K" cannot be built. Main: the three Row tests not run (rows differ,
-# SEEN against EMPTY). Head before the fix (dbda905e8): PRowIsSeen pass, PRowIsEmpty fail "value SEEN", GRowExists pass.
-# Head: the proof stops on an order the dependencies rule out (ADR-079 decision 3, clarification of 2026-11-23, review
-# round 3); the install runs once with the order not known, K's install stops at M's subscriber, and the three Row tests
-# are refused. Another refusal text is no difference: no row.

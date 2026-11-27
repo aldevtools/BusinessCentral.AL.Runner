@@ -1,6 +1,0 @@
-# key	entry
-# Review round 2 of PR 8865, finding N1 (hidden meet): X depends on D; D meets Z (OnTwo); X meets B (OnOne), then Z, and
-# writes its row from Z's answer. Z sorts after X, so the plan places it after X in every run. Main: the three Row tests
-# not run (D's install stops at Z). Head before the fix: XRowIsSeen failed with "value EMPTY" (BC gives SEEN when Z
-# installs first). Head: the three Row tests refused, "installing them in each order leaves different rows in RQ hz Row"
-# (ADR-079 decision 3, clarification of 2026-11-23, review round 2). Another refusal text is no difference: no row.

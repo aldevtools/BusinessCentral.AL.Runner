@@ -1,2 +1,0 @@
-# No backing: the copy records no link, and the comparison still counts the system fields of the copy.
---no-test-data

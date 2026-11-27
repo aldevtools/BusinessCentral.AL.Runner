@@ -1,3 +1,0 @@
-# key	entry
-# No test differs: the stand-in login code runs to its end, so the login is raised through it on main and on head
-# (every test passes clean). The fallback to the own login after a refusal is tests/neighbors/login-memo-raise-refuses.
