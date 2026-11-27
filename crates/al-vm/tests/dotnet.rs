@@ -227,8 +227,20 @@ fn compile_extra(
     ret: &str,
     extra: &str,
 ) -> (std::sync::Arc<al_ir::Program>, Vec<Vec<Option<String>>>, usize, usize) {
-    let src =
-        format!("{DOTNET}{TABLE}\ncodeunit 50100 C {{ procedure F(){ret} var {vars} begin {body} end; {extra} }}");
+    compile_in("", vars, body, ret, extra)
+}
+
+/// As `compile_extra`, with `head` before `procedure F()` (for example a `Subtype` and an attribute of `F`).
+fn compile_in(
+    head: &str,
+    vars: &str,
+    body: &str,
+    ret: &str,
+    extra: &str,
+) -> (std::sync::Arc<al_ir::Program>, Vec<Vec<Option<String>>>, usize, usize) {
+    let src = format!(
+        "{DOTNET}{TABLE}\ncodeunit 50100 C {{ {head}procedure F(){ret} var {vars} begin {body} end; {extra} }}"
+    );
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),
@@ -4060,7 +4072,19 @@ fn run_as_with(bc: &str, host: &Fake, vars: &str, body: &str, ret: &str) -> Ran 
 
 /// `run_as_with` with `extra`, more procedures of the codeunit.
 fn run_as_extra(bc: &str, host: &Fake, vars: &str, body: &str, ret: &str, extra: &str) -> Ran {
-    let (program, blocked, oi, ri) = compile_extra(vars, body, ret, extra);
+    run_compiled(bc, host, compile_extra(vars, body, ret, extra))
+}
+
+/// As `run_as_extra`, with `F` a `[Test]` method of a test codeunit.
+fn run_as_test_extra(bc: &str, host: &Fake, vars: &str, body: &str, extra: &str) -> Ran {
+    run_compiled(bc, host, compile_in("Subtype = Test; [Test] ", vars, body, "", extra))
+}
+
+fn run_compiled(
+    bc: &str,
+    host: &Fake,
+    (program, blocked, oi, ri): (std::sync::Arc<al_ir::Program>, Vec<Vec<Option<String>>>, usize, usize),
+) -> Ran {
     if let Some(Some(r)) = blocked.get(oi).and_then(|o| o.get(ri)) {
         return Ran {
             result: Err(Signal::unsupported(r.clone())),
@@ -5192,7 +5216,7 @@ fn a_null_value_type_argument_of_a_measured_method_goes_to_dotnet_as_its_default
     let vars = "B: DotNet ClrByte; Bo: DotNet ClrBoolean; I: DotNet ClrInt32; Cv: DotNet Convert; Sb: DotNet StringBuilder; T: Text;";
     let body = "T := Cv.ToString(B, 2); if not TryToInt32(Bo) then Error('x'); if not TrySbRemove(I) then Error('y');";
     for bc in ["27.5", "28.5", "29.0"] {
-        let r = run_as_extra(bc, &host, vars, body, "", TRY_HELPERS);
+        let r = run_as_test_extra(bc, &host, vars, body, TRY_HELPERS);
         assert!(r.result.is_ok(), "{bc}: {:?}", r.result);
     }
     assert_eq!(
@@ -5238,7 +5262,7 @@ fn a_null_value_type_argument_of_a_measured_constructor_raises_dotnet_create() {
                 "mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089",
             ),
         ] {
-            match run_as_extra(bc, &host, vars, body, "", TRY_HELPERS).result {
+            match run_as_test_extra(bc, &host, vars, body, TRY_HELPERS).result {
                 Err(Signal::Error(e)) => {
                     assert_eq!(e.code, "DotNetCreate:NullReference", "{bc} {ty}");
                     assert_eq!(
@@ -5258,8 +5282,8 @@ fn a_null_value_type_argument_of_a_measured_constructor_raises_dotnet_create() {
 // Shapes the probe did not measure refuse: a null Int64, a null Int32 into Convert.ToString with a Text second argument, a
 // null Int32 to a property setter, a measured method or constructor on a BC major the probe did not run, a measured call
 // whose null comes through a var parameter, and a measured call with its null in the other place: a local where the probe
-// passed a [TryFunction] parameter, a parameter of a plain procedure or a local of a [TryFunction] where it used a local
-// of the test (N8268DotNetNullValueType.al:167 against :337-407).
+// passed a [TryFunction] parameter, a parameter of a plain procedure, a local of a [TryFunction] or a local of a procedure that
+// is no [Test] method where it used a local of the test (N8268DotNetNullValueType.al:167 against :337-407).
 #[test]
 fn a_null_value_type_argument_outside_the_measured_calls_is_refused() {
     // The replies of the measured calls, so that only the null argument can refuse.
@@ -5290,9 +5314,16 @@ fn a_null_value_type_argument_outside_the_measured_calls_is_refused() {
         ("29.0", "Plain(B);"),
         ("29.0", "TryLocal();"),
     ]
-    .map(|(bc, body)| (bc, body, run_as_extra(bc, &host, vars, body, "", &extra).result));
+    .map(|(bc, body)| (bc, body, run_as_test_extra(bc, &host, vars, body, &extra).result));
+    // The measured Convert.ToString(null Byte, 2) with its null in a local of a procedure that is no [Test] method.
+    let helper_local = (
+        "29.0",
+        "helper local",
+        run_as_extra("29.0", &host, vars, "T := Cv.ToString(B, 2);", "", "").result,
+    );
     let served: Vec<String> = refused
         .into_iter()
+        .chain([helper_local])
         .filter(|(_, _, r)| !matches!(r, Err(Signal::Unsupported(why)) if why.contains(": a null ")))
         .map(|(bc, body, r)| format!("{bc} {body}: {r:?}"))
         .collect();

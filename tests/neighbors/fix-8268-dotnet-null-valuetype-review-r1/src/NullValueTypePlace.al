@@ -113,7 +113,7 @@ codeunit 50470 "NVP Tests"
     [Test]
     procedure Neighbor_ConvertToStringNullByteLocalOfHelper()
     begin
-        // A local of a plain procedure, not of the test: the gate reads only "no TryFunction" (open design point).
+        // A local of a plain procedure, not of the test: refused (the probe measured the direct cells only as locals of a [Test] method).
         Expect(ToStringLocalOfHelper(), '0');
     end;
 

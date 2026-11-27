@@ -58,8 +58,8 @@ enum A {
     DotNet(&'static str),
 }
 
-/// Where the probe passed the null of a call: a local variable of a routine that is no `[TryFunction]` (the test itself), or
-/// a by-value parameter of a `[TryFunction]` (N8268DotNetNullValueType.al:337-407).
+/// Where the probe passed the null of a call: a local variable of the `[Test]` method itself, or a by-value parameter of a
+/// `[TryFunction]` (N8268DotNetNullValueType.al:337-407).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Where {
     Direct,
@@ -158,8 +158,10 @@ impl Session {
             return None;
         };
         let r = &self.engine.program.objects[f.object].routines[f.routine];
+        if self.is_test_method(f.object, f.routine) && *l >= r.params {
+            return Some(Where::Direct);
+        }
         match self.engine.routine_facts(f.object, f.routine).is_try {
-            false if *l >= r.params => Some(Where::Direct),
             true if *l < r.params && r.by_var.get(*l) == Some(&false) => Some(Where::TryParam),
             _ => None,
         }
