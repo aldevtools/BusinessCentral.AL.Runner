@@ -323,6 +323,39 @@ mod tests {
     }
 
     #[test]
+    fn copy_blob_keeps_only_the_listed_fields() {
+        // The fields `copy_blob` does not carry over; every other one it keeps. A new `BlobBuf` field shows up here until
+        // `copy_blob` decides whether a copy keeps it.
+        let a = every_field_set();
+        let copy = crate::stream::copy_blob(&std::sync::Arc::new(crate::stream::BlobCell::new(a.clone())), false);
+        let dropped = a.differing_fields(&copy.borrow());
+        assert_eq!(
+            dropped,
+            vec![
+                "write_pos",
+                "refetch",
+                "persisted",
+                "temp_row",
+                "uncompressed",
+                "written",
+                "written_base",
+                "temp_inserted",
+                "db_row",
+                "first_write_truncates",
+                "file",
+                "dotnet_view",
+                "assigned_unsaved",
+                "assigned_write",
+                "unread_content",
+                "never_loaded_insert",
+                "unicode_read",
+                "content_edits",
+                "line_breaks",
+            ]
+        );
+    }
+
+    #[test]
     fn the_comparison_names_each_field_that_differs_and_no_value() {
         let a = every_field_set();
         assert_eq!(a.differing_fields(&a.clone()), Vec::<&str>::new());

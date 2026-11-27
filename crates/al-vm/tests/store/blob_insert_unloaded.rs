@@ -1,9 +1,10 @@
-//! An `Insert` of a record whose Blob holds stored content it never loaded (a read without `CalcFields`, or a copy of such a
-//! record), and a `Modify` of such a copy under the key of another stored row (issue 9286). The open corpus probe (pull request
-//! 1631, record/lt-blob-field-assign/BlobInsertUnloaded.al) measured on BC 29: the Insert stores no Blob content and the
-//! inserting record answers HasValue Yes and reads empty; the Modify leaves the other row's Blob as it was. Through the
-//! assumption `blob-never-loaded-not-stored`. A loaded Blob (`CalcFields` before the copy or on it) and an empty source store
-//! as before.
+//! A Blob whose stored content the record never loaded (a read without `CalcFields`, or a copy of such a record) and that
+//! no stream wrote since is never written by Insert or Modify (issue 9286). The open corpus probe (pull request 1631,
+//! record/lt-blob-field-assign/BlobInsertUnloaded.al, measured on BC 29.0, its CI green on BC 27.5, 28.5 and 29.0) gives the
+//! readings: codeunit 73781 the Insert shapes, Insert(true), temporary tables and a Modify onto another row; codeunit 73782
+//! a Modify of the key it was read under, a stale buffer, Insert then Modify, database to temporary and back, a field
+//! assignment, CalcFields right after the Insert and another company's source. Through the assumption
+//! `blob-never-loaded-not-stored`. A loaded Blob (`CalcFields` before the copy or on it) and an empty source store as before.
 
 use al_testkit::{run_in, text};
 
@@ -167,6 +168,96 @@ codeunit 50131 C
         C.Insert();
         exit(Show(C) + ' ' + Stored('F2'));
     end;
+
+    // Codeunit 73782 of BlobInsertUnloaded.al (corpus pull request 1631).
+    procedure StaleModify(): Text
+    var L: Record "Bi Row"; X: Record "Bi Row"; OutS: OutStream;
+    begin
+        Seed('S', 'hello');
+        L.Get('S');
+        X.Get('S');
+        X.Body.CreateOutStream(OutS);
+        OutS.WriteText('zz');
+        X.Modify();
+        L.Note := 'n';
+        L.Modify();
+        exit(Stored('S'));
+    end;
+
+    procedure InsertThenModify(): Text
+    var L: Record "Bi Row"; C: Record "Bi Row";
+    begin
+        Seed('M', 'hello');
+        L.Get('M');
+        C := L;
+        C.K := 'M2';
+        C.Insert();
+        C.Note := 'n';
+        C.Modify();
+        exit(Stored('M2'));
+    end;
+
+    procedure DatabaseIntoTemporary(): Text
+    var L: Record "Bi Row"; T: Record "Bi Row" temporary;
+    begin
+        Seed('P', 'hello');
+        L.Get('P');
+        T := L;
+        T.K := 'P2';
+        T.Insert();
+        T.Get('P2');
+        T.CalcFields(Body);
+        exit(Show(T));
+    end;
+
+    procedure TemporaryIntoDatabase(): Text
+    var T: Record "Bi Row" temporary; C: Record "Bi Row"; OutS: OutStream;
+    begin
+        T.K := 'Q';
+        T.Body.CreateOutStream(OutS);
+        OutS.WriteText('hello');
+        T.Insert();
+        T.Get('Q');
+        C := T;
+        C.K := 'Q2';
+        C.Insert();
+        exit(Stored('Q2'));
+    end;
+
+    procedure FieldAssignment(): Text
+    var L: Record "Bi Row"; C: Record "Bi Row";
+    begin
+        Seed('U', 'hello');
+        L.Get('U');
+        C.K := 'U2';
+        C.Body := L.Body;
+        C.Insert();
+        exit(Stored('U2'));
+    end;
+
+    procedure OwnCalcFields(): Text
+    var L: Record "Bi Row"; C: Record "Bi Row";
+    begin
+        Seed('W', 'hello');
+        L.Get('W');
+        C := L;
+        C.K := 'W2';
+        C.Insert();
+        C.CalcFields(Body);
+        exit(Show(C));
+    end;
+
+    procedure ChangeCompanySource(): Text
+    var L: Record "Bi Row"; C: Record "Bi Row";
+    begin
+        Seed('V', 'hello');
+        L.ChangeCompany(CompanyName());
+        L.Get('V');
+        C := L;
+        C.K := 'V2';
+        C.Insert();
+        exit(Stored('V2'));
+    end;
 }
 "#;
 
@@ -231,4 +322,46 @@ fn an_insert_of_an_assigned_copy_of_a_loaded_blob_stores_its_content() {
 fn an_insert_of_an_assigned_copy_of_a_stored_empty_blob_stores_none() {
     // K3.
     assert_eq!(text(run_in(SRC, "C", "AssignNoCalcStoredEmpty")), "No[] No No[]");
+}
+
+#[test]
+fn a_modify_of_a_stale_buffer_keeps_the_other_variables_newer_write() {
+    // M2: the unloaded Blob does not overwrite the row.
+    assert_eq!(text(run_in(SRC, "C", "StaleModify")), "Yes Yes[zz]");
+}
+
+#[test]
+fn a_modify_after_the_insert_of_the_same_variable_stores_no_blob() {
+    // M3.
+    assert_eq!(text(run_in(SRC, "C", "InsertThenModify")), "No No[]");
+}
+
+#[test]
+fn a_database_row_copied_into_a_temporary_record_has_a_value_until_calcfields() {
+    // I1: the temporary row reads HasValue No and empty after CalcFields.
+    assert_eq!(text(run_in(SRC, "C", "DatabaseIntoTemporary")), "No[]");
+}
+
+#[test]
+fn a_temporary_row_copied_into_a_database_record_stores_no_blob() {
+    // I2.
+    assert_eq!(text(run_in(SRC, "C", "TemporaryIntoDatabase")), "No No[]");
+}
+
+#[test]
+fn a_blob_field_assignment_stores_no_blob() {
+    // I3 (and record/flowfields/BlobCalcFieldsLength.al:404: a field assignment of an unloaded Blob gives an empty one).
+    assert_eq!(text(run_in(SRC, "C", "FieldAssignment")), "No No[]");
+}
+
+#[test]
+fn a_source_read_after_changecompany_stores_no_blob() {
+    // G1.
+    assert_eq!(text(run_in(SRC, "C", "ChangeCompanySource")), "No No[]");
+}
+
+#[test]
+fn calcfields_on_the_inserting_record_right_after_the_insert_has_a_value_and_reads_empty() {
+    // I4.
+    assert_eq!(text(run_in(SRC, "C", "OwnCalcFields")), "Yes[]");
 }

@@ -1,6 +1,6 @@
 # key	entry
-# Main stored the content of a Blob that was never loaded; head stores none (or keeps the other row's Blob) through the open
-# assumption, as corpus PR 1631 measured on BC 29 (issue 9286).
+# Main stored the content of a Blob that was never loaded (or wrote it over the row on Modify); head writes none, through
+# the open assumption: corpus PR 1631, 28 tests measured on BC 29.0, green in its CI on BC 27.5, 28.5 and 29.0 (issue 9286).
 NB BI Case 01::Assign_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al C01)
 NB BI Case 07::SameVariable_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al C02)
 NB BI Case 08::SameVariable_NoCalc_DeleteInsert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al C03)
@@ -8,3 +8,9 @@ NB BI Case 09::Copy_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored (corpus P
 NB BI Case 10::ByValue_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al C05)
 NB BI Case 12::Temporary_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al T12)
 NB BI Case 13::Assign_NoCalc_ModifyOtherRow	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al C11)
+NB BI Case 14::Stale_NoCalc_Modify	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al M2)
+NB BI Case 15::Assign_NoCalc_Insert_Modify	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al M3)
+NB BI Case 16::DatabaseIntoTemporary_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al I1)
+NB BI Case 17::TemporaryIntoDatabase_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al I2)
+NB BI Case 19::ChangeCompany_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al G1)
+NB BI Case 20::Assign_NoCalc_Insert_OwnCalcFields	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al I4)

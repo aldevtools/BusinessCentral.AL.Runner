@@ -22,6 +22,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 mod blob_filter;
+mod blob_saves;
 mod boolean_filter_error;
 mod delete_all;
 mod delete_all_flow;
@@ -1929,16 +1930,6 @@ impl Session {
         self.auto_calculate(rec)
     }
 
-    /// Marks the Blobs that hold content, in the stored row and in the record, as stored by an `Insert` (`inserted`) or not (a `Modify`).
-    fn mark_blobs_inserted(rec: &Rec, stored: &[Value], inserted: bool) {
-        for v in stored.iter().chain(rec.borrow().fields.iter()) {
-            if let Value::Blob(b) = v {
-                let mut b = b.borrow_mut();
-                b.inserted = inserted && !b.bytes.is_empty();
-            }
-        }
-    }
-
     /// The Date, Time and DateTime values of a database table's row as its SQL columns hold them (`sqltime`), and its Decimal
     /// values (`decimal_column`): `Some` error for a value the column cannot hold. A temporary table keeps the values as they are.
     fn sql_columns(
@@ -2021,6 +2012,12 @@ impl Session {
             // with `Get` and written in memory is read back from the row too (record/flowfields/
             // BlobCalcFieldsLength.al:BlobCalcFields_UnsavedContent_Result, 17 bytes in memory, 6 after CalcFields): see `BlobBuf::fetched`.
             let temporary = rec.borrow().temporary;
+            // A database record whose Insert did not store its Blob never loaded keeps answering HasValue Yes and reading
+            // empty (`blobs_to_insert`, BlobInsertUnloaded.al I4 of corpus pull request 1631).
+            if !temporary && buf.borrow().never_loaded_insert {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored);
+                continue;
+            }
             // A record assignment's copy (`refetch`) of a buffer that holds an unsaved stream write keeps the write when the
             // row is stored, as the buffer it was copied from does (al-runner issue 7360). A copy of a row that is not stored
             // reads empty (types/ProbeTypeFormsAndFilters.al:228-250 FormatRecord_AssignmentCopiesBlobBytes): see `copied_write`.
@@ -2088,7 +2085,7 @@ impl Session {
             // showed `*` after `Copy1 := Row`, and CalcFields reads nothing back
             // (types/ProbeTypeFormsAndFilters.al:FormatRecord_AssignmentCopiesBlobBytes, BC 27.5).
             let (bytes, pending, inserted) = match stored.as_ref().map(|row| row[pos].clone()) {
-                // A temporary row an Insert stored from a Blob never loaded (`blobs_to_insert`) loads empty.
+                // A temporary row an Insert stored from a Blob never loaded (`blobs_to_insert`) loads empty (T12, T13, I1).
                 Some(Value::Blob(src)) if src.borrow().never_loaded_insert => (Vec::new(), None, false),
                 Some(Value::Blob(src)) => {
                     let src = src.borrow();
@@ -2111,76 +2108,6 @@ impl Session {
             b.refetch = false;
         }
         Ok(())
-    }
-
-    /// A Blob whose stored content the record never loaded (a read without CalcFields, or a copy of such a record: in BC it
-    /// shows HasValue true and empty text, streams/BlobCopyStates.al:1216 by value, :1332 Copy, :34 a temporary row;
-    /// record/PnABlobAssignRename.al:93 an assignment) and that no stream wrote since: what an Insert or a Modify of it
-    /// stores is the assumption `blob-never-loaded-not-stored` (issue 9286, corpus pull request 1631, open:
-    /// record/lt-blob-field-assign/BlobInsertUnloaded.al). A record of another company is not measured and stores as before.
-    fn never_loaded(rec: &Rec, v: &Value) -> bool {
-        matches!(v, Value::Blob(b) if { let b = b.borrow(); !b.loaded && !b.written && !b.bytes.is_empty() })
-            && rec.borrow().company.is_none()
-    }
-
-    /// Before an Insert stores `stored`, the row of `rec`: a Blob the record never loaded ([`Session::never_loaded`]) is not
-    /// stored. A database row gets no Blob content (BlobInsertUnloaded.al C01 to C10: :=, the same variable under a new key,
-    /// Delete and Insert, Copy, a by-value parameter, a Variant, a RecordRef, FindFirst, FindSet, SetLoadFields); a
-    /// temporary row keeps the buffer, which answers HasValue Yes until CalcFields loads it empty (T12, T13,
-    /// `BlobBuf::never_loaded_insert`). The record keeps answering HasValue Yes and reads empty. Then the Blobs are marked as
-    /// an Insert's ([`Session::mark_blobs_inserted`]).
-    pub(crate) fn blobs_to_insert(rec: &Rec, stored: &mut [Value]) {
-        let positions: Vec<usize> = (rec.borrow().fields.iter().enumerate())
-            .filter(|(_, v)| Self::never_loaded(rec, v))
-            .map(|(i, _)| i)
-            .collect();
-        for &i in &positions {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored);
-            match &stored[i] {
-                Value::Blob(b) if rec.borrow().temporary => b.borrow_mut().never_loaded_insert = true,
-                _ => stored[i] = Value::Blob(al_builtins::stream::new_blob()),
-            }
-        }
-        Self::mark_blobs_inserted(rec, stored, true);
-        for &i in &positions {
-            if let Value::Blob(b) = &rec.borrow().fields[i] {
-                b.borrow_mut().inserted = false;
-            }
-        }
-    }
-
-    /// Before a Modify of a database record stores `stored` over the row `old`: a Blob the record never loaded
-    /// ([`Session::never_loaded`]) that holds other bytes than the row's Blob (its key names another stored row) leaves the
-    /// row's Blob as it was (BlobInsertUnloaded.al C11). The row as it was read holds the same bytes and stays as stored
-    /// (streams/BlobCopyStates.al:1219 `bv get row`). Then the Blobs are marked as not an Insert's.
-    pub(crate) fn blobs_to_modify(rec: &Rec, stored: &mut [Value], old: Option<&[Value]>) {
-        if let (Some(old), false) = (old, rec.borrow().temporary) {
-            for (i, v) in rec.borrow().fields.iter().enumerate() {
-                let (Value::Blob(b), Value::Blob(o)) = (v, &old[i]) else {
-                    continue;
-                };
-                if Self::never_loaded(rec, v) && b.borrow().bytes != o.borrow().bytes {
-                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored);
-                    stored[i] = Value::Blob(al_builtins::stream::copy_blob(o, true));
-                }
-            }
-        }
-        Self::mark_blobs_inserted(rec, stored, false);
-    }
-
-    /// After an Insert stored the row of `rec`: its Blobs count as saved ([`Session::clear_blob_written`]), the table notes an
-    /// empty one ([`Session::note_empty_blob_insert`]), and the content a temporary record stored is persisted, as one a Modify
-    /// stored (see Rename).
-    pub(crate) fn blobs_after_insert(rec: &Rec, t: &TableDef, empty_blob: bool) {
-        Self::note_empty_blob_insert(rec, t, empty_blob);
-        Self::clear_blob_written(rec);
-        if rec.borrow().temp_id.is_some() {
-            for v in &rec.borrow().fields {
-                if let Value::Blob(b) = v {
-                    b.borrow_mut().persisted = true;
-                }
-            }
-        }
     }
 
     /// A save makes the Blobs of the buffer what is stored: none counts as written any more.

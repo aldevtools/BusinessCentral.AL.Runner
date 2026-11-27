@@ -110,10 +110,10 @@ pub struct BlobBuf {
     /// ([`unread_content_blob`]): `Format` shows `*` (text/text-methods/Y49FieldRefIntoText.al:383) and a comparison
     /// sees a Blob with content (`blob_compare`). A copy does not keep it.
     pub unread_content: bool,
-    /// A temporary table's Insert stored this buffer from a record whose Blob was never loaded (al-vm
-    /// `Session::blobs_to_insert`, assumption `blob-never-loaded-not-stored`, issue 9286): its bytes stay, so a Get's copy
-    /// answers HasValue Yes, but `CalcFields` loads it empty (corpus pull request 1631, BlobInsertUnloaded.al T12, T13). A
-    /// stream write clears it; a copy does not keep it.
+    /// An Insert did not store this Blob the record never loaded (al-vm `records/blob_saves.rs`, assumption
+    /// `blob-never-loaded-not-stored`, issue 9286, corpus pull request 1631): the bytes stay, so it answers HasValue Yes. A
+    /// temporary row's buffer loads empty at `CalcFields` (T12, T13, I1); a database record's own keeps it (I4). A stream
+    /// write clears it; a copy does not keep it.
     pub never_loaded_insert: bool,
     /// A Write of a value other than a Text went through a UTF-16 OutStream to this buffer. A UTF-16 Read(Text) of such bytes
     /// reads less than StreamReadMatrix.al shows for the same bytes written through a stream of the default encoding

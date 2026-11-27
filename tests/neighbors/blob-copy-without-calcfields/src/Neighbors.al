@@ -54,7 +54,7 @@ codeunit 50121 "NB BI Lib"
         exit('hv:' + Txt);
     end;
 
-    // Raises when the answer is not the one BC gives (corpus pull request 1631, BlobInsertUnloaded.al, or a pin).
+    // Raises when the answer is not BC's (corpus pull request 1631, BlobInsertUnloaded.al, or a pin).
     procedure Expect(Seen: Text; Want: Text)
     begin
         if Seen <> Want then
@@ -381,5 +381,192 @@ codeunit 50142 "NB BI Case 13"
         C."No." := 'E2';
         C.Modify();
         L.Expect(L.Stored('E2'), 'hv:other');
+    end;
+}
+
+// The shapes of codeunit 73782 of BlobInsertUnloaded.al (corpus pull request 1631), named in the review of the pull request.
+codeunit 50143 "NB BI Case 14"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        L: Codeunit "NB BI Lib";
+
+    // A stale buffer: another variable changed the row's Blob, then the unloaded record is modified on its own key.
+    [Test]
+    procedure Stale_NoCalc_Modify()
+    var
+        Src: Record "NB BI Row";
+        X: Record "NB BI Row";
+    begin
+        L.Seed('F1', 'hello');
+        Src.Get('F1');
+        X.Get('F1');
+        L.W(X, 'zz');
+        X.Modify();
+        Src.Info := 'n';
+        Src.Modify();
+        L.Expect(L.Stored('F1'), 'hv:zz');
+    end;
+}
+
+codeunit 50144 "NB BI Case 15"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        L: Codeunit "NB BI Lib";
+
+    // Insert of the copy (no Blob stored, C01), then Modify of the same variable.
+    [Test]
+    procedure Assign_NoCalc_Insert_Modify()
+    var
+        Src: Record "NB BI Row";
+        C: Record "NB BI Row";
+    begin
+        L.Seed('F2', 'hello');
+        Src.Get('F2');
+        C := Src;
+        C."No." := 'F2C';
+        C.Insert();
+        C.Info := 'n';
+        C.Modify();
+        L.Expect(L.Stored('F2C'), 'nohv:');
+    end;
+}
+
+codeunit 50145 "NB BI Case 16"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        L: Codeunit "NB BI Lib";
+
+    // A database row copied into a temporary record.
+    [Test]
+    procedure DatabaseIntoTemporary_Insert()
+    var
+        Src: Record "NB BI Row";
+        T: Record "NB BI Row" temporary;
+        InS: InStream;
+        Txt: Text;
+    begin
+        L.Seed('F3', 'hello');
+        Src.Get('F3');
+        T := Src;
+        T."No." := 'F3C';
+        T.Insert();
+        T.Get('F3C');
+        T.CalcFields(Body);
+        T.Body.CreateInStream(InS);
+        InS.ReadText(Txt);
+        L.Expect(StrSubstNo('%1 [%2]', T.Body.HasValue(), Txt), 'No []');
+    end;
+}
+
+codeunit 50146 "NB BI Case 17"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        L: Codeunit "NB BI Lib";
+
+    // A temporary row read with Get copied into a database record.
+    [Test]
+    procedure TemporaryIntoDatabase_Insert()
+    var
+        T: Record "NB BI Row" temporary;
+        C: Record "NB BI Row";
+    begin
+        T."No." := 'F4';
+        L.W(T, 'hello');
+        T.Insert();
+        T.Get('F4');
+        C := T;
+        C."No." := 'F4C';
+        C.Insert();
+        L.Expect(L.Stored('F4C'), 'nohv:');
+    end;
+}
+
+codeunit 50147 "NB BI Case 18"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        L: Codeunit "NB BI Lib";
+
+    // A Blob field assignment from a record read without CalcFields.
+    [Test]
+    procedure FieldAssign_NoCalc_Insert()
+    var
+        Src: Record "NB BI Row";
+        C: Record "NB BI Row";
+    begin
+        L.Seed('F5', 'hello');
+        Src.Get('F5');
+        C."No." := 'F5C';
+        C.Body := Src.Body;
+        C.Insert();
+        L.Expect(L.Stored('F5C'), 'nohv:');
+    end;
+}
+
+codeunit 50148 "NB BI Case 19"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        L: Codeunit "NB BI Lib";
+
+    // A source read after ChangeCompany (the current company), copied with :=.
+    [Test]
+    procedure ChangeCompany_NoCalc_Insert()
+    var
+        Src: Record "NB BI Row";
+        C: Record "NB BI Row";
+    begin
+        L.Seed('F6', 'hello');
+        Src.ChangeCompany(CompanyName());
+        Src.Get('F6');
+        C := Src;
+        C."No." := 'F6C';
+        C.Insert();
+        L.Expect(L.Stored('F6C'), 'nohv:');
+    end;
+}
+
+codeunit 50149 "NB BI Case 20"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        L: Codeunit "NB BI Lib";
+
+    // The inserting record's own CalcFields right after the Insert of the copy.
+    [Test]
+    procedure Assign_NoCalc_Insert_OwnCalcFields()
+    var
+        Src: Record "NB BI Row";
+        C: Record "NB BI Row";
+        InS: InStream;
+        Txt: Text;
+    begin
+        L.Seed('F7', 'hello');
+        Src.Get('F7');
+        C := Src;
+        C."No." := 'F7C';
+        C.Insert();
+        C.CalcFields(Body);
+        C.Body.CreateInStream(InS);
+        InS.ReadText(Txt);
+        L.Expect(StrSubstNo('%1 [%2]', C.Body.HasValue(), Txt), 'Yes []');
     end;
 }
