@@ -99,7 +99,9 @@ fn session(demo: bool) -> impl Fn(&str) -> Result<al_builtins::value::Value, Sig
 }
 
 /// One session that runs `steps` in order: a routine name, `start` (the runner's `start_test_method`), `install` and
-/// `end-install` (install scope on and off); the result of the last routine.
+/// `end-install` (install scope on and off), `handover` (a new session restored from the baseline this one captures, as
+/// each test codeunit after the shared install step starts) and `bytes` (the same through the baseline's bytes form, as
+/// another thread reads it); the result of the last routine.
 fn one_session(steps: &[&str]) -> Result<al_builtins::value::Value, Signal> {
     let l = al_testkit::compile(SRC);
     let mut engine = al_testkit::engine(&l);
@@ -113,6 +115,16 @@ fn one_session(steps: &[&str]) -> Result<al_builtins::value::Value, Signal> {
             "start" => s.start_test_method(),
             "install" => s.set_install_scope(true),
             "end-install" => s.set_install_scope(false),
+            "handover" => {
+                let b = s.capture_baseline();
+                s = al_vm::Session::new(engine.clone());
+                s.restore_baseline(&b);
+            }
+            "bytes" => {
+                let bytes = s.capture_baseline().to_bytes().expect("plain values");
+                s = al_vm::Session::new(engine.clone());
+                s.restore_baseline(&al_vm::Baseline::from_bytes(&bytes).expect("own bytes"));
+            }
             routine => {
                 let ri = l.program.objects[oi]
                     .routines
@@ -198,6 +210,39 @@ fn a_delete_all_in_install_code_keeps_the_refusal() {
         "start",
         "Plain",
     ]));
+}
+
+// Install code on the shared install baseline (al-testrun `baseline.rs`) runs in a session of its own: the test codeunit's
+// session starts from the baseline it left, so the mark goes with the rows.
+#[test]
+fn a_delete_all_in_install_code_handed_over_through_a_baseline_keeps_the_refusal() {
+    refused(one_session(&[
+        "install",
+        "DeleteAllEntries",
+        "end-install",
+        "handover",
+        "start",
+        "Plain",
+    ]));
+}
+
+// The same hand-over through the bytes form of the baseline (another thread's copy).
+#[test]
+fn a_delete_all_in_install_code_handed_over_through_baseline_bytes_keeps_the_refusal() {
+    refused(one_session(&[
+        "install",
+        "DeleteAllEntries",
+        "end-install",
+        "bytes",
+        "start",
+        "Plain",
+    ]));
+}
+
+// Control: a hand-over without a write keeps the answer.
+#[test]
+fn a_hand_over_without_a_write_keeps_the_answer() {
+    assert_eq!(text(one_session(&["handover", "bytes", "start", "Plain"])), "No");
 }
 
 // The pin reads G/L Entry in a test method, outside install code: an IsEmpty inside install code keeps the refusal.

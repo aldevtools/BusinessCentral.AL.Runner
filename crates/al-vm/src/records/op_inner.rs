@@ -29,9 +29,11 @@ impl Session {
     /// The `IsEmpty` of G/L Entry the corpus pins in the corpus database's company (`demo_tables` is filled only without
     /// --test-data and --company-data): "G/L entries exist" is Yes at the start of a test, before any test code ran
     /// (test-framework/RlWorkDateAtStart.al:40 read, :48 expected, BC 27.5, 28.5, 29.0). `IsEmpty` depends only on the
-    /// stored rows. It answers only while no code of the session wrote G/L Entry since it opened (`gl_entry_written`:
-    /// install code, an earlier test method, a background session run on it) and the running test has not
-    /// either (`demo_written`): a Delete, DeleteAll or Truncate may remove demo rows the runtime does not hold. The
+    /// stored rows. It answers only while no code wrote G/L Entry into the store's data since the corpus database
+    /// (`MemStore::was_written`, marked below and carried with the rows by every copy of the store: a baseline, its bytes,
+    /// a snapshot; so install code of the shared install step, an earlier codeunit or test method and a background
+    /// session count) and the running test has not either (`demo_written`): a Delete, DeleteAll or Truncate may remove
+    /// demo rows the runtime does not hold. The
     /// pinned shape only: database record, session's own company (no
     /// ChangeCompany), no filter in any filter group, not MarkedOnly, outside install code. Count, Find and every other
     /// shape keep the demo-row refusal. The demo-row check skips its refusal for it, and the `IsEmpty` arm answers it after
@@ -40,7 +42,7 @@ impl Session {
         if !(method == RecordOp::IsEmpty
             && self.engine.demo_tables.contains(&(t.object as usize))
             && !self.demo_written.contains(&t.object)
-            && !self.gl_entry_written
+            && !self.store.was_written(t.object)
             && self.table_id(t) == Some(17))
         {
             return false;
@@ -119,7 +121,9 @@ impl Session {
         // so every read of it is refused before the session wrote to it.
         if !rec.borrow().temporary && self.engine.demo_tables.contains(&(t.object as usize)) {
             if method.writes() {
-                self.gl_entry_written |= self.table_id(&t) == Some(17);
+                if self.table_id(&t) == Some(17) {
+                    self.store.note_written(t.object);
+                }
                 if !self.install_scope {
                     self.demo_written.insert(t.object);
                 }

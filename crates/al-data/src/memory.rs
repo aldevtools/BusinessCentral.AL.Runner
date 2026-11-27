@@ -187,6 +187,9 @@ pub struct MemStore {
     /// rollback (and a snapshot), so it holds exactly while that DeleteAll stands.
     emptied: crate::pmap::PMap<Slot, ()>,
     committed_emptied: crate::pmap::PMap<Slot, ()>,
+    /// The tables (object index, in any company) the runtime marked as written ([`MemStore::note_written`]). Never cleared:
+    /// every copy of the store (a clone, a snapshot, a frozen store, the bytes of a baseline) keeps it with the rows.
+    written: std::collections::BTreeSet<u32>,
     /// The primary keys of a big table in the order of one of its other keys, as of a shape stamp. Shared by the clones
     /// of the store, so a session restored to a snapshot finds the orders built since the snapshot was taken (al-runner
     /// issue 5884: each test session asks for the last G/L entry by Posting Date). Safe to share because a stamp is

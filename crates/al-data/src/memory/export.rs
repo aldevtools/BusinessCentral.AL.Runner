@@ -87,6 +87,29 @@ impl MemStore {
         deleted
     }
 
+    /// Marks table `object` (object index) as written, in whatever company: [`MemStore::was_written`] answers `true` for it
+    /// in this store and in every copy made from it from now on (al-vm `records/op_inner.rs` marks G/L Entry).
+    pub fn note_written(&mut self, object: u32) {
+        self.written.insert(object);
+    }
+
+    /// Whether [`MemStore::note_written`] marked table `object` in this store or in the store it was copied from.
+    pub fn was_written(&self, object: u32) -> bool {
+        self.written.contains(&object)
+    }
+
+    /// The tables [`MemStore::note_written`] marked, sorted, for the bytes of a baseline ([`MemStore::with_written`] reads
+    /// them back).
+    pub fn written_tables(&self) -> Vec<u32> {
+        self.written.iter().copied().collect()
+    }
+
+    /// This store with `objects` marked as written ([`MemStore::written_tables`] of the store it was exported from).
+    pub fn with_written(mut self, objects: &[u32]) -> MemStore {
+        self.written.extend(objects.iter().copied());
+        self
+    }
+
     /// Table `t` no longer counts as emptied by a DeleteAll without filters ([`MemStore::emptied`]); its rows stay as they
     /// are. The mark then travels no further: not to the commit, the export or a frozen copy.
     pub fn forget_emptied(&mut self, cx: &AccessContext, t: &TableDef) {
