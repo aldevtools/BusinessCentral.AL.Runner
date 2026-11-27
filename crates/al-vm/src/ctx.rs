@@ -535,15 +535,12 @@ impl al_builtins::native::Ctx for Session {
         let Some(any) = self.engine.codeunit_object(Some(id)) else {
             return CodeunitShape::Missing;
         };
-        let subtype = |o: usize| {
-            let props = &self.engine.program.objects[o].properties;
-            props
-                .iter()
-                .find(|(k, _)| k.eq_ignore_ascii_case("Subtype"))
-                .map(|(_, v)| v.trim().to_string())
+        let normal = |o: usize| {
+            crate::transactions::declared_subtype(&self.engine.program.objects[o].properties)
+                .is_none_or(|t| t.eq_ignore_ascii_case("Normal"))
         };
         match self.engine.compiled_codeunit(Some(id)) {
-            Some(o) if o == any && subtype(o).is_none_or(|t| t.eq_ignore_ascii_case("Normal")) => CodeunitShape::Normal,
+            Some(o) if o == any && normal(o) => CodeunitShape::Normal,
             _ => CodeunitShape::Other,
         }
     }

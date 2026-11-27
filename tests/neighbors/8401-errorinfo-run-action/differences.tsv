@@ -10,3 +10,16 @@ NB Run Action Tests::Run_MissingCodeunit	ASSUMED errorinfo-add-action-run (corpu
 NB Run Action Tests::Run_UpperCase_Refused	REFUSED ErrorInfo.AddAction with the method 'RUN'
 NB Run Action Tests::Run_TestSubtypeCodeunit_Refused	REFUSED ErrorInfo.AddAction with the method 'Run'
 NB Run Action Tests::Run_NegativeId_Refused	REFUSED ErrorInfo.AddAction with the method 'Run'
+LT EnT ErrorInfo Run Action::RunAction_AddActionAlone	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+LT EnT ErrorInfo Run Action::RunAction_NoTableNo_AssertError	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+LT EnT ErrorInfo Run Action::RunAction_TableNo_AssertError	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+LT EnT ErrorInfo Run Action::RunAction_CodeunitRun	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+LT EnT ErrorInfo Run Action::RunAction_LowerCase	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+LT EnT ErrorInfo Run Action::RunAction_WithDescription	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+LT EnT ErrorInfo Run Action::RunAction_AfterProperAction	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+LT EnT ErrorInfo Run Action::RunAction_CodeunitZero	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+LT EnT ErrorInfo Run Action::RunAction_CodeunitMissing	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+LT EnT ErrorInfo Run Action::RunAction_EmptyMessage	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+LT EnT ErrorInfo Run Action::RunAction_Internal	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+LT EnT ErrorInfo Run Action::RunAction_Collectible_InCollectScope	ASSUMED errorinfo-add-action-run (corpus PR 1601)
+LT EnT ErrorInfo Run Action::RunAction_Collectible_OutsideScope	ASSUMED errorinfo-add-action-run (corpus PR 1601)
