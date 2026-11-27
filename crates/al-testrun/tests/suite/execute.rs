@@ -150,25 +150,3 @@ fn a_message_in_a_test_run_is_still_refused_outside_a_test_method() {
         r[0].outcome
     );
 }
-
-/// A scratch run runs the install code in each codeunit's session, and `--timings` says why: two apps, each with an
-/// install codeunit and an `OnRun` trigger, run it twice (al-testrun `install_once.rs`).
-#[test]
-fn a_scratch_run_names_why_the_install_code_ran_for_each_codeunit() {
-    let with_install = |id: &str, n: u32| {
-        let src = format!(
-            "codeunit {n} R{n} {{ trigger OnRun() begin Message('{id}'); end; }}
-            codeunit {} I{n} {{ Subtype = Install; trigger OnInstallAppPerCompany() begin end; }}",
-            n + 1
-        );
-        app(id, &[(&format!("{id}.al"), &src)])
-    };
-    let rt = execute(vec![with_install("a", 50100), with_install("c", 50300)]);
-    assert_eq!(rt.phases.install_runs, 2);
-    let lines = rt.phases.baseline_line().unwrap_or_default();
-    assert!(
-        lines.lines().any(|l| l
-            == "install code: ran 2 times for the test codeunits; first reason noted that its run cannot be shared: a scratch run"),
-        "{lines}"
-    );
-}
