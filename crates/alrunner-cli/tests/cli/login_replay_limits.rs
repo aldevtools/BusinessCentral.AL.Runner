@@ -87,7 +87,16 @@ fn a_byte_cap_not_below_max_memory_stops_the_run_naming_both_values() {
     for (env, limit, cap) in [
         (vec![on], "64M", "64 MB"),
         (vec![on], "32M", "64 MB"),
-        (vec![on, ("ALRUNNER_LOGIN_REPLAY_MAX_MB", "512")], "300M", "512 MB"),
+        // 64 starts at 16 MB each (1024 MB): the MB setting binds (al-runner issue 9173).
+        (
+            vec![
+                on,
+                ("ALRUNNER_LOGIN_REPLAY_MAX_IMAGES", "64"),
+                ("ALRUNNER_LOGIN_REPLAY_MAX_MB", "512"),
+            ],
+            "300M",
+            "512 MB",
+        ),
         (vec![("ALRUNNER_LOGIN_REPLAY_CHECK", "1")], "32M", "64 MB"),
     ] {
         let o = run(&env, limit);
@@ -143,4 +152,24 @@ fn a_bad_cap_stops_the_run_also_with_the_replay_off() {
         t.contains("ALRUNNER_LOGIN_REPLAY_MAX_IMAGES takes a whole number from 1 to "),
         "{t}"
     );
+}
+
+/// Al-runner issue 9173: the kept starts hold at most the count of starts at 16 MB each, so two starts under a 1024 MB
+/// setting (32 MB) pass the start check of a 512 MB limit, and the run goes on.
+#[test]
+fn a_small_count_under_a_large_mb_setting_passes_the_start_check() {
+    let d = tempfile::tempdir().unwrap();
+    let app = cap_app(d.path());
+    let o = alrunner_with(
+        &["test", app.to_str().unwrap(), "--no-download", "--max-memory", "512M"],
+        &[
+            ("ALRUNNER_LOGIN_REPLAY", "1"),
+            ("ALRUNNER_LOGIN_REPLAY_MAX_IMAGES", "2"),
+            ("ALRUNNER_LOGIN_REPLAY_MAX_MB", "1024"),
+        ],
+    );
+    let t = text(&o);
+    assert!(!t.contains("not below the memory limit"), "{t}");
+    assert_eq!(code(&o), 0, "{t}");
+    assert!(t.contains("PASS"), "{t}");
 }

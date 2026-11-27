@@ -3820,6 +3820,33 @@ fn a_request_whose_max_memory_is_not_above_the_byte_cap_is_an_error_and_the_kept
     assert_eq!(s.line(), json!({"status": "shutting down"}));
 }
 
+/// Al-runner issue 9174: a bad `ALRUNNER_LOGIN_REPLAY_MAX_IMAGES` or `ALRUNNER_LOGIN_REPLAY_MAX_MB` stops the server
+/// when it starts, before its `ready` line, with the error of a one-shot run and exit code 2, also with the replay off.
+/// The environment does not change while the server runs, so no request would get past it.
+#[test]
+fn a_bad_login_replay_cap_stops_the_server_at_start() {
+    for env in [
+        &[("ALRUNNER_LOGIN_REPLAY", "1"), ("ALRUNNER_LOGIN_REPLAY_MAX_MB", "abc")][..],
+        &[("ALRUNNER_LOGIN_REPLAY_MAX_IMAGES", "0")][..],
+    ] {
+        let o = Command::new(env!("CARGO_BIN_EXE_al-runner"))
+            .args(["serve", "--no-download"])
+            .envs(env.iter().copied())
+            .stdin(Stdio::null())
+            .output()
+            .expect("start al-runner serve");
+        let (stdout, stderr) = (String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+        let (name, bad) = env.last().unwrap();
+        assert_eq!(o.status.code(), Some(2), "{env:?}: {stdout}{stderr}");
+        assert!(
+            stderr.contains(&format!("error: {name} takes a whole number from 1 to "))
+                && stderr.contains(&format!("not `{bad}`")),
+            "{env:?}: {stderr}"
+        );
+        assert!(!stdout.contains("ready"), "the server never starts: {stdout}");
+    }
+}
+
 /// Al-runner issue 8211: `ALRUNNER_LOGIN_REPLAY=0` turns the replay off: no session takes a start, and the field
 /// says so (0, not absent).
 #[test]
