@@ -198,6 +198,14 @@ impl Session {
         }
     }
 
+    /// The test runs as the cells of corpus PR 1621 (RowVersionWriteShapes.al:134, a test codeunit with no
+    /// RequiredTestIsolation and test methods with no TransactionModel): under the test runner codeunit's isolation, not
+    /// Disabled, AutoCommit. A RequiredTestIsolation applies only when the hub runs the codeunit (`isolation_from_hub`).
+    fn probe_isolation(&self) -> bool {
+        (self.isolation_from_hub, self.hub_disabled, self.tx_model)
+            == (false, false, crate::transactions::TxModel::AutoCommit)
+    }
+
     /// Whether a write of `kind` to `table` after an Insert in the open transaction moves `Database.LastUsedRowVersion` as corpus
     /// PR 1509 (merged, not pinned: session-system/row-version-writes/RowVersionWrites.al) measured it, through the assumption
     /// `row-version-write-after-insert`. Delete (:147) and ModifyAll (:218): the inserted rows nothing sent yet are exactly those
@@ -234,7 +242,7 @@ impl Session {
             TxWriteKind::ModifyAll => none_running && own_unsent,
             // RowVersionWriteShapes.al of corpus PR 1621 (open): :316 (unfiltered), :338 (a filter that matches no inserted
             // row) and :363 (committed rows too): the value becomes the last inserted row's (assumption `row-version-delete-all`).
-            TxWriteKind::DeleteAll => none_running && own_unsent,
+            TxWriteKind::DeleteAll => (none_running, own_unsent, company.is_none()) == (true, true, true),
             TxWriteKind::Other => none_running && inserted_row && (own_unsent || sent_insert),
             _ => false,
         }
@@ -245,8 +253,9 @@ impl Session {
     /// RowVersionWriteShapes.al:172 RowVersion_CheckedInsert, :524 RowVersion_IssueWriteOrder; assumption
     /// `row-version-checked-insert`). The measured shape: a Record (not a RecordRef) Insert into a database table whose
     /// statement-form Insert is queued, no LockTable in the open transaction, and the Insert just handed out the one row version
-    /// of its table's only unsent entry, as its last row (earlier plain Inserts of that table and other tables may hold unsent
-    /// rows, :524). Every other checked Insert is refused.
+    /// of its table's only unsent entry, as its last row (earlier plain Inserts of that table may be in it, :524), no other
+    /// table holds unsent rows, the session company, and the isolation of the cells (`probe_isolation`). Every other checked
+    /// Insert is refused.
     fn send_checked_insert(&mut self, rec: &Rec, table: u32, company: &Option<String>) {
         let queued = self.insert_is_queued(rec);
         let rv = &self.tx.open.row_versions;
@@ -261,11 +270,19 @@ impl Session {
             self.through_recordref,
             self.tx.open.locked_tables.is_empty(),
             one_row,
+            // :172 and :524: no other table holds unsent inserted rows.
+            own.len() == rv.pending_inserts.len(),
+            company.is_none(),
+            self.probe_isolation(),
             rv.handed_out == rv.accounted,
             rv.unpinned.is_none(),
-        ) == (true, false, true, true, true, true);
+        ) == (true, false, true, true, true, true, true, true, true);
         if !measured {
-            self.tx.open.row_versions.unpinned = Some("a checked Insert in a shape corpus PR 1621 does not measure");
+            self.tx
+                .open
+                .row_versions
+                .unpinned
+                .get_or_insert("a checked Insert in a shape corpus PR 1621 does not measure");
             return;
         }
         let v = self.send_pending_insert(own[0], false);

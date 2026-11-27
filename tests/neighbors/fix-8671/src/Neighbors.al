@@ -45,8 +45,10 @@ codeunit 76652 "RVN Neighbors"
         Row: Record "RVS Row";
         Blob: Record "RVN Blob Row";
         Trig: Record "RVN Trigger Row";
+        Other: Record "RVS Other";
     begin
         Row.DeleteAll();
+        Other.DeleteAll();
         Blob.DeleteAll();
         Trig.DeleteAll();
         Row.Id := 1;
@@ -312,6 +314,153 @@ codeunit 76652 "RVN Neighbors"
         Other.Insert();
         V := LastUsedRowVersion();
     end;
+    [Test]
+    procedure CheckedInsert_OtherTableUnsent()
+    var
+        Row: Record "RVS Row";
+        Other: Record "RVS Other";
+        V: BigInteger;
+    begin
+        Start();
+        Other.Id := 10;
+        Other.Insert();
+        Row.Id := 10;
+        if not Row.Insert() then
+            Error('insert failed');
+        V := LastUsedRowVersion();
+    end;
+
+    [Test]
+    procedure CheckedInsert_OtherCompany()
+    var
+        Row: Record "RVS Row";
+        V: BigInteger;
+    begin
+        Start();
+        Row.ChangeCompany(OtherCompany());
+        Row.Id := 10;
+        if not Row.Insert() then
+            Error('insert failed');
+        V := LastUsedRowVersion();
+    end;
+
+    [Test]
+    procedure DeleteAllAfterInsert_OtherCompany()
+    var
+        Row: Record "RVS Row";
+        V: BigInteger;
+    begin
+        Start();
+        Row.ChangeCompany(OtherCompany());
+        Row.Id := 10;
+        Row.Insert();
+        Row.DeleteAll();
+        V := LastUsedRowVersion();
+    end;
+
+    [Test]
+    procedure TwoTables_OneRowEach()
+    var
+        Row: Record "RVS Row";
+        Other: Record "RVS Other";
+    begin
+        Start();
+        Row.Id := 10;
+        Row.Insert();
+        Other.Id := 10;
+        Other.Insert();
+        if LastUsedRowVersion() <> Other.SystemRowVersion then
+            Error('LastUsedRowVersion is not the second table''s row version');
+    end;
+
+    [Test]
+    procedure TwoTables_ThirdTableInsert()
+    var
+        Row: Record "RVS Row";
+        Other: Record "RVS Other";
+        Trig: Record "RVN Trigger Row";
+        V: BigInteger;
+    begin
+        Start();
+        Row.Id := 10;
+        Row.Insert();
+        Other.Id := 10;
+        Other.Insert();
+        Trig.Id := 10;
+        Trig.Insert();
+        V := LastUsedRowVersion();
+    end;
+
+    [Test]
+    procedure TwoTables_SecondInsertSecondTable()
+    var
+        Row: Record "RVS Row";
+        Other: Record "RVS Other";
+        V: BigInteger;
+    begin
+        Start();
+        Row.Id := 10;
+        Row.Insert();
+        Other.Id := 10;
+        Other.Insert();
+        Other.Id := 11;
+        Other.Insert();
+        V := LastUsedRowVersion();
+    end;
+
+    [Test]
+    procedure TwoTables_TwoRowsFirstTable()
+    var
+        Row: Record "RVS Row";
+        Other: Record "RVS Other";
+        V: BigInteger;
+    begin
+        Start();
+        Row.Id := 10;
+        Row.Insert();
+        Row.Id := 11;
+        Row.Insert();
+        Other.Id := 10;
+        Other.Insert();
+        V := LastUsedRowVersion();
+    end;
+
+    [Test]
+    procedure TwoTables_DeleteAfter()
+    var
+        Row: Record "RVS Row";
+        Other: Record "RVS Other";
+        V: BigInteger;
+    begin
+        Start();
+        Row.Id := 10;
+        Row.Insert();
+        Other.Id := 10;
+        Other.Insert();
+        Row.Delete();
+        V := LastUsedRowVersion();
+    end;
+
+    [Test]
+    procedure TwoTables_SecondThroughRecordRef()
+    var
+        Row: Record "RVS Row";
+        RecRef: RecordRef;
+        V: BigInteger;
+    begin
+        Start();
+        Row.Id := 10;
+        Row.Insert();
+        RecRef.Open(Database::"RVS Other");
+        RecRef.Field(1).Value := 10;
+        RecRef.Insert();
+        V := LastUsedRowVersion();
+    end;
+
+    local procedure OtherCompany(): Text[30]
+    begin
+        exit('RVN Other Company');
+    end;
 }
 
 table 76653 "RVN Writing Row"
@@ -331,5 +480,27 @@ table 76653 "RVN Writing Row"
     begin
         Other.Id := 900 + Id;
         Other.Insert();
+    end;
+}
+
+codeunit 76654 "RVN Isolation Function"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    RequiredTestIsolation = Function;
+
+    [Test]
+    procedure CheckedInsert_IsolationFunction()
+    var
+        Row: Record "RVS Row";
+        V: BigInteger;
+    begin
+        Row.SetRange(Id, 10);
+        Row.DeleteAll();
+        Commit();
+        Row.Id := 10;
+        if not Row.Insert() then
+            Error('insert failed');
+        V := LastUsedRowVersion();
     end;
 }
