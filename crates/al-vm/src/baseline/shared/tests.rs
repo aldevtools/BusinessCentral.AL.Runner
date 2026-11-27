@@ -38,6 +38,7 @@ fn freeze_refuses_a_value_that_is_not_plain() {
             rows: vec![(vec![Value::Code("".into())], vec![Value::Code("".into()), list])],
         }],
         &[],
+        &[],
     );
     let Err(NotShared::Value(why)) = b.freeze() else {
         panic!("each thread then keeps a copy of its own")
@@ -103,6 +104,7 @@ fn a_baseline_that_cannot_be_written_as_bytes_names_the_value() {
             rows: vec![(vec![Value::Code("".into())], vec![Value::Code("".into()), rid, json])],
         }],
         &[],
+        &[],
     );
     assert!(
         matches!(b.freeze(), Err(NotShared::Value(ref why)) if why.kind == "JsonObject"),
@@ -151,6 +153,7 @@ fn a_baseline_with_a_record_id_and_a_table_filter_is_shared() {
                 rows: vec![(vec![Value::Integer(1)], vec![Value::Integer(1), rid, filter])],
             },
         ],
+        &[],
         &[],
     );
     let shared = b.freeze().expect("a RecordId and a TableFilter have a plain form");

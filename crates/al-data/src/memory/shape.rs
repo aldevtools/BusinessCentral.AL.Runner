@@ -30,14 +30,10 @@ impl MemStore {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         copies.sort();
-        let mut deleted: Vec<String> = (self.committed_dropped_backed_companies.keys())
-            .map(|c| c.to_string())
-            .collect();
-        deleted.sort();
         CommittedMarks {
             emptied,
             copies,
-            deleted,
+            deleted: self.committed_deleted_companies(),
         }
     }
 

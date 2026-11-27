@@ -228,8 +228,9 @@ fn make_tables_and_rows(m: &mut Maker<'_>, session: &mut Session) {
                         rows: t.rows.iter().map(|(k, r)| (m.values(k), m.values(r))).collect(),
                     })
                     .collect();
-                // No emptied marks: only a DeleteAll of a database table sets one (records/delete_all.rs).
-                let store = al_data::memory::MemStore::from_exported(tables, &[]);
+                // No marks: only a DeleteAll of a database table sets an emptied one (records/delete_all.rs), and a
+                // temporary table deletes no company.
+                let store = al_data::memory::MemStore::from_exported(tables, &[], &[]);
                 let id = m.temp_id(NodeId(i as u32)).id();
                 m.temp_counters.insert(id, store.change_counter());
                 session.temps.insert(id, store);

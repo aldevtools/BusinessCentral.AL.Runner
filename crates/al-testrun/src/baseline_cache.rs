@@ -597,4 +597,23 @@ mod tests {
         b.text("day", "1");
         assert_ne!(b.finish(), hex(&h), "the key of the earlier layout is another key");
     }
+
+    /// Issue 9233: the install baseline's bytes before layout 11 (al-vm `Baseline::to_bytes`) held no companies the
+    /// install code deleted, so a baseline read from them served the test data's rows of such a company again. A file
+    /// whose baseline has that layout is a miss, and the install code runs again.
+    #[test]
+    fn a_file_whose_baseline_has_the_layout_before_the_deleted_companies_is_a_miss() {
+        const BEFORE: &[u8; 8] = b"ALBASE\0\x0a";
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "k1", &run(), 0);
+        let path = file(dir.path(), "k1");
+        let mut bytes = std::fs::read(&path).unwrap();
+        let at = (bytes.windows(7))
+            .position(|w| w == &BEFORE[..7])
+            .expect("the baseline's magic");
+        bytes[at..at + 8].copy_from_slice(BEFORE);
+        std::fs::write(&path, bytes).unwrap();
+        assert!(read(dir.path(), "k1").is_none());
+        assert!(!path.exists(), "the file of the earlier layout is gone");
+    }
 }
