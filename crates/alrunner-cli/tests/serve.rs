@@ -4748,3 +4748,34 @@ codeunit 50155 \"Stop Reader\" { Subtype = Test;
     shut_down(stopped);
     shut_down(fresh);
 }
+
+/// Issue 9213: the refusal of a mix of grouped and ungrouped entries names the stop that would stop the whole request:
+/// a failure under `stopAfterFirstFailure` (the text of issue 8210, unchanged), a timeout under `stopAfterTimeout`
+/// alone, either under both.
+#[test]
+fn the_mixed_group_refusal_names_the_stops_that_are_on() {
+    let d = tempfile::tempdir().unwrap();
+    let a = timeout_app(d.path());
+    let mut s = one_thread_server(&[]);
+    let entries = json!([{"test": "Codeunit50151.", "stopGroup": "m1"}, {"test": "Codeunit50151."}]);
+    let mix = |then: &str| {
+        format!(
+            "some entries have a `stopGroup` and some do not: give every entry one (an entry that stops alone gets a group of its own), or none ({then} then stops the whole request)"
+        )
+    };
+    for (stops, then) in [
+        (json!({"stopAfterFirstFailure": true}), "a failure"),
+        (json!({"stopAfterTimeout": true}), "a timeout"),
+        (
+            json!({"stopAfterFirstFailure": true, "stopAfterTimeout": true}),
+            "a failure or a timeout",
+        ),
+    ] {
+        let mut r = stops.clone();
+        r["entries"] = entries.clone();
+        let lines = run_request(&mut s, &a, r);
+        assert_eq!(lines.last().unwrap()["error"], mix(then), "{stops}: {lines:?}");
+        assert_eq!(STOP_GROUP_MIX, mix("a failure"), "issue 8210's text is unchanged");
+    }
+    shut_down(s);
+}
