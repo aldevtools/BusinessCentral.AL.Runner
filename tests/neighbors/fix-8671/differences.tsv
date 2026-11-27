@@ -1,9 +1,12 @@
 # key	entry
 RVS Write Shapes::RowVersion_CheckedInsert	ASSUMED row-version-checked-insert (open corpus PR 1621: RowVersionWriteShapes.al:172)
-RVS Write Shapes::RowVersion_DeleteAfterInsert	ASSUMED row-version-write-after-insert (merged corpus PR 1509; same shapes in open corpus PR 1621)
-RVS Write Shapes::RowVersion_RenameAfterInsert	ASSUMED row-version-write-after-insert (merged corpus PR 1509; same shapes in open corpus PR 1621)
-RVS Write Shapes::RowVersion_ModifyAllAfterInsert	ASSUMED row-version-write-after-insert (merged corpus PR 1509; same shapes in open corpus PR 1621)
-RVN Neighbors::CheckedInsert_AfterPlainInsertSameTable	REFUSED Database.LastUsedRowVersion after a checked Insert in a shape corpus PR 1621 does not measure
 RVN Neighbors::CheckedInsert_AfterLockTable	REFUSED Database.LastUsedRowVersion after a checked Insert in a shape corpus PR 1621 does not measure
 RVN Neighbors::CheckedInsert_ThroughRecordRef	REFUSED Database.LastUsedRowVersion after a checked Insert in a shape corpus PR 1621 does not measure
 RVN Neighbors::CheckedInsert_BlobTable	REFUSED Database.LastUsedRowVersion after a checked Insert in a shape corpus PR 1621 does not measure
+RVS Write Shapes::RowVersion_DeleteAllNoInsert_Unfiltered	ASSUMED row-version-delete-all (open corpus PR 1621: RowVersionWriteShapes.al:256)
+RVS Write Shapes::RowVersion_DeleteAllNoInsert_Filtered	ASSUMED row-version-delete-all (open corpus PR 1621: RowVersionWriteShapes.al:276)
+RVS Write Shapes::RowVersion_DeleteAllAfterInsert_Unfiltered	ASSUMED row-version-delete-all (open corpus PR 1621: RowVersionWriteShapes.al:316)
+RVS Write Shapes::RowVersion_DeleteAllAfterInsert_FilteredOtherRows	ASSUMED row-version-delete-all (open corpus PR 1621: RowVersionWriteShapes.al:338)
+RVS Write Shapes::RowVersion_DeleteAllAfterInsert_CommittedRowsToo	ASSUMED row-version-delete-all (open corpus PR 1621: RowVersionWriteShapes.al:363)
+RVN Neighbors::CheckedInsert_AfterPlainInsertSameTable	ASSUMED row-version-checked-insert (open corpus PR 1621: RowVersionWriteShapes.al:524)
+RVS Write Shapes::RowVersion_IssueWriteOrder	ASSUMED row-version-delete-all (open corpus PR 1621: RowVersionWriteShapes.al:524)

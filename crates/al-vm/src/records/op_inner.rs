@@ -985,9 +985,11 @@ impl Session {
                 self.delete_one(&cx, &t, rec, run)
             }
             RecordOp::DeleteAll => {
-                let at = self.note_bulk_write(rec, &t, crate::state::TxWriteKind::DeleteAll, &[]);
+                let inserted = self.filtered_delete_all_inserted(&cx, &t, rec)?;
+                let at = self.note_delete_all_write(rec, &t, !args.is_empty());
                 let r = arg_bool(args, 0).and_then(|run| self.delete_all(&t, rec, &cx, run));
                 self.note_bulk_end(at);
+                self.end_filtered_delete_all(&cx, &t, inserted)?;
                 r
             }
             RecordOp::Get => {

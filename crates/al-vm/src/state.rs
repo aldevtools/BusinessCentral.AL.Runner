@@ -303,6 +303,9 @@ pub(crate) struct RowVersionTx {
     pub(crate) assumed_write: bool,
     /// The value moved by a checked Insert through the assumption `row-version-checked-insert` (`Session::send_checked_insert`).
     pub(crate) assumed_checked_insert: bool,
+    /// The value read over a DeleteAll through the assumption `row-version-delete-all` (`Session::row_version_after_write`,
+    /// `Session::last_used_row_version`).
+    pub(crate) assumed_delete_all: bool,
 }
 
 /// The rows of `table` whose SystemRowVersion lies in (`from`, `to`], in any company: the open transaction inserted them, and a row
@@ -440,7 +443,8 @@ pub(crate) struct BulkShape {
     pub(crate) filtered: bool,
     /// `MarkedOnly` was set on the record.
     pub(crate) marked_only: bool,
-    /// The Truncate call had an argument, true or false (`Session::note_truncate_write`); the cells call `Truncate()` alone.
+    /// The Truncate or DeleteAll call had an argument, true or false (`Session::note_truncate_write`,
+    /// `Session::note_delete_all_write`); the cells call `Truncate()` and `DeleteAll()` alone.
     pub(crate) argument: bool,
 }
 

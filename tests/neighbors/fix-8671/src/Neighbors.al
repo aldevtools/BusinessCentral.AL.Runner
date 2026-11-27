@@ -205,4 +205,131 @@ codeunit 76652 "RVN Neighbors"
         RecRef.Modify();
         V := LastUsedRowVersion();
     end;
+
+    // Neighbors of the DeleteAll rule (assumption row-version-delete-all): each reads the value after a DeleteAll and an Insert.
+    [Test]
+    procedure DeleteAllFalseArgument_NoInsert_ThenInsert()
+    var
+        Row: Record "RVS Row";
+        Other: Record "RVS Other";
+        V: BigInteger;
+    begin
+        Start();
+        Row.DeleteAll(false);
+        Other.Id := 5;
+        Other.Insert();
+        V := LastUsedRowVersion();
+    end;
+
+    [Test]
+    procedure DeleteAllRecordRef_NoInsert_ThenInsert()
+    var
+        Other: Record "RVS Other";
+        RecRef: RecordRef;
+        V: BigInteger;
+    begin
+        Start();
+        RecRef.Open(Database::"RVS Row");
+        RecRef.DeleteAll();
+        Other.Id := 5;
+        Other.Insert();
+        V := LastUsedRowVersion();
+    end;
+
+    [Test]
+    procedure DeleteAll_OtherTableUnsent()
+    var
+        Row: Record "RVS Row";
+        Other: Record "RVS Other";
+        V: BigInteger;
+    begin
+        Start();
+        Other.Id := 5;
+        Other.Insert();
+        Row.DeleteAll();
+        V := LastUsedRowVersion();
+    end;
+
+    [Test]
+    procedure DeleteAllTrue_TriggerWrites_NoInsert()
+    var
+        Writing: Record "RVN Writing Row";
+        Other: Record "RVS Other";
+        V: BigInteger;
+    begin
+        Start();
+        Writing.Id := 1;
+        Writing.Insert();
+        Commit();
+        Writing.DeleteAll(true);
+        Other.Id := 6;
+        Other.Insert();
+        V := LastUsedRowVersion();
+    end;
+
+    // Gates of the DeleteAll rule after an Insert: a filter that deletes an inserted row, DeleteAll(true), MarkedOnly.
+    [Test]
+    procedure DeleteAllFiltered_DeletesInsertedRow()
+    var
+        Row: Record "RVS Row";
+        V: BigInteger;
+    begin
+        Start();
+        Row.Id := 7;
+        Row.Insert();
+        Row.Reset();
+        Row.SetRange(Id, 7);
+        Row.DeleteAll();
+        V := LastUsedRowVersion();
+    end;
+
+    [Test]
+    procedure DeleteAllTrue_AfterInsert()
+    var
+        Row: Record "RVS Row";
+        V: BigInteger;
+    begin
+        Start();
+        Row.Id := 7;
+        Row.Insert();
+        Row.DeleteAll(true);
+        V := LastUsedRowVersion();
+    end;
+
+    [Test]
+    procedure DeleteAllMarkedOnly_NoInsert_ThenInsert()
+    var
+        Row: Record "RVS Row";
+        Other: Record "RVS Other";
+        V: BigInteger;
+    begin
+        Start();
+        Row.Get(1);
+        Row.Mark(true);
+        Row.MarkedOnly(true);
+        Row.DeleteAll();
+        Other.Id := 5;
+        Other.Insert();
+        V := LastUsedRowVersion();
+    end;
+}
+
+table 76653 "RVN Writing Row"
+{
+    DataClassification = SystemMetadata;
+    fields
+    {
+        field(1; Id; Integer) { }
+    }
+    keys
+    {
+        key(PK; Id) { Clustered = true; }
+    }
+    trigger OnDelete()
+    var
+        Other: Record "RVS Other";
+    begin
+        Other.Id := 900 + Id;
+        Other.Insert();
+    end;
 }

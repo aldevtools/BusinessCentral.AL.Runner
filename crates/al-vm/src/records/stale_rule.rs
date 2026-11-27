@@ -272,17 +272,10 @@ impl Session {
     /// Whether every write to the database store since the last Commit or rollback is in `tx.open.writes`, a DeleteAll the store did in
     /// one step counting as its own note (`TxWrite::bulk`).
     pub(crate) fn stale_writes_noted(&self) -> bool {
-        let mut at = self.tx.commit_counter;
-        for w in &self.tx.open.writes {
-            if w.before != at {
-                return false;
-            }
-            at = match w.bulk {
-                Some(end) if w.kind == TxWriteKind::DeleteAll && end.entries == 0 => end.counter,
-                _ => w.after,
-            };
-        }
-        at == self.store.change_counter()
+        self.writes_noted_over(|w| match w.bulk {
+            Some(end) if w.kind == TxWriteKind::DeleteAll && end.entries == 0 => Some(end.counter),
+            _ => None,
+        })
     }
 
     /// The open transaction began at a rollback of `Error('literal')` in a transaction that held no lock; `row` is the buffer's
