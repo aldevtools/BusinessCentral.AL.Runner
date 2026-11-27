@@ -234,3 +234,59 @@ fn a_step_through_a_kept_list_reads_only_the_row_it_returns() {
         assert_eq!(format!("{got:?}"), format!("{:?}", reference(&s, &t, 0, &f, ascending)));
     }
 }
+/// A step that the list `alt_next` keeps answers asks the list before it works out the bounds of any key: an entry
+/// kept for these filters at this table version passed those gates (issue 7671: the gates were about 0.25 to 0.6 % of
+/// a large suite's warm CPU). Both the scan in a key the filters do not bound and the scan in a key they bound widely.
+#[test]
+fn a_step_that_a_kept_list_answers_works_out_no_bounds() {
+    let t = seek_table(vec![vec![0, 1], vec![2, 0, 1], vec![3, 0, 1]]);
+    let mut s = MemStore::default();
+    for a in 0..2000 {
+        let row = vec![
+            Value::Integer(a),
+            Value::Integer(0),
+            Value::Code(if a < 1800 { "LINE1" } else { "LINE2" }.into()),
+            Value::Integer(a % 500),
+        ];
+        s.insert(&cx(), &t, row).unwrap();
+    }
+    let seeks = || SEEKS_WORKED_OUT.with(|c| c.get());
+    let line1 = Value::Code("LINE1".into());
+    // Key 0 is not bounded; key 1 (C) is, by 1800 rows; key 2 (D) holds the 40 rows of D in 100..109.
+    let f = [
+        range(2, Some(line1.clone()), Some(line1)),
+        range(3, Some(Value::Integer(100)), Some(Value::Integer(109))),
+    ];
+    for key in [0, 1] {
+        for ascending in [true, false] {
+            let mut after: Option<Vec<Value>> = None;
+            let mut got = Vec::new();
+            for step in 0.. {
+                let before = seeks();
+                let scan = Scan {
+                    key,
+                    filters: &f,
+                    ascending,
+                    after: after.as_deref(),
+                };
+                let Some(row) = s.next(&cx(), &t, &scan).unwrap() else {
+                    break;
+                };
+                if step >= 2 {
+                    assert_eq!(
+                        seeks() - before,
+                        0,
+                        "key {key} ascending {ascending} step {step}: bounds worked out"
+                    );
+                }
+                after = Some(crate::position(&t, key, &row));
+                got.push(row);
+            }
+            assert_eq!(got.len(), 40);
+            assert_eq!(
+                format!("{got:?}"),
+                format!("{:?}", reference(&s, &t, key, &f, ascending))
+            );
+        }
+    }
+}

@@ -43,6 +43,18 @@ impl AltEntry {
     fn is_for(&self, fields: &[usize], filters: &[FieldFilter]) -> bool {
         self.fields == fields && same_filters(&self.filters, filters)
     }
+
+    /// What the entry answers for a step at `stamp` without a band: a walk (no other key narrows the scan) or the
+    /// sorted rows; `None` at another stamp, or before the rows are sorted.
+    fn answer(&self, stamp: u64) -> Option<AltStep> {
+        if self.stamp != stamp {
+            return None;
+        }
+        if self.not_applicable {
+            return Some(AltStep::Walk);
+        }
+        self.sorted.clone().map(AltStep::Sorted)
+    }
 }
 
 /// What the next step of a scan does, from what is kept for it.
@@ -88,6 +100,9 @@ impl MemStore {
         };
         kept[..=i].rotate_right(1);
         let e = &mut kept[0];
+        if let Some(answer) = e.answer(stamp) {
+            return answer;
+        }
         if e.stamp != stamp {
             // The first step after a write: walk.
             *e = AltEntry {
@@ -100,14 +115,28 @@ impl MemStore {
             };
             return AltStep::Walk;
         }
-        if e.not_applicable {
-            return AltStep::Walk;
-        }
-        if let Some(sorted) = &e.sorted {
-            return AltStep::Sorted(sorted.clone());
-        }
         e.calls += 1;
         AltStep::Band(e.calls)
+    }
+
+    /// The step of the scan in key `key` of `t` in `slot` through `filters` at the table's `stamp` when what is kept
+    /// answers it without a band: a walk, or a search of the sorted rows. `None`: ask `alt_step`. Like `alt_step` for
+    /// these answers, it puts the entry first and counts nothing; unlike it, it adds no entry, so `alt_next` can ask it
+    /// before the gates an entry passed when it was made (issue 7671).
+    pub(super) fn alt_kept(
+        &self,
+        slot: &Slot,
+        t: &TableDef,
+        key: usize,
+        filters: &[FieldFilter],
+        stamp: u64,
+    ) -> Option<AltStep> {
+        let mut cache = self.alt_cache.borrow_mut();
+        let kept = cache.get_mut(&(slot.clone(), key))?;
+        let i = kept.iter().position(|e| e.is_for(&t.keys[key], filters))?;
+        let answer = kept[i].answer(stamp)?;
+        kept[..=i].rotate_right(1);
+        Some(answer)
     }
 
     /// Notes what the band of the scan gave: no band (`None`), or the rows that pass in the order of its key.

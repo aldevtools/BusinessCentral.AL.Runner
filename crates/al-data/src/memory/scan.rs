@@ -229,18 +229,27 @@ impl MemStore {
         table: &Table,
         own: Option<usize>,
     ) -> Option<Option<Row>> {
-        if scan.filters.is_empty()
-            || (own.is_none() && Seek::of(t, scan.key, scan.filters, table.values().next()).is_some())
-        {
+        if scan.filters.is_empty() {
+            return None;
+        }
+        let slot = slot(cx, t);
+        let stamp = self.stamp_of(&slot, &self.versions);
+        let by = KeyOrder::of(t, scan);
+        // What is kept for this key and these filters at this table version answers before the gates below (issue
+        // 7671). A kept walk is what this call returns whatever the gates say; the kept rows are the rows that pass, in
+        // the scan's order, so a search of them returns the row every path returns.
+        match self.alt_kept(&slot, t, scan.key, scan.filters, stamp) {
+            Some(alt_cache::AltStep::Walk) => return None,
+            Some(alt_cache::AltStep::Sorted(list)) => return Some(search_sorted(table, &list, scan, by)),
+            _ => {}
+        }
+        if own.is_none() && Seek::of(t, scan.key, scan.filters, table.values().next()).is_some() {
             return None;
         }
         let sample = table.values().next();
         if !(0..t.keys.len()).any(|j| j != scan.key && Seek::of(t, j, scan.filters, sample).is_some()) {
             return None;
         }
-        let slot = slot(cx, t);
-        let stamp = self.stamp_of(&slot, &self.versions);
-        let by = KeyOrder::of(t, scan);
         let calls = match self.alt_step(&slot, t, scan.key, scan.filters, stamp) {
             alt_cache::AltStep::Walk => return None,
             alt_cache::AltStep::Sorted(list) => return Some(search_sorted(table, &list, scan, by)),

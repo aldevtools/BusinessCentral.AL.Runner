@@ -372,6 +372,8 @@ impl Seek {
     /// The bounds the filters give for key `key` of `t`; `None` when they give none.
     pub fn of(t: &TableDef, key: usize, filters: &[FieldFilter], sample: Option<&Row>) -> Option<Seek> {
         use al_builtins::filter::{FilterExpr as E, OR_GROUP};
+        #[cfg(test)]
+        SEEKS_WORKED_OUT.with(|c| c.set(c.get() + 1));
         if filters.is_empty() {
             return None;
         }
@@ -499,6 +501,8 @@ impl Seek {
 thread_local! {
     /// How many rows `passes` looked at: the tests of the key seek count what a scan reads.
     static ROWS_LOOKED_AT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// How many times `Seek::of` worked out the bounds of a key: the tests of the kept lists count them.
+    static SEEKS_WORKED_OUT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Every read that checks rows here refused a filter whose matching is not pinned first (`unpinned_match_read`).
