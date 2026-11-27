@@ -894,17 +894,25 @@ impl Session {
                 Value::Record(r) => r.try_borrow().is_ok_and(|r| !r.temporary || temp_inserted_only(&r)),
                 Value::List(l) => Rc::strong_count(l) == 1,
                 Value::Dictionary(d) => Rc::strong_count(d) == 1,
-                Value::Library(_, l) => {
-                    Rc::strong_count(l) == 1
-                        && l.try_borrow().is_ok_and(|l| match &*l {
-                            LibraryValue::RecordRef(r) => {
-                                r.try_borrow().is_ok_and(|r| crate::state_stamp::no_row_io(&r))
-                            }
-                            _ => true,
-                        })
-                }
+                Value::Library(_, l) => Rc::strong_count(l) == 1 && self.tree_ref_as_measured(rc, g),
                 _ => true,
             })
+    }
+
+    /// Whether global `g` of tree instance `rc`, when a RecordRef, FieldRef or KeyRef, works on a record that read or
+    /// wrote no row (`state_stamp::no_row_io`) and that only globals of `rc` hold: `X := RR` and `X := RR.Field(1)` give
+    /// `X` the same record buffer (`recordref_variant::own_copy`), so a variable outside sees what the ClearAll does to it.
+    /// ClearSharedCodeunitWhseTree.al (corpus PR 1620, merged, not pinned) measures only a RecordRef its node opens
+    /// ("CWT Reg" `SetOwn` :1093-1103). Any other value is not a reference to a record. Assumption clear-all-register-tree.
+    fn tree_ref_as_measured(&self, rc: &Rc<RefCell<Instance>>, g: &Value) -> bool {
+        let Some(rec) = crate::blob_transfer::ref_record(g) else {
+            return true;
+        };
+        let held = (rc.borrow().globals.iter())
+            .filter(|h| crate::blob_transfer::ref_record(h).is_some_and(|r| Rc::ptr_eq(&r, &rec)))
+            .count();
+        // `rec` itself is one more holder.
+        Rc::strong_count(&rec) == held + 1 && rec.try_borrow().is_ok_and(|r| crate::state_stamp::no_row_io(&r))
     }
 
     /// How many codeunit globals of the instances store instance `rc` holds directly hold `rc` itself: the back links of

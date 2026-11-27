@@ -351,7 +351,7 @@ fn end_record_table_copy(r: &Rc<RefCell<RecordState>>) {
 }
 
 /// The record a RecordRef, FieldRef or KeyRef value works on.
-fn ref_record(v: &Value) -> Option<Rc<RefCell<RecordState>>> {
+pub(crate) fn ref_record(v: &Value) -> Option<Rc<RefCell<RecordState>>> {
     let Value::Library(_, lib) = v else {
         return None;
     };

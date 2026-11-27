@@ -1,6 +1,51 @@
 // Neighbors of the tree of corpus PR 1620 (ClearSharedCodeunitWhseTree.al, merged, not pinned) that the probe does not
-// measure: a register List another variable shares, a temporary record of a node that read a row. The probe's nodes
-// only insert into their temporary records and never hand out a List.
+// measure: a RecordRef of a node that read a row, a register List another variable shares, a node RecordRef another
+// variable shares, a node FieldRef another variable shares (on the same record as the node's RecordRef), a temporary record of a node that read a row. The probe's nodes only open their RecordRef and only
+// insert into their temporary records, and never hand out a List or a RecordRef.
+
+codeunit 86779 "CWR Node RR Read"
+{
+    var
+        RR: RecordRef;
+
+    procedure Set()
+    begin
+        RR.Open(Database::"CKK Row");
+        if RR.FindFirst() then;
+    end;
+}
+
+codeunit 86780 "CWR Reg RR Read"
+{
+    TableNo = "CKK Row";
+
+    var
+        T: Record "CKK Row" temporary;
+        N: Codeunit "CWR Node RR Read";
+
+    procedure Set()
+    begin
+        T."No." := 1;
+        T.Insert();
+        N.Set();
+    end;
+}
+
+codeunit 86781 "CWR Owner RR Read"
+{
+    var
+        Reg: Codeunit "CWR Reg RR Read";
+
+    procedure Prime()
+    begin
+        Reg.Set();
+    end;
+
+    procedure DoClearAll()
+    begin
+        ClearAll();
+    end;
+}
 
 codeunit 86782 "CWR Reg List"
 {
@@ -36,6 +81,122 @@ codeunit 86783 "CWR Owner List"
     procedure GetList(var X: List of [Integer])
     begin
         Reg.GetList(X);
+    end;
+
+    procedure DoClearAll()
+    begin
+        ClearAll();
+    end;
+}
+
+codeunit 86784 "CWR Node RR Alias"
+{
+    var
+        RR: RecordRef;
+
+    procedure Set()
+    begin
+        RR.Open(Database::"CKK Row");
+    end;
+
+    procedure GetRR(var X: RecordRef)
+    begin
+        X := RR;
+    end;
+}
+
+codeunit 86785 "CWR Reg RR Alias"
+{
+    TableNo = "CKK Row";
+
+    var
+        T: Record "CKK Row" temporary;
+        N: Codeunit "CWR Node RR Alias";
+
+    procedure Set()
+    begin
+        T."No." := 1;
+        T.Insert();
+        N.Set();
+    end;
+
+    procedure GetRR(var X: RecordRef)
+    begin
+        N.GetRR(X);
+    end;
+}
+
+codeunit 86786 "CWR Owner RR Alias"
+{
+    var
+        Reg: Codeunit "CWR Reg RR Alias";
+
+    procedure Prime()
+    begin
+        Reg.Set();
+    end;
+
+    procedure GetRR(var X: RecordRef)
+    begin
+        Reg.GetRR(X);
+    end;
+
+    procedure DoClearAll()
+    begin
+        ClearAll();
+    end;
+}
+
+codeunit 86791 "CWR Node FR Alias"
+{
+    var
+        RR: RecordRef;
+
+    procedure Set()
+    begin
+        RR.Open(Database::"CKK Row");
+    end;
+
+    procedure GetFR(var X: FieldRef)
+    begin
+        X := RR.Field(1);
+    end;
+}
+
+codeunit 86792 "CWR Reg FR Alias"
+{
+    TableNo = "CKK Row";
+
+    var
+        T: Record "CKK Row" temporary;
+        N: Codeunit "CWR Node FR Alias";
+
+    procedure Set()
+    begin
+        T."No." := 1;
+        T.Insert();
+        N.Set();
+    end;
+
+    procedure GetFR(var X: FieldRef)
+    begin
+        N.GetFR(X);
+    end;
+}
+
+codeunit 86793 "CWR Owner FR Alias"
+{
+    var
+        Reg: Codeunit "CWR Reg FR Alias";
+
+    procedure Prime()
+    begin
+        Reg.Set();
+    end;
+
+    procedure GetFR(var X: FieldRef)
+    begin
+        Reg.GetFR(X);
     end;
 
     procedure DoClearAll()
@@ -93,6 +254,17 @@ codeunit 86790 "CWR Ref Test"
 {
     Subtype = Test;
 
+    [Test]
+    procedure Refused_RecordRefReadRow()
+    var
+        Owner: Codeunit "CWR Owner RR Read";
+        Row: Record "CKK Row";
+    begin
+        Row."No." := 7;
+        Row.Insert();
+        Owner.Prime();
+        Owner.DoClearAll();
+    end;
 
     [Test]
     procedure Refused_RegisterListAliased()
@@ -107,6 +279,31 @@ codeunit 86790 "CWR Ref Test"
             Error('count %1', X.Count());
     end;
 
+    [Test]
+    procedure Refused_NodeRecordRefAliased()
+    var
+        Owner: Codeunit "CWR Owner RR Alias";
+        X: RecordRef;
+    begin
+        Owner.Prime();
+        Owner.GetRR(X);
+        Owner.DoClearAll();
+        if X.Number() <> Database::"CKK Row" then
+            Error('number %1', X.Number());
+    end;
+
+    [Test]
+    procedure Refused_NodeFieldRefAliased()
+    var
+        Owner: Codeunit "CWR Owner FR Alias";
+        X: FieldRef;
+    begin
+        Owner.Prime();
+        Owner.GetFR(X);
+        Owner.DoClearAll();
+        if X.Number() <> 1 then
+            Error('field %1', X.Number());
+    end;
 
     [Test]
     procedure Refused_TempRecordReadRow()
