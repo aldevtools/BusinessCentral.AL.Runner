@@ -88,6 +88,14 @@ codeunit 50742 C
         FR := RecRef.Field(8);
         exit(ExitParenInteger(FR));
     end;
+    procedure CellsGerman(FieldNo: Integer): Text
+    var RecRef: RecordRef; FR: FieldRef;
+    begin
+        Seed(RecRef);
+        FR := RecRef.Field(FieldNo);
+        GlobalLanguage(1031);
+        exit(ExitCode20(FR));
+    end;
     procedure VariantVariable(): Text
     var V: Variant;
     begin
@@ -174,4 +182,23 @@ fn a_variant_variable_exited_as_a_code_keeps_its_type_conversion_error() {
         al_testkit::error_message(al_testkit::run_in(SRC, "C", "VariantVariable")),
         "The expression Microsoft.Dynamics.Nav.Runtime.NavIndirectValue cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.NavCode value."
     );
+}
+
+fn german(field: i32) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+    al_testkit::run_with(SRC, "C", "CellsGerman", vec![al_builtins::value::Value::Integer(field)]).map(|r| r.0)
+}
+
+/// Outside an en-US session no cell is measured: a number or an Enum refuses (main raised the Variant error, BC gives a
+/// text), the kinds main already answered as BC does keep that answer.
+#[test]
+fn outside_an_en_us_session_a_number_or_enum_exited_as_a_code_is_refused() {
+    for field in [2, 3, 4, 5] {
+        let r = german(field);
+        assert!(
+            matches!(&r, Err(al_builtins::native::Signal::Unsupported(why)) if why.contains("en-US")),
+            "field {field}: {r:?}"
+        );
+    }
+    assert_eq!(al_testkit::text(german(10)), "AB-1");
+    assert!(!matches!(german(8), Err(al_builtins::native::Signal::Unsupported(_))), "a Date keeps its answer");
 }
