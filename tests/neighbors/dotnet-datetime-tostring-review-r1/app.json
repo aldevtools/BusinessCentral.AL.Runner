@@ -1,0 +1,11 @@
+{
+  "id": "4b7e2d19-8c63-4a5f-9e21-939500000002",
+  "name": "Neighbors dotnet-datetime-tostring-review-r1",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [ { "from": 50482, "to": 50485 } ],
+  "dependencies": []
+}

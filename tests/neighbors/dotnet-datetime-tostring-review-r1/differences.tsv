@@ -1,0 +1,5 @@
+# key	entry
+DtCulture Neighbors::Served_CurrentCultureSetBack	ASSUMED dotnet-datetime-tostring-plain-space (corpus PR 1653)
+DtCulture Neighbors::Served_LongTimePatternSameValue	ASSUMED dotnet-datetime-tostring-plain-space (corpus PR 1653)
+DtCulture Neighbors::Served_LongTimePatternSetBack	ASSUMED dotnet-datetime-tostring-plain-space (corpus PR 1653)
+DtCulture Neighbors::Served_ReportProcedureOutsideRun	ASSUMED dotnet-datetime-tostring-plain-space (corpus PR 1653)
