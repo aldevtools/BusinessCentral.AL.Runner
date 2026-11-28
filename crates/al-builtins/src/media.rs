@@ -243,7 +243,7 @@ fn jfif_header_of_measured_logos(b: &[u8]) -> bool {
 /// with 3 bytes of its JFIF header rewritten, density units (index 13) 0 -> 1 and the low bytes of the X and Y density (indexes 15
 /// and 17) 1 -> 0. Windows BC 27.5 and 29.0 stored all 5 icons so (UsAppLogoJpegSizes.al:20-23; local observe of corpus PR 1594
 /// at d030ce03, 'icon equals file' No and 'icon vs logo media, differing bytes' = '14:1/0 16:0/1 18:0/1 count 3' for fixtures E,
-/// G, H, J and K); BC on Linux keeps the file. The length does not change ('icon length' = the file's on every host). `bytes`
+/// G, H, J and K); BC on Linux differs: the corpus CI run of 12c6a982 shows Linux 27 and 28 storing a re-encoded icon of another length and Linux 29 keeping the file; the runner serves the Windows result, the reference. The length does not change on Windows ('icon length' = the file's, asserted at d030ce03). `bytes`
 /// holds the header [`jfif_header_of_measured_logos`] checked.
 fn windows_stored_icon_bytes(mut bytes: Vec<u8>) -> Vec<u8> {
     bytes[13] = 1;

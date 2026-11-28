@@ -7,10 +7,10 @@ Logo Icon Tests::IconG_Description	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	
 Logo Icon Tests::IconE_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
 Logo Icon Tests::IconE_Mime	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
 Logo Icon Tests::DirectImportG_GuidDescription_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
-Logo Icon Tests::IconE_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the length is the file's on every host)	27
+Logo Icon Tests::IconE_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the length is the file's on Windows, the reference; BC on Linux 27 and 28 stores a re-encoded icon of another length, corpus CI run of 12c6a982)	27
 Logo Icon Tests::DirectImportG_TextDescription_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the read of the logo of app G; the import keeps main's 0 x 0)	27
-Logo Icon Tests::IconG_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the length is the file's on every host)	27
-Logo Icon Tests::IconG_ContentHasValue	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; has a value on every host)	27
+Logo Icon Tests::IconG_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the length is the file's on Windows, the reference; BC on Linux 27 and 28 stores a re-encoded icon of another length, corpus CI run of 12c6a982)	27
+Logo Icon Tests::IconG_ContentHasValue	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; has a value; the length differs on BC on Linux 27 and 28, corpus CI run of 12c6a982, the runner serves Windows)	27
 Logo Icon Tests::IconG_HeaderBytes	ASSUMED app-logo-jpeg-sizes (corpus PR 1594 at d030ce03, Windows 27.5 and 29.0: bytes 14, 16, 18 are 1, 0, 0)	27
 Logo Icon Tests::IconG_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
 Logo Icon Tests::IconG_Mime	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
@@ -18,8 +18,8 @@ Logo Icon Tests::IconG_Description	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	
 Logo Icon Tests::IconE_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
 Logo Icon Tests::IconE_Mime	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
 Logo Icon Tests::DirectImportG_GuidDescription_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
-Logo Icon Tests::IconE_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the length is the file's on every host)	29
+Logo Icon Tests::IconE_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the length is the file's on Windows, the reference; BC on Linux 27 and 28 stores a re-encoded icon of another length, corpus CI run of 12c6a982)	29
 Logo Icon Tests::DirectImportG_TextDescription_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the read of the logo of app G; the import keeps main's 0 x 0)	29
-Logo Icon Tests::IconG_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the length is the file's on every host)	29
-Logo Icon Tests::IconG_ContentHasValue	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; has a value on every host)	29
+Logo Icon Tests::IconG_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the length is the file's on Windows, the reference; BC on Linux 27 and 28 stores a re-encoded icon of another length, corpus CI run of 12c6a982)	29
+Logo Icon Tests::IconG_ContentHasValue	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; has a value; the length differs on BC on Linux 27 and 28, corpus CI run of 12c6a982, the runner serves Windows)	29
 Logo Icon Tests::IconG_HeaderBytes	ASSUMED app-logo-jpeg-sizes (corpus PR 1594 at d030ce03, Windows 27.5 and 29.0: bytes 14, 16, 18 are 1, 0, 0)	29

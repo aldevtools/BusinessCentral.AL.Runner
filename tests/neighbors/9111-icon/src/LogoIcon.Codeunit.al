@@ -58,7 +58,7 @@ codeunit 50184 "Logo Icon Tests"
 
     // Bytes 14, 16 and 18 (1-based) of the stored content: JFIF density units and the low bytes of X and Y density. The files
     // hold 0, 1, 1. Windows BC 27.5 and 29.0 store 1, 0, 0 (corpus PR 1594 at d030ce03, 'icon vs logo media, differing bytes'
-    // = '14:1/0 16:0/1 18:0/1 count 3'); BC on Linux keeps the file.
+    // = '14:1/0 16:0/1 18:0/1 count 3'); BC on Linux 27 and 28 stores a re-encoded icon of another length (corpus CI of 12c6a982); the runner serves Windows.
     local procedure HeaderBytes(var TenantMedia: Record "Tenant Media"): Text
     var
         InS: InStream;
@@ -136,7 +136,7 @@ codeunit 50184 "Logo Icon Tests"
             Error('mime %1', TenantMedia."Mime Type");
     end;
 
-    // The length is the file's on every host (corpus PR 1594 'icon length'); Windows rewrites 3 header bytes in place.
+    // The length is the file's on Windows (corpus PR 1594 'icon length'; BC on Linux 27 and 28 differs); Windows rewrites 3 header bytes in place.
     [Test]
     procedure IconG_ContentLength()
     var
