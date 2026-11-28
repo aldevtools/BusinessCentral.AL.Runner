@@ -71,8 +71,9 @@ fn refusals(l: &al_sema::lower::Lowered, engine: &al_vm::Engine, wrote: &Company
         .collect()
 }
 
-// Runner 130450 is the one start after the held login whose login rows are not measured (corpus PR 1644, :615, :665,
-// :708 measure each session's own rows only); every hub isolation thaws the held login (:451, :492, :531).
+// Runner 130450 is the one start after the held login whose login rows are not measured (corpus PR 1644,
+// LgnHeldLoginRunners.al:608, :656, :697 measure each session's own rows only); every hub isolation thaws the held login
+// (:452, :491, :528).
 #[test]
 fn only_runner_130450_codeunits_after_the_held_login_are_not_measured() {
     let runner = login_held_unmeasured(false, TestIsolation::Codeunit).expect("runner 130450");
@@ -115,7 +116,7 @@ fn only_a_session_from_the_install_baseline_starts_the_runs_login() {
 
 // Under runner 130450 a test that reads the table the login wrote is not run; the test that reads another table runs,
 // as on main, and so does the reader of the SingleInstance codeunit: the session's own login filled it (corpus PR 1644,
-// :615).
+// LgnHeldLoginRunners.al:608).
 #[test]
 fn a_runner_130450_codeunit_after_the_held_login_refuses_only_the_login_table_readers() {
     let (l, engine) = super::tests::engine_for(SRC);
@@ -146,9 +147,9 @@ fn a_hub_codeunit_without_the_held_image_refuses_only_the_single_instance_reader
 }
 
 // On the hub a Codeunit or Function codeunit whose login rows are as the held login left them is measured
-// (LgnDisabledLoginWrites.al:553; corpus PR 1644, :492, :531); after a Disabled codeunit changed them it is not (corpus
-// PR 1642, codeunits 87428 and 87429), and its readers of the login's tables are not run, whether the image was thawed
-// or not. A Disabled codeunit is measured either way (:474, :649).
+// (LgnDisabledLoginWrites.al:546; corpus PR 1644, LgnHeldLoginRunners.al:491, :528); after a Disabled codeunit changed
+// them its readers of the login's tables are not run, whether the image was thawed or not. A Disabled codeunit is
+// measured either way (LgnDisabledLoginWrites.al:471, :636).
 #[test]
 fn a_hub_codeunit_after_a_disabled_codeunit_changed_the_login_rows_refuses_their_readers() {
     let (l, engine) = super::tests::engine_for(SRC);

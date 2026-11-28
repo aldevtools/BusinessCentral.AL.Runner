@@ -235,7 +235,7 @@ fn open_company(
     let (mut wrote, hits) = match thawed {
         Some(opened) => opened,
         None => {
-            // On the hub BC runs no second login (LgnDisabledLoginWrites.al:474, :553): what this one writes is undone.
+            // On the hub BC runs no second login (LgnDisabledLoginWrites.al:471, :546): what this one writes is undone.
             let before = (held.is_some() && unmeasured.is_none()).then(|| session.capture_baseline());
             // The session before the run's first login, for the image a Disabled codeunit holds (`first_login`).
             let base = first_login(scratch.hub, isolation, session).then(|| session.login_base());

@@ -54,7 +54,7 @@ table 52604 "R5 Own"
 }
 
 // Runner 130450 runs it after A, in a session of its own whose login fills the memo again on A's row: BC gives memo 1
-// (corpus PR 1644, LgnHeldLoginRunners.al:615). Main runs it without A's row (A not run) and fails.
+// (corpus PR 1644, LgnHeldLoginRunners.al:608). Main runs it without A's row (A not run) and fails.
 codeunit 52620 "R5 F Memo 130450"
 {
     Subtype = Test;

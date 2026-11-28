@@ -12,7 +12,7 @@ use super::*;
 /// apps under test that wrote (`who`): the hub runs every codeunit in one session and the login once, and rows committed
 /// before a codeunit starts survive it, so what the codeunit leaves is where the later codeunits start, the login
 /// rows as it left them (assumption `hub-disabled-login-once`, corpus PR 1642: probe-disabled-isolation-login-writes,
-/// LgnDisabledLoginWrites.al:343, :474, :553, :623, :649).
+/// LgnDisabledLoginWrites.al:348, :471, :546, :612, :636).
 pub(super) fn login_once_on_hub(
     hub: bool,
     isolation: TestIsolation,
@@ -25,7 +25,7 @@ pub(super) fn login_once_on_hub(
         && company_open.login.is_some()
 }
 
-/// The session of a codeunit that `login_once_on_hub` would hold starts the run's login (LgnDisabledLoginWrites.al:343:
+/// The session of a codeunit that `login_once_on_hub` would hold starts the run's login (LgnDisabledLoginWrites.al:348:
 /// one session, one login before the first codeunit): its data is the suite's install baseline, not what a test codeunit
 /// left (`Session::starts_from_what_a_codeunit_left`), and holds no login yet. A session that starts from data that
 /// holds the login keeps it (`Session::hold_login`); one that starts from what another codeunit left keeps main's
@@ -37,7 +37,7 @@ pub(super) fn first_login(hub: bool, isolation: TestIsolation, session: &Session
 }
 
 /// A session that starts from data holding the run's one login takes that login's session state from its image in place
-/// of a second login, and what the runner noted of it, marked (LgnDisabledLoginWrites.al:474, :553: no second login;
+/// of a second login, and what the runner noted of it, marked (LgnDisabledLoginWrites.al:471, :546: no second login;
 /// SingleInstance state lasts for the session, TestCuP7BReader.al:24-37). `None`: no image, or the session is not a thaw
 /// target; nothing of it changed.
 pub(super) fn thaw_held(
@@ -92,10 +92,11 @@ fn written(w: &crate::install::CompanyOpenWrites) -> std::collections::BTreeSet<
 
 /// Whether a codeunit on the hub that starts from the run's one login (`held`) sees the rows that login wrote as the
 /// codeunits before it left them, as the probe measured: under Disabled isolation whether or not an earlier Disabled
-/// codeunit changed them (LgnDisabledLoginWrites.al:474, :649); under Codeunit or Function isolation only when the
-/// committed rows of those tables equal the ones the login left (LgnDisabledLoginWrites.al:553; corpus PR 1644,
-/// LgnHeldLoginRunners.al:492, :531). A Codeunit or Function codeunit after a Disabled codeunit changed them is not
-/// measured (corpus PR 1642, codeunits 87428 and 87429): `false`, and its tests may not read them (`held_reads`).
+/// codeunit changed them (LgnDisabledLoginWrites.al:471, :636); under Codeunit or Function isolation only when the
+/// committed rows of those tables equal the ones the login left (LgnDisabledLoginWrites.al:546; corpus PR 1644,
+/// LgnHeldLoginRunners.al:491, :528). A Codeunit or Function codeunit after a Disabled codeunit changed them: `false`,
+/// and its tests may not read them (`held_reads`), as main refused them; the probe measures only a delete of every
+/// login row (LgnDisabledLoginWrites.al:663, :694, :720), not yet served here.
 pub(super) fn login_rows_as_held(held: &al_vm::HeldLogin, isolation: TestIsolation, session: &mut Session) -> bool {
     match isolation {
         TestIsolation::Disabled => true,
@@ -140,7 +141,7 @@ pub(super) fn held_reads(
     };
     let mut tables = written(wrote);
     tables.extend(first);
-    // The session's own login filled its SingleInstance codeunits again (LgnHeldLoginRunners.al:615): none refused.
+    // The session's own login filled its SingleInstance codeunits again (LgnHeldLoginRunners.al:608): none refused.
     Some(crate::install::HeldReads {
         tables,
         tables_why: why,
@@ -177,9 +178,9 @@ pub(super) fn carried_company_open(
 /// (`login_once_on_hub`) may not read the tables that login and its own wrote (`held_reads`): runner 130450 runs it in
 /// a session of its own after every hub codeunit, whose login runs on what the hub codeunits committed and fills its
 /// SingleInstance codeunits again; the probe saw only that session's own login rows (assumption
-/// `hub-login-later-runners`, corpus PR 1644, LgnHeldLoginRunners.al:615, :665, :708). `None`: a codeunit on the hub
+/// `hub-login-later-runners`, corpus PR 1644, LgnHeldLoginRunners.al:608, :656, :697). `None`: a codeunit on the hub
 /// (`Scratch::hub_leg`), under Disabled, Codeunit or Function isolation, which takes the held login's session state
-/// (LgnDisabledLoginWrites.al:474, :553; LgnHeldLoginRunners.al:451, :492, :531).
+/// (LgnDisabledLoginWrites.al:471, :546; LgnHeldLoginRunners.al:452, :491, :528).
 pub(super) fn login_held_unmeasured(hub_leg: bool, isolation: TestIsolation) -> Option<&'static str> {
     match (hub_leg, isolation) {
         (true, TestIsolation::Disabled | TestIsolation::Codeunit | TestIsolation::Function) => None,

@@ -18,9 +18,8 @@
 //! - `refuse`: must hold a new session's value (the predicate next to it), else a session image of the login (issue
 //!   8211, `login_image.rs`) is not made ([`Session::image_refused_field`]). Install code that ran in a session of its
 //!   own is held to the same predicates ([`Session::install_refused_field`], [`Session::install_left`]), except those
-//!   marked `[image_only]`, which only the image requires, for the reason next to each. One marked `[image => ...]` holds
-//!   install code to its predicate and the image to the stricter one in the brackets besides; one marked
-//!   `[install => ...]` holds the image to its predicate and install code to the stricter one in the brackets besides.
+//!   marked `[image_only]`, which only the image requires, for the reason next to each. One marked `[install => ...]`
+//!   holds the image to its predicate and install code to the stricter one in the brackets besides.
 //! - `rest`: no code runs and nothing of a call is left (the predicate next to it); [`Session::at_rest_why`] names the
 //!   first that does not hold.
 //! - `own`: made from the engine, the host or the run's session flags before any code runs; each session keeps its own.
@@ -393,8 +392,8 @@ macro_rules! session_classes {
         impl Session {
             /// The first field of the `refuse` class, or of the `own` class with a requirement, that does not hold what
             /// the session image of the login requires (`login_image.rs`); `None` when each does. Each predicate of the
-            /// class, those marked `[image_only]` and the stricter ones of `[image => ...]` included, the install code's
-            /// stricter ones of `[install => ...]` left out.
+            /// class, those marked `[image_only]` included, the install code's stricter ones of `[install => ...]` left
+            /// out.
             pub(crate) fn image_refused_field(&self) -> Option<&'static str> {
                 $(image_check!(self, $r $([$tag $(=> $ip)?])? => $rp);)*
                 $($(
@@ -435,15 +434,11 @@ macro_rules! session_classes {
     };
 }
 
-/// One `refuse` predicate in [`Session::install_refused_field`]: a predicate marked `[image_only]`, and the image's one
-/// of `[image => ...]`, is only type checked; the stricter one of `[install => ...]` is checked after its predicate.
+/// One `refuse` predicate in [`Session::install_refused_field`]: a predicate marked `[image_only]` is only type checked;
+/// the stricter one of `[install => ...]` is checked after its predicate.
 macro_rules! install_check {
     ($s:expr, $r:ident [image_only] => $rp:expr) => {
         let _: fn(&Session) -> bool = $rp;
-    };
-    ($s:expr, $r:ident [image => $ip:expr] => $rp:expr) => {
-        let _: fn(&Session) -> bool = $ip;
-        install_check!($s, $r => $rp);
     };
     ($s:expr, $r:ident [install => $ip:expr] => $rp:expr) => {
         install_check!($s, $r => $rp);
@@ -457,15 +452,11 @@ macro_rules! install_check {
     };
 }
 
-/// One `refuse` entry in [`Session::image_refused_field`]: its predicate, and the stricter one of `[image => ...]` after
-/// it; the install code's one of `[install => ...]` is only type checked.
+/// One `refuse` entry in [`Session::image_refused_field`]: its predicate; the install code's one of `[install => ...]` is
+/// only type checked.
 macro_rules! image_check {
     ($s:expr, $r:ident [image_only] => $rp:expr) => {
         image_check!($s, $r => $rp);
-    };
-    ($s:expr, $r:ident [image => $ip:expr] => $rp:expr) => {
-        image_check!($s, $r => $rp);
-        image_check!($s, $r => $ip);
     };
     ($s:expr, $r:ident [install => $ip:expr] => $rp:expr) => {
         let _: fn(&Session) -> bool = $ip;
