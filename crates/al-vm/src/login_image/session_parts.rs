@@ -1,5 +1,6 @@
 //! The `linked` fields of the session field table (`session_fields.rs`) that are not the object graph or the rows: the
-//! session's sub-states field by field, the SQL counters, WorkDate and the language, and the baseline origin. Each is
+//! session's sub-states field by field, the SQL counters, WorkDate and the language, the group 1 entries, and the baseline
+//! origin. Each is
 //! taken by value and written back through the session's own setter where one exists, so what it keeps in step follows.
 
 use super::NotImaged;
@@ -21,6 +22,8 @@ pub(crate) struct SessionParts {
     clientless_login_skipped: bool,
     events: EventsPart,
     media: MediaPart,
+    /// `Group1Filters::image`, each filter in its plain form.
+    group1: crate::group1_sessions::ImagedEntries<super::plain::PlainFilter>,
 }
 
 /// What a Commit leaves in `TxState` for a later test to read (state_facts.rs `transaction`); every other field holds a
@@ -78,7 +81,11 @@ impl SessionParts {
         if !s.media_removed.0.is_empty() {
             return Err(NotImaged::Field("media_removed"));
         }
+        let group1 = (s.global_group1.image())
+            .and_then(|entries| entries.map(super::plain::PlainFilter::of))
+            .ok_or(NotImaged::Field("global_group1"))?;
         Ok(SessionParts {
+            group1,
             sql,
             baseline_origin: s.baseline_origin(),
             carried: crate::CarriedState {
@@ -103,6 +110,8 @@ impl SessionParts {
         s.ui_state.clientless_login_skipped = self.clientless_login_skipped;
         self.events.give(s);
         self.media.give(s);
+        let entries = self.group1.map(|p| Some(p.filter()));
+        s.global_group1.give(&entries.expect("every plain filter has a filter"));
     }
 }
 

@@ -1,22 +1,11 @@
 # key	entry
-# The probe's measured cells: the base refused them at the save (UNMEASURED_CODE); the effect gate runs them. A write before
-# the insert (:438) and a delete (:450) keep the refusal, and so do the 5 neighbors, the same on both.
-LT NW Tests::NewLine_TableFieldWritesAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, merged: ListNewLineWritesOtherTable.al)
-LT NW Tests::NewLine_TableFieldWritesAnotherTableBeforeSaveRecord_RowBefore_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, merged: ListNewLineWritesOtherTable.al)
-LT NW Tests::NewLine_ControlWritesAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, merged: ListNewLineWritesOtherTable.al)
-LT NW Tests::NewLine_ControlWritesAnotherTableBeforeSaveRecord_RowBefore_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, merged: ListNewLineWritesOtherTable.al)
-LT NW Tests::NewLine_TableFieldWritesAnotherTableThenUpdateTrue_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, merged: ListNewLineWritesOtherTable.al)
-LT NW Tests::NewLine_TableFieldModifiesAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, merged: ListNewLineWritesOtherTable.al)
-LT NW Tests::NewLine_TableFieldModifiesAnotherTableBeforeSaveRecord_RowBefore_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, merged: ListNewLineWritesOtherTable.al)
-LT NW Tests::NewLine_ControlModifiesAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, merged: ListNewLineWritesOtherTable.al)
-LT NW Tests::NewLine_AnotherTableAndTheLineWrittenBeforeSaveRecord_SaveWritesRecOverTheLine	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1527, merged: ListNewLineWritesOtherTable.al)
-# The cells of the review of #8806 (corpus pull request 1536): Update(true) after the control's write or the table field's
-# modify, both writing, a FlowField over the written table. The control's write next to the line's rewrite (:630, :654) keeps
-# the refusal, the same on both.
-LT NW Tests::NewLine_ControlWritesAnotherTableThenUpdateTrue_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1536, open: ListNewLineWritesOtherTable.al)
-LT NW Tests::NewLine_TableFieldModifiesAnotherTableThenUpdateTrue_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1536, open: ListNewLineWritesOtherTable.al)
-LT NW Tests::NewLine_TableFieldAndControlWriteAnotherTableBeforeSaveRecord_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1536, open: ListNewLineWritesOtherTable.al)
-LT NW Tests::NewLine_FlowFieldOverTheTableTheTableFieldWrites_ShowsTheCount	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1536, open: ListNewLineWritesOtherTable.al)
-# The two neighbors the review asked for, run as their cells (:642, :666).
-LT NX Tests::NewLine_TableFieldAndControlWriteAnotherTable_ShowsAndSavesTheRow	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1536, open: ListNewLineWritesOtherTable.al)
-LT NX Tests::NewLine_FlowFieldOverTheWrittenTable_ShowsTheCount	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1536, open: ListNewLineWritesOtherTable.al)
+# The control writes another table and rewrites the line through another record before the save, in either order (follow-up
+# of the review of #8806): main refused both at the Update; the effect gate runs them, the save writing Rec over the line.
+# Every unlisted cell and neighbor gives the same on both.
+LT NW Tests::NewLine_ControlWritesAnotherTableAndTheLineBeforeSaveRecord_SaveWritesRecOverTheLine	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1536, open: ListNewLineWritesOtherTable.al)
+LT NW Tests::NewLine_ControlWritesTheLineThenAnotherTableBeforeSaveRecord_SaveWritesRecOverTheLine	ASSUMED list-new-line-extra-code,list-new-line-writes-other-table (corpus PR 1536, open: ListNewLineWritesOtherTable.al)
+# The table field calls Modify on another table in the rewritten line's slice; the measured cells admit only at most one
+# other-table Insert there.
+LT NX Tests::NewLine_TableFieldModifiesAnotherTableThenControlRewritesTheLine_SaveWritesRecOverTheLine	REFUSED CurrPage.Update on a page that shows no row
+# The Copilot review of the train for #8878 (unchanged other-table Modify and Commit before the insert; temporary Inserts
+# before the rewrite; a Commit after New()): every such neighbor gives main's result on head, so none has a row here.

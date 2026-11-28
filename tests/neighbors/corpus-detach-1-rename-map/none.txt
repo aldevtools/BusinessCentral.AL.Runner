@@ -1,0 +1,1 @@
+A tooling change no AL code sees: al-test-cli corpus-bump and --list-changes list handling (ADR-065 amendment 1); the al-runner binary and the runtime are unchanged.

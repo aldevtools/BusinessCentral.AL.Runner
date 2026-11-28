@@ -1,0 +1,13 @@
+# key	entry	version
+DLW R1 A Disabled::A_LoginRowThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	28
+DLW R1 C Disabled Modifies::C_ModifyLoginRow	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:471)	28
+DLW R1 D Codeunit After Modify::D1_ReadsOnlyData	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:546; reads no login table)	28
+DLW R1 D Codeunit After Modify::D3_ReadsLoginRowThroughRecordRef	ASSUMED hub-disabled-login-once (not run as on main, watched read refused: login rows modified, not measured: corpus PR 1642 measures only a delete, :663)	28
+DLW R1 E Function After Modify::E1_ReadsOnlyData	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1644, LgnHeldLoginRunners.al:491, :528; reads no login table)	28
+DLW R1 F Disabled After Modify::F_ReadsModifiedLoginRow	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:636)	28
+DLW R1 A Disabled::A_LoginRowThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	29
+DLW R1 C Disabled Modifies::C_ModifyLoginRow	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:471)	29
+DLW R1 D Codeunit After Modify::D1_ReadsOnlyData	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:546; reads no login table)	29
+DLW R1 D Codeunit After Modify::D3_ReadsLoginRowThroughRecordRef	ASSUMED hub-disabled-login-once (not run as on main, watched read refused: login rows modified, not measured: corpus PR 1642 measures only a delete, :663)	29
+DLW R1 E Function After Modify::E1_ReadsOnlyData	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1644, LgnHeldLoginRunners.al:491, :528; reads no login table)	29
+DLW R1 F Disabled After Modify::F_ReadsModifiedLoginRow	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:636)	29

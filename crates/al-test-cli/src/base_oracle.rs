@@ -1,11 +1,13 @@
 //! The base branch's oracle and not-passing lists, read with `git show REV:PATH` (ADR-065): `--list-new-cases`
 //! adds lines only for cases the base oracle lacks, and `--list-changes` tells such lines apart from regressions.
+//! `Base::carry` reads both sides of a corpus pin move for `rename_map::carry` (ADR-065 amendment 1).
 //!
 //! The base branch's oracle and lists, read with `git show REV:PATH` (`--list-new-cases`, `--list-
 //! changes`).
 
 use crate::config::{OracleFile, OracleFormat};
 use crate::oracle::{self, CaseId};
+use crate::rename_map;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -88,14 +90,87 @@ impl Base {
         let Some(text) = self.show(&path)? else {
             return Ok(BTreeSet::new());
         };
-        let cases = match format {
-            OracleFormat::Junit => oracle::parse_junit(&text),
-            OracleFormat::Xunit => oracle::parse_xunit(&text).map(|v| v.into_iter().map(|c| c.case).collect()),
-        }
-        .map_err(|e| format!("{}:{path}: {e}", self.rev))?;
+        let cases = parse_oracle(&text, format).map_err(|e| format!("{}:{path}: {e}", self.rev))?;
         Ok(crate::not_passing::bc_passed(&cases))
     }
 
+    /// The base lists of BC major `major` carried to the head oracles of `head` (read from `oracle_dir`, the folder of
+    /// the head `oracle.toml`) through the head corpus's rename map (`rename_map::carry`, ADR-065 amendment 1).
+    /// `main_list`: the main app's list path when a run names its own (`--baseline`).
+    pub fn carry(
+        &self,
+        root: &Path,
+        head: &OracleFile,
+        oracle_dir: &Path,
+        major: u16,
+        main_list: Option<&str>,
+    ) -> Result<rename_map::Carry, String> {
+        let mut base = Vec::new();
+        if let Some((cfg, v)) = self
+            .cfg
+            .as_ref()
+            .and_then(|c| c.versions.iter().find(|v| v.major == major).map(|v| (c, v)))
+        {
+            let lists = std::iter::once((None, cfg.corpus_app.as_str(), main_list.unwrap_or(&v.baseline))).chain(
+                v.suites
+                    .iter()
+                    .map(|s| (Some(s.name.as_str()), s.app.as_str(), s.baseline.as_str())),
+            );
+            for (suite, app, list) in lists {
+                base.push(rename_map::BaseList {
+                    suite: suite.map(str::to_string),
+                    app: app.to_string(),
+                    oracle: self.oracle_ids(major, suite)?,
+                    list: self.list(list)?,
+                });
+            }
+        }
+        let mut heads = Vec::new();
+        if let Some(v) = head.versions.iter().find(|v| v.major == major) {
+            let oracles = std::iter::once((None, head.corpus_app.as_str(), v.junit.as_str(), OracleFormat::Junit))
+                .chain(
+                    v.suites
+                        .iter()
+                        .map(|s| (Some(s.name.as_str()), s.app.as_str(), s.oracle.as_str(), s.format)),
+                );
+            for (suite, app, file, format) in oracles {
+                let path = oracle_dir.join(file);
+                // A suite whose oracle file is missing has no cases: the run reports the missing file itself.
+                let cases = match std::fs::read_to_string(&path) {
+                    Ok(text) => parse_oracle(&text, format).map_err(|e| format!("{}: {e}", path.display()))?,
+                    Err(_) => Vec::new(),
+                };
+                heads.push(rename_map::HeadOracle {
+                    suite: suite.map(str::to_string),
+                    app: app.to_string(),
+                    cases: cases.into_iter().map(|c| c.id).collect(),
+                });
+            }
+        }
+        let map = rename_map_at_head(root, head)?;
+        rename_map::carry(&map, &base, &heads).map_err(|e| format!("BC {major}: {e}"))
+    }
+}
+
+/// The rename map of the corpus checkout (`<corpus_repo>/tests/rename-map.tsv`); empty when the corpus has none.
+pub fn rename_map_at_head(root: &Path, head: &OracleFile) -> Result<rename_map::RenameMap, String> {
+    let path = root.join(&head.corpus_repo).join("tests/rename-map.tsv");
+    match std::fs::read_to_string(&path) {
+        Ok(text) => rename_map::RenameMap::parse(&text).map_err(|e| format!("{}: {e}", path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(rename_map::RenameMap::default()),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    }
+}
+
+/// An oracle file's cases, in its format.
+fn parse_oracle(text: &str, format: OracleFormat) -> Result<Vec<oracle::OracleCase>, oracle::OracleError> {
+    match format {
+        OracleFormat::Junit => oracle::parse_junit(text),
+        OracleFormat::Xunit => oracle::parse_xunit(text).map(|v| v.into_iter().map(|c| c.case).collect()),
+    }
+}
+
+impl Base {
     /// The list file at the revision; empty when it has none.
     pub fn list(&self, path: &str) -> Result<BTreeSet<CaseId>, String> {
         Ok(self.list_opt(path)?.unwrap_or_default())

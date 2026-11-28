@@ -146,6 +146,9 @@ impl al_builtins::native::Ctx for Session {
     fn gate(&self, gate: al_version::Gate) -> bool {
         self.has(gate)
     }
+    fn supported_major(&self) -> bool {
+        Session::supported_major(self)
+    }
     fn http_probe_1424_measured(&self) -> bool {
         al_version::http_probe_1424_measured(self.engine.target.as_ref())
     }

@@ -1,0 +1,11 @@
+{
+  "id": "b6b02d12-e515-4b25-aa0d-9d54dfcc2bbe",
+  "name": "Neighbors one xRec across a nested Validate",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "29.0.0.0",
+  "runtime": "18.0",
+  "target": "Cloud",
+  "idRanges": [{ "from": 50000, "to": 50199 }],
+  "dependencies": []
+}
