@@ -94,23 +94,34 @@ pub fn corpus_at_rev(corpus: &Path, rev: &str) -> Result<Corpus, String> {
     Corpus::from_sources(sources)
 }
 
-/// The corpus pull requests the assumption registry names (`PR 1516`, `PR #1516` in any of its texts): a pending
-/// citation must cite one of them.
+/// The corpus pull requests the assumption registry names: a pending citation must cite one of them.
 pub fn registry_prs() -> BTreeSet<u32> {
     let mut prs = BTreeSet::new();
     for a in al_builtins::assumptions::Assumption::ALL {
         let i = a.info();
         for text in [i.assumed, i.tests, i.probe] {
-            for (k, _) in text.match_indices("PR ") {
-                let rest = text[k + 3..].trim_start_matches('#');
-                let n = rest.bytes().take_while(u8::is_ascii_digit).count();
-                if let Ok(pr) = rest[..n].parse() {
-                    prs.insert(pr);
-                }
-            }
+            prs.extend(corpus_prs(text));
         }
     }
     prs
+}
+
+/// The corpus pull requests `text` names: `corpus PR <n>`, `corpus PR #<n>` or `corpus pull request <n>`, any case,
+/// with `corpus` right before. A bare `PR <n>` is not read: the registry also names runner pull requests (review r1 of
+/// PR 9432, M1).
+fn corpus_prs(text: &str) -> Vec<u32> {
+    let lower = text.to_ascii_lowercase();
+    let mut out = Vec::new();
+    for form in ["corpus pr ", "corpus pull request "] {
+        for (k, _) in lower.match_indices(form) {
+            let rest = lower[k + form.len()..].trim_start_matches('#');
+            let n = rest.bytes().take_while(u8::is_ascii_digit).count();
+            if let Ok(pr) = rest[..n].parse() {
+                out.push(pr);
+            }
+        }
+    }
+    out
 }
 
 /// Every citation in `crates/` and `docs/` of `root` that does not resolve at the checkout `corpus`, as
@@ -124,9 +135,14 @@ pub fn check(root: &Path, corpus: &Path) -> Result<(Vec<String>, usize), String>
             read += 1;
             let line = text[..f.at.start].matches('\n').count() + 1;
             let token = &text[f.at.clone()];
-            let r = f
-                .citation
-                .and_then(|c| citation::resolve(&c, &pinned, &prs).map(|_| ()));
+            let r = f.citation.and_then(|c| {
+                citation::resolve(&c, &pinned, &prs)?;
+                // A token is written as it prints (review r1 of PR 9432, L2), so a search for it finds it.
+                match citation::canonical(&c, &pinned)? {
+                    Some(k) if k.to_string() != token => Err(format!("write it as {k}")),
+                    _ => Ok(()),
+                }
+            });
             if let Err(e) = r {
                 errors.push(format!("{}:{line}: {token}: {e}", path.display()));
             }
@@ -195,4 +211,18 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_pull_request_named_as_a_corpus_one_is_read() {
+        assert_eq!(corpus_prs("runner PR 7870; see PR 8541"), Vec::<u32>::new());
+        assert_eq!(
+            corpus_prs("Corpus PR 1594 (x), corpus PR #1600, Corpus pull request 1633"),
+            vec![1594, 1600, 1633]
+        );
+    }
 }

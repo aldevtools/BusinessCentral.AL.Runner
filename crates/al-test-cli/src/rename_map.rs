@@ -99,6 +99,13 @@ impl RenameMap {
         Ok(t)
     }
 
+    /// Whether a line moves a test of codeunit `id` to another codeunit (a renumber, or a move of some of its tests).
+    pub fn moves_codeunit(&self, id: u32) -> bool {
+        self.next
+            .iter()
+            .any(|(old, new)| old.codeunit == id && new.iter().any(|n| n.codeunit != id))
+    }
+
     fn follow(
         &self,
         key: &CaseId,

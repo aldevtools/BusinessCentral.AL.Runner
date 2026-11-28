@@ -14,9 +14,10 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const FOLDER: &str = "tests/al-language/record/table-properties";
 
 /// Why the rows of [`FOLDER`] are not served yet, or `None` once they are. The folder holds the 248 rows of the Windows
-/// containers of BC 27.5 and 28.5 and of a BC 29 SaaS sandbox; the Linux CI containers give 208 or 212 rows built from ICU
-/// data (the file header of corpus:"LT Y39 WinLang Table"). Since corpus pin 7f7cdc2a the older tests that pinned the Linux values
-/// (metadata/platform-tables/AgWindowsLanguage.al) hold them back as `Suspect_` procedures, so the folder's rows are served.
+/// containers of BC 27.5 and 28.5 and of a BC 29 SaaS sandbox; the Linux CI containers give 208 or 212 rows built from
+/// ICU data (the file header of corpus:"LT Y39 WinLang Table"). Since corpus pin 7f7cdc2a the older tests that pinned
+/// the Linux values (metadata/platform-tables/AgWindowsLanguage.al) hold them back as `Suspect_` procedures, so the
+/// folder's rows are served.
 pub const HELD: Option<&str> = None;
 
 /// The field numbers of a row text, in order: every field of the table below the system fields.
