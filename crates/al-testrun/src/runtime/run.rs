@@ -575,7 +575,7 @@ fn run_codeunit_inner(
     let perturb = scratch.perturb.clone();
     let run_seed = scratch.run_seed;
     let host = session_host(scratch);
-    let held = baseline.and_then(|b| b.login_held.as_deref());
+    let held = baseline.and_then(|b| b.held_logins.hub.as_deref());
     let own_session = own_session_id(held, scratch.hub_leg, isolation, execute, host.identity.session_id());
     let (mut session, moved) = new_session(engine, host, own_session, baseline, execute);
     set_up_session(&mut session, scratch, observe.is_some());

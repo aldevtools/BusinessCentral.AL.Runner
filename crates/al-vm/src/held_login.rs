@@ -23,6 +23,15 @@ pub struct HeldLogin {
     pub opened: Box<dyn std::any::Any + Send + Sync>,
 }
 
+/// The logins whose writes a session's data holds, each with its image: the run's one login on the hub (`hub`,
+/// [`Session::hold_login`]) and the login of the session runner 130450 runs its codeunits in after it (`runner`,
+/// [`Session::hold_runner_login`]). Kept by the session and by the baselines captured from it, not by their bytes.
+#[derive(Clone, Debug, Default)]
+pub struct HeldLogins {
+    pub hub: Option<Arc<HeldLogin>>,
+    pub runner: Option<Arc<HeldLogin>>,
+}
+
 impl Session {
     /// The session is the one runner 130450 runs its codeunits in after the held login (`None`: it is not). Kept where
     /// the readers of the session's id see it (`EventStats::own_login`); each session starts without.
@@ -57,10 +66,10 @@ impl Session {
     /// The session's data now holds what the run's one login wrote, and `image` (taken right after that login) is its
     /// session state. A session that already holds a login keeps the first.
     pub fn hold_login(&mut self, image: Result<LoginImage, String>, opened: Box<dyn std::any::Any + Send + Sync>) {
-        if self.login_held.is_some() {
+        if self.held_logins.hub.is_some() {
             return;
         }
-        self.login_held = Some(self.held_now(image, opened));
+        self.held_logins.hub = Some(self.held_now(image, opened));
     }
 
     /// The session runner 130450 runs its codeunits in after the held login ran its own login, the first of those
@@ -73,10 +82,10 @@ impl Session {
         image: Result<LoginImage, String>,
         opened: Box<dyn std::any::Any + Send + Sync>,
     ) {
-        if self.runner_login.is_some() {
+        if self.held_logins.runner.is_some() {
             return;
         }
-        self.runner_login = Some(self.held_now(image, opened));
+        self.held_logins.runner = Some(self.held_now(image, opened));
     }
 
     /// The login the session just ran, with its image and the SingleInstance codeunits it holds now.
@@ -94,7 +103,7 @@ impl Session {
 
     /// See [`Session::hold_runner_login`].
     pub fn runner_login(&self) -> Option<Arc<HeldLogin>> {
-        self.runner_login.clone()
+        self.held_logins.runner.clone()
     }
 
     /// The session's data is what a test codeunit left, not the suite's install baseline (`Baseline::codeunit_left`).
@@ -104,7 +113,7 @@ impl Session {
 
     /// See [`Session::hold_login`].
     pub fn login_held(&self) -> Option<Arc<HeldLogin>> {
-        self.login_held.clone()
+        self.held_logins.hub.clone()
     }
 
     /// Makes this session, which starts from data that holds the login `held` ran ([`Session::login_held`],
