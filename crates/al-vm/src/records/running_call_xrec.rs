@@ -52,19 +52,39 @@ pub(super) const NESTING_PROCEDURES_MEASURED: usize = 3;
 /// (record/validate/XRecTableProcThroughSubscriber.al:750 `I after x=0/SET/I1`) and a filter in both triggers (:1078
 /// `I filters=Series: F`), where this runner keeps the two triggers' xRecs apart: in every shape `nested_validate_xrec` does not
 /// share.
-pub(crate) const XREC_CHANGED_UNDER_NESTED_VALIDATE: &str = "a change to xRec (an assignment, a filter or another view of it) in a table procedure called through an event subscriber under a Validate that the table's own code nested: real BC shows it to the outer Validate's trigger too, which this runner keeps apart";
+const XREC_CHANGED_UNDER_NESTED_VALIDATE: &str = "a change to xRec (an assignment, a filter or another view of it) in a table procedure called through an event subscriber under a Validate that the table's own code nested: real BC shows it to the outer Validate's trigger too, which this runner keeps apart";
 
-/// The chain of calls `measured_chain` found below a procedure call: when a Validate the table's own code nested runs, that
-/// Validate's xRec (the procedure's xRec is then shared for reading only), and whether a fact of the chain is only measured by
-/// the open probe of assumption `xrec-table-proc-callers-subscribers` (`cell_facts`, `subscribers_measured`), and whether the
-/// record changed since its Validate started, only by assumption `xrec-table-proc-routes` (`cell_facts`).
+/// The refusal when a procedure that shared a running write trigger's xRec (`through_write_trigger`) changed it: the cells
+/// read it only (record/validate/XRecTableProcThroughCodeunit.al:567, :597, :627, :712).
+const XREC_CHANGED_UNDER_WRITE_TRIGGER: &str = "a change to xRec (an assignment, a filter or another view of it) in a table procedure called through a codeunit while the table's OnInsert, OnModify or OnDelete trigger or a table extension's OnBeforeModify trigger runs: whether real BC shows it to the trigger is not measured";
+
+/// The chain of calls `measured_chain` found below a procedure call: the object whose running trigger's xRec the procedure
+/// shares (the table, or the table extension whose trigger runs); when a Validate the table's own code nested runs, that
+/// Validate's xRec; whether the procedure shares the xRec for reading only, and the refusal of a change; whether a fact of the
+/// chain is only measured by the open probe of assumption `xrec-table-proc-callers-subscribers` (`cell_facts`,
+/// `subscribers_measured`), and whether the record changed since its Validate started, only by assumption
+/// `xrec-table-proc-routes` (`cell_facts`).
 struct Chain {
+    trigger_object: usize,
     nested: Option<Rec>,
-    /// Under the nested Validate, whether its two xRecs are two copies (`nested_validate_xrec` gave the inner Validate its own),
-    /// so the procedure shares the inner one for reading only.
-    read_only: bool,
+    /// Under the nested Validate, when its two xRecs are two copies (`nested_validate_xrec` gave the inner Validate its own), and
+    /// under a write trigger: the procedure shares the xRec for reading only.
+    read_only: Option<&'static str>,
     assumed: bool,
     routes: bool,
+}
+
+impl Chain {
+    /// A chain of pinned facts only, sharing the running trigger's xRec of `trigger_object` for reading and writing.
+    fn pinned(trigger_object: usize) -> Chain {
+        Chain {
+            trigger_object,
+            nested: None,
+            read_only: None,
+            assumed: false,
+            routes: false,
+        }
+    }
 }
 
 impl Session {
@@ -91,6 +111,9 @@ impl Session {
             return ProcXrec::PlainUnpinned(super::XREC_OF_EXT_INSERT_DELETE_TRIGGER);
         }
         if self.table_or_its_extension(f.object, table) {
+            if let Some(x) = self.write_trigger_own_call_xrec(object, table, rc, f) {
+                return ProcXrec::SharedReadOnly(x, XREC_CHANGED_UNDER_WRITE_TRIGGER);
+            }
             let Some(x) = self.shared_xrec_of_own_procedure(rc, f) else {
                 return ProcXrec::Plain;
             };
@@ -108,18 +131,16 @@ impl Session {
         if !running.iter().any(|(_, x)| not_blank(x)) && !event.as_ref().is_some_and(not_blank) {
             return ProcXrec::Plain;
         }
-        let of_table = running.iter().find(|(o, _)| *o == table).map(|(_, x)| x.clone());
-        if let Some(x) = of_table
-            && not_blank(&x)
-            && let Some(chain) = self.measured_chain(object, table, rc, f)
-            && chain.nested.as_ref().is_none_or(|inner| Rc::ptr_eq(inner, &x))
+        if let Some(chain) = self.measured_chain(object, table, rc, f)
+            && let Some((_, x)) = running.iter().find(|(o, _)| *o == chain.trigger_object)
+            && not_blank(x)
+            && chain.nested.as_ref().is_none_or(|inner| Rc::ptr_eq(inner, x))
             && (!chain.assumed || assumptions::hit(Assumption::XrecTableProcCallersSubscribers))
             && (!chain.routes || assumptions::hit(Assumption::XrecTableProcRoutes))
         {
-            return if chain.read_only {
-                ProcXrec::SharedReadOnly(x)
-            } else {
-                ProcXrec::Shared(x)
+            return match chain.read_only {
+                Some(reason) => ProcXrec::SharedReadOnly(x.clone(), reason),
+                None => ProcXrec::Shared(x.clone()),
             };
         }
         ProcXrec::PlainUnpinned(XREC_OF_RUNNING_CALL)
@@ -205,29 +226,30 @@ impl Session {
         }
         // A subscriber of a table event right above the trigger (a Modify in the trigger) is not the codeunit called from it.
         if self.through_own_procedure(object, table, rc) {
+            return Some(Chain::pinned(table));
+        }
+        if subscriber {
+            return None;
+        }
+        if let Some(trigger_object) = self.through_write_trigger(object, table, rc) {
             return Some(Chain {
-                nested: None,
-                read_only: false,
-                assumed: false,
-                routes: false,
+                read_only: Some(XREC_CHANGED_UNDER_WRITE_TRIGGER),
+                ..Chain::pinned(trigger_object)
             });
         }
-        let (assumed, routes) = (!subscriber)
-            .then(|| self.straight_from_trigger(object, table, rc))
-            .flatten()?;
+        let (trigger_object, assumed, routes) = self.straight_from_trigger(object, table, rc)?;
         Some(Chain {
-            nested: None,
-            read_only: false,
             assumed,
             routes,
+            ..Chain::pinned(trigger_object)
         })
     }
 
     /// The chain record/validate/XRecTableProcThroughCodeunit.al pins (`Way3_*` and `Way4_*`, :365-414): `object` is the table
     /// itself; below the codeunit procedure (plain or reached through an interface, as on main also a subscriber of a table event
     /// the procedure raised; `XTC Mover.Handle` :294-296, `XTC Iface Mover.Handle` :322-324), a procedure of the table that is no
-    /// trigger (`CallPlain` :141-145, `CallIface` :148-154), then the table's field OnValidate (:46-58); the Validate is the one
-    /// `Record.Validate` AL code called on the record (`sole_validate_from_al`, :358), on a buffer of `measured_buffer`.
+    /// trigger (`CallPlain` :141-145, `CallIface` :148-154), then the table's field OnValidate (:46-58); the Validate is
+    /// `validate_of_own_procedure_chain`.
     fn through_own_procedure(&self, object: usize, table: usize, rc: &Rec) -> bool {
         let n = self.frames.len();
         if n < 3 {
@@ -240,8 +262,31 @@ impl Session {
             && !proc_frame.event
             && !proc.is_trigger
             && self.field_on_validate_at(table, n - 3)
-            && self.sole_validate_from_al(Rc::as_ptr(rc) as usize)
-            && self.measured_buffer(&rc.borrow())
+            && self.validate_of_own_procedure_chain(rc, n - 3)
+    }
+
+    /// The Validate whose trigger runs in frame `trigger`, in the chain `through_own_procedure` (record/validate/
+    /// XRecTableProcThroughCodeunit.al), is the one Validate of `rc` that runs, and one the file measured:
+    /// - `Record.Validate` from AL code (:358), on a buffer of `measured_buffer`;
+    /// - `FieldRef.Validate(Value)` straight from the test procedure, on the RecordRef `GetTable` filled from the buffer `AfterGet`
+    ///   (`Way3_FieldRefValidate` :469-486);
+    /// - `SetValue` of a TestPage control straight from the test procedure, on the Card that `OpenEdit` and `GoToKey` positioned on
+    ///   the row `AfterInsert` inserted (`Way3_TestPageSetValue` :447-467).
+    fn validate_of_own_procedure_chain(&self, rc: &Rec, trigger: usize) -> bool {
+        let Some(run) = self.sole_validate_run(Rc::as_ptr(rc) as usize) else {
+            return false;
+        };
+        let from_test =
+            || run.depth == trigger && run.with_value && self.only_test_codeunit_frames(0, self.frames.len() - trigger);
+        let r = rc.borrow();
+        match run.site {
+            Some(ValidateSite::AlRecordValidate) => Self::measured_buffer(&r),
+            Some(ValidateSite::FieldRef) => from_test() && Self::buffer_after_get(&r),
+            Some(ValidateSite::TestPageControl {
+                new_line_of_trapped_static_card: false,
+            }) => from_test() && Self::buffer_of_test_page(&r),
+            _ => false,
+        }
     }
 
     /// The codeunit procedure, no event subscriber and not reached through an interface (`iface_frames`), called straight from the
@@ -249,18 +294,126 @@ impl Session {
     /// of `measured_buffer`, the Validate being the one `Record.Validate` AL code called on the record, whose trigger is that
     /// frame (record/validate/XRecTableProcThroughCodeunit.al `CodeunitFromTriggerDirectly_AfterGet`,
     /// `BaseField_Codeunit_ExtProc`; record/validate/XRecTableProcThroughSubscriber.al:647, :764, :780). Which facts are
-    /// only assumed (`cell_facts`).
-    fn straight_from_trigger(&self, object: usize, table: usize, rc: &Rec) -> Option<(bool, bool)> {
+    /// only assumed (`cell_facts`). Or the OnValidate of a field of a table extension calls the codeunit, which calls a
+    /// procedure of the table, the facts all pinned (`ExtField_Codeunit_BaseProc` :669, `ValidateExtAndObserve` :657): the
+    /// extension's xRec. The object whose trigger runs, and which facts are only assumed.
+    fn straight_from_trigger(&self, object: usize, table: usize, rc: &Rec) -> Option<(usize, bool, bool)> {
         let n = self.frames.len();
+        let trigger_object = self.frames[n - 2];
+        let ext_field = object == table && self.ext_field_on_validate_at(table, n - 2);
         let shape = self.table_or_its_extension(object, table)
             && !self.iface_frames.contains(&(n - 1))
-            && self.field_on_validate_at(table, n - 2)
+            && (self.field_on_validate_at(table, n - 2) || ext_field)
             && self.sole_validate_from_al_at(Rc::as_ptr(rc) as usize, n - 2)
-            && self.measured_buffer(&rc.borrow());
+            && Self::measured_buffer(&rc.borrow());
         if !shape {
             return None;
         }
-        self.cell_facts(rc, self.frames[n - 1], n - 2, n - 2, false)
+        let (assumed, routes) = self.cell_facts(rc, self.frames[n - 1], n - 2, n - 2, false)?;
+        if ext_field && (assumed || routes) {
+            return None;
+        }
+        Some((trigger_object, assumed, routes))
+    }
+
+    /// Whether frame `i` runs the OnValidate trigger of a field of a table extension of table `table`, not as an event.
+    fn ext_field_on_validate_at(&self, table: usize, i: usize) -> bool {
+        let r = self.routine_at(i).1;
+        self.objects_extension_of(self.frames[i], table)
+            && !self.call_stack[i].event
+            && r.is_trigger
+            && r.field.is_some()
+            && r.name.eq_ignore_ascii_case("OnValidate")
+    }
+
+    /// The chains record/validate/XRecTableProcThroughCodeunit.al pins with a write trigger running on the record
+    /// (`write_trigger_below`) in which the trigger calls a codeunit procedure (not SingleInstance, called directly) with the
+    /// record as `var`, which calls a procedure of the table on it: through two procedures of the table that are no triggers
+    /// from the table's OnInsert, OnModify or OnDelete (`RunWriteTrigger` :108, `CallPlain` :141; `OnInsert_Codeunit` :567,
+    /// `OnModify_Codeunit` :597, `OnDelete_Codeunit` :627), straight from a table extension's OnBeforeModify (:197-213,
+    /// `ExtOnBeforeModify_Codeunit` :712). The procedure reads the trigger's xRec. The object whose trigger runs.
+    fn through_write_trigger(&self, object: usize, table: usize, rc: &Rec) -> Option<usize> {
+        let n = self.frames.len();
+        let cu = self.frames[n - 1];
+        if object != table || self.engine.object_facts[cu].single_instance || self.iface_frames.contains(&(n - 1)) {
+            return None;
+        }
+        self.write_trigger_below(table, rc, n - 1, [2, 0])
+    }
+
+    /// The xRec a procedure of the table gets when the code of the table or of a table extension calls it on Rec (`Rec.Proc()`)
+    /// while a write trigger of `write_trigger_below` runs, in the chains record/validate/XRecTableProcThroughCodeunit.al
+    /// pins: from a procedure of the table the table's OnInsert, OnModify or OnDelete called unqualified (`RunWriteTrigger`
+    /// :108-124; `OnInsert_RecProc` :577, `OnModify_RecProc` :607, `OnDelete_RecProc` :637, and the procedure validating a field
+    /// whose trigger reads xRec, :587, :617, :647), and straight from a table extension's OnBeforeModify (:197-213;
+    /// `ExtOnBeforeModify_RecProc` :722, :732): the trigger's xRec, which the caller's instance holds, shared for reading.
+    fn write_trigger_own_call_xrec(&self, object: usize, table: usize, rc: &Rec, f: &Frame) -> Option<Rec> {
+        let n = self.frames.len();
+        if object != table || n == 0 || self.frames[n - 1] != f.object || self.call_stack[n - 1].routine != f.routine {
+            return None;
+        }
+        let trigger_object = self.write_trigger_below(table, rc, n, [1, 0])?;
+        let fi = f.instance.borrow();
+        let o = &self.engine.program.objects[fi.object as usize];
+        let slot = |s: Option<usize>| s.and_then(|s| fi.globals.get(s));
+        match (slot(o.rec_slot), slot(o.xrec_slot)) {
+            (Some(Value::Record(r)), Some(Value::Record(x)))
+                if fi.object as usize == trigger_object && Rc::ptr_eq(r, rc) =>
+            {
+                Some(x.clone())
+            }
+            _ => None,
+        }
+    }
+
+    /// The write trigger record/validate/XRecTableProcThroughCodeunit.al measured running on `rc` (a record of table `table`)
+    /// below frame `end`, with `procedures[0]` procedures of the table that are no triggers between it and `end` when it is the
+    /// table's own trigger, `procedures[1]` when it is a table extension's: AL code of the test codeunit (`InsertWith` :527,
+    /// `ModifyWith` :542, `DeleteWith` :554, called from the test procedure) called `Insert(true)` on a record never inserted,
+    /// or `Modify(true)` or `Delete(true)` on the buffer `AfterGet`; its trigger is the table's OnInsert, OnModify or OnDelete,
+    /// or a table extension's OnBeforeModify. The object whose trigger runs.
+    fn write_trigger_below(&self, table: usize, rc: &Rec, end: usize, procedures: [usize; 2]) -> Option<usize> {
+        use al_builtins::record_op::RecordOp;
+        let r = rc.borrow();
+        let after_get = Self::buffer_after_get(&r);
+        // (procedures between, the trigger's object is the table, its name, the write, the buffer)
+        let measured = [
+            (
+                procedures[0],
+                true,
+                "OnInsert",
+                RecordOp::Insert,
+                r.row_origin.is_none() && !r.temporary,
+            ),
+            (procedures[0], true, "OnModify", RecordOp::Modify, after_get),
+            (procedures[0], true, "OnDelete", RecordOp::Delete, after_get),
+            (procedures[1], false, "OnBeforeModify", RecordOp::Modify, after_get),
+        ];
+        measured.into_iter().find_map(|(between, own, name, op, buffer)| {
+            let t = end.checked_sub(between + 1)?;
+            let (trigger_object, routine) = (self.frames[t], self.routine_at(t).1);
+            let object_ok = if own {
+                trigger_object == table
+            } else {
+                self.objects_extension_of(trigger_object, table)
+            };
+            let shape = object_ok
+                && buffer
+                && !self.call_stack[t].event
+                && routine.is_trigger
+                && routine.field.is_none()
+                && routine.name.eq_ignore_ascii_case(name)
+                && self.is_al_record_call(op, rc)
+                && self.own_procedures_between(table, t, end)
+                && self.only_test_codeunit_frames(0, self.frames.len() - t);
+            shape.then_some(trigger_object)
+        })
+    }
+
+    /// Whether object `x` is a table extension of table `table`.
+    fn objects_extension_of(&self, x: usize, table: usize) -> bool {
+        let objects = &self.engine.program.objects;
+        objects[x].kind == ObjKind::TableExtension && objects[x].extends_id == objects[table].id
     }
 
     /// The facts every cell of the two chains of al-runner issue 8284 shares beyond its frames (review of PR 8304, 2026-11-20):
@@ -442,10 +595,9 @@ impl Session {
                 return None;
             }
             return Some(Chain {
-                nested: None,
-                read_only: false,
                 assumed: assumed || two_subscribers,
                 routes,
+                ..Chain::pinned(table)
             });
         }
         let (outer, inner) = self.nested_by_own_code(table, handle, n - 3)?;
@@ -454,9 +606,10 @@ impl Session {
         let one_xrec = Rc::ptr_eq(&outer.xrec, &inner.xrec);
         (one_xrec || self.nested_xrecs_untouched(handle, &outer.xrec, &inner.xrec)).then(|| Chain {
             nested: Some(inner.xrec.clone()),
-            read_only: !one_xrec,
+            read_only: (!one_xrec).then_some(XREC_CHANGED_UNDER_NESTED_VALIDATE),
             assumed: assumed || two_subscribers,
             routes,
+            ..Chain::pinned(table)
         })
     }
 
@@ -559,42 +712,74 @@ impl Session {
             && Self::same_values(&i.fields, before)
             && XrecView::of(&o).same(&XrecView::of(&i))
     }
-    /// The two buffers record/validate/XRecTableProcThroughCodeunit.al pins (`AfterInsert` :337-344 and `AfterGet` :348-352): a record that is
-    /// not temporary, whose buffer came from its own `Insert` (no Modify, Rename or read after it), or from a `Get` of the row
-    /// that its own transaction inserted and wrote nothing to since (`inserted_unwritten_in_tx`). A Find, a GetBySystemId, a
-    /// Get of a committed row, a Get of a row the open transaction modified or a TransferFields refuse.
-    fn measured_buffer(&self, r: &RecordState) -> bool {
-        let get_of_own_insert =
-            |o: &al_builtins::value::RowOrigin| o.read_in_write_tx && o.by_get && self.inserted_unwritten_in_tx(r);
-        Self::buffer_of_own_insert(r) || Self::buffer_of_own_write(r, get_of_own_insert)
+    /// The buffers record/validate/XRecTableProcThroughCodeunit.al tried the chain on, each by the facts of its origin
+    /// (own write, read in the write transaction, lock rule, own Modify, Find of a committed version, the read; `None`: no row
+    /// version): every one hands on the trigger's xRec (the file's facts, :26-28). Any other buffer (a GetBySystemId, a Find
+    /// other than an AL FindFirst, a committed FindFirst, an own Modify, a TransferFields, a temporary record read back) refuses.
+    /// The read is told apart by `RowOrigin::read_by`; the row's writes before a Get are not read: the cells Get a row no write
+    /// of the open transaction touched, one it inserted, and one another variable modified after a Commit or after its Insert.
+    fn measured_buffer(r: &RecordState) -> bool {
+        use al_builtins::value::ReadBy::{AlFindFirst, Get, NoRead};
+        match (r.temporary, Self::origin_facts(r)) {
+            // `AfterInsert` :337-345 (`Way3_PlainCodeunit_AfterInsert` :365).
+            (false, Some((true, false, false, false, false, NoRead))) => true,
+            // `AfterGet` :348-353, a Get of the row the open transaction inserted (`Way3_PlainCodeunit_AfterGet` :378), also
+            // after another variable modified it (`Way3_GetOfCommittedRowModifiedByOther` :790,
+            // `Way3_GetOfInsertedRowModifiedByOther` :810).
+            (false, Some((true, true, false, false, false, Get))) => true,
+            // A Get of a committed row (`Way3_GetOfCommittedRow` :774).
+            (false, Some((false, false, false, false, false, Get))) => true,
+            // FindFirst of the row the open transaction inserted (`Way3_FindFirst` :759).
+            (false, Some((true, true, false, false, false, AlFindFirst))) => true,
+            // A record that was never inserted (`Way3_FreshRecord` :430).
+            (false, None) => true,
+            // A temporary record after its own Insert (`Way3_TemporaryRecord` :743).
+            (true, Some((true, false, false, false, false, NoRead))) => true,
+            _ => false,
+        }
+    }
+
+    /// The buffer `AfterGet` (record/validate/XRecTableProcThroughCodeunit.al:348-353): not temporary, a Get of the row the
+    /// open transaction wrote.
+    fn buffer_after_get(r: &RecordState) -> bool {
+        !r.temporary
+            && Self::origin_facts(r) == Some((true, true, false, false, false, al_builtins::value::ReadBy::Get))
+    }
+
+    /// The page's record of `Way3_TestPageSetValue` (record/validate/XRecTableProcThroughCodeunit.al:447-467): not temporary,
+    /// the row the open transaction inserted, read by the page (`GoToKey`).
+    fn buffer_of_test_page(r: &RecordState) -> bool {
+        !r.temporary
+            && Self::origin_facts(r) == Some((true, true, false, false, false, al_builtins::value::ReadBy::OtherRead))
+    }
+
+    /// The facts of a buffer's origin that tell the measured buffers apart: own write, read in the write transaction, lock rule,
+    /// own Modify, Find of a committed version, and the read (`None`: no row version).
+    fn origin_facts(r: &RecordState) -> Option<(bool, bool, bool, bool, bool, al_builtins::value::ReadBy)> {
+        r.row_origin.map(|o| {
+            (
+                o.own_write,
+                o.read_in_write_tx,
+                o.lock_only,
+                o.own_modified,
+                o.from_find,
+                o.read_by,
+            )
+        })
     }
 
     /// The buffer `AfterInsert` (record/validate/XRecTableProcThroughCodeunit.al:337-344, XRecTableProcThroughSubscriber.al:498-507):
     /// a record that is not temporary, whose buffer came from its own `Insert`, with no Modify, Rename or read after it.
     pub(super) fn buffer_of_own_insert(r: &RecordState) -> bool {
-        Self::buffer_of_own_write(r, |o| !o.read_in_write_tx && !o.by_get)
-    }
-
-    fn buffer_of_own_write(r: &RecordState, origin: impl Fn(&al_builtins::value::RowOrigin) -> bool) -> bool {
         r.row_origin.as_ref().is_some_and(|o| {
-            !r.temporary && o.own_write && !o.own_modified && !o.lock_only && !o.from_find && origin(o)
+            !r.temporary
+                && o.own_write
+                && !o.own_modified
+                && !o.lock_only
+                && !o.from_find
+                && !o.read_in_write_tx
+                && o.read_by == al_builtins::value::ReadBy::NoRead
         })
-    }
-
-    /// Whether the open transaction inserted the row of the buffer `r` and wrote nothing to it since: every store write since
-    /// the last Commit or rollback is noted (`writes_all_noted`), and the last of them that is to the row's key or to its whole
-    /// table (a Rename, ModifyAll, DeleteAll, Truncate or other write whose rows are not told apart) is an Insert of the row.
-    fn inserted_unwritten_in_tx(&self, r: &RecordState) -> bool {
-        let Some(t) = self.engine.tables.get(r.table as usize).and_then(|t| t.as_deref()) else {
-            return false;
-        };
-        self.writes_all_noted()
-            && super::write_notes::inserted_unwritten(
-                &self.tx.open.writes,
-                t.object,
-                &r.company,
-                &t.primary_key(&r.fields),
-            )
     }
 }
 

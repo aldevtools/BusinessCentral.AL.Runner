@@ -4,7 +4,7 @@
 use crate::Session;
 use crate::records::StaleVerdict;
 use al_builtins::native::Signal;
-use al_builtins::value::{RowOrigin, Value};
+use al_builtins::value::{ReadBy, RowOrigin, Value};
 use al_data::TableDef;
 
 use crate::records::same_key;
@@ -45,24 +45,31 @@ impl Session {
         self.stamp_own_write(t, rec, al_builtins::value::VersionHow::OwnInsert, None);
     }
 
-    /// The origin of a row version a load just read. `how` is [Get, GetBySystemId, a Find].
+    /// The origin of a row version a load into `rec` just read. `how` is [Get, GetBySystemId, a Find].
     /// A version written in the open transaction (above the last Commit's) read by Get, GetBySystemId or a Find follows the
     /// rule of the buffer that wrote it (record/crud/SbStaleOwnModify.al:467-640; record/crud/StaleRuleMatrix.al
     /// GetUncommitted_2C). A Get after the Commit that followed the write keeps a Get origin
     /// (record/TestRecordStaleBufferWrite.al:604-660).
-    pub(crate) fn load_origin(&self, version: Option<&Value>, how: [bool; 3]) -> Option<RowOrigin> {
+    pub(crate) fn load_origin(&self, rec: &Rec, version: Option<&Value>, how: [bool; 3]) -> Option<RowOrigin> {
         let [via_get, via_sysid, via_find] = how;
+        let read_by = if via_get {
+            ReadBy::Get
+        } else if via_find && self.is_al_record_call(al_builtins::record_op::RecordOp::FindFirst, rec) {
+            ReadBy::AlFindFirst
+        } else {
+            ReadBy::OtherRead
+        };
         match version {
             Some(Value::BigInteger(v)) if (via_get || via_sysid || via_find) && *v > self.tx.committed_row_version => {
                 Some(RowOrigin {
                     read_in_write_tx: true,
-                    by_get: via_get,
+                    read_by,
                     ..RowOrigin::new(true, *v, self.commits)
                 })
             }
             Some(Value::BigInteger(v)) if via_get || via_find => Some(RowOrigin {
                 from_find: !via_get,
-                by_get: via_get,
+                read_by,
                 ..RowOrigin::new(false, *v, self.commits)
             }),
             _ => None,

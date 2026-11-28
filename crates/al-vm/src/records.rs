@@ -45,7 +45,7 @@ mod validate_event_xrec;
 pub(crate) use ext_trigger_xrec::XREC_OF_EXT_INSERT_DELETE_TRIGGER;
 use ext_trigger_xrec::unmeasured_trigger_xrec;
 pub(crate) use nested_validate::{BeforeImage, ProcXrec, ValidateRun, ValidateSite, XREC_OF_RUNNING_CALL};
-pub(crate) use running_call_xrec::{XREC_CHANGED_UNDER_NESTED_VALIDATE, XrecView};
+pub(crate) use running_call_xrec::XrecView;
 pub(crate) use validate_event_xrec::ValidateEvent;
 mod by_value_view;
 pub(crate) use by_value_view::{ByValueCall, EventArg, by_value_mark, primary_view};
@@ -1885,7 +1885,7 @@ impl Session {
         // PnC02Filters.al:FindEqual_OutsideFilter and record/crud/RcAMisc.al:MarkedOnly_With_Find_Get_And_Order).
         let passes = self.row_passes(rec, &t, &row)?;
         let version = t.fields.iter().position(|f| f.id == 2_000_000_005).map(|i| &row[i]);
-        let origin = self.load_origin(version, [via_get, via_sysid, via_find]);
+        let origin = self.load_origin(rec, version, [via_get, via_sysid, via_find]);
         let entry = self.load_version_entry(&t, rec, version, [via_get, via_sysid, via_find], &pk);
         let own_read = self.own_read_after_load(&t, rec, &row, via_get && !via_sysid && !via_find && passes);
         let temporary = rec.borrow().temporary;

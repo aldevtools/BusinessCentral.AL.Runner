@@ -45,10 +45,10 @@ pub(crate) type BeforeImage = (Vec<Value>, Option<&'static str>);
 pub(crate) enum ProcXrec {
     /// The caller's xRec handle, shared.
     Shared(Rec),
-    /// The running trigger's xRec handle, shared for reading: a Validate the table's own code nested runs, whose xRec here is a
-    /// copy of the outer Validate's, so an assignment to it or a filter on it refuses when the call returns
-    /// (`running_call_xrec.rs` `XREC_CHANGED_UNDER_NESTED_VALIDATE`).
-    SharedReadOnly(Rec),
+    /// The running trigger's xRec handle, shared for reading: an assignment to it or a filter on it refuses with this reason when
+    /// the call returns. A Validate the table's own code nested runs, whose xRec here is a copy of the outer Validate's
+    /// (`running_call_xrec.rs` `XREC_CHANGED_UNDER_NESTED_VALIDATE`), or a write trigger runs (`XREC_CHANGED_UNDER_WRITE_TRIGGER`).
+    SharedReadOnly(Rec, &'static str),
     /// The blank xRec of a plain call (`enter_record`).
     Plain,
     /// The blank xRec of a plain call, marked with this `RecordState::unpinned_buffer` reason ([`XREC_OF_RUNNING_CALL`], or

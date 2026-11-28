@@ -805,18 +805,19 @@ impl Session {
                     // call's), else none.
                     let proc_xrec = self.table_proc_xrec(object, &rc, f);
                     let caller_xrec = match &proc_xrec {
-                        crate::records::ProcXrec::Shared(x) | crate::records::ProcXrec::SharedReadOnly(x) => {
+                        crate::records::ProcXrec::Shared(x) | crate::records::ProcXrec::SharedReadOnly(x, _) => {
                             Some(x.clone())
                         }
                         _ => None,
                     };
-                    // Under a nested Validate the procedure may read the shared xRec, not change it: other values, another view
-                    // (`XrecView`: filters, marks, key, sort), or a first assignment (the `assigned` mark set where it was clear,
-                    // which `AreFieldsLoaded` reads) refuse on every way out.
+                    // Under a nested Validate or a write trigger the procedure may read the shared xRec, not change it: other
+                    // values, another view (`XrecView`: filters, marks, key, sort), or a first assignment (the `assigned` mark set
+                    // where it was clear, which `AreFieldsLoaded` reads) refuse on every way out.
                     let read_only = match &proc_xrec {
-                        crate::records::ProcXrec::SharedReadOnly(x) => {
+                        crate::records::ProcXrec::SharedReadOnly(x, reason) => {
                             let xs = x.borrow();
                             Some((
+                                *reason,
                                 x.clone(),
                                 xs.fields.clone(),
                                 crate::records::XrecView::of(&xs),
@@ -855,13 +856,13 @@ impl Session {
                         self.shared_proc_xrec.pop();
                     }
                     Self::leave_record(&inst, saved);
-                    if let Some((x, fields, view, assigned)) = read_only {
+                    if let Some((reason, x, fields, view, assigned)) = read_only {
                         let xs = x.borrow();
                         if (xs.assigned && !assigned)
                             || !crate::records::XrecView::of(&xs).same(&view)
                             || !Self::same_values(&xs.fields, &fields)
                         {
-                            return Err(Signal::unsupported(crate::records::XREC_CHANGED_UNDER_NESTED_VALIDATE));
+                            return Err(Signal::unsupported(reason));
                         }
                     }
                     return r;
