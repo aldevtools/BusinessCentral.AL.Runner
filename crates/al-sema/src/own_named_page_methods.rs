@@ -175,18 +175,18 @@ pub(crate) enum CaptionGate {
 
 /// The lowering's gate for `Caption` named through `receiver` at `node` (the call, or the member or name read or
 /// assigned) in the code of `code_obj`, on page `page`. `platform` is whether the checker named the platform method;
-/// `proc` the procedure it named instead, as (declaring object, offset of its routine node); `local` whether it named a
-/// variable of the routine's scope.
+/// `proc` the procedure it named instead, as (declaring object, offset of its routine node).
 pub(crate) fn caption_gate(
     ws: &Workspace,
     code_obj: usize,
     page: usize,
     receiver: CaptionReceiver,
     node: &SyntaxNode,
-    (platform, proc, local): (bool, Option<(usize, usize)>, bool),
+    platform: bool,
+    proc: Option<(usize, usize)>,
 ) -> CaptionGate {
     let own = own_captions(ws, page);
-    if own.is_empty() || (receiver == CaptionReceiver::Bare && local && routine_declares_caption(node)) {
+    if own.is_empty() {
         return CaptionGate::Keep;
     }
     let unseen_proc = receiver == CaptionReceiver::Bare
@@ -231,17 +231,6 @@ fn names_parameterless_own_without_argument(
         None => !assign_target,
     };
     parameterless_own && no_argument
-}
-
-/// Whether the routine that holds `node` declares a parameter or a local variable named Caption: the bare name is that
-/// variable, as a local or a parameter named like a procedure is (codeunits/procedures/AssignIsCallRule.al:658-677,
-/// al-runner issue 9505). A named return value is not one of them: no cell measures it.
-fn routine_declares_caption(node: &SyntaxNode) -> bool {
-    let Some(r) = node.ancestors().find_map(ast::Routine::cast) else {
-        return false;
-    };
-    let caption = |n: &str| n.eq_ignore_ascii_case("Caption");
-    r.params().any(|p| caption(&p.name())) || r.local_var_decls().any(|d| d.names().iter().any(|n| caption(n)))
 }
 
 fn refusal(node: &SyntaxNode) -> String {

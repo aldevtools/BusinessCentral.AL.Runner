@@ -2,9 +2,10 @@ codeunit 50310 "NCap Tests"
 {
     Subtype = Test;
 
-    // Head keeps the variable (the gate takes the checker's resolution); main refused it.
+    // A local or parameter called Caption beside an own Caption procedure: not measured, refused on both
+    // (al-runner issue 9505 keeps the probe cells).
     [Test]
-    procedure LocalNamedCaption_IsTheVariable()
+    procedure LocalNamedCaption_Refused()
     var
         P: Page "NCap Text Card";
     begin
@@ -13,7 +14,7 @@ codeunit 50310 "NCap Tests"
     end;
 
     [Test]
-    procedure ParameterNamedCaption_IsTheVariable()
+    procedure ParameterNamedCaption_Refused()
     var
         P: Page "NCap Text Card";
     begin
@@ -21,7 +22,51 @@ codeunit 50310 "NCap Tests"
             Error('parameter: %1', P.ParameterNamedCaption('A'));
     end;
 
-    // Not measured: stays refused on both.
+    [Test]
+    procedure ExtensionLocalNamedCaption_Refused()
+    var
+        P: Page "NCap Text Card";
+    begin
+        if P.ExtLocalNamedCaption() <> 'Loc' then
+            Error('extension local: %1', P.ExtLocalNamedCaption());
+    end;
+
+    [Test]
+    procedure LocalNamedCaption_BesideFieldCaption()
+    var
+        P: Page "NCap Field Card";
+    begin
+        if P.LocalBesideField() <> 'Loc|' then
+            Error('local beside field: %1', P.LocalBesideField());
+    end;
+
+    [Test]
+    procedure LocalNamedCaption_BesideOwnInteger()
+    var
+        P: Page "NCap Integer Card";
+    begin
+        if P.LocalNamedCaption() <> 'Loc' then
+            Error('beside integer: %1', P.LocalNamedCaption());
+    end;
+
+    [Test]
+    procedure LocalNamedCaption_BesideOwnNoResult()
+    var
+        P: Page "NCap NoResult Card";
+    begin
+        if P.LocalNamedCaption() <> 'Loc' then
+            Error('beside no result: %1', P.LocalNamedCaption());
+    end;
+
+    [Test]
+    procedure LocalNamedCaption_BesideOwnTextParameter()
+    var
+        P: Page "NCap TextParam Card";
+    begin
+        if P.LocalNamedCaption() <> 'Loc' then
+            Error('beside text parameter: %1', P.LocalNamedCaption());
+    end;
+
     [Test]
     procedure ReturnNamedCaption_Refused()
     var

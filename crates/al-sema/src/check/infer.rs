@@ -188,12 +188,29 @@ impl<'a> Checker<'a> {
             && (platform(rhs) || platform(&member_expr) || platform(&member))
     }
 
-    /// Whether `rhs` is a bare call without arguments of a procedure of the object whose code holds it.
+    /// Whether `rhs` is a bare call without arguments of a procedure of the object whose code holds it, under a name whose
+    /// binding is measured: `Caption` in a page's code (must-not-compile 3214:4-17), or a name no builtin has, so that
+    /// only the own procedure can bind.
     fn own_parameterless_call(&self, sc: &Scope, rhs: &SyntaxNode) -> bool {
-        rhs.kind() == SyntaxKind::CallExpr
-            && rhs.first_child().is_some_and(|c| c.kind() == SyntaxKind::NameRef)
+        let Some(callee) = (rhs.kind() == SyntaxKind::CallExpr)
+            .then(|| rhs.first_child())
+            .flatten()
+            .filter(|c| c.kind() == SyntaxKind::NameRef)
+        else {
+            return false;
+        };
+        let name = name_of(&callee);
+        let measured = (name.eq_ignore_ascii_case("Caption") && self.ws.objects[sc.oi].kind == ObjKind::Page)
+            || self.only_own_can_bind(&name);
+        measured
             && crate::own_named_page_methods::call_args(rhs) == Some(0)
             && matches!(self.res_at(sc, rhs), Some(Res::Proc { object, .. }) if *object == sc.self_obj)
+    }
+
+    /// Whether no builtin of any type or version has a method or function called `name`: a call of that name binds
+    /// only a procedure of the workspace.
+    fn only_own_can_bind(&self, name: &str) -> bool {
+        !self.catalog.knows_name(name)
     }
 
     /// The message of AL0122 for an Integer sum into a Text: `T := I + 1` (must-not-compile 1250), also two integer literals
@@ -488,7 +505,8 @@ impl<'a> Checker<'a> {
     }
 
     /// AL0122 (corpus must-not-compile 3215): `P.M()` on a local Page variable names a procedure of the page that
-    /// returns nothing (`S := P.Caption()` beside an own `Caption()`). Other receivers are not judged.
+    /// returns nothing (`S := P.Caption()` beside an own `Caption()`). Other receivers, a procedure with an access
+    /// modifier and a name a builtin shares other than `Caption` are not judged: which method BC binds there is not measured.
     fn al_no_result_page_variable_call(&mut self, sc: &Scope, rhs: &SyntaxNode, callee: &SyntaxNode, target: &Ty) {
         let Some(recv) = callee.first_child() else { return };
         let r = recv.text_range();
@@ -500,16 +518,24 @@ impl<'a> Checker<'a> {
         let Some(&Res::Proc { object, offset }) = self.res_at(sc, rhs).filter(|_| page_local) else {
             return;
         };
-        let no_result = self.members[object]
-            .procedure_at(offset)
-            .is_some_and(|p| p.ret.is_none());
-        let try_function = || {
-            self.ws
-                .object_ast(object)
-                .routines()
-                .any(|r| usize::from(r.syntax().text_range().start()) == offset && is_try_function(&r))
+        let Some(proc) = self.members[object].procedure_at(offset) else {
+            return;
         };
-        if no_result && !try_function() {
+        let Some(routine) = self
+            .ws
+            .object_ast(object)
+            .routines()
+            .find(|r| usize::from(r.syntax().text_range().start()) == offset)
+        else {
+            return;
+        };
+        // Measured: `Caption`, or a name no builtin has, on a procedure of the page itself without an access modifier
+        // (3215:4-18).
+        let public = !routine.is_local() && !routine.is_internal() && !routine.is_protected();
+        let measured = public
+            && self.ws.objects[object].kind == ObjKind::Page
+            && (proc.name.eq_ignore_ascii_case("Caption") || self.only_own_can_bind(&proc.name));
+        if measured && proc.ret.is_none() && !is_try_function(&routine) {
             self.diag(
                 sc,
                 rhs,
@@ -795,7 +821,7 @@ impl<'a> Checker<'a> {
                             .is_some_and(|s| crate::lower::is_assign_call(&s.receiver, &s.name)))
                     }))
             {
-                if plain && self.own_text_caption_named(sc, target, &visible) {
+                if plain && !self.ws.is_dependency(sc.oi) && self.own_text_caption_named(sc, target, &visible) {
                     self.diag(sc, target, "AL0129", AL0129_TEXT.to_string());
                 }
                 return self.ty_of_inferred(sc, target, e);

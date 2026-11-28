@@ -75,6 +75,14 @@ page 50301 "NCap Integer Card"
         exit(5);
     end;
 
+    procedure LocalNamedCaption(): Text
+    var
+        Caption: Text;
+    begin
+        Caption := 'Loc';
+        exit(Caption);
+    end;
+
     procedure OwnInteger(): Integer
     var
         I: Integer;
@@ -127,5 +135,65 @@ page 50302 "NCap Field Card"
     begin
         Caption := 'Fld';
         exit(Rec.Caption);
+    end;
+
+    procedure LocalBesideField(): Text
+    var
+        Caption: Text;
+    begin
+        Caption := 'Loc';
+        exit(Caption + '|' + Rec.Caption);
+    end;
+}
+
+// A local called Caption in page-extension code of a page with an own Caption(): Text.
+pageextension 50303 "NCap Text Card Ext" extends "NCap Text Card"
+{
+    procedure ExtLocalNamedCaption(): Text
+    var
+        Caption: Text;
+    begin
+        Caption := 'Loc';
+        exit(Caption);
+    end;
+}
+
+// A local called Caption beside an own Caption() without a result.
+page 50304 "NCap NoResult Card"
+{
+    PageType = Card;
+    SourceTable = "NCap Row";
+    Caption = 'Static';
+
+    procedure Caption()
+    begin
+    end;
+
+    procedure LocalNamedCaption(): Text
+    var
+        Caption: Text;
+    begin
+        Caption := 'Loc';
+        exit(Caption);
+    end;
+}
+
+// A local called Caption beside an own Caption(NewCaption: Text).
+page 50305 "NCap TextParam Card"
+{
+    PageType = Card;
+    SourceTable = "NCap Row";
+    Caption = 'Static';
+
+    procedure Caption(NewCaption: Text)
+    begin
+    end;
+
+    procedure LocalNamedCaption(): Text
+    var
+        Caption: Text;
+    begin
+        Caption := 'Loc';
+        exit(Caption);
     end;
 }

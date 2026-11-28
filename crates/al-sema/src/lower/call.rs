@@ -85,8 +85,7 @@ impl Lowerer<'_> {
             Some(Res::Proc { object, offset }) => Some((*object, *offset)),
             _ => None,
         };
-        let local = matches!(resolution, Some(Res::Local(_)));
-        match caption_gate(self.ws, self.oi, page, kind, node, (platform, proc, local)) {
+        match caption_gate(self.ws, self.oi, page, kind, node, platform, proc) {
             CaptionGate::Keep | CaptionGate::Platform => Ok(()),
             CaptionGate::Refuse(why) => Err(why),
         }
