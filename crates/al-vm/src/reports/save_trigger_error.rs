@@ -134,9 +134,10 @@ impl Session {
 
     /// Which measurement covers an error that left a SaveAs from the report trigger `site` (`failed_trigger`). Each fact is
     /// read by equality with the cells; anything else is `Cover::Not`. The report's facts come from the save table's owner
-    /// (`report_save::report_facts_of`); for Pdf and Word the session's facts (selection, custom layout, allow-list, company
-    /// build, the call) come from the fact vector the save table computed before the run. An Xml save makes no layout
-    /// selection.
+    /// (`report_save::report_facts_of`). For Pdf and Word the session's facts (layout selection, stored row, custom layout,
+    /// allow-list, company build, the call) come from the fact vector the save table computed before the run. For Xml only
+    /// the company build and the allow-list are read: the layout selection, stored row and custom layout facts are not read
+    /// and not measured (an Xml save writes no layout).
     ///
     /// Assumed (corpus pull request 1579, reports/layouts-saveas/SaveAsTriggerErrors.al, issue 8486):
     /// - the error and its trigger as the cells pair them (`Mode.Fire` :113-130, called from each trigger): `Error('literal')`
@@ -144,19 +145,22 @@ impl Session {
     ///   the same error raised in the trigger body itself, not through a procedure, is not measured and taken as the same;
     /// - the run wrote no row to the database before the error;
     /// - the static `Report.SaveAs(Id, '', Format, OutStream)` as Pdf, Word or Xml, as a statement or in the Boolean form
-    ///   ("SAE Cells" :377-424), with no layout selection row, no custom or stored layout, not the company build and not
-    ///   an allow-listed report;
-    /// - the report: not processing-only, one data item, no OnInitReport and no request page with triggers, exactly one
-    ///   layout, in its rendering section and named by DefaultRenderingLayout, and no extension layout. Word ("SAE Word Rpt"
-    ///   :132, codeunit 77388 SaveAs_Word_*); RDLC ("SAE Rdlc Rpt", SaveAs_Rdlc_*: that arm keeps main's answer and only
-    ///   marks it); Word or RDLC with one report extension that only adds a column ("SAE Word Col Ext", "SAE Rdlc Col Ext",
-    ///   codeunit 77395); or, as Xml only, Excel with no extension ("SAE Excel Rpt", SaveAs_Excel_*: as Pdf and Word the
-    ///   platform's error comes first, `cells_platform_first`); or, as Xml only, no layout of its own and one report
-    ///   extension that only adds a Word layout ("SAE No Layout Rpt", SaveAs_NoLayoutExtWord_*).
+    ///   ("SAE Cells" :377-424), not the company build and not an allow-listed report, and for Pdf and Word with no layout
+    ///   selection row and no custom or stored layout;
+    /// - the report: not processing-only, one data item, no OnInitReport and no request page trigger (`init_triggers`),
+    ///   exactly one layout, in its rendering section and named by DefaultRenderingLayout, and no extension layout.
+    ///   Word ("SAE Word Rpt" :132, codeunit 77388 SaveAs_Word_*); RDLC ("SAE Rdlc Rpt", SaveAs_Rdlc_*: that arm keeps
+    ///   main's answer and only marks it); Word or RDLC with one report extension that only adds a column ("SAE Word
+    ///   Col Ext", "SAE Rdlc Col Ext", codeunit 77395); or, as Xml only, Excel with no extension ("SAE Excel Rpt",
+    ///   SaveAs_Excel_*: as Pdf and Word the platform's error comes first, `cells_platform_first`); or, as Xml only, no
+    ///   layout of its own and one report extension that only adds a Word layout ("SAE No Layout Rpt",
+    ///   SaveAs_NoLayoutExtWord_*).
     ///
     /// Pinned: text/PnBReportSaveAs.al:698 PW_TriggerError_InPreReport_LastError, `Error('literal')` in OnPreReport of "LT PnB
     /// Rep" (errors/PnBObjects.al): no layout and no extension, two top-level data items and one inside the first, the used
-    /// `Rep.SaveAs('', Xml, OutStream)` on a variable, no row written.
+    /// `Rep.SaveAs('', Xml, OutStream)` on a variable, no row written. Not read: the pinned report's OnInitReport and request
+    /// page, and writes before the report body (the change counter starts at the run); none of them changes what the last
+    /// error holds.
     fn trigger_error_cover(
         &self,
         e: &AlError,
