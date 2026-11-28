@@ -1,0 +1,14 @@
+{
+  "id": "6d1f3c20-1a2b-4c3d-9e8f-948300000001",
+  "name": "Neighbors serve-clearall-self-9483",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 69160, "to": 69163 },
+    { "from": 88080, "to": 88160 }
+  ],
+  "dependencies": []
+}

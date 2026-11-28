@@ -13,6 +13,7 @@
 //! `state_stamp.rs`). Entry points: `Session::clear_shared_codeunit` (from the `Clear` site, `exec/run.rs`) and
 //! `Session::clear_all_in_place` (from `clear_all`).
 
+mod self_tree;
 mod uncalled_tree;
 
 pub(crate) use uncalled_tree::RunCaller;
@@ -47,9 +48,11 @@ impl Session {
     ///
     /// `ClearAll` takes a copy of the globals, so the instance of a global nothing shares has two holders; an element of an
     /// array of codeunits has one, the array.
+    /// `me` is the instance `ClearAll()` runs on.
     pub(crate) fn clear_all_in_place(
         &mut self,
         owner: usize,
+        me: &Rc<RefCell<Instance>>,
         globals: &[Value],
         keep: &[usize],
     ) -> Result<Vec<usize>, Signal> {
@@ -77,7 +80,12 @@ impl Session {
                     }
                     // A register a nested codeunit links back to is shared by that link too; held by nothing outside
                     // the owner, no cell measures it (1596 always has the caller hold it).
-                    if shared && holders - self.back_links(rc) <= 2 {
+                    // A store of corpus PR 1672 that only a back link shares is measured (BackOnly_ClearAll,
+                    // ClearSharedCodeunitSelfHoldNested.al:518; assumption clear-all-self-holding-tree).
+                    if shared
+                        && holders - self.back_links(rc) <= 2
+                        && self.store_kind_in(owner, rc.borrow().object as usize) != Some(Store::SelfTree)
+                    {
                         return Err(Signal::unsupported(
                             "ClearAll of a global codeunit variable that only a codeunit nested in it shares, in a \
                              shape the corpus does not pin",
@@ -94,6 +102,11 @@ impl Session {
                         }
                     } else if hold != TempHold::Empty {
                         Holding::Written
+                    } else if self.self_tree_holder(owner, rc, globals) {
+                        assume(Assumption::ClearAllSelfHoldingTree);
+                        self.reset_keeping_rows(rc);
+                        kept.push(i);
+                        continue;
                     } else if self.wrapped_store_shared(rc) {
                         return Err(Signal::unsupported(
                             "ClearAll of a global codeunit variable whose inner store another variable shares, in a \
@@ -102,7 +115,7 @@ impl Session {
                     } else {
                         continue;
                     };
-                    if !self.measured_cell(owner, v, holding, hold) {
+                    if !self.measured_cell(owner, v, holding, hold, Rc::ptr_eq(rc, me)) {
                         return Err(match holding {
                             _ if hold.shared() => shared_table_refusal(),
                             Holding::Shared | Holding::SharedUnwritten | Holding::SharedUncalled => {
@@ -118,6 +131,7 @@ impl Session {
                         Some(Store::TableNoWhse) => Assumption::ClearAllWhseRegisterStore,
                         Some(Store::Tree) => Assumption::ClearAllRegisterTree,
                         Some(Store::UncalledTree) => Assumption::ClearAllUncalledRegisterTree,
+                        Some(Store::SelfTree) => Assumption::ClearAllSelfHoldingTree,
                         _ => Assumption::ClearSharedCodeunit,
                     });
                     self.reset_keeping_rows(rc);
@@ -313,18 +327,18 @@ impl Session {
 
     /// Whether a routine of the codeunit of instance `v`, or of a codeunit its globals hold, runs.
     fn store_runs(&self, v: &Value) -> bool {
-        self.store_runs_once(v, &mut Vec::new())
+        self.store_runs_in(v, &self.frames, &mut Vec::new())
     }
 
-    /// [`Session::store_runs`], each instance read once (`seen`), so a cycle of instances ends.
-    fn store_runs_once(&self, v: &Value, seen: &mut Vec<*const RefCell<Instance>>) -> bool {
+    /// [`Session::store_runs`] for the routines of `frames`, each instance read once (`seen`), so a cycle of instances ends.
+    fn store_runs_in(&self, v: &Value, frames: &[usize], seen: &mut Vec<*const RefCell<Instance>>) -> bool {
         let Value::Codeunit(rc) = v else { return false };
         if seen.contains(&Rc::as_ptr(rc)) {
             return false;
         }
         seen.push(Rc::as_ptr(rc));
         let inst = rc.borrow();
-        self.frames.contains(&(inst.object as usize)) || inst.globals.iter().any(|g| self.store_runs_once(g, seen))
+        frames.contains(&(inst.object as usize)) || inst.globals.iter().any(|g| self.store_runs_in(g, frames, seen))
     }
 
     /// The kind of object `owner` is, for the owners whose `ClearAll()` the corpus measures on a store global. `None` for
@@ -582,6 +596,16 @@ impl Session {
         })
     }
 
+    /// Whether `object` is a codeunit with no TableNo, SingleInstance exactly when `single`, whose every global is one
+    /// `kind` admits.
+    fn leaf_codeunit(&self, object: usize, single: bool, kind: &dyn Fn(&al_ir::Slot) -> bool) -> bool {
+        let o = &self.engine.program.objects[object];
+        o.kind == al_ir::ObjKind::Codeunit
+            && self.engine.object_facts[object].single_instance == single
+            && o.rec_slot.is_none()
+            && o.globals.iter().all(kind)
+    }
+
     /// The first global of SingleInstance codeunit `object`, held at nesting `depth` below a register of
     /// [`Session::single_register_unpinned`], that ClearSharedCodeunitNestedSingleInstance.al does not measure: `None` when
     /// every global is an Integer, a temporary record, a `Label 'text', Comment = 'text'`, a `Label 'text', Locked = true`
@@ -595,18 +619,12 @@ impl Session {
     /// 'text'` ("CSW D3" :228-232 in "CSW D2Si" :246-252, Deep_OwnerClearAll :451).
     fn single_instance_unpinned(&self, object: usize, depth: u8, wide: bool) -> Option<Unpinned> {
         let objects = &self.engine.program.objects;
-        let leaf_of = |c: usize, single: bool, kind: &dyn Fn(&al_ir::Slot) -> bool| {
-            objects[c].kind == al_ir::ObjKind::Codeunit
-                && self.engine.object_facts[c].single_instance == single
-                && objects[c].rec_slot.is_none()
-                && objects[c].globals.iter().all(kind)
-        };
-        let leaf = |c: usize| leaf_of(c, false, &|g| !g.label && matches!(g.ty, RtType::Integer));
+        let leaf = |c: usize| self.leaf_codeunit(c, false, &|g| !g.label && matches!(g.ty, RtType::Integer));
         let whse = wide && depth == 2;
         let whse_leaf = |c: usize| {
-            leaf_of(c, true, &|g| {
+            self.leaf_codeunit(c, true, &|g| {
                 !g.label && matches!(g.ty, RtType::Integer | RtType::Boolean)
-            }) || leaf_of(c, false, &|g| {
+            }) || self.leaf_codeunit(c, false, &|g| {
                 g.comment_label || !g.label && matches!(g.ty, RtType::Integer | RtType::Record(_, false))
             })
         };
@@ -668,11 +686,13 @@ impl Session {
 
     /// The store shape of codeunit `store` held by `owner`: [`Session::store_kind`], else [`Store::Tree`] for the three
     /// owner and store pairs of corpus PR 1620 (merged, not pinned) ([`Session::tree_pair`]), else [`Store::UncalledTree`]
-    /// for the pair of open corpus PR 1650 ([`Session::uncalled_tree_pair`]).
+    /// for the pair of open corpus PR 1650 ([`Session::uncalled_tree_pair`]), else [`Store::SelfTree`] for a store of open
+    /// corpus PR 1672 ([`Session::self_tree`]).
     fn store_kind_in(&self, owner: usize, store: usize) -> Option<Store> {
         self.store_kind(store)
             .or_else(|| self.tree_pair(owner, store).then_some(Store::Tree))
             .or_else(|| self.uncalled_tree_pair(owner, store).then_some(Store::UncalledTree))
+            .or_else(|| self.self_tree(store).then_some(Store::SelfTree))
     }
 
     /// Whether `ClearAll()` in `owner` of its global of codeunit `store` is one of the three cells of corpus PR 1620 (merged, not pinned)
@@ -765,6 +785,9 @@ impl Session {
                 "an Interface global holds an instance of a codeunit that is no store of the measured kinds".to_string()
             }
             _ if self.holds_bound_codeunit(v) => "the store holds a codeunit bound by BindSubscription".to_string(),
+            (_, Some(Store::SelfTree)) => "more variables share the instance or a codeunit nested in it than the corpus \
+                 measures, a routine of the tree runs, or a plain owner other than the store runs the ClearAll"
+                .to_string(),
             _ if self.store_runs(v) => "a routine of the store runs".to_string(),
             _ => "the store implements an interface, or its table is shared without rows".to_string(),
         };
@@ -799,15 +822,22 @@ impl Session {
 
     /// Whether `ClearAll()` in `owner` resets store instance `v`, held as `holding` says, in place: the instance is not bound
     /// by BindSubscription (`clear_all_bound_globals` owns those), no routine of its codeunit runs, and (owner, store,
-    /// holding) is a cell the corpus measures.
-    fn measured_cell(&self, owner: usize, v: &Value, holding: Holding, hold: TempHold) -> bool {
+    /// holding) is a cell the corpus measures. `running`: `ClearAll()` runs on the store instance itself.
+    fn measured_cell(&self, owner: usize, v: &Value, holding: Holding, hold: TempHold, running: bool) -> bool {
         let Value::Codeunit(rc) = v else { return false };
-        let (Some(o), Some(s)) = (
-            self.owner_kind(owner),
-            self.store_kind_in(owner, rc.borrow().object as usize),
-        ) else {
+        let store = rc.borrow().object as usize;
+        let (Some(o), Some(s)) = (self.owner_kind(owner), self.store_kind_in(owner, store)) else {
             return false;
         };
+        if s == Store::SelfTree {
+            // A plain owner is measured only as the store itself, on the instance it clears (SelfSess_StoreClearAllSelf,
+            // ClearSharedCodeunitSelfHold.al:432).
+            return measured(o, s, holding, hold)
+                && (o != Owner::Plain || running)
+                && self.self_tree_as_measured(rc, running)
+                && !self.holds_bound_codeunit(v)
+                && !self.self_tree_runs(v, running);
+        }
         measured(o, s, holding, hold)
             && (!matches!(s, Store::Register | Store::TableNoKinds | Store::TableNoSingle | Store::TableNoWhse | Store::Tree) || self.register_as_measured(rc))
             && (s != Store::Tree || self.tree_as_measured(rc, 0))
@@ -817,16 +847,16 @@ impl Session {
             // The store with one more Integer that no call made is measured for "CLQ Store Plus" only
             // (ClearSharedCodeunitOwnerKinds.al:183, StorePlus_UnusedAlias :684; ClearSharedCodeunitPlusUncalled.al), which
             // implements no interface: no Interface, List or Dictionary slot can share it.
-            && ((s, holding) != (Store::TempRefPlus, Holding::SharedUncalled) || self.implements_no_interface(rc))
+            && ((s, holding) != (Store::TempRefPlus, Holding::SharedUncalled)
+                || self.implements_no_interface(rc.borrow().object as usize))
             && (s != Store::PriceList || hold != TempHold::SharedTable || self.temp_rows_now(v))
             && !self.holds_bound_codeunit(v)
             && !self.store_runs(v)
     }
 
-    /// Whether codeunit instance `rc` is of a codeunit that lists no interface after `implements`
-    /// ([`al_ir::IMPLEMENTS_INTERFACE`]).
-    fn implements_no_interface(&self, rc: &Rc<RefCell<Instance>>) -> bool {
-        let o = &self.engine.program.objects[rc.borrow().object as usize];
+    /// Whether codeunit `object` lists no interface after `implements` ([`al_ir::IMPLEMENTS_INTERFACE`]).
+    fn implements_no_interface(&self, object: usize) -> bool {
+        let o = &self.engine.program.objects[object];
         o.properties.iter().all(|(k, _)| k != al_ir::IMPLEMENTS_INTERFACE)
     }
 
@@ -1369,6 +1399,13 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // NeverCalled_OwnerRunsInOnRun_ThenHolderRuns :623). Written or run before the ClearAll (WrittenBefore_* :494,
         // RunBefore_* :645) is measured but not served: refused, as on main.
         (TableNo, UncalledTree, SharedUncalled) => true,
+        // Open corpus PR 1672 (assumption clear-all-self-holding-tree): the test codeunit (ClearSharedCodeunitSelfHold.al
+        // SelfSess_ClearAll :202, ClearSharedCodeunitSelfHoldNested.al LineSess_ClearAll :178, DeepSess_ClearAll :874,
+        // ChainSess_ClearAll :1146), a Subtype Normal codeunit (PlainOwner_Sess_ClearAll :687), a SingleInstance codeunit
+        // (SIOwner_Sess_ClearAll :740, the session holder SelfSess_HolderClearAll :405) and the store itself
+        // (SelfSess_StoreClearAllSelf :432, which `Session::measured_cell` reads), written before and never written
+        // (SelfSess_Never_ClearAll :233). No call made the instance: not measured, refused.
+        (Test | Normal | SingleInstance | Plain, SelfTree, Shared | SharedUnwritten) => true,
         _ => false,
     }
 }
@@ -1628,6 +1665,10 @@ enum Store {
     /// The register of a tree of open corpus PR 1650 (assumption clear-all-uncalled-register-tree) that is no other store,
     /// held by an owner with a TableNo ([`Session::uncalled_tree_pair`]); [`Session::store_kind_in`] alone gives it.
     UncalledTree,
+    /// A codeunit of Integer and codeunit globals that holds itself, that codeunits nested in it hold back, or that nests
+    /// four levels deep, of open corpus PR 1672 ([`Session::self_tree`], assumption clear-all-self-holding-tree), that is no
+    /// other store; [`Session::store_kind_in`] alone gives it.
+    SelfTree,
 }
 
 /// How the instance of a store global is held when `ClearAll()` runs in its owner.
@@ -1679,6 +1720,7 @@ impl Store {
             Store::TableNoWhse => "a TableNo register in the shape of Whse. Jnl.-Register Line",
             Store::Tree => "a codeunit of the Whse. Jnl.-Register Line tree",
             Store::UncalledTree => "a never-called Whse. Jnl.-Register Line tree",
+            Store::SelfTree => "a self-holding",
         }
     }
 }
