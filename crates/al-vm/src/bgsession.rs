@@ -94,6 +94,7 @@ impl Session {
                 if let Value::Record(c) = &copy
                     && let Some(to) = c.borrow().temp_id.as_ref().map(|t| t.id())
                 {
+                    self.note_row_code_read();
                     let rows = self.store_for(&rc)?.clone();
                     self.temps.insert(to, rows);
                 }

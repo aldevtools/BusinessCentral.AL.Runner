@@ -217,7 +217,7 @@ codeunit 94024 "DRN Neighbors Writes"
         Assert.AreEqual('T3,T2,T1', Ctl.Take(), 'order');
     end;
 
-    // ChangeCompany to the session's own company, descending.
+    // ChangeCompany to the session's own company, descending: no cell measures it, refused with main's text.
     [Test]
     procedure ChangeCompanyDescending()
     var

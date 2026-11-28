@@ -1042,8 +1042,8 @@ pub struct Session {
     /// Per record handle, the `touched` flag of an `Insert(true)` or `Delete(true)` of the measured shape whose subscribers
     /// or extension trigger may still run (`records/ext_trigger_xrec.rs` `AtCall`, which drops its entry when the call ends).
     pub(crate) ext_before_watch: crate::records::ext_trigger_xrec::ExtBeforeWatch,
-    /// Per running row of a descending DeleteAll, whether its row code read a table (`records/delete_all_order.rs`).
-    pub(crate) row_code_reads: crate::records::delete_all_order::RowCodeReads,
+    /// Per running row of a descending DeleteAll, whether its row code read a stored row or wrote a temporary table (`records/delete_all_order.rs`).
+    pub(crate) row_code_unmeasured: crate::records::delete_all_order::RowCodeUnmeasured,
     /// The xRecs of the table procedures that run on a record with an xRec they share with their caller or a running call
     /// (`ProcXrec::Shared` and `ProcXrec::SharedReadOnly`), innermost last.
     pub(crate) shared_proc_xrec: Vec<crate::records::Rec>,
@@ -1498,7 +1498,7 @@ impl Session {
             plain_proc_xrec: Vec::new(),
             ext_xrec_triggers: 0,
             ext_before_watch: Default::default(),
-            row_code_reads: Default::default(),
+            row_code_unmeasured: Default::default(),
             shared_proc_xrec: Vec::new(),
             iface_frames: Vec::new(),
             run_callers: Vec::new(),
