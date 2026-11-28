@@ -250,6 +250,15 @@ codeunit 50470 "DtKind Neighbors"
     end;
 
     [Test]
+    procedure Neighbor_ToFileTime_NoParentheses()
+    var
+        Dn: DotNet DkNbDateTime;
+    begin
+        FromParam(Utc('2023-01-15T12:00:00Z'), Dn);
+        Assert.Equal('133182576000000000', Format(Dn.ToFileTime));
+    end;
+
+    [Test]
     procedure Neighbor_DateTimeOffset_ToUniversalTime()
     var
         Dto: DotNet DkNbOffset;

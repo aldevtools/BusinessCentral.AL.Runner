@@ -181,19 +181,19 @@ impl Session {
     /// `ToUniversalTime()`, `ToLocalTime()` and `ToFileTime()` of a DotNet `System.DateTime` the variable holds, answered
     /// without .NET (al-runner issues 9052, 9092; assumption `dotnet-datetime-utc-zone-conversions`, corpus pull request 1653,
     /// tests/al-language-onprem-dotnet/dotnet/datetime-kind/DotNetDateTimeKind.al). The service tier's zone is UTC there
-    /// (Host_TimeZone_Facts :254) and in the runner, so the answer is the same for every kind: the probe's touniversal,
+    /// (Host_TimeZone_Facts :254) and the runner's session zone is always UTC (al-host `HostIdentity::time_zone`; the gate
+    /// does not read it), so the answer is the same for every kind: the probe's touniversal,
     /// tolocal and tofiletime steps give the same moment for kind Utc (Origin_AlParam :367), Local (Origin_CtorLocal :457,
     /// Now :280) and Unspecified (Origin_CtorUnspecified :421). The result DateTime goes back to AL as every .NET DateTime
     /// does, without its kind. `None`: not one of these calls, or `ToFileTime` of a moment before 1601 (.NET raises there;
-    /// not measured), which keeps main's refusal (`datetime_kind_member`).
+    /// not measured), or the form without parentheses (`MemberKind::Get`; the probe calls with parentheses only), which keeps main's refusal (`datetime_kind_member`).
     pub(super) fn datetime_utc_zone_member(
         target: &Target,
         kind: MemberKind,
         member: &str,
         values: &[Value],
     ) -> Option<Value> {
-        let (Target::Boxed(DotNetValue::DateTime(ticks), clr_type), MemberKind::Call | MemberKind::Get, []) =
-            (target, kind, values)
+        let (Target::Boxed(DotNetValue::DateTime(ticks), clr_type), MemberKind::Call, []) = (target, kind, values)
         else {
             return None;
         };
