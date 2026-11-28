@@ -2029,9 +2029,10 @@ codeunit 50000 T {{ Subtype = Test;
 /// al-runner issue 9111: the import the Guided Experience makes of an app's logo (`Icon.ImportStream(InStream, ExtensionId)`: two
 /// arguments, a Guid description, a Media field that holds none). For a logo of open corpus PR 1594 on BC 27 and 29 its Tenant
 /// Media row has the picture's size and Mime Type image/jpeg (UsAppLogoJpegSizes.al UsLogo_GuidedExperienceIcon_*), through
-/// assumption `app-logo-jpeg-sizes`; a look at the content of the icon of the 535 x 534 logo refuses (Windows rewrites 3 header
-/// bytes), the 8 x 8 one keeps the file's bytes. A text description, and BC 28, keep main's 0 x 0. The other columns of the
-/// logo's own Media row refuse (the probe does not observe them).
+/// assumption `app-logo-jpeg-sizes`, and its content is the file with bytes 14, 16 and 18 (1-based) set to 1, 0, 0 as Windows BC
+/// stores it (corpus PR 1594 at d030ce03, 'icon vs logo media, differing bytes'), of the file's length. A text description, and
+/// BC 28, keep main's 0 x 0 and the file's bytes. The other columns of the logo's own Media row refuse (the probe does not
+/// observe them).
 #[test]
 fn issue_9111_guided_experience_icon_of_a_measured_logo() {
     let main = |description: &str, check: &str| {
@@ -2040,7 +2041,7 @@ fn issue_9111_guided_experience_icon_of_a_measured_logo() {
 table 50001 Holder {{ fields {{ field(1; K; Integer) {{ }} field(2; Pic; Media) {{ }} }} keys {{ key(PK; K) {{ }} }} }}
 codeunit 50000 T {{ Subtype = Test;
   [Test] procedure Icon() var App: Record "Published Application"; Media: Record Media; H: Record Holder; TM: Record "Tenant Media";
-    InS: InStream; B: Byte; N: Integer; Id: Guid; begin
+    InS: InStream; B: Byte; N: Integer; I: Integer; T: Text; Id: Guid; begin
     Id := '{MAIN_ID}';
     App.SetRange(ID, Id);
     App.SetRange("Tenant Visible", true);
@@ -2069,6 +2070,14 @@ codeunit 50000 T {{ Subtype = Test;
              while not InS.EOS() do begin InS.Read(B); N += 1; end; if N <> {len} then Error('length %1', N);"
         )
     };
+    let header = |expected: &str| {
+        format!(
+            "TM.CalcFields(Content); TM.Content.CreateInStream(InS); \
+             while (not InS.EOS()) and (N < 18) do begin InS.Read(B); N += 1; I := B; \
+             if N in [14, 16, 18] then T += Format(I); end; \
+             if T <> '{expected}' then Error('header %1', T);"
+        )
+    };
     let g = || {
         Some(al_ir::AppLogo::File(
             include_bytes!("../fixtures/jpeg/base535x534.jpg").to_vec(),
@@ -2089,23 +2098,28 @@ codeunit 50000 T {{ Subtype = Test;
             (&Outcome::Pass, &assumed[..]),
             "{target} G: {o:?}"
         );
-        let o = run_over_system_as(Some(target), MAIN_ID, g(), None, &main("Id", &length(14191)));
-        assert!(
-            matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Guided Experience icon of a JPEG logo")),
-            "{target} G content: {o:?}"
-        );
+        for (what, check) in [("length", length(14191)), ("header", header("100"))] {
+            let o = run_over_system_as(Some(target), MAIN_ID, g(), None, &main("Id", &check));
+            assert_eq!(
+                (&o[0].1, &o[0].2[..]),
+                (&Outcome::Pass, &assumed[..]),
+                "{target} G {what}: {o:?}"
+            );
+        }
         let o = run_over_system_as(Some(target), MAIN_ID, e(), None, &main("Id", &size(8, 8, "image/jpeg")));
         assert_eq!(
             (&o[0].1, &o[0].2[..]),
             (&Outcome::Pass, &assumed[..]),
             "{target} E: {o:?}"
         );
-        let o = run_over_system_as(Some(target), MAIN_ID, e(), None, &main("Id", &length(307)));
-        assert_eq!(
-            (&o[0].1, &o[0].2[..]),
-            (&Outcome::Pass, &assumed[..]),
-            "{target} E content: {o:?}"
-        );
+        for (what, check) in [("length", length(307)), ("header", header("100"))] {
+            let o = run_over_system_as(Some(target), MAIN_ID, e(), None, &main("Id", &check));
+            assert_eq!(
+                (&o[0].1, &o[0].2[..]),
+                (&Outcome::Pass, &assumed[..]),
+                "{target} E {what}: {o:?}"
+            );
+        }
     }
     // Not the measured call: a text description (main's 0 x 0 stays); BC 28 (main's answer for the pinned 8 x 8 logo).
     let o = run_over_system_as(
@@ -2116,6 +2130,8 @@ codeunit 50000 T {{ Subtype = Test;
         &main("'a logo'", &size(0, 0, "application/octet-stream")),
     );
     assert_eq!(o[0].1, Outcome::Pass, "text description: {o:?}");
+    let o = run_over_system_as(Some("29.0"), MAIN_ID, g(), None, &main("'a logo'", &header("011")));
+    assert_eq!(o[0].1, Outcome::Pass, "text description, header: {o:?}");
     let o = run_over_system_as(
         Some("28.5"),
         MAIN_ID,
@@ -2124,6 +2140,12 @@ codeunit 50000 T {{ Subtype = Test;
         &main("Id", &size(0, 0, "application/octet-stream")),
     );
     assert_eq!((&o[0].1, o[0].2.is_empty()), (&Outcome::Pass, true), "28.5 E: {o:?}");
+    let o = run_over_system_as(Some("28.5"), MAIN_ID, e(), None, &main("Id", &header("011")));
+    assert_eq!(
+        (&o[0].1, o[0].2.is_empty()),
+        (&Outcome::Pass, true),
+        "28.5 E header: {o:?}"
+    );
     // The logo's own Media row: a column the probe does not observe refuses.
     let o = run_over_system_as(
         Some("29.0"),

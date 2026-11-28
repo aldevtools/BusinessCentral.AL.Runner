@@ -1,23 +1,25 @@
 # key	entry	version
 # BC 28: the logo of app G refuses at login on main and on head (28 is not measured on Windows), so no test runs (no rows).
-# The icon of the 4 logos of corpus PR 1594 and of the 8 x 8 logo: Mime Type image/jpeg, Height and Width of the picture.
+# The icon of the 4 logos of corpus PR 1594 and of the 8 x 8 logo: Mime Type image/jpeg, Height and Width of the picture, and the file with bytes 14, 16, 18 rewritten as Windows stores it.
 Logo Icon Tests::IconG_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
 Logo Icon Tests::IconG_Mime	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
 Logo Icon Tests::IconG_Description	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
 Logo Icon Tests::IconE_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
 Logo Icon Tests::IconE_Mime	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
 Logo Icon Tests::DirectImportG_GuidDescription_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
-Logo Icon Tests::IconE_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the bytes are main's answer, the mark is per row)	27
+Logo Icon Tests::IconE_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the length is the file's on every host)	27
 Logo Icon Tests::DirectImportG_TextDescription_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the read of the logo of app G; the import keeps main's 0 x 0)	27
-Logo Icon Tests::IconG_ContentLength	REFUSED the stored Tenant Media content of the Guided Experience icon of a JPEG logo	27
-Logo Icon Tests::IconG_ContentHasValue	REFUSED the stored Tenant Media content of the Guided Experience icon of a JPEG logo	27
+Logo Icon Tests::IconG_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the length is the file's on every host)	27
+Logo Icon Tests::IconG_ContentHasValue	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; has a value on every host)	27
+Logo Icon Tests::IconG_HeaderBytes	ASSUMED app-logo-jpeg-sizes (corpus PR 1594 at d030ce03, Windows 27.5 and 29.0: bytes 14, 16, 18 are 1, 0, 0)	27
 Logo Icon Tests::IconG_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
 Logo Icon Tests::IconG_Mime	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
 Logo Icon Tests::IconG_Description	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
 Logo Icon Tests::IconE_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
 Logo Icon Tests::IconE_Mime	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
 Logo Icon Tests::DirectImportG_GuidDescription_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
-Logo Icon Tests::IconE_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the bytes are main's answer, the mark is per row)	29
+Logo Icon Tests::IconE_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the length is the file's on every host)	29
 Logo Icon Tests::DirectImportG_TextDescription_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the read of the logo of app G; the import keeps main's 0 x 0)	29
-Logo Icon Tests::IconG_ContentLength	REFUSED the stored Tenant Media content of the Guided Experience icon of a JPEG logo	29
-Logo Icon Tests::IconG_ContentHasValue	REFUSED the stored Tenant Media content of the Guided Experience icon of a JPEG logo	29
+Logo Icon Tests::IconG_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; the length is the file's on every host)	29
+Logo Icon Tests::IconG_ContentHasValue	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; has a value on every host)	29
+Logo Icon Tests::IconG_HeaderBytes	ASSUMED app-logo-jpeg-sizes (corpus PR 1594 at d030ce03, Windows 27.5 and 29.0: bytes 14, 16, 18 are 1, 0, 0)	29

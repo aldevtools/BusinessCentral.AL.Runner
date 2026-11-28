@@ -53,6 +53,29 @@ codeunit 50184 "Logo Icon E Tests"
         exit(N);
     end;
 
+    // Bytes 14, 16 and 18 (1-based) of the stored content: JFIF density units and the low bytes of X and Y density. The files
+    // hold 0, 1, 1. Windows BC 27.5 and 29.0 store 1, 0, 0 (corpus PR 1594 at d030ce03, 'icon vs logo media, differing bytes'
+    // = '14:1/0 16:0/1 18:0/1 count 3'); BC on Linux keeps the file.
+    local procedure HeaderBytes(var TenantMedia: Record "Tenant Media"): Text
+    var
+        InS: InStream;
+        B: Byte;
+        N: Integer;
+        I: Integer;
+        Result: Text;
+    begin
+        TenantMedia.CalcFields(Content);
+        TenantMedia.Content.CreateInStream(InS);
+        while (not InS.EOS()) and (N < 18) do begin
+            InS.Read(B);
+            N += 1;
+            I := B;
+            if N in [14, 16, 18] then
+                Result += Format(I);
+        end;
+        exit(Result);
+    end;
+
     local procedure CheckSize(var TenantMedia: Record "Tenant Media"; Width: Integer; Height: Integer)
     begin
         if (TenantMedia.Width <> Width) or (TenantMedia.Height <> Height) then
@@ -111,7 +134,7 @@ codeunit 50184 "Logo Icon E Tests"
             Error('mime %1', TenantMedia."Mime Type");
     end;
 
-    // Main's answer for the 8 x 8 icon's content (the file's bytes) stays.
+    // The length of the 8 x 8 icon's content: the file's length on every host (UsLogo_GuidedExperienceIcon_Jpeg8x8_AppE 'icon length').
     [Test]
     procedure IconE_ContentLength()
     var
@@ -120,6 +143,16 @@ codeunit 50184 "Logo Icon E Tests"
         FindIcon(AppEId, TenantMedia);
         if ContentLength(TenantMedia) <> 307 then
             Error('length');
+    end;
+
+    [Test]
+    procedure IconE_HeaderBytes()
+    var
+        TenantMedia: Record "Tenant Media";
+    begin
+        FindIcon(AppEId, TenantMedia);
+        if HeaderBytes(TenantMedia) <> '100' then
+            Error('header bytes %1', HeaderBytes(TenantMedia));
     end;
 
     // A user import of the 8 x 8 logo's bytes, two arguments with a Guid description, outside the Guided Experience.
@@ -155,7 +188,7 @@ codeunit 50184 "Logo Icon E Tests"
     end;
 
     // A user import of the 16 x 8 logo file of corpus PR 1594 (not an app logo), two arguments with a Guid description, into an
-    // empty Media field: the measured call, so head gives the measured size and refuses a look at the content.
+    // empty Media field: the measured call, so head gives the measured size and the bytes Windows stores.
     local procedure ImportH16x8File(No: Integer; var TenantMedia: Record "Tenant Media")
     var
         Holder: Record "Logo Icon Holder";
@@ -193,7 +226,7 @@ codeunit 50184 "Logo Icon E Tests"
         CheckSize(TenantMedia, 16, 8);
     end;
 
-    // Main answers the file's bytes; head refuses (Windows rewrites 3 header bytes).
+    // The length is the file's on every host (corpus PR 1594 'icon length').
     [Test]
     procedure DirectImportH16x8File_ContentLength()
     var
@@ -202,5 +235,15 @@ codeunit 50184 "Logo Icon E Tests"
         ImportH16x8File(4, TenantMedia);
         if ContentLength(TenantMedia) <> 633 then
             Error('length');
+    end;
+
+    [Test]
+    procedure DirectImportH16x8File_HeaderBytes()
+    var
+        TenantMedia: Record "Tenant Media";
+    begin
+        ImportH16x8File(5, TenantMedia);
+        if HeaderBytes(TenantMedia) <> '100' then
+            Error('header bytes %1', HeaderBytes(TenantMedia));
     end;
 }

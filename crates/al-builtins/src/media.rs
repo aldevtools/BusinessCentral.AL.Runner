@@ -38,8 +38,8 @@ pub struct MediaObject {
     pub pending: Option<std::sync::Arc<str>>,
     /// The `ImportStream` call that made this media; `None` for a media an ImportFile made.
     pub stream_call: Option<StreamCall>,
-    /// The import stored the Guided Experience icon of a logo of open corpus PR 1594 (`measured_logo_icon`): its Tenant Media
-    /// row rests on assumption `app-logo-jpeg-sizes`, and the content of a [`MeasuredJpegLogo::Sized`] one on no answer.
+    /// The import stored the Guided Experience icon of a logo of open corpus PR 1594 (`measured_logo_icon`), with the bytes
+    /// Windows BC stores (`windows_stored_icon_bytes`): its Tenant Media row rests on assumption `app-logo-jpeg-sizes`.
     pub logo_icon: Option<MeasuredJpegLogo>,
 }
 
@@ -228,31 +228,6 @@ fn measured_logo_icon(
         .flatten()
 }
 
-/// The mark on the Tenant Media Content of the icon of a [`MeasuredJpegLogo::Sized`] logo: Windows BC 27.5 and 29.0 store the
-/// file with 3 bytes of the JFIF header rewritten (density units 0 -> 1, densities 1 -> 0), BC on Linux 29.0 stores it unchanged
-/// (UsAppLogoJpegSizes.al:20-23, observed, not asserted), so any look at the bytes is refused.
-pub const LOGO_ICON_CONTENT: &str = "the Tenant Media Content of the Guided Experience icon of a JPEG logo";
-
-/// The refusal of a look at stored Tenant Media content a media mark names: an imported PNG, a .jpg holding a PNG, the icon of a
-/// JPEG logo. `None` for every other mark.
-pub(crate) fn stored_content_refusal(mark: &str) -> Option<Signal> {
-    let why = match mark {
-        crate::stream::MEDIA_PNG_STORED_REENCODED => {
-            "the stored Tenant Media content of an imported PNG (BC re-encodes it; UsAppLogo.al and W7Media.al do not pin the bytes)"
-        }
-        crate::stream::MEDIA_JPG_HOLDING_PNG => {
-            "the stored content of a .jpg file holding a PNG that Media.ImportFile read (BC re-encodes it; ReMediaJpgHoldingPng.al:108 \
-             does not pin the bytes)"
-        }
-        LOGO_ICON_CONTENT => {
-            "the stored Tenant Media content of the Guided Experience icon of a JPEG logo (Windows BC rewrites 3 bytes of the JFIF \
-             header, BC on Linux keeps them: open corpus PR 1594 does not pin the bytes)"
-        }
-        _ => return None,
-    };
-    Some(Signal::Unsupported(why.into()))
-}
-
 /// Whether a JPEG's APP0 segment is the JFIF header of the logos of open corpus PR 1594 (tests/al-language-xapp-e, -g, -h, -j,
 /// -k/logo.jpg), each byte by equality: length 16, "JFIF\0", version 1.01, density units 0, density 1 x 1, no thumbnail.
 fn jfif_header_of_measured_logos(b: &[u8]) -> bool {
@@ -262,6 +237,19 @@ fn jfif_header_of_measured_logos(b: &[u8]) -> bool {
                 0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0,
             ][..],
         )
+}
+
+/// The bytes Windows BC stores for the Guided Experience icon of a logo of open corpus PR 1594 ([`measured_logo_icon`]): the file
+/// with 3 bytes of its JFIF header rewritten, density units (index 13) 0 -> 1 and the low bytes of the X and Y density (indexes 15
+/// and 17) 1 -> 0. Windows BC 27.5 and 29.0 stored all 5 icons so (UsAppLogoJpegSizes.al:20-23; local observe of corpus PR 1594
+/// at d030ce03, 'icon equals file' No and 'icon vs logo media, differing bytes' = '14:1/0 16:0/1 18:0/1 count 3' for fixtures E,
+/// G, H, J and K); BC on Linux keeps the file. The length does not change ('icon length' = the file's on every host). `bytes`
+/// holds the header [`jfif_header_of_measured_logos`] checked.
+fn windows_stored_icon_bytes(mut bytes: Vec<u8>) -> Vec<u8> {
+    bytes[13] = 1;
+    bytes[15] = 0;
+    bytes[17] = 0;
+    bytes
 }
 
 /// Whether a JPEG starts with a JFIF header of units 1 (dots per inch) and density 300 x 300: SOI, APP0, "JFIF\0", version,
@@ -413,9 +401,9 @@ fn import_object(c: &mut dyn Ctx, a: &[Value], empty_media: bool) -> Result<Opti
         None => measured_logo_icon(c, &bytes, stream_call, matches!(a.get(1), Some(Value::Guid(_)))),
         _ => None,
     };
-    let (mime, (width, height)) = match logo_icon {
-        Some(logo) => ("image/jpeg".to_string(), logo.size()),
-        None => (mime, size.unwrap_or((0, 0))),
+    let (bytes, mime, (width, height)) = match logo_icon {
+        Some(logo) => (windows_stored_icon_bytes(bytes), "image/jpeg".to_string(), logo.size()),
+        None => (bytes, mime, size.unwrap_or((0, 0))),
     };
     store(c)?.objects.borrow_mut().insert(
         id,

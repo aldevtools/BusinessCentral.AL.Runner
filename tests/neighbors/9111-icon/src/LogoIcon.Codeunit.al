@@ -56,6 +56,29 @@ codeunit 50184 "Logo Icon Tests"
         exit(N);
     end;
 
+    // Bytes 14, 16 and 18 (1-based) of the stored content: JFIF density units and the low bytes of X and Y density. The files
+    // hold 0, 1, 1. Windows BC 27.5 and 29.0 store 1, 0, 0 (corpus PR 1594 at d030ce03, 'icon vs logo media, differing bytes'
+    // = '14:1/0 16:0/1 18:0/1 count 3'); BC on Linux keeps the file.
+    local procedure HeaderBytes(var TenantMedia: Record "Tenant Media"): Text
+    var
+        InS: InStream;
+        B: Byte;
+        N: Integer;
+        I: Integer;
+        Result: Text;
+    begin
+        TenantMedia.CalcFields(Content);
+        TenantMedia.Content.CreateInStream(InS);
+        while (not InS.EOS()) and (N < 18) do begin
+            InS.Read(B);
+            N += 1;
+            I := B;
+            if N in [14, 16, 18] then
+                Result += Format(I);
+        end;
+        exit(Result);
+    end;
+
     local procedure CheckSize(var TenantMedia: Record "Tenant Media"; Width: Integer; Height: Integer)
     begin
         if (TenantMedia.Width <> Width) or (TenantMedia.Height <> Height) then
@@ -113,7 +136,7 @@ codeunit 50184 "Logo Icon Tests"
             Error('mime %1', TenantMedia."Mime Type");
     end;
 
-    // Windows rewrites 3 header bytes, BC on Linux keeps them: a look at the content refuses.
+    // The length is the file's on every host (corpus PR 1594 'icon length'); Windows rewrites 3 header bytes in place.
     [Test]
     procedure IconG_ContentLength()
     var
@@ -122,6 +145,16 @@ codeunit 50184 "Logo Icon Tests"
         FindIcon(AppGId, TenantMedia);
         if ContentLength(TenantMedia) <> 14191 then
             Error('length');
+    end;
+
+    [Test]
+    procedure IconG_HeaderBytes()
+    var
+        TenantMedia: Record "Tenant Media";
+    begin
+        FindIcon(AppGId, TenantMedia);
+        if HeaderBytes(TenantMedia) <> '100' then
+            Error('header bytes %1', HeaderBytes(TenantMedia));
     end;
 
     [Test]
