@@ -249,18 +249,20 @@ impl RunnerLoginRows {
     /// Whether what OnRun wrote is rolled back when the codeunit ends, so the later codeunits start from the rows as they
     /// were before it (assumption `hub-login-later-runners`; corpus PR 1657, LgnRunnerSessions.al:795, :840 seen by the
     /// codeunit's own tests; :839, :877, :917 and :878, :918 gone in every later runner codeunit, with or without Commit()
-    /// in OnRun). The measured shape: OnRun inserted rows (`changed`, the tables it changed, not empty) into the tables
-    /// that session's login wrote, and nothing else: every row of those tables from before OnRun is still there, unchanged,
-    /// and no number sequence or isolated storage changed (`storage_or_sequences` false). Any other OnRun keeps main's
-    /// answer: what it wrote reaches the later codeunits (not measured).
+    /// in OnRun). The measured shape: OnRun changed exactly one table (`changed`), one that session's login wrote (the
+    /// probe's login subscriber, codeunit 87452, writes table 87451; OnRun inserts there), and only inserted there: every
+    /// row of it from before OnRun is still there, unchanged, and no number sequence or isolated storage changed
+    /// (`storage_or_sequences` false). Any other OnRun, among them one that inserted into two tables of the login, keeps
+    /// main's answer: what OnRun wrote reaches the later codeunits (not measured).
     pub(super) fn onrun_rolled_back(
         &self,
         session: &mut Session,
         changed: &std::collections::BTreeSet<u32>,
         storage_or_sequences: bool,
     ) -> bool {
-        let into_login_tables = !changed.is_empty() && changed.iter().all(|t| self.tables.contains(t));
-        into_login_tables
+        let mut one = changed.iter();
+        let into_the_login_table = matches!((one.next(), one.next()), (Some(t), None) if self.tables.contains(t));
+        into_the_login_table
             && !storage_or_sequences
             && matches!((&self.rows, Self::committed(session, &self.tables)), (Some(before), Some(after)) if only_inserted(before, &after))
     }

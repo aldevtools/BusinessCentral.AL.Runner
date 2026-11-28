@@ -273,8 +273,17 @@ fn a_hub_codeunit_after_a_disabled_codeunit_changed_the_login_rows_refuses_their
 /// A session holding one `Login Row` row as the runner session's login left it, with that login held
 /// (`Session::hold_runner_login`), and the rows before OnRun (`RunnerLoginRows::before_on_run`).
 fn runner_session(l: &al_sema::lower::Lowered, engine: &std::sync::Arc<al_vm::Engine>) -> (Session, RunnerLoginRows) {
+    runner_session_wrote(l, engine, login_wrote(l))
+}
+
+/// [`runner_session`] whose login wrote the tables of `wrote`.
+fn runner_session_wrote(
+    l: &al_sema::lower::Lowered,
+    engine: &std::sync::Arc<al_vm::Engine>,
+    wrote: CompanyOpenWrites,
+) -> (Session, RunnerLoginRows) {
     let mut session = with_login_row(l, engine);
-    let opened = HeldOpened::of(&mut session, login_wrote(l), Default::default());
+    let opened = HeldOpened::of(&mut session, wrote, Default::default());
     session.hold_runner_login(Err("none".into()), Box::new(opened), None);
     let rows = RunnerLoginRows::before_on_run(&mut session, true).expect("the runner session's rows");
     (session, rows)
@@ -335,6 +344,27 @@ fn only_inserts_into_the_runner_logins_tables_are_rolled_back() {
             rows.onrun_rolled_back(&mut session, &changed, storage),
             rolled_back,
             "{writes:?} {storage}"
+        );
+    }
+    // A login that wrote two tables: an insert into one of them is the measured shape; an insert into both keeps main's
+    // answer (not measured: the probe's OnRun inserts into one table, LgnRunnerSessions.al codeunits 87455, 87456).
+    let mut two = login_wrote(&l);
+    two.login_tables.insert(other as u32);
+    let both: [(&[Write], bool); 2] = [
+        (&[(login_row, 5, "insert")], true),
+        (&[(login_row, 5, "insert"), (other, 5, "insert")], false),
+    ];
+    for (writes, rolled_back) in both {
+        let (mut session, rows) = runner_session_wrote(&l, &engine, two.clone());
+        let from = session.store_mut().change_counter();
+        for &(table, no, op) in writes {
+            write(&engine, &mut session, table, no, op);
+        }
+        let changed = session.store_mut().tables_changed_since(from);
+        assert_eq!(
+            rows.onrun_rolled_back(&mut session, &changed, false),
+            rolled_back,
+            "two login tables: {writes:?}"
         );
     }
     let (mut session, _) = runner_session(&l, &engine);

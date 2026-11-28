@@ -138,6 +138,33 @@ codeunit 54024 "FRS S Storage"
     end;
 }
 
+// Not measured: OnRun inserts into two tables the login writes (the probe's OnRun inserts into one).
+codeunit 54025 "FRS T Two Login Tables"
+{
+    Subtype = Test;
+    TestPermissions = NonRestrictive;
+
+    trigger OnRun()
+    var
+        Second: Record "FRS Login Second";
+        Rows: Codeunit "FRS Rows";
+    begin
+        Rows.Insert('T');
+        Second.Init();
+        Second.Writer := 'T';
+        Second.Insert();
+    end;
+
+    [Test]
+    procedure T_Own()
+    var
+        Assert: Codeunit "FRS Assert";
+        Rows: Codeunit "FRS Rows";
+    begin
+        Assert.Equal(2, Rows.Written('T') + Rows.Second('T'), 'rows T inserted, both login tables');
+    end;
+}
+
 // After every writer: the measured shape is gone (LgnRunnerSessions.al:878, :918). The values of the other tests are
 // main's answer (what OnRun wrote reaches the later codeunits), not BC's: not measured.
 codeunit 54030 "FRS R Reader"
@@ -179,6 +206,15 @@ codeunit 54030 "FRS R Reader"
         Rows: Codeunit "FRS Rows";
     begin
         Assert.Equal(2, Rows.Written('B') + Rows.Other('B'), 'rows B inserted, login table and other');
+    end;
+
+    [Test]
+    procedure R_TwoLoginRows()
+    var
+        Assert: Codeunit "FRS Assert";
+        Rows: Codeunit "FRS Rows";
+    begin
+        Assert.Equal(2, Rows.Written('T') + Rows.Second('T'), 'rows T inserted, both login tables');
     end;
 
     [Test]

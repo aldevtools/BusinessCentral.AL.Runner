@@ -2,7 +2,8 @@
 // runs its codeunits in after the held login. Measured: OnRun inserts rows into the login's table, with or without
 // Commit(), and writes nothing else; they are gone in the later runner codeunits (LgnRunnerSessions.al:839, :878).
 // Not measured, main's answer: OnRun modifies a login row, inserts into another table (alone or next to the login
-// table), or writes isolated storage next to its insert. Codeunits in id order: hub H, then C, M, O, B, S, then reader R.
+// table), into two tables the login writes, or writes isolated storage next to its insert. Codeunits in id order: hub
+// H, then C, M, O, B, S, T, then reader R.
 table 54000 "FRS Login Row"
 {
     DataClassification = SystemMetadata;
@@ -39,12 +40,31 @@ table 54001 "FRS Other"
     }
 }
 
+// A second table the login writes (one row per login), for the OnRun that inserts into both login tables.
+table 54002 "FRS Login Second"
+{
+    DataClassification = SystemMetadata;
+
+    fields
+    {
+        field(1; "Entry No."; Integer) { AutoIncrement = true; }
+        // '' for a login row; the letter of the runner codeunit that inserted the row otherwise.
+        field(2; Writer; Code[10]) { }
+    }
+
+    keys
+    {
+        key(PK; "Entry No.") { Clustered = true; }
+    }
+}
+
 codeunit 54000 "FRS Login Subs"
 {
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"System Initialization", 'OnAfterLogin', '', false, false)]
     local procedure AfterLogin()
     var
         Row: Record "FRS Login Row";
+        Second: Record "FRS Login Second";
         UserLogin: Record "User Login";
     begin
         if CurrentClientType() <> ClientType::Web then
@@ -53,6 +73,9 @@ codeunit 54000 "FRS Login Subs"
         Row.Writer := '';
         Row.Note := UserLogin.Count();
         Row.Insert();
+        Second.Init();
+        Second.Writer := '';
+        Second.Insert();
     end;
 }
 
@@ -95,6 +118,15 @@ codeunit 54003 "FRS Rows"
         Row.SetRange(Writer, '');
         Row.SetRange(Note, 999);
         exit(Row.Count());
+    end;
+
+    // Rows the runner codeunit Writer inserted into the second login table.
+    procedure Second(Writer: Code[10]): Integer
+    var
+        Second: Record "FRS Login Second";
+    begin
+        Second.SetRange(Writer, Writer);
+        exit(Second.Count());
     end;
 
     procedure Other(Code: Code[10]): Integer
