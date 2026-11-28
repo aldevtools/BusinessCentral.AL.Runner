@@ -5,7 +5,7 @@
 //!
 //! Entry points: `page_probe_end` (by `Session::guarded_run_end_marks`), `page_shape` (by `ArgFilter::of`).
 
-use super::{ArgFilter, MarkState, RunArg, RunEnd};
+use super::{ArgFacts, ArgFilter, MarkState, RunArg, RunEnd};
 use al_builtins::assumptions::Assumption;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::value::{RecordState, RtType, Value};
@@ -211,7 +211,7 @@ pub(super) fn page_shape(r: &RecordState, fields: &ArgFields) -> Option<PageArgS
 ///   RecZ_Three_ReleasedThenHeld :2639, RecZ_Three_AgainThenHeld :2655, RecZ_Key_ReleasedThenHeld :2671,
 ///   RecZ_Key_AgainThenHeld :2687, and the RecX_ twins (to RecX_Key_AgainThenHeld :2799).
 pub(super) fn page_probe_end(
-    arg: &super::ArgFacts,
+    facts: &ArgFacts,
     work_date: impl FnOnce() -> i32,
     after: &[(u32, MarkState)],
     end: RunEnd,
@@ -221,11 +221,11 @@ pub(super) fn page_probe_end(
         temporary: false,
         filter,
         ..
-    } = arg.arg
+    } = facts.arg
     else {
         return None;
     };
-    if end != RunEnd::Failed("Dialog") || !arg.unmarked_or_first() {
+    if end != RunEnd::Failed("Dialog") || !facts.unmarked_or_first() {
         return None;
     }
     let (entry, date_end) = match (after, filter) {

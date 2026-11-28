@@ -16,7 +16,7 @@ use std::rc::{Rc, Weak};
 /// Where the table of a record argument stands among the marks as the run ends, in the order they were set.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum ArgTable {
-    /// No record argument.
+    /// No Record argument (none, or `RunArg::Other`).
     NoRecord,
     /// No mark names the table (the `RecZ_` cells).
     Unmarked,
@@ -105,28 +105,51 @@ impl ArgFacts {
     }
 
     /// Whether a corpus cell measures this argument in an end of `guarded-run-consistent-end` (a run that starts with the
-    /// marks `before` and ends with the marks `after` as `end`); every other end shape it takes runs through
-    /// `guarded-run-consistent-arg` too. Measured with a record argument the run leaves as it was:
-    /// - without a filter, a run that fails with code Dialog or succeeds (ConsistentGuardedRunEnd.al
-    ///   GuardedRunIdRec_InnerStartsStateAndFails, GuardedRunIdRec_InnerStartsState_Succeeds,
-    ///   GuardedRunIdRec_CallerMarks_InnerFails, _InnerSucceeds);
+    /// marks `before` and ends with the marks `after` as `end`; `page_view` is `Session::page_view_arg`); every other end
+    /// shape it takes runs through `guarded-run-consistent-arg` too. Measured with a record argument the run leaves as it
+    /// was, each mark set by a database variable other than the argument, by these lists of mark states:
+    /// - without a filter: no mark at the start, then one held mark (ConsistentGuardedRunEnd.al
+    ///   GuardedRunIdRec_InnerStartsStateAndFails :415, GuardedRunInstanceRec_InnerStartsStateAndFails :484) or two
+    ///   (ConsistentGuardedRunRecFiltered.al RecZ_NoFilter_StartX_MarkYByA_Fails :466) and a run that fails with code
+    ///   Dialog; one held mark (ConsistentGuardedRunEnd.al GuardedRunIdRec_InnerStartsState_Succeeds :815), two
+    ///   (ConsistentGuardedRunRecFail.al RecZ_MarkYByA_MarkXByA_Ends :590, ConsistentGuardedRunRecFiltered.al
+    ///   RecZ_NoFilter_StartX_MarkYByA_Ends :496), released then held (RecFail.al RecZ_StartX_TrueXByB_MarkYByA_Ends :485)
+    ///   or one released (RecZ_StartX_TrueXByB_Ends :500) and a run that succeeds; one mark the caller holds, which the run
+    ///   leaves as it was, and a run that fails with code Dialog or succeeds (ConsistentGuardedRunEnd.al
+    ///   GuardedRunIdRec_CallerMarks_InnerFails :892, _InnerSucceeds :911, GuardedRunInstanceRec_CallerMarks_InnerFails
+    ///   :930);
     /// - with one of [`ArgFilter::Measured`], no mark at the start and two held marks at the end, a run that fails with code
     ///   Dialog or succeeds (ConsistentGuardedRunRecFiltered.al `_StartX_MarkYByA_Fails`, `_StartX_MarkYByA_Ends`);
-    /// - with a page view (`PageArgShape::PageView`), no mark at the start and one held mark at the end, a run that fails
-    ///   with code Dialog (ConsistentGuardedRunPageConst.al, the Fails cells :675-:1170).
-    pub(super) fn end_measured(&self, before: &[(u32, MarkState)], after: &[(u32, MarkState)], end: RunEnd) -> bool {
-        use MarkState::Marked as M;
+    /// - with a page view, only in the cells' page view shape (`page_view`), no mark at the start and one held mark at the
+    ///   end, a run that fails with code Dialog (ConsistentGuardedRunPageConst.al Page_OrderDirect_Fails :1125,
+    ///   Page_OrderCardDirect_Fails :1170).
+    pub(super) fn end_measured(
+        &self,
+        before: &[(u32, MarkState)],
+        after: &[(u32, MarkState)],
+        end: RunEnd,
+        page_view: bool,
+    ) -> bool {
+        use MarkState::{Marked as M, ReleasedByAnother as R};
+        use RunEnd::{Failed, Succeeded};
         let RunArg::Record { filter, .. } = self.arg else {
             return true;
         };
+        let start: Vec<MarkState> = before.iter().map(|(_, s)| *s).collect();
         let states: Vec<MarkState> = after.iter().map(|(_, s)| *s).collect();
-        let dialog_or_ends = matches!(end, RunEnd::Failed("Dialog") | RunEnd::Succeeded);
+        let unfiltered = match (start.as_slice(), states.as_slice(), end) {
+            ([], [M] | [M, M], Failed("Dialog")) | ([], [M] | [M, M] | [R, M] | [R], Succeeded) => true,
+            ([M], [M], Failed("Dialog") | Succeeded) => before == after,
+            _ => false,
+        };
+        let filtered = start.is_empty() && states == [M, M] && matches!(end, Failed("Dialog") | Succeeded);
         self.kept
+            && self.database_set
             && match filter {
-                ArgFilter::None => dialog_or_ends,
-                ArgFilter::Measured { .. } => before.is_empty() && states == [M, M] && dialog_or_ends,
+                ArgFilter::None => unfiltered,
+                ArgFilter::Measured { .. } => filtered,
                 ArgFilter::Page(PageArgShape::PageView) => {
-                    before.is_empty() && states == [M] && end == RunEnd::Failed("Dialog")
+                    page_view && start.is_empty() && states == [M] && end == Failed("Dialog")
                 }
                 ArgFilter::Page(_) | ArgFilter::Other => false,
             }

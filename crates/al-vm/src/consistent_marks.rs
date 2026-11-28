@@ -276,21 +276,26 @@ const DROPPED_BY: [&str; 3] = ["Dialog", "DB:RecordNotFound", "TestField"];
 ///
 /// Every mark comes from a database variable and none from the argument (`ArgFacts::database_set`), except the one the
 /// argument itself sets: a temporary argument of the table marked first sets it in `RecTempX_*_MarkRec_Fails`.
-fn fail_probe_end(top_level_no_commit: bool, arg: &ArgFacts, after: &[(u32, MarkState)], end: RunEnd) -> Option<bool> {
+fn fail_probe_end(
+    top_level_no_commit: bool,
+    facts: &ArgFacts,
+    after: &[(u32, MarkState)],
+    end: RunEnd,
+) -> Option<bool> {
     if !top_level_no_commit || after.is_empty() {
         return None;
     }
     use FailProbeArg::{Database, NoArg, Temporary};
     use MarkState::{Marked as M, MarkedAgainByAnother as A, ReleasedByAnother as R};
     let states: Vec<MarkState> = after.iter().map(|(_, s)| *s).collect();
-    let filtered = arg.filtered_probe();
+    let filtered = facts.filtered_probe();
     if filtered && end == RunEnd::Failed("Dialog") {
-        match (arg.sets, states.as_slice()) {
+        match (facts.sets, states.as_slice()) {
             (ArgMarks::First, [M]) | (ArgMarks::FirstThenDatabase, [M, M]) => return Some(false),
             _ => {}
         }
     }
-    if !arg.database_set {
+    if !facts.database_set {
         return None;
     }
     if filtered {
@@ -301,7 +306,7 @@ fn fail_probe_end(top_level_no_commit: bool, arg: &ArgFacts, after: &[(u32, Mark
             _ => {}
         }
     }
-    let arg = FailProbeArg::of(arg)?;
+    let arg = FailProbeArg::of(facts)?;
     match (arg, end, states.as_slice()) {
         (NoArg | Database, RunEnd::Failed("Dialog"), [M, A] | [R, M] | [A, M]) => Some(false),
         (Temporary, RunEnd::Failed("Dialog"), [M, A]) => Some(false),
@@ -454,7 +459,8 @@ impl Session {
             return Ok(None);
         }
         let facts = ArgFacts::of(arg, start.arg_record, &self.tx.open.inconsistent);
-        if let Some(r) = self.page_view_run_end(&start, &facts, end, &after, top_level, no_commit) {
+        let page_view = self.page_view_arg(&start, &facts);
+        if let Some(r) = self.page_view_run_end(&start, page_view, end, &after, top_level, no_commit) {
             return Ok(r);
         }
         let caller_unchanged =
@@ -496,7 +502,7 @@ impl Session {
         let first_drop = outer.as_ref().is_none_or(|o| !o.marks_dropped_inside);
         if facts.end_shape() && no_commit && first_drop && drop_scope_measured && (dropped || raised) {
             assume(Assumption::GuardedRunConsistentEnd);
-            if !facts.end_measured(before, &after, end) {
+            if !facts.end_measured(before, &after, end, page_view) {
                 assume(Assumption::GuardedRunConsistentArg);
             }
             if let Some(o) = outer {

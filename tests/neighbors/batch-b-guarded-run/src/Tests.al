@@ -14,6 +14,7 @@ codeunit 98110 "GB Tests"
         X: Record "GB X";
         Y: Record "GB Y";
         Z: Record "GB Z";
+        V: Record "GB V";
     begin
         X.DeleteAll();
         Y.DeleteAll();
@@ -27,6 +28,11 @@ codeunit 98110 "GB Tests"
         Z.Id := 1;
         Z.Name := 'caller';
         Z.Insert();
+        V.DeleteAll();
+        V."Doc Kind" := V."Doc Kind"::Order;
+        V."No." := '1';
+        V.Name := 'caller';
+        V.Insert();
         Commit();
         ClearLastError();
         Mode.Set(Steps);
@@ -70,8 +76,18 @@ codeunit 98110 "GB Tests"
         Y: Record "GB Y";
         Z: Record "GB Z";
         TempX: Record "GB X" temporary;
+        V: Record "GB V";
     begin
         case Kind of
+            'v':
+                begin
+                    // The page view of GB V List, set in code: SetRange on the Enum key field in filter group 2.
+                    V.Get(V."Doc Kind"::Order, '1');
+                    V.FilterGroup(2);
+                    V.SetRange("Doc Kind", V."Doc Kind"::Order);
+                    V.FilterGroup(0);
+                    Ok := Codeunit.Run(Codeunit::"GB Inner V", V);
+                end;
             'z':
                 begin
                     Z.Get(1);
@@ -104,13 +120,17 @@ codeunit 98110 "GB Tests"
         end;
     end;
 
-    local procedure RunThenEnd(Kind: Text; Filter: Text; CallerMarks: Boolean)
+    // Caller: '' nothing; 'marks' the caller marks GB X; 'released' another variable then releases that mark.
+    local procedure RunThenEnd(Kind: Text; Filter: Text; Caller: Text)
     var
         CallerX: Record "GB X";
+        OtherX: Record "GB X";
         Ok: Boolean;
     begin
-        if CallerMarks then
+        if Caller in ['marks', 'released'] then
             CallerX.Consistent(false);
+        if Caller = 'released' then
+            OtherX.Consistent(true);
         Ok := RunRec(Kind, Filter);
         Error('run=%1;code=%2', Ok, GetLastErrorCode());
     end;
@@ -119,16 +139,16 @@ codeunit 98110 "GB Tests"
     local procedure Returns(Kind: Text; Filter: Text; Steps: Text; Code: Text)
     begin
         Initialize(Steps);
-        asserterror RunThenEnd(Kind, Filter, false);
+        asserterror RunThenEnd(Kind, Filter, '');
         if GetLastErrorText() <> StrSubstNo('run=No;code=%1', Code) then
             Error('got %1 (%2)', GetLastErrorText(), GetLastErrorCode());
     end;
 
     // The run raises the inconsistency error, which the guard does not trap.
-    local procedure Raises(Kind: Text; Filter: Text; Steps: Text; CallerMarks: Boolean)
+    local procedure Raises(Kind: Text; Filter: Text; Steps: Text; Caller: Text)
     begin
         Initialize(Steps);
-        asserterror RunThenEnd(Kind, Filter, CallerMarks);
+        asserterror RunThenEnd(Kind, Filter, Caller);
         if GetLastErrorCode() <> 'DB:TableInConsistent' then
             Error('got %1 (%2)', GetLastErrorText(), GetLastErrorCode());
     end;
@@ -208,13 +228,13 @@ codeunit 98110 "GB Tests"
     [Test]
     procedure RecX_MarkXByA_TrueXByRec_MarkXByC_MarkYByA_Ends()
     begin
-        Raises('x', '', 'fxa,trec,fxc,fya', false);
+        Raises('x', '', 'fxa,trec,fxc,fya', '');
     end;
 
     [Test]
     procedure RecX_MarkXByA_TrueXByRec_MarkXByC_TrueXByA_Ends()
     begin
-        Raises('x', '', 'fxa,trec,fxc,txa', false);
+        Raises('x', '', 'fxa,trec,fxc,txa', '');
     end;
 
     [Test]
@@ -333,43 +353,143 @@ codeunit 98110 "GB Tests"
     procedure RecZ_StartX_Ends()
     begin
         // The measured cell (ConsistentGuardedRunEnd.al GuardedRunIdRec_InnerStartsState_Succeeds).
-        Raises('z', '', 'startx', false);
+        Raises('z', '', 'startx', '');
     end;
 
     [Test]
     procedure RecZTwo_StartX_Ends()
     begin
-        Raises('z', 'two', 'startx', false);
+        Raises('z', 'two', 'startx', '');
     end;
 
     [Test]
     procedure RecZExpr_StartX_Ends()
     begin
-        Raises('z', 'expr', 'startx', false);
+        Raises('z', 'expr', 'startx', '');
     end;
 
     [Test]
     procedure RecZ_SetRec_StartX_Ends()
     begin
-        Raises('z', '', 'setrec,startx', false);
+        Raises('z', '', 'setrec,startx', '');
     end;
 
     [Test]
     procedure RecZ_CallerMarks_Fails()
     begin
         // The measured cell (ConsistentGuardedRunEnd.al GuardedRunIdRec_CallerMarks_InnerFails).
-        Raises('z', '', 'err', true);
+        Raises('z', '', 'err', 'marks');
     end;
 
     [Test]
     procedure RecZTwo_CallerMarks_Fails()
     begin
-        Raises('z', 'two', 'err', true);
+        Raises('z', 'two', 'err', 'marks');
     end;
 
     [Test]
     procedure RecZTwo_CallerMarks_Ends()
     begin
-        Raises('z', 'two', '', true);
+        Raises('z', 'two', '', 'marks');
+    end;
+
+    // ---- round 1 of review: the end arms read every mark and the page view ----
+
+    // Opens the page `PageName` with OpenView, invokes its action on the first row (the run on the page's Rec with extra
+    // 'direct', else on a local copy), then raises the outcome.
+    local procedure PageThenEnd(PageName: Text)
+    var
+        List: TestPage "GB V List";
+        Worksheet: TestPage "GB V Worksheet";
+    begin
+        case PageName of
+            'list':
+                begin
+                    List.OpenView();
+                    List.First();
+                    List.RunGuarded.Invoke();
+                    List.Close();
+                end;
+            'worksheet':
+                begin
+                    Worksheet.OpenView();
+                    Worksheet.First();
+                    Worksheet.RunGuarded.Invoke();
+                    Worksheet.Close();
+                end;
+        end;
+        Error(Mode.GetResult());
+    end;
+
+    local procedure PageReturns(PageName: Text; Extra: Text; Steps: Text; Code: Text)
+    begin
+        Initialize(Steps);
+        Mode.SetExtra(Extra);
+        Mode.SetResult('');
+        asserterror PageThenEnd(PageName);
+        if GetLastErrorText() <> StrSubstNo('run=No;code=%1', Code) then
+            Error('got %1 (%2)', GetLastErrorText(), GetLastErrorCode());
+    end;
+
+    [Test]
+    procedure RecZView_StartX_Fails()
+    begin
+        // The page view of corpus PR 1622 set in code, with no page.
+        Returns('v', '', 'startx,err', 'Dialog');
+    end;
+
+    [Test]
+    procedure PageList_Direct_StartX_Fails()
+    begin
+        // The measured shape (ConsistentGuardedRunPageConst.al, OrderDirect Fails): no difference.
+        PageReturns('list', 'direct', 'startx,err', 'Dialog');
+    end;
+
+    [Test]
+    procedure PageList_Copy_StartX_Fails()
+    begin
+        PageReturns('list', 'copy', 'startx,err', 'Dialog');
+    end;
+
+    [Test]
+    procedure PageWorksheet_Direct_StartX_Fails()
+    begin
+        PageReturns('worksheet', 'direct', 'startx,err', 'Dialog');
+    end;
+
+    [Test]
+    procedure PageList_Direct_TempMarksX_Fails()
+    begin
+        PageReturns('list', 'direct', 'ftmp,err', 'Dialog');
+    end;
+
+    [Test]
+    procedure RecZ_StartX_MarkYByA_MarkWByA_Fails()
+    begin
+        Returns('z', '', 'startx,fya,fwa,err', 'Dialog');
+    end;
+
+    [Test]
+    procedure RecZ_StartX_MarkYByA_MarkWByA_Ends()
+    begin
+        Raises('z', '', 'startx,fya,fwa', '');
+    end;
+
+    [Test]
+    procedure RecZ_CallerMarksReleased_Fails()
+    begin
+        Raises('z', '', 'err', 'released');
+    end;
+
+    [Test]
+    procedure RecZ_TempMarksX_Fails()
+    begin
+        Returns('z', '', 'ftmp,err', 'Dialog');
+    end;
+
+    [Test]
+    procedure RecZKey_TempMarksX_MarkYByA_Fails()
+    begin
+        Returns('z', 'key', 'ftmp,fya,err', 'Dialog');
     end;
 }
