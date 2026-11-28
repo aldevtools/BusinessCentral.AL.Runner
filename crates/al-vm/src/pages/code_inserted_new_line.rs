@@ -103,7 +103,8 @@ pub(super) enum View {
 enum Inserted {
     /// The table field's OnValidate inserted it before the control's OnValidate began.
     ByTableField,
-    /// The same, then the control's OnValidate wrote it once through another record, and nothing else.
+    /// The same, then the control's OnValidate wrote it once through another record, with either no other-table write or one
+    /// Insert of another table.
     Rewritten,
 }
 
@@ -279,7 +280,8 @@ impl Session {
             true => self.inserted_by_table_field(st, coded)?,
             false => None,
         };
-        // Only the effect gate takes a row the control's OnValidate wrote once before the save (`code_inserted_extra.rs`).
+        // Only the effect gate takes a row the control's OnValidate rewrote exactly once before the save
+        // (`code_inserted_extra.rs`), with the measured other-table writes beside it.
         let rewritten = inserted == Some(Inserted::Rewritten);
         let view = match inserted {
             Some(Inserted::ByTableField) => self.code_inserted_view(st, coded)?,
@@ -548,11 +550,17 @@ impl Session {
     /// `new_line_writes`, and not above the mark when the control's OnValidate began, `control_onvalidate`). The table has
     /// no table extension and no event subscriber; with `manual_unbound` (the page with code), manual subscribers nobody binds
     /// are allowed (ListNewLineFactboxesCode.al:255-275). `Inserted::Rewritten` for that row when the control's OnValidate then
-    /// wrote it once, and nothing else (`code_inserted_extra.rs`, ListNewLineExtraCode.al:443).
+    /// wrote it exactly once, with no delete and either no other-table write or one Insert of another table, before or after
+    /// it (`code_inserted_extra.rs`, ListNewLineExtraCode.al:443; ListNewLineWritesOtherTable.al:630, :654).
     fn inserted_by_table_field(&mut self, st: &St, manual_unbound: bool) -> Result<Option<Inserted>, Signal> {
-        let (Some(start), Some((line_mark, _)), Some(control)) = ({
+        let (Some(start), Some((line_mark, _)), Some(line_record_writes), Some(control)) = ({
             let s = st.borrow();
-            (s.draft_start.clone(), s.new_line_writes, s.control_onvalidate.clone())
+            (
+                s.draft_start.clone(),
+                s.new_line_writes,
+                s.new_line_record_writes,
+                s.control_onvalidate.clone(),
+            )
         }) else {
             return Ok(None);
         };
@@ -591,10 +599,51 @@ impl Session {
         if by_table_field(version) {
             return Ok(Some(Inserted::ByTableField));
         }
-        // The row the table field inserted when the control's OnValidate began, written once since, and nothing else written.
+        // The row the table field inserted when the control's OnValidate began, then one Record Modify of this table and
+        // either no other-table Record write or one Insert of another table, in either order (:463, :630, :654); no delete ran.
+        // Keeping the exact write sequence here gives the row-version check only the cells it can prove and refuses a repeated
+        // rewrite or a Modify of another table.
+        drop(engine);
+        let page_table = object as u32;
+        let at_most_one_other_table_insert = |writes: &[crate::state::TxWrite]| {
+            let mut other = writes.iter().filter(|w| w.table != page_table);
+            match (other.next(), other.next()) {
+                (None, None) => true,
+                (Some(write), None) => write.kind == crate::state::TxWriteKind::Insert,
+                _ => false,
+            }
+        };
+        let measured_control_writes = self.tx.open.writes.get(control.record_writes..).is_some_and(|writes| {
+            let mut page_writes = writes.iter().filter(|w| w.table == page_table);
+            let one_page_modify = page_writes
+                .next()
+                .is_some_and(|w| w.kind == crate::state::TxWriteKind::Modify)
+                && page_writes.next().is_none();
+            one_page_modify && at_most_one_other_table_insert(writes)
+        });
+        let measured_line_writes = self.tx.open.writes.get(line_record_writes..).is_some_and(|writes| {
+            let mut page_writes = writes.iter().filter(|w| w.table == page_table);
+            let measured_page_writes = matches!(
+                (page_writes.next(), page_writes.next(), page_writes.next()),
+                (Some(insert), Some(modify), None)
+                    if insert.kind == crate::state::TxWriteKind::Insert
+                        && modify.kind == crate::state::TxWriteKind::Modify
+            );
+            measured_page_writes && at_most_one_other_table_insert(writes)
+        });
         let rewritten = control.row_version.is_some_and(by_table_field)
-            && version == control_mark + 1
-            && self.write_mark() == (control_mark + 1, control_deletes);
+            && version > control_mark
+            && self.write_mark().1 == control_deletes
+            && self.writes_all_noted()
+            && measured_control_writes
+            && measured_line_writes
+            && self.coded_rows(st)?.is_some_and(|rows| {
+                let line = table.primary_key(&stored);
+                rows.iter().all(|row| {
+                    Self::same_key(&table.primary_key(row), &line)
+                        || crate::stale_rename::row_version(&table, row).is_some_and(|v| v <= control_mark)
+                })
+            });
         Ok(rewritten.then_some(Inserted::Rewritten))
     }
 
@@ -626,7 +675,11 @@ impl Session {
     /// The page control's own OnValidate trigger `r` of control `idx`, recorded in `PageState::control_onvalidate` while it runs
     /// (`inserted_by_table_field` and `refresh_new_line.rs` `found_row_cell` read it).
     pub(super) fn run_control_onvalidate(&mut self, st: &St, idx: usize, r: usize) -> Result<Value, Signal> {
-        let mut begun = crate::pages::state::ControlOnValidate::new(self.write_mark(), self.store.change_counter());
+        let mut begun = crate::pages::state::ControlOnValidate::new(
+            self.write_mark(),
+            self.store.change_counter(),
+            self.tx.open.writes.len(),
+        );
         begun.row_version = self.new_line_row_version(st);
         let start = Some(begun);
         let outer = std::mem::replace(&mut st.borrow_mut().control_onvalidate, start);
