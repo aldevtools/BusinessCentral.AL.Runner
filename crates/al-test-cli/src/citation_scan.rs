@@ -135,13 +135,12 @@ pub fn check(root: &Path, corpus: &Path) -> Result<(Vec<String>, usize), String>
             read += 1;
             let line = text[..f.at.start].matches('\n').count() + 1;
             let token = &text[f.at.clone()];
-            let r = f.citation.and_then(|c| {
-                citation::resolve(&c, &pinned, &prs)?;
-                // A token is written as it prints (review r1 of PR 9432, L2), so a search for it finds it.
-                match citation::canonical(&c, &pinned)? {
-                    Some(k) if k.to_string() != token => Err(format!("write it as {k}")),
-                    _ => Ok(()),
-                }
+            // A pinned token resolves and is written as it prints (review r1 of PR 9432, L2), so a search for it finds
+            // it; a pending one names a registry PR.
+            let r = f.citation.and_then(|c| match citation::canonical(&c, &pinned)? {
+                Some(k) if k.to_string() != token => Err(format!("write it as {k}")),
+                Some(_) => Ok(()),
+                None => citation::resolve(&c, &pinned, &prs).map(|_| ()),
             });
             if let Err(e) = r {
                 errors.push(format!("{}:{line}: {token}: {e}", path.display()));

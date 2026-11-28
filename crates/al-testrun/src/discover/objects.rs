@@ -3,7 +3,7 @@
 //! `discover.rs` (comments and string texts blanked, no syntax tree; the same readers of `Subtype = Test` and `[Test]`),
 //! plus brace depth: an object header is a kind word at depth 0, a member a `procedure` or `trigger` at depth 1 (a
 //! trigger of a field, control or action is none). A member's span runs from its lead-in (the attribute and comment
-//! lines right above it) to the line of its body's last `end`. Entry points: `objects`, `cells`, `code_text`.
+//! lines right above it) to the line of its body's last `end`. Entry points: `objects`, `cells`.
 
 use super::{is_test_attribute, name_at, says_test_subtype, strip_comments, words};
 use std::ops::Range;
@@ -62,12 +62,6 @@ pub struct MemberDecl {
     /// From the start of its first lead-in line (or of its keyword's line) to the end of the line of its body's last
     /// `end` (of its declaration line when it has no body), in bytes of the source text.
     pub span: Range<usize>,
-}
-
-/// `src` with comments, directives and the text of string literals blanked, every byte at its offset (a literal keeps
-/// its quotes): the code of a source line.
-pub fn code_text(src: &str) -> String {
-    strip_comments(src)
 }
 
 /// Every object `src` declares, in order (comments and directives are no code).
@@ -342,11 +336,5 @@ mod tests {
         assert_eq!(cells(SRC, o[0].members[0].span.clone()), vec!["'it''s'"]);
         let src = "O.Observe( 'a', X); Obs.ObserveError('b'); Observer.Ignore('c'); Assert.ExpectedError('d'); H.ObservePair('e', 1); O.Expect(Name, 'f');";
         assert_eq!(cells(src, 0..src.len()), vec!["'a'", "'b'", "'c'"]);
-    }
-
-    #[test]
-    fn code_text_blanks_comments_and_string_texts_at_their_offsets() {
-        let src = "x := 'a // b'; // c\n";
-        assert_eq!(code_text(src), "x := '      ';     \n");
     }
 }
