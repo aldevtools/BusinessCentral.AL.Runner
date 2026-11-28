@@ -151,7 +151,8 @@ impl Session {
     ///   :132, codeunit 77388 SaveAs_Word_*); RDLC ("SAE Rdlc Rpt", SaveAs_Rdlc_*: that arm keeps main's answer and only
     ///   marks it); Word or RDLC with one report extension that only adds a column ("SAE Word Col Ext", "SAE Rdlc Col Ext",
     ///   codeunit 77395); or, as Xml only, Excel with no extension ("SAE Excel Rpt", SaveAs_Excel_*: as Pdf and Word the
-    ///   platform's error comes first, `cells_platform_first`).
+    ///   platform's error comes first, `cells_platform_first`); or, as Xml only, no layout of its own and one report
+    ///   extension that only adds a Word layout ("SAE No Layout Rpt", SaveAs_NoLayoutExtWord_*).
     ///
     /// Pinned: text/PnBReportSaveAs.al:698 PW_TriggerError_InPreReport_LastError, `Error('literal')` in OnPreReport of "LT PnB
     /// Rep" (errors/PnBObjects.al): no layout and no extension, two top-level data items and one inside the first, the used
@@ -211,15 +212,20 @@ impl Session {
             SaveOutput::Dataset if call.format == "Xml" => !self.company_build && !self.output_is_ignored(schema),
             _ => false,
         };
-        let report = !call.by_variable
-            && !r.processing_only
-            && r.data_items == DataItems::One
-            && !r.init_triggers
-            && r.sole_layout
-            && r.decl == save::Decl::Rendering;
+        let report = !call.by_variable && !r.processing_only && r.data_items == DataItems::One && !r.init_triggers;
+        let own_layout = r.sole_layout && r.decl == save::Decl::Rendering;
         let shape = match (r.kind, r.extensions) {
-            (Kind::Word | Kind::Rdlc, Extensions::None | Extensions::OneAddingColumns) => true,
-            (Kind::Excel, Extensions::None) => call.format == "Xml",
+            (Kind::Word | Kind::Rdlc, Extensions::None | Extensions::OneAddingColumns) => own_layout,
+            (Kind::Excel, Extensions::None) => own_layout && call.format == "Xml",
+            // No layout of its own; the extension's Word layout is not the default ("SAE No Layout Rpt", SaveAs_NoLayoutExtWord_*:
+            // as Pdf and Word ReportNoLayout comes first, `cells_platform_first`).
+            (Kind::Other, Extensions::OneAddingWordLayout) => {
+                let own = schema.report();
+                own.layout == ir::ReportLayout::None
+                    && own.rendering_layouts.is_empty()
+                    && own.layout_properties.is_empty()
+                    && call.format == "Xml"
+            }
             _ => false,
         };
         session && report && shape

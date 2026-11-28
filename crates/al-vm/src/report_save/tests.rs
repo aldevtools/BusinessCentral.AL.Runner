@@ -493,3 +493,40 @@ fn report_save_the_excel_statement_row_reads_one_layout_and_no_init_triggers() {
         assert!(matches!(lookup::before_run(&CELLS, &f), Before::Miss(_)), "{f:?}");
     }
 }
+
+/// No layout of its own and one report extension that only adds a Word layout (corpus pull request 1579,
+/// SaveAsTriggerErrors.al:764-842): Pdf and Word answer ReportNoLayout in both forms; Html and another extension miss.
+#[test]
+fn report_save_an_extensions_word_layout_is_not_the_default() {
+    let measured = |format, answer| Facts {
+        format,
+        answer,
+        kind: Kind::Other,
+        decl: Decl::Legacy,
+        extensions: Extensions::OneAddingWordLayout,
+        sole_layout: false,
+        triggers: Triggers::OnPost,
+        ..base()
+    };
+    for format in [Format::Pdf, Format::Word] {
+        for answer in [AnswerForm::Used, AnswerForm::Statement] {
+            let Before::Answer(row) = lookup::before_run(&CELLS, &measured(format, answer)) else {
+                panic!("the measured row")
+            };
+            assert_eq!(row.answer, Answer::False(super::cell::ErrorId::NoLayout));
+        }
+    }
+    for f in [
+        measured(Format::Html, AnswerForm::Used),
+        Facts {
+            extensions: Extensions::Other,
+            ..measured(Format::Pdf, AnswerForm::Used)
+        },
+        Facts {
+            init_triggers: true,
+            ..measured(Format::Pdf, AnswerForm::Used)
+        },
+    ] {
+        assert!(matches!(lookup::before_run(&CELLS, &f), Before::Miss(_)), "{f:?}");
+    }
+}

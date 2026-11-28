@@ -37,6 +37,9 @@ pub(crate) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     let extensions = match report.extensions.as_slice() {
         [] => Extensions::None,
         [e] if adds_columns_only(program, *e) => Extensions::OneAddingColumns,
+        [e] if adds_nothing_to_the_run(program, *e) && report.extension_layouts == ["word"] => {
+            Extensions::OneAddingWordLayout
+        }
         _ => Extensions::Other,
     };
     let triggers = if report.on_post.is_some() {
@@ -88,16 +91,29 @@ pub(crate) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     }
 }
 
-/// Whether the reportextension (object index) only adds columns to the report's data items: no trigger, data item, label or
-/// `modify`.
+/// Whether the reportextension (object index) only adds columns to the report's data items.
 fn adds_columns_only(program: &al_ir::Program, ext: usize) -> bool {
+    changes_no_trigger_item_or_label(program, ext, |x| !x.adds.is_empty())
+}
+
+/// Whether the reportextension adds no column either: what it adds then is layouts (`ir::Report::extension_layouts`).
+fn adds_nothing_to_the_run(program: &al_ir::Program, ext: usize) -> bool {
+    changes_no_trigger_item_or_label(program, ext, |x| x.adds.is_empty())
+}
+
+/// The reportextension has no trigger, data item, label or `modify`, and `adds` holds for its `add(Item)` blocks.
+fn changes_no_trigger_item_or_label(
+    program: &al_ir::Program,
+    ext: usize,
+    adds: impl Fn(&al_ir::ReportExt) -> bool,
+) -> bool {
     program.objects[ext].report_ext.as_ref().is_some_and(|x| {
         x.on_pre.is_none()
             && x.on_post.is_none()
             && x.modifies.is_empty()
             && x.added.is_empty()
             && x.labels.is_empty()
-            && !x.adds.is_empty()
+            && adds(x)
     })
 }
 

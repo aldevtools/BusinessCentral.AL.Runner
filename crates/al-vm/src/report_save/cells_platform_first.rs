@@ -2,7 +2,7 @@
 //! request 1579, merged, not yet pinned; assumption `saveas-platform-error-before-triggers`, issue 8486; the
 //! processing-only answers with the answer used are pinned by streams/PnH6SaveAs.al). The probe's reports
 //! (reports/layouts-saveas/SaveAsTriggerErrors.al) have one data item over Integer, no report extension, one layout at
-//! most, no OnInitReport and no request page, and are saved by `Report.SaveAs(Id, '', Format, OutStream)` with no
+//! most ("SAE No Layout Rpt" none, its extension one Word layout), no OnInitReport and no request page, and are saved by `Report.SaveAs(Id, '', Format, OutStream)` with no
 //! layout selection row, as a statement inside `Codeunit.Run` and in the Boolean form; each test runs the control and
 //! an error in OnPreReport, OnAfterGetRecord, OnPreDataItem and OnPostReport, and no error site is reached. Measured
 //! the same on every supported major.
@@ -32,6 +32,15 @@ const PROCESSING: &[Pin] = &[
     pin(SAE, 716),
     pin(SAE, 732),
     pin(SAE, 748),
+];
+/// "SAE No Layout Rpt" (no layout of its own) with "SAE No Layout Word Ext" (only a Word layout): SaveAs_NoLayoutExtWord_Control
+/// and the four error sites.
+const NO_LAYOUT_EXT_WORD: &[Pin] = &[
+    pin(SAE, 764),
+    pin(SAE, 780),
+    pin(SAE, 796),
+    pin(SAE, 812),
+    pin(SAE, 828),
 ];
 const PNH6: &str = "streams/PnH6SaveAs.al";
 const PROCESSING_PDF_WORD: &[Pin] = &[pin(PNH6, 196)];
@@ -96,5 +105,27 @@ pub(super) fn platform_first_rows(t: &mut Vec<Cell>) {
             ..base(answer, format)
         };
         t.push(cell(key, Answer::Dataset, Events::NotRaised(&[]), evidence));
+    }
+    // No layout of its own and one report extension that only adds a Word layout, as Pdf or Word: ReportNoLayout in both
+    // forms, at every site (SaveAsTriggerErrors.al:764-842, the `Pdf` and `Word` calls): the extension's layout is not the
+    // default.
+    for format in [Format::Pdf, Format::Word] {
+        for answer in [AnswerForm::Used, AnswerForm::Statement] {
+            let key = Key {
+                kind: Is(Kind::Other),
+                layout: Is(Layout::NotRdlc),
+                decl: Is(Decl::Legacy),
+                declares: Is(Declares::Other),
+                processing_only: Is(false),
+                extensions: Is(Extensions::OneAddingWordLayout),
+                ..base(answer, format)
+            };
+            t.push(cell(
+                key,
+                Answer::False(ErrorId::NoLayout),
+                Events::NotRaised(&[]),
+                marks(NO_LAYOUT_EXT_WORD),
+            ));
+        }
     }
 }

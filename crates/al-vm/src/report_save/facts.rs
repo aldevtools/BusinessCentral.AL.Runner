@@ -92,6 +92,9 @@ pub(crate) enum Extensions {
     None,
     /// Exactly one, which only adds columns (no trigger, data item, label or `modify`).
     OneAddingColumns,
+    /// Exactly one, which only adds one layout of Type Word in its `rendering` section (no column, trigger, data item, label
+    /// or `modify`).
+    OneAddingWordLayout,
     Other,
 }
 
@@ -310,6 +313,7 @@ describe!(DataItems {
 describe!(Extensions {
     Extensions::None => "none",
     Extensions::OneAddingColumns => "one adding columns",
+    Extensions::OneAddingWordLayout => "one adding a Word layout",
     Extensions::Other => "another set",
 });
 describe!(Triggers { Triggers::None => "none", Triggers::WithoutOnPost => "without OnPostReport", Triggers::OnPost => "with OnPostReport" });

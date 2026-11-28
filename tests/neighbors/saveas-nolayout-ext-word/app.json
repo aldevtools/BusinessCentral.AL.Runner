@@ -1,0 +1,16 @@
+{
+  "id": "6d1f3c20-1a2b-4c3d-9e8f-848600000004",
+  "name": "Neighbors saveas-nolayout-ext-word",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    {
+      "from": 97140,
+      "to": 97170
+    }
+  ],
+  "dependencies": []
+}
