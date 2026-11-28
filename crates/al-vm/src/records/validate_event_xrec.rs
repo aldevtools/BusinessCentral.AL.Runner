@@ -243,8 +243,9 @@ impl Session {
     /// codeunit that trigger calls, and in the subscriber before the call (assumption `xrec-table-proc-routes`:
     /// record/validate/XRecTableProcRoutes.al, corpus PR 1583; al-runner issue 8974). Writers no cell measures refuse (review of PR 9063, 2026-11-25): a table extension
     /// OnBeforeValidate or OnAfterValidate of the field (`kept_by_before_event` is then false), another record's fields put into
-    /// the record (`ValidateRun::whole_write`: an assignment, RecordRef.SetTable, Page.GetRecord, Page.SetSelectionFilter), and a change of a field that is no Normal field (CalcFields of a FlowField). Also
-    /// read by `cell_facts` in `running_call_xrec.rs`.
+    /// the record (`ValidateRun::whole_write`: an assignment, RecordRef.SetTable, Page.GetRecord, Page.SetSelectionFilter,
+    /// TransferFields), and a change of a field that is no Normal field (CalcFields of a FlowField). Also read by `cell_facts`
+    /// in `running_call_xrec.rs`.
     pub(super) fn changed_after_before_event(&self, run: &ValidateRun, rc: &Rec) -> bool {
         let r = rc.borrow();
         let facts = &self.engine.field_facts[r.table as usize];
