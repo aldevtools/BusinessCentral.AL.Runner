@@ -496,7 +496,8 @@ impl Session {
     /// RecordRef.SetTable, Page.GetRecord, Page.SetSelectionFilter, TransferFields), the variable's later Modify, Rename and
     /// reads each giving it a new version source (every cell but one inserts with the variable it validates, :775); or that
     /// version taken by `:=` straight from that variable, validated from a `[MessageHandler]`
-    /// (Validate_FromMessageHandler_OneXRec, :1876). In both, the buffer holds when the nested Validate starts the version
+    /// (Validate_FromMessageHandler_OneXRec, :1876), with no guarded Insert of that variable that answered false before
+    /// the `:=` either (`HeldVersion::failed_insert_before_copy`; :1876 has none). In both, the buffer holds when the nested Validate starts the version
     /// source it held when the outermost one started (`ValidateRun::version_at_start`), and no running Validate of the nest
     /// saw another record's fields written into the record (`ValidateRun::whole_write`).
     fn buffer_version_measured(&self, r: &RecordState, o: usize, runs: &[&ValidateRun]) -> bool {
@@ -513,12 +514,13 @@ impl Session {
             h.via,
             h.source.how,
             h.failed_inserts,
+            h.failed_insert_before_copy,
             h.deleted,
             h.fields_replaced,
             h.carried_from,
         ) {
-            (VersionVia::Own, VersionHow::OwnInsert, 0, false, false, None) => true,
-            (VersionVia::Assigned, VersionHow::OwnInsert, 0, false, false, Some(VersionVia::Own)) => {
+            (VersionVia::Own, VersionHow::OwnInsert, 0, false, false, false, None) => true,
+            (VersionVia::Assigned, VersionHow::OwnInsert, 0, false, false, false, Some(VersionVia::Own)) => {
                 self.attribute_names(o - 1) == ["messagehandler"]
             }
             _ => false,

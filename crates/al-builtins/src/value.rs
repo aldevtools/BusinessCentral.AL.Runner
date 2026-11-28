@@ -854,18 +854,21 @@ impl VersionEntry {
             source: Rc::new(source),
             via: VersionVia::Own,
             failed_inserts: 0,
+            failed_insert_before_copy: false,
             deleted: false,
             fields_replaced: false,
             carried_from: None,
         }))
     }
 
-    /// The entry a copy of the buffer takes, made by `via`: the same source, no failed Insert of its own yet.
+    /// The entry a copy of the buffer takes, made by `via`: the same source, no failed Insert of its own yet, and
+    /// whether the buffer or a copy it came from had one.
     pub fn carried(&self, via: VersionVia) -> VersionEntry {
         VersionEntry(self.0.as_ref().map(|h| HeldVersion {
             source: Rc::clone(&h.source),
             via,
             failed_inserts: 0,
+            failed_insert_before_copy: h.failed_insert_before_copy || h.failed_inserts > 0,
             deleted: h.deleted,
             fields_replaced: h.fields_replaced,
             carried_from: Some(h.via),
@@ -889,6 +892,9 @@ pub struct HeldVersion {
     pub via: VersionVia,
     /// The guarded Inserts of this copy at this version that answered false.
     pub failed_inserts: u32,
+    /// A copy this copy was made from, directly or through other copies, had a guarded Insert at this version that
+    /// answered false before the copy ([`HeldVersion::failed_inserts`] counts only this copy's own).
+    pub failed_insert_before_copy: bool,
     /// The variable deleted its row since.
     pub deleted: bool,
     /// Another record's fields replaced the buffer's since it got the version, by a writer that keeps the version
@@ -2493,5 +2499,19 @@ mod version_entry_tests {
         assert_eq!(per_copy(&own), (VersionVia::Own, 1, true));
         assert_eq!(per_copy(&cloned), (VersionVia::Cloned, 0, true));
         assert_eq!(per_copy(&by_value), (VersionVia::ByValue, 0, true));
+    }
+
+    /// A copy starts with no failed Insert of its own, but keeps that a copy it was made from had one, through any
+    /// number of copies (Copilot comment on train PR 9412: the nested-Validate gate reads it).
+    #[test]
+    fn a_copy_keeps_a_failed_insert_of_the_copy_it_came_from() {
+        let fresh = own_entry(vec![Value::Integer(1)]);
+        let before = |e: &VersionEntry| e.0.as_ref().expect("an entry").failed_insert_before_copy;
+        let assigned = fresh.carried(VersionVia::Assigned);
+        let again = assigned.carried(VersionVia::Assigned);
+        assert_eq!((before(&fresh), before(&assigned), before(&again)), (false, true, true));
+        let mut clean = own_entry(vec![Value::Integer(1)]);
+        clean.0.as_mut().expect("an entry").failed_inserts = 0;
+        assert!(!before(&clean.carried(VersionVia::Assigned)));
     }
 }
