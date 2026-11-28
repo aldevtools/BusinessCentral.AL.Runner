@@ -218,6 +218,14 @@ fn open_company(
     if steps.execute {
         return Ok(Default::default());
     }
+    // The session starts from what a Disabled codeunit on the hub left after the run's one login (`login_once_on_hub`).
+    if let Some(why) = session
+        .login_held()
+        .then(|| login_held_unmeasured(scratch.hub_leg, isolation))
+        .flatten()
+    {
+        return Err(why.to_string().into());
+    }
     let disabled = isolation == TestIsolation::Disabled;
     let engine = session.engine.clone();
     al_builtins::assumptions::clear_hits();
@@ -254,9 +262,8 @@ fn open_company(
         moved_in: moved,
     };
     let gate = crate::login_start::run_gate(facts);
-    // The session starts from what a Disabled codeunit on the hub left after the run's one login
-    // (`login_once_on_hub`): BC runs no second login, so what this one writes is undone below.
-    let held = (scratch.hub && session.login_held()).then(|| session.capture_baseline());
+    // On the hub, BC runs no second login (`login_once_on_hub`): what this one writes is undone below.
+    let held = session.login_held().then(|| session.capture_baseline());
     let replayed =
         (key.as_ref().filter(|_| !check)).and_then(|key| crate::login_start::replay(&engine, key, session, gate));
     let (wrote, hits) = match replayed {
@@ -1581,6 +1588,25 @@ fn login_once_on_hub(
         && !execute
         && company_open.who.is_none()
         && company_open.login.is_some()
+}
+
+/// Why a codeunit is not run from what a Disabled codeunit on the hub left after the run's one login
+/// (`login_once_on_hub`): the probe measured later codeunits on the hub (`Scratch::hub_leg`) under Disabled and Codeunit
+/// isolation only (assumption `hub-disabled-login-once`, LgnDisabledLoginWrites.al:474, :553). `None`: one of those.
+fn login_held_unmeasured(hub_leg: bool, isolation: TestIsolation) -> Option<&'static str> {
+    let measured = hub_leg && (isolation == TestIsolation::Disabled || isolation == TestIsolation::Codeunit);
+    match (measured, hub_leg) {
+        (true, _) => None,
+        (false, true) => Some(
+            "an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's one login \
+             wrote, and what a later codeunit on the hub with this isolation sees of the login is not pinned",
+        ),
+        (false, false) => Some(
+            "an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's one login \
+             wrote, and whether BC runs a login for this codeunit, which runner 130450 runs, and which login rows it sees \
+             is not pinned",
+        ),
+    }
 }
 
 /// What a codeunit under Disabled isolation left for the later codeunits ([`CARRIED`]), from `start` on.
