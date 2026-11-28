@@ -334,21 +334,17 @@ fn served_logo<'a>(
         Some(al_ir::AppLogo::File(bytes)) => bytes.as_slice(),
         None => return Logo::Unknown(format!("app '{}': its manifest's logo was not read", a.name)),
     };
-    let pinned = |size, mime| Logo::Picture {
+    let picture = |size, mime, assumed| Logo::Picture {
         bytes,
         size,
         mime,
-        assumed: None,
+        assumed,
     };
     if row_assumed.is_none()
         && let Some(size) = assumed_jpeg_logo(bytes, target)
     {
-        return Logo::Picture {
-            bytes,
-            size,
-            mime: "image/jpeg",
-            assumed: Some(al_builtins::assumptions::Assumption::AppLogoJpegSizes),
-        };
+        let assumed = Some(al_builtins::assumptions::Assumption::AppLogoJpegSizes);
+        return picture(size, "image/jpeg", assumed);
     }
     let jpeg_mime = if al_version::gate_on(target, al_version::Gate::ProbedValuesDifferFrom29) {
         "image/jpeg"
@@ -360,8 +356,8 @@ fn served_logo<'a>(
         al_builtins::media::jfif_logo_size(bytes),
         row_assumed,
     ) {
-        (Some(size), _, _) => pinned(size, "image/png"),
-        (None, Some(MEASURED_JPEG_SIZE), None) => pinned(MEASURED_JPEG_SIZE, jpeg_mime),
+        (Some(size), _, _) => picture(size, "image/png", None),
+        (None, Some(MEASURED_JPEG_SIZE), None) => picture(MEASURED_JPEG_SIZE, jpeg_mime, None),
         (None, Some((width, height)), None) => Logo::Unknown(format!(
             "app '{}', whose JPEG logo is {width} x {height}, not the measured 8 x 8",
             a.name
