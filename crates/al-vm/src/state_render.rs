@@ -304,9 +304,14 @@ impl<'a> Render<'a> {
             _ => return Err("Record whose temporary flag and table disagree".into()),
         };
         // A clone leaves out what is not the record's content (the temporary table's id, which `temp_tables` numbers)
-        // and what a clone does not copy (the table globals, rendered below, the own read and the probed source).
+        // and what a clone does not copy (the table globals, rendered below, the own read and the probed source). The
+        // version entry and the IsDirty base are the record's own: a clone marks the entry `Cloned` and drops its failed
+        // Inserts (al-builtins `VersionEntry::carried`), and blanks the base (`DirtyBase`'s `Clone`). The page view mark
+        // and the read of a rolled Time, which a clone blanks too, have no image (`login_image/record.rs`).
         let mut view = r.clone();
         view.temp_id = None;
+        view.version_entry = al_builtins::value::VersionEntry(r.version_entry.0.clone());
+        view.is_dirty_base = r.is_dirty_base.copy();
         let mut text = format!(
             "{table}: {} own read {} probed {}",
             content(&view),
@@ -753,6 +758,67 @@ mod tests {
             render.value(&globals[1], 0),
             Err("temporary Record whose rows are not measured".into())
         );
+    }
+
+    // A record's version entry and IsDirty base are read from the record itself: a clone marks the entry `Cloned`, drops
+    // its failed Inserts (al-builtins `VersionEntry::carried`) and blanks the base, so a render through the clone alone
+    // could not tell two records apart that differ there (issue 9148).
+    #[test]
+    fn a_records_version_entry_and_dirty_base_are_rendered_as_the_record_holds_them() {
+        const SRC: &str = "table 50100 Row { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } } }
+            codeunit 50100 Keeper { var R: Record Row; procedure Fill() begin R.Id := 1; R.Insert(); end; }";
+        let (ws, l) = al_sema::lower::compile(
+            vec![al_sema::workspace::AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), SRC.into())],
+            }],
+            &Default::default(),
+        );
+        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+        let engine = crate::Engine::new(l.program, Vec::new());
+        let at = engine.program.objects.iter().position(|o| o.name == "Keeper").unwrap();
+        let ri = engine.program.objects[at]
+            .routines
+            .iter()
+            .position(|r| r.name == "Fill")
+            .unwrap();
+        let mut session = Session::new(engine);
+        let inst = session.codeunit_instance(at);
+        session.call(at, ri, inst.clone(), vec![]).expect("Fill");
+        let Value::Record(r) = inst.borrow().globals[0].clone() else {
+            panic!("a record global")
+        };
+        // The record is held twice here (the global and `r`): its text is the render's line of the shared handle.
+        let text = |s: &Session| {
+            let mut render = Render::new(s);
+            render.value(&Value::Record(r.clone()), 0).expect("a comparable record");
+            render.lines.join("\n")
+        };
+        let own = text(&session);
+        let held = |r: &Rc<RefCell<RecordState>>| r.borrow().version_entry.0.is_some();
+        assert!(held(&r), "the Insert gave the buffer its version");
+        // A clone keeps only whether there was a failed Insert, and the way the copy came by as `carried_from`.
+        let mut seen = vec![own];
+        type Change = fn(&mut al_builtins::value::HeldVersion);
+        let changes: [(&str, Change); 4] = [
+            ("one failed Insert", |h| h.failed_inserts = 1),
+            ("two failed Inserts", |h| h.failed_inserts = 2),
+            ("via", |h| h.via = al_builtins::value::VersionVia::Assigned),
+            ("carried_from", |h| {
+                h.carried_from = Some(al_builtins::value::VersionVia::Copied)
+            }),
+        ];
+        for (what, change) in changes {
+            change(r.borrow_mut().version_entry.0.as_mut().unwrap());
+            let now = text(&session);
+            assert!(!seen.contains(&now), "{what}");
+            seen.push(now);
+        }
+        // The IsDirty base, which a clone blanks.
+        r.borrow_mut().is_dirty_base = al_builtins::value::DirtyBase::Fresh;
+        assert!(!seen.contains(&text(&session)), "is_dirty_base");
     }
 
     // Nesting deeper than the limit and a value in use are named as such.

@@ -498,7 +498,7 @@ impl Maker<'_> {
             view_assumption,
             auto_calc_dropped,
         } = n;
-        let temp_id = temp.map(|t| self.temp_id(t));
+        let temp_id = temp.and_then(|t| self.temp_id(t));
         let rows = |v: &Option<Vec<Frozen>>| v.as_ref().map(|v| self.values(v));
         RecordState {
             table: *table,
@@ -552,7 +552,7 @@ impl Maker<'_> {
             version_entry: VersionEntry(version_entry.as_ref().map(|e| self.version_entry(e))),
             own_read: OwnRead(own_read.as_ref().map(|m| self.own_read(m, temp_id.as_ref()))),
             probed_source: ProbedSource(probed_source.0, probed_source.1),
-            globals: globals.map_or_else(TableGlobals::default, |g| self.globals(g).share()),
+            globals: globals.map_or_else(TableGlobals::default, |g| self.globals(g)),
             unpinned_buffer: *unpinned_buffer,
             view_assumption: *view_assumption,
             run_page_link: None,

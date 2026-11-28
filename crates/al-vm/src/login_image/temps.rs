@@ -105,13 +105,13 @@ impl Maker<'_> {
             return;
         };
         let key = self.values(key);
-        match (inserter, holder) {
-            (Some(r), _) => token.note_empty_blob_insert(&self.record_handle(*r), key.iter()),
-            (None, Some(h)) => {
-                token.note_empty_blob_insert(&self.record_handle(h), key.iter());
-                token.forget_empty_blob_inserter();
-            }
-            (None, None) => unreachable!("a temporary table is in the image only through a record of it"),
+        let Some(record) = inserter.or(holder).and_then(|r| self.record_handle(r)) else {
+            // A temporary table is in an image only through a record of it.
+            return self.broke("a temporary table no record names");
+        };
+        token.note_empty_blob_insert(&record, key.iter());
+        if inserter.is_none() {
+            token.forget_empty_blob_inserter();
         }
     }
 
@@ -119,8 +119,10 @@ impl Maker<'_> {
     /// original noted them.
     pub(crate) fn note_copy_targets(&self, image: &TempImage, token: &al_builtins::value::TempId) {
         for &(target, source) in &image.copy_targets {
-            let source = source.map(|s| self.record_handle(s));
-            token.note_copy_target_of(&self.record_handle(target), source.as_ref());
+            let source = source.and_then(|s| self.record_handle(s));
+            if let Some(target) = self.record_handle(target) {
+                token.note_copy_target_of(&target, source.as_ref());
+            }
         }
     }
 }

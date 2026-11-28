@@ -80,10 +80,10 @@ impl LoginRows {
         })
     }
 
-    /// Puts the rows on `store`, the thaw target's: each table the login changed is rebuilt from `store`'s own rows,
-    /// the tables it removed are gone and the emptied marks are the login's. `None`, with `store` unchanged, when the
-    /// rows do not read back or `store` holds no entry for a table the login changed row by row.
-    pub(super) fn put_on(&self, store: &mut MemStore) -> Option<()> {
+    /// `store`, the thaw target's, with the rows put on it: each table the login changed is rebuilt from `store`'s own
+    /// rows, the tables it removed are gone and the emptied marks are the login's. `None` when the rows do not read back
+    /// or `store` holds no entry for a table the login changed row by row or a table the login emptied.
+    pub(super) fn put_on(&self, store: &MemStore) -> Option<MemStore> {
         let emptied: BTreeSet<&Slot> = self.emptied.iter().collect();
         let mut tables = Vec::with_capacity(self.tables.len());
         let mut touched: BTreeSet<Slot> = self.gone.iter().cloned().collect();
@@ -100,8 +100,13 @@ impl LoginRows {
             touched.insert(slot);
         }
         tables.extend(marked_as(store, &self.emptied, &touched)?);
-        *store = std::mem::take(store).with_committed_tables(tables, &self.gone);
-        Some(())
+        Some(store.clone().with_committed_tables(tables, &self.gone))
+    }
+
+    /// Marks `slot` emptied in the image, whatever the login left: an image whose own rows are broken.
+    #[cfg(test)]
+    pub(super) fn plant_emptied(&mut self, slot: Slot) {
+        self.emptied.push(slot);
     }
 
     /// About how many bytes the rows hold (their encoded rows).
@@ -215,8 +220,7 @@ mod tests {
         store.insert(&cx("C"), &table(), row("D", 4, 1)).unwrap();
         store.commit();
         let rows = LoginRows::take(&store, &base, &[]).expect("plain rows");
-        let mut target = base.clone();
-        rows.put_on(&mut target).expect("puts");
+        let target = rows.put_on(&base).expect("puts");
         assert_eq!(target.count(&cx("C"), &table(), &[]).unwrap(), 4);
     }
 }

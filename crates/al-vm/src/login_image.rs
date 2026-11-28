@@ -106,6 +106,8 @@ pub enum NotThawed {
     /// The session's store does not take the rows the login wrote: it lacks a table the login changed row by row (a
     /// base of another shape than the image's).
     Rows,
+    /// The image's own data is broken (its arena): what the thaw found (`thaw::make`).
+    Image(&'static str),
 }
 
 impl NotThawed {
@@ -115,6 +117,7 @@ impl NotThawed {
             NotThawed::Engine => "an image of another engine".to_string(),
             NotThawed::Target(field) => format!("the target is not a new session: {field}"),
             NotThawed::Rows => "the target's store does not take the rows the login wrote".to_string(),
+            NotThawed::Image(what) => format!("the image's own data is broken: {what}"),
         }
     }
 }
@@ -343,12 +346,15 @@ impl Session {
         }
         // Every table the login changed row by row is one the start's base held; a target whose base has its shape (the
         // replay's gate compares them) holds each, and another target is refused here, before anything changes.
-        image.rows.put_on(&mut self.store).ok_or(NotThawed::Rows)?;
+        let store = image.rows.put_on(&self.store).ok_or(NotThawed::Rows)?;
+        // The graph is built before anything changes: an image whose own data is broken leaves `self` as it was.
+        let thawn = thaw::make(self, image, store.change_counter()).map_err(NotThawed::Image)?;
+        self.store = store;
         // The counters a baseline carries are plain fields (next_guid, autoinc, sequences, isolated storage, last_stamp,
         // the copies, the restamped rows), and `parts` gives the committed row version and the baseline origin.
         image.plain.give(self);
         image.parts.give(self);
-        thaw::thaw(self, image);
+        thawn.install(self);
         Ok(())
     }
 
