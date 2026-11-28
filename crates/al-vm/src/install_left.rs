@@ -455,7 +455,7 @@ impl Session {
 /// The first field of the transaction state, as `tx.<field>`, that does not hold what a new session holds
 /// ([`crate::state::TxState::fresh`]); `None` when each does. Not checked: what a Commit leaves for a later test to read
 /// (`phase`, `transaction_type`, `type_origin`, `lock_timeout`, `lock_timeout_duration`, `committed_row_version`,
-/// `commit_counter`, `write_counts`, `rolled_back`, `last_commit_wrote`), which the callers decide: no transaction is
+/// `commit_counter`, `write_counts`, `ended`, `rolled_back`, `last_commit_wrote`), which the callers decide: no transaction is
 /// open and no call left anything behind.
 pub(crate) fn tx_not_as_new(tx: &crate::state::TxState) -> Option<&'static str> {
     let crate::state::TxState {
@@ -472,6 +472,7 @@ pub(crate) fn tx_not_as_new(tx: &crate::state::TxState) -> Option<&'static str> 
         committed_row_version: _,
         commit_counter: _,
         write_counts: _,
+        ended: _,
         rolled_back: _,
         rollback_unpinned,
         rollback_kind,
