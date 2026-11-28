@@ -511,9 +511,10 @@ impl Session {
     ///   `CalleeT(Item, Op)` from `CallerT` (:53-71) and `CalleeX(Item, Op)` from `CallerX` (:134-152), cells :163-303
     ///   (`before op: No.=A1 Net=60 Count=2 ... GetFilters=[] ... FilterGroup()=0` after a caller view of a FlowFilter
     ///   or a Normal-field filter) ([`Session::own_local_args`]), and with the other view facts corpus PR 1638
-    ///   (record/filters/ByValueOwnTableViewFacts.al, open) measures ([`Session::own_table_view_measured`]); the copy
-    ///   gets the default view. Rec, xRec, a global or a parameter as the argument, a call on another record, from a
-    ///   trigger or from another object, and the view facts no cell measures are not measured.
+    ///   (record/filters/ByValueOwnTableViewFacts.al, merged, not pinned yet) measures
+    ///   ([`Session::own_table_view_measured`]); the copy gets the default view. Rec, xRec, a global or a parameter as
+    ///   the argument, a call on another record, from a trigger or from another object, and the view facts no cell
+    ///   measures are not measured.
     fn measured_callee(&self, call: &ByValueCall, param: &RtType, source: &Rec, index: usize) -> Option<Evidence> {
         let objects = &self.engine.program.objects;
         let callee = &objects[call.callee];
@@ -556,21 +557,22 @@ impl Session {
     }
 
     /// Whether corpus PR 1578 (record/filters/ByValueOwnTableLocalCopy.al:163-303) and corpus PR 1638
-    /// (record/filters/ByValueOwnTableViewFacts.al, open) measure the view facts of `s`, a local record handed by value
-    /// from a procedure of its own table or table extension to a procedure of the same object (issue 8596). In every
-    /// cell the copy has the default view ([`primary_view`]: `Mark()=No FilterGroup()=0 CurrentKey=No. Ascending=Yes
-    /// MarkedOnly=No`, no filter in any group from -1 to 6, Net 60 without the caller's FlowFilters, Count 3), keeps
-    /// the caller's field values (`Amount=99` unsaved, :842; Net as the caller calculated it, :380), and the caller
-    /// keeps its own view. Measured, each fact in a table and a table extension cell: one filter on a Normal field or a
-    /// FlowFilter (PR 1578), two Normal-field filters (:800), two FlowFilters and CalcFields before the hand-off
-    /// (:380), a global callee (:422), a filter in group 2 (:464) or -1 (:506), the caller standing in group 2 (:548),
-    /// a declared secondary key with and without a filter (:590, :632), Ascending false (:674), marks with MarkedOnly
-    /// on (:716), a key the table does not define (:926), and all of these together with a filter in group 4 (:884).
-    /// Not measured, so the call keeps main's answer: a filter in group 1, 3, 5, 6 or 7 (no cell's caller sets one
-    /// there; the copy reading every group empty says nothing of them) or on a FlowField, the caller in another group,
-    /// a field sorted descending by SetAscending, marks with MarkedOnly off, SetAutoCalcFields or ReadIsolation
-    /// ([`plain_state`]), and a SetLoadFields, which the cells :758 and :779 cannot tell apart (the caller read the row
-    /// fully first, and a plain caller's AreFieldsLoaded depends on that, codeunit 73794).
+    /// (record/filters/ByValueOwnTableViewFacts.al, merged, not pinned yet) measure the view facts of `s`, a local
+    /// record handed by value from a procedure of its own table or table extension to a procedure of the same object
+    /// (issue 8596). In every cell the copy has the default view ([`primary_view`]: `Mark()=No FilterGroup()=0
+    /// CurrentKey=No. Ascending=Yes MarkedOnly=No`, no filter in any group from -1 to 6, Net 60 without the caller's
+    /// FlowFilters, Count 3), keeps the caller's field values (`Amount=99` unsaved, :842; Net as the caller calculated
+    /// it, :380), and the caller keeps its own view. Measured, each fact in a table and a table extension cell: one
+    /// filter on a Normal field or a FlowFilter (PR 1578), two Normal-field filters (:800), two FlowFilters and
+    /// CalcFields before the hand-off (:380), a global callee (:422), a filter in group 2 (:464) or -1 (:506), the
+    /// caller standing in group 2 (:548), a declared secondary key with and without a filter (:590, :632), Ascending
+    /// false (:674), marks with MarkedOnly on (:716), a key the table does not define (:926), and all of these together
+    /// with a filter in group 4 (:884). Not measured, so the call keeps main's answer: a filter in group 1, 3, 5, 6 or
+    /// 7 (no cell's caller sets one there; the copy reading every group empty says nothing of them) or on a FlowField,
+    /// the caller in another group, a field sorted descending by SetAscending, marks with MarkedOnly off,
+    /// SetAutoCalcFields or ReadIsolation ([`plain_state`]), and a SetLoadFields, which the cells :758 and :779 cannot
+    /// tell apart (the caller read the row fully first, and a plain caller's AreFieldsLoaded depends on that, codeunit
+    /// 73794).
     fn own_table_view_measured(&self, s: &RecordState) -> bool {
         let fields = self.engine.program.objects[s.table as usize]
             .table
