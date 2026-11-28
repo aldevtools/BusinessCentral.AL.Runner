@@ -3,7 +3,7 @@
 //! starts from what another codeunit left keeps, and what a test of a held session may not read (`held_reads`). The
 //! neighbor apps `tests/neighbors/disabled-login-writes*` run the same shapes end to end.
 use super::held_login::{
-    HeldOpened, carried_company_open, first_login, held_reads, login_held_unmeasured, login_rows_as_held,
+    HeldOpened, carried_company_open, first_login, held_reads, login_rows_as_held, runs_own_login,
 };
 use super::*;
 use crate::install::CompanyOpenWrites;
@@ -71,16 +71,14 @@ fn refusals(l: &al_sema::lower::Lowered, engine: &al_vm::Engine, wrote: &Company
         .collect()
 }
 
-// Runner 130450 is the one start after the held login whose login rows are not measured (corpus PR 1644,
-// LgnHeldLoginRunners.al:608, :656, :697 measure each session's own rows only); every hub isolation thaws the held login
-// (:452, :491, :528).
+// Runner 130450 is the one start after the held login that runs a login of its own (corpus PR 1644,
+// LgnHeldLoginRunners.al:608, :656, :697); every hub isolation thaws the held login (:452, :491, :528).
 #[test]
-fn only_runner_130450_codeunits_after_the_held_login_are_not_measured() {
-    let runner = login_held_unmeasured(false, TestIsolation::Codeunit).expect("runner 130450");
-    assert!(runner.contains("login rows of other sessions"), "{runner}");
-    assert_eq!(login_held_unmeasured(true, TestIsolation::Function), None);
-    assert_eq!(login_held_unmeasured(true, TestIsolation::Disabled), None);
-    assert_eq!(login_held_unmeasured(true, TestIsolation::Codeunit), None);
+fn only_runner_130450_codeunits_after_the_held_login_run_their_own_login() {
+    assert!(runs_own_login(false, TestIsolation::Codeunit));
+    assert!(!runs_own_login(true, TestIsolation::Function));
+    assert!(!runs_own_login(true, TestIsolation::Disabled));
+    assert!(!runs_own_login(true, TestIsolation::Codeunit));
 }
 
 // A Disabled codeunit whose login wrote and whose session holds no login (it starts from what another codeunit left)
@@ -114,23 +112,17 @@ fn only_a_session_from_the_install_baseline_starts_the_runs_login() {
     assert!(!first_login(true, TestIsolation::Disabled, &later));
 }
 
-// Under runner 130450 a test that reads the table the login wrote is not run; the test that reads another table runs,
-// as on main, and so does the reader of the SingleInstance codeunit: the session's own login filled it (corpus PR 1644,
-// LgnHeldLoginRunners.al:608).
+// Under runner 130450 nothing is refused: the session runs its own login on the rows the hub codeunits committed and
+// sees those rows and its own login row (corpus PR 1644, LgnHeldLoginRunners.al:608, :656, :697), and its own login
+// filled the SingleInstance codeunit (:608).
 #[test]
-fn a_runner_130450_codeunit_after_the_held_login_refuses_only_the_login_table_readers() {
+fn a_runner_130450_codeunit_after_the_held_login_refuses_nothing() {
     let (l, engine) = super::tests::engine_for(SRC);
-    let why = login_held_unmeasured(false, TestIsolation::Codeunit);
     let mut wrote = CompanyOpenWrites::default();
-    wrote.held = held_reads(&held(&l), why, false, true, &wrote);
+    wrote.held = held_reads(&held(&l), true, false, false);
+    assert!(wrote.held.is_none());
     let r = refusals(&l, &engine, &wrote);
-    assert!(
-        r[0].as_ref()
-            .is_some_and(|w| w.ends_with("this test can read table Login Row")),
-        "{r:?}"
-    );
-    assert_eq!((&r[1], &r[2]), (&None, &None));
-    assert!(wrote.watched().contains(&(object(&l, "Login Row") as u32)));
+    assert_eq!((&r[0], &r[1], &r[2]), (&None, &None, &None), "{r:?}");
 }
 
 // On the hub under Codeunit isolation without the held image only the reader of the SingleInstance codeunit is not
@@ -139,11 +131,11 @@ fn a_runner_130450_codeunit_after_the_held_login_refuses_only_the_login_table_re
 fn a_hub_codeunit_without_the_held_image_refuses_only_the_single_instance_reader() {
     let (l, engine) = super::tests::engine_for(SRC);
     let mut wrote = CompanyOpenWrites::default();
-    wrote.held = held_reads(&held(&l), None, false, true, &wrote);
+    wrote.held = held_reads(&held(&l), false, false, true);
     let r = refusals(&l, &engine, &wrote);
     assert_eq!((&r[0], &r[1]), (&None, &None));
     assert!(r[2].as_ref().is_some_and(|w| w.contains("could not be kept")), "{r:?}");
-    assert!(held_reads(&held(&l), None, true, true, &wrote).is_none());
+    assert!(held_reads(&held(&l), false, true, true).is_none());
 }
 
 // On the hub a Codeunit or Function codeunit whose login rows are as the held login left them is measured
@@ -170,9 +162,9 @@ fn a_hub_codeunit_after_a_disabled_codeunit_changed_the_login_rows_refuses_their
     assert!(!login_rows_as_held(&held, TestIsolation::Function, &mut deleted));
     assert!(login_rows_as_held(&held, TestIsolation::Disabled, &mut deleted));
     let mut wrote = CompanyOpenWrites::default();
-    assert!(held_reads(&held, None, true, true, &wrote).is_none());
+    assert!(held_reads(&held, false, true, true).is_none());
     for thawed in [true, false] {
-        wrote.held = held_reads(&held, None, thawed, false, &wrote);
+        wrote.held = held_reads(&held, false, thawed, false);
         let r = refusals(&l, &engine, &wrote);
         let login_row = r[0].as_deref().unwrap_or_default();
         assert!(

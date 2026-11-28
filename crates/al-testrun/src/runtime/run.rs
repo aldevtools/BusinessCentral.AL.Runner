@@ -4,8 +4,8 @@
 //! `run_codeunit_core`.
 use super::al_runner::run_unit;
 use super::held_login::{
-    self, carried_company_open, first_login, held_reads, later_runner_marks, login_held_unmeasured, login_once_on_hub,
-    login_rows_as_held, thaw_held,
+    self, carried_company_open, first_login, held_reads, later_runner_marks, login_once_on_hub, login_rows_as_held,
+    runs_own_login, thaw_held,
 };
 use super::written::{
     self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,
@@ -221,22 +221,20 @@ fn open_company(
     if steps.execute {
         return Ok(Default::default());
     }
-    // The run's one login a Disabled codeunit on the hub held (`login_once_on_hub`): a later codeunit the probe measured
-    // takes its session state in place of a second login; any other runs its own and reads none of what it wrote.
+    // The run's one login a Disabled codeunit on the hub held (`login_once_on_hub`): a later hub codeunit takes its
+    // session state in place of a second login; one runner 130450 runs runs its own login on the held rows.
     let held = session.login_held();
-    let unmeasured = held
-        .as_ref()
-        .and_then(|_| login_held_unmeasured(scratch.hub_leg, isolation));
+    let own_login = held.is_some() && runs_own_login(scratch.hub_leg, isolation);
     let thawed = held
         .as_deref()
-        .filter(|_| unmeasured.is_none())
+        .filter(|_| !own_login)
         .and_then(|h| thaw_held(session, h));
     let thaws = thawed.is_some();
     let (mut wrote, hits) = match thawed {
         Some(opened) => opened,
         None => {
             // On the hub BC runs no second login (LgnDisabledLoginWrites.al:471, :546): what this one writes is undone.
-            let before = (held.is_some() && unmeasured.is_none()).then(|| session.capture_baseline());
+            let before = (held.is_some() && !own_login).then(|| session.capture_baseline());
             // The session before the run's first login, for the image a Disabled codeunit holds (`first_login`).
             let base = first_login(scratch.hub, isolation, session).then(|| session.login_base());
             let (wrote, mut hits) = run_login(start, session, skipped_installs, perturb, scratch, after_refusal)?;
@@ -254,10 +252,10 @@ fn open_company(
     };
     let rows_as_held = held
         .as_deref()
-        .is_some_and(|h| unmeasured.is_none() && login_rows_as_held(h, isolation, session));
+        .is_some_and(|h| !own_login && login_rows_as_held(h, isolation, session));
     wrote.held = held
         .as_deref()
-        .and_then(|h| held_reads(h, unmeasured, thaws, rows_as_held, &wrote));
+        .and_then(|h| held_reads(h, own_login, thaws, rows_as_held));
     let hits = later_runner_marks(held.is_some(), scratch.hub_leg, isolation, hits);
     // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
     // a `WorkDate(d)` of the test still wins.
