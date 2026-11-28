@@ -4,7 +4,7 @@ ZipBlobWrites => {
     tests: "None of Microsoft's tests; al-runner issues 9246, 9291 and 7947.",
     probe: "Corpus pull request 1633 (merged, not pinned yet), tests/al-language-onprem-dotnet/dotnet/zip-blob-writes/ZipBlobUpdateFreshOutStream.al:49-223 (part 1), ZipBlobUpdateBlobChanged.al:98, :152 (part 2), ZipBlobDotNetOverwrite.al:25-96 (part 3); the same values on every BC version the corpus runs.",
     awaiting: Awaiting {
-        issues: &[9246, 9291, 7947],
+        issues: &[9246, 9291, 7947, 9373],
         files: &[
             "tests/al-language-onprem-dotnet/dotnet/zip-blob-writes/ZipBlobUpdateFreshOutStream.al",
             "tests/al-language-onprem-dotnet/dotnet/zip-blob-writes/ZipBlobUpdateBlobChanged.al",
