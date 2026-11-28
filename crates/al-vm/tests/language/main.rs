@@ -114,6 +114,7 @@ mod fieldref_temporal_into_number;
 mod fieldref_testfield_number_on_text;
 mod fieldref_text_into_integer;
 mod fieldref_unassigned_filters;
+mod fieldref_value_exit_into_text;
 mod filter_unpinned_neighbors;
 mod filtergroup_assign;
 mod find_filtered_miss;
