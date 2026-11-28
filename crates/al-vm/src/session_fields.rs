@@ -249,6 +249,8 @@ macro_rules! session_fields {
                 shadow_lower_bound => |s: &Session| !s.shadow_lower_bound,
                 report_refusal_after_denial => |s: &Session| s.report_refusal_after_denial.is_none(),
                 scratch_messages => |s: &Session| s.scratch_messages.is_none(),
+                // Noted only under a `[Test]` method (`temp_blob_impl_field.rs`); the image carries none.
+                test_local_blob_fields => |s: &Session| s.test_local_blob_fields.as_new(),
                 capture => |s: &Session| s.capture.is_none(),
                 form => |s: &Session| s.form == crate::Form::Plain,
                 debug => |s: &Session| s.debug.is_none(),
