@@ -1,1 +1,16 @@
 # key	entry	version
+# P1_ActiveSessionRow, P1_HubSessionActive and P2 are not measured (corpus PR 1644 cells asked: runner issue 9393); main does not run them either.
+RS A Disabled::A_NoteSession	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	28
+RS P1 Runner::P1_OwnSessionRows	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:656, :669, :672)	28
+RS P1 Runner::P1_OtherSessionThanHub	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:656, :664)	28
+RS P1 Runner::P1_ActiveSessionRow	REFUSED a read of the Session or Active Session table in a session runner 130450 made for a login of its own after the held login	28
+RS P1 Runner::P1_HubSessionActive	REFUSED Session.IsSessionActive of the hub session or an earlier runner 130450 session	28
+RS P2 Runner::P2_OwnSessionRows	REFUSED Company Triggers OnCompanyOpen(Completed) subscriber codeunit "System Initialization Impl.".InitCompany before the first test: SessionId() in a later codeunit that runner 130450 runs after the held login	28
+RS P2 Runner::P2_OtherSessionThanP1	REFUSED Company Triggers OnCompanyOpen(Completed) subscriber codeunit "System Initialization Impl.".InitCompany before the first test: SessionId() in a later codeunit that runner 130450 runs after the held login	28
+RS A Disabled::A_NoteSession	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	29
+RS P1 Runner::P1_OwnSessionRows	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:656, :669, :672)	29
+RS P1 Runner::P1_OtherSessionThanHub	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:656, :664)	29
+RS P1 Runner::P1_ActiveSessionRow	REFUSED a read of the Session or Active Session table in a session runner 130450 made for a login of its own after the held login	29
+RS P1 Runner::P1_HubSessionActive	REFUSED Session.IsSessionActive of the hub session or an earlier runner 130450 session	29
+RS P2 Runner::P2_OwnSessionRows	REFUSED Company Triggers OnCompanyOpen(Completed) subscriber codeunit "System Initialization Impl.".InitCompany before the first test: SessionId() in a later codeunit that runner 130450 runs after the held login	29
+RS P2 Runner::P2_OtherSessionThanP1	REFUSED Company Triggers OnCompanyOpen(Completed) subscriber codeunit "System Initialization Impl.".InitCompany before the first test: SessionId() in a later codeunit that runner 130450 runs after the held login	29
