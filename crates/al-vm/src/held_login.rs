@@ -32,6 +32,11 @@ impl Session {
         self.login_held = Some(Arc::new(HeldLogin { image, singles, opened }));
     }
 
+    /// The session's data is what a test codeunit left, not the suite's install baseline (`Baseline::codeunit_left`).
+    pub fn starts_from_what_a_codeunit_left(&self) -> bool {
+        self.codeunit_left
+    }
+
     /// See [`Session::hold_login`].
     pub fn login_held(&self) -> Option<Arc<HeldLogin>> {
         self.login_held.clone()
@@ -65,5 +70,26 @@ impl std::fmt::Debug for HeldLogin {
             .field("imaged", &self.image.as_ref().map(|_| ()))
             .field("singles", &self.singles)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Engine, Session};
+
+    // The marks the login left on number sequences stay after its writes are undone; the restore alone drops them.
+    #[test]
+    fn undoing_the_login_writes_keeps_the_unmeasured_marks() {
+        let l = al_testkit::compile("codeunit 50100 C { }");
+        let mut s = Session::new(Engine::new(l.program.clone(), al_testkit::blocked(&l)));
+        let before = s.capture_baseline();
+        s.refuse_unmeasured_sequence(&("CRONUS".into(), "Seq".into()), "why".into());
+        s.undo_login_writes(&before);
+        assert!(!s.unmeasured.as_new());
+        s.restore_baseline(&before);
+        assert!(
+            s.unmeasured.as_new(),
+            "a plain restore drops the marks, so the undo must keep them"
+        );
     }
 }

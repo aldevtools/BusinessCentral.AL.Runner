@@ -1,1 +1,3 @@
 # key	entry	version
+R1 A Disabled::A_LoginRowThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:343)	28
+R1 A Disabled::A_LoginRowThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:343)	29

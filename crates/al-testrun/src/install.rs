@@ -1289,7 +1289,10 @@ impl CompanyOpenWrites {
             return Some(self.reason(&format!("this test read or wrote table {name} while it ran")));
         }
         if let Some(held) = self.held.as_ref().filter(|held| held.tables.contains(&t)) {
-            return Some(format!("{}: this test read or wrote table {name} while it ran", held.why));
+            return Some(format!(
+                "{}: this test read or wrote table {name} while it ran",
+                held.why
+            ));
         }
         let Some((_, why)) = self.watched_login.as_ref().filter(|(tables, _)| tables.contains(&t)) else {
             return self.partner_login.touched(t, lowered);
@@ -1315,17 +1318,28 @@ impl HeldReads {
     fn refuses(&self, facts: &crate::runtime::written::ReachFacts, lowered: &Lowered) -> Option<String> {
         let single = match &facts.unknown {
             Some(_) => self.singles.first(),
-            None => facts.globals_read.iter().map(|(o, _)| o).find(|o| self.singles.contains(o)),
+            None => facts
+                .globals_read
+                .iter()
+                .map(|(o, _)| o)
+                .find(|o| self.singles.contains(o)),
         };
         if let Some(o) = single {
             let name = CompanyOpenWrites::table_name(lowered, *o as u32);
-            return Some(format!("{}: this test can read the SingleInstance codeunit {name}", self.why));
+            return Some(format!(
+                "{}: this test can read the SingleInstance codeunit {name}",
+                self.why
+            ));
         }
         if facts.unknown.is_some() {
             return None;
         }
         let t = self.tables.intersection(&facts.touched).next()?;
-        Some(format!("{}: this test can read table {}", self.why, CompanyOpenWrites::table_name(lowered, *t)))
+        Some(format!(
+            "{}: this test can read table {}",
+            self.why,
+            CompanyOpenWrites::table_name(lowered, *t)
+        ))
     }
 }
 

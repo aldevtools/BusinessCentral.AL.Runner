@@ -1,1 +1,9 @@
 # key	entry	version
+R5 A Disabled::A_MemoThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:343)	28
+R5 C Codeunit After Disabled::C_MemoOfTheOneLogin	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:553, :474; SingleInstance state lasts for the session: TestCuP7BReader.al:24-37; cell 10 measures it)	28
+R5 F Memo 130450::F_ReadsTheMemo	REFUSED an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's one login wrote, and whether BC runs a login for this codeunit	28
+R5 G Login Rows 130450::G_ReadsTheLoginRows	REFUSED an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's one login wrote, and whether BC runs a login for this codeunit	28
+R5 A Disabled::A_MemoThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:343)	29
+R5 C Codeunit After Disabled::C_MemoOfTheOneLogin	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:553, :474; SingleInstance state lasts for the session: TestCuP7BReader.al:24-37; cell 10 measures it)	29
+R5 F Memo 130450::F_ReadsTheMemo	REFUSED an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's one login wrote, and whether BC runs a login for this codeunit	29
+R5 G Login Rows 130450::G_ReadsTheLoginRows	REFUSED an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's one login wrote, and whether BC runs a login for this codeunit	29

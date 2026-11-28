@@ -1348,6 +1348,8 @@ mod group1_sessions_tests;
 mod grow;
 mod handlers;
 #[cfg(test)]
+mod held_login_tests;
+#[cfg(test)]
 mod hub_sequence_tests;
 mod install_once;
 #[cfg(test)]

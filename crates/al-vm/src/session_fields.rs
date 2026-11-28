@@ -169,6 +169,8 @@ macro_rules! session_fields {
                 // The run's one login a Disabled codeunit on the hub carried (`held_login.rs`): set by al-testrun
                 // `open_company` and carried by the baselines; an image keeps the target's own.
                 login_held,
+                // The session's data is what a test codeunit left (`Baseline::codeunit_left`): set by the baseline.
+                codeunit_left,
             }
             counter {
                 // Read only as a difference around one call, never by AL code: `page_run_close.rs`,

@@ -220,8 +220,13 @@ fn open_company(
     // The run's one login a Disabled codeunit on the hub held (`login_once_on_hub`): a later codeunit the probe measured
     // takes its session state in place of a second login; any other runs its own and reads none of what it wrote.
     let held = session.login_held();
-    let unmeasured = held.as_ref().and_then(|_| login_held_unmeasured(scratch.hub_leg, isolation));
-    let thawed = held.as_deref().filter(|_| unmeasured.is_none()).and_then(|h| thaw_held(session, h));
+    let unmeasured = held
+        .as_ref()
+        .and_then(|_| login_held_unmeasured(scratch.hub_leg, isolation));
+    let thawed = held
+        .as_deref()
+        .filter(|_| unmeasured.is_none())
+        .and_then(|h| thaw_held(session, h));
     let thaws = thawed.is_some();
     let (mut wrote, hits) = match thawed {
         Some(opened) => opened,
@@ -229,7 +234,7 @@ fn open_company(
             // On the hub BC runs no second login (LgnDisabledLoginWrites.al:474, :553): what this one writes is undone.
             let before = (held.is_some() && unmeasured.is_none()).then(|| session.capture_baseline());
             // The session before the run's first login, for the image a Disabled codeunit holds (`first_login`).
-            let base = first_login(scratch.hub, isolation, &steps.installs, held.is_some()).then(|| session.login_base());
+            let base = first_login(scratch.hub, isolation, session).then(|| session.login_base());
             let (wrote, mut hits) = run_login(start, session, skipped_installs, perturb, scratch, after_refusal)?;
             if let Some(before) = before {
                 session.undo_login_writes(&before);
@@ -662,12 +667,18 @@ fn run_codeunit_inner(
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
     // meet the ones carried over is not pinned, except for the run's one login on the hub (`login_once_on_hub`).
     let carries = isolation == TestIsolation::Disabled && !execute;
-    let company_open_marks =
-        match carried_company_open(session.login_held().is_some(), scratch.hub, isolation, execute, carries, &company_open) {
-            Ok(true) => company_open_marks.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce),
-            Ok(false) => company_open_marks,
-            Err(why) => return all(Outcome::NotRun(why.into())),
-        };
+    let company_open_marks = match carried_company_open(
+        session.login_held().is_some(),
+        scratch.hub,
+        isolation,
+        execute,
+        carries,
+        &company_open,
+    ) {
+        Ok(true) => company_open_marks.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce),
+        Ok(false) => company_open_marks,
+        Err(why) => return all(Outcome::NotRun(why.into())),
+    };
     let changes_from = session.store_mut().change_counter();
     let row_versions_from = session.row_versions_handed_out();
     let carried_from = carries.then(|| session.capture_baseline());
@@ -1591,7 +1602,7 @@ fn not_run_after_panic(
 /// dependency app's login code raised and wrote (`CompanyOpenWrites::login`), with no Company Triggers subscriber of the
 /// apps under test that wrote (`who`): the hub runs every codeunit in one session and the login once, and what the login
 /// wrote is outside every codeunit's isolation, so what the codeunit leaves is where the later codeunits start, the login
-/// rows as it left them (assumption `hub-disabled-login-once`, corpus PR PENDING: probe-disabled-isolation-login-writes,
+/// rows as it left them (assumption `hub-disabled-login-once`, corpus PR 1642: probe-disabled-isolation-login-writes,
 /// LgnDisabledLoginWrites.al:343, :474, :553, :623, :649).
 fn login_once_on_hub(
     hub: bool,
@@ -1606,11 +1617,14 @@ fn login_once_on_hub(
 }
 
 /// The session of a codeunit that `login_once_on_hub` would hold starts the run's login (LgnDisabledLoginWrites.al:343:
-/// one session, one login before the first codeunit): it starts from the suite's install baseline, or from data that
-/// already holds that login (`held`, whose first image stays). A session that starts from what another codeunit left
-/// keeps main's refusal (`carried_company_open`).
-fn first_login(hub: bool, isolation: TestIsolation, installs: &super::install_once::FromBaseline, held: bool) -> bool {
-    hub && isolation == TestIsolation::Disabled && !held && matches!(installs, super::install_once::FromBaseline::Installed(_))
+/// one session, one login before the first codeunit): its data is the suite's install baseline, not what a test codeunit
+/// left (`Session::starts_from_what_a_codeunit_left`), and holds no login yet. A session that starts from data that
+/// holds the login keeps it (`Session::hold_login`); one that starts from what another codeunit left keeps main's
+/// refusal (`carried_company_open`).
+pub(super) fn first_login(hub: bool, isolation: TestIsolation, session: &Session) -> bool {
+    hub && isolation == TestIsolation::Disabled
+        && session.login_held().is_none()
+        && !session.starts_from_what_a_codeunit_left()
 }
 
 /// A session that starts from data holding the run's one login takes that login's session state from its image in place
@@ -1621,9 +1635,14 @@ fn thaw_held(
     session: &mut Session,
     held: &al_vm::HeldLogin,
 ) -> Option<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits)> {
-    let (wrote, hits) = held.opened.downcast_ref::<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits)>()?;
+    let (wrote, hits) = held
+        .opened
+        .downcast_ref::<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits)>()?;
     session.thaw_held_login().ok()?;
-    Some((wrote.clone(), hits.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce)))
+    Some((
+        wrote.clone(),
+        hits.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce),
+    ))
 }
 
 /// What a test of a session that starts from the run's one login (`held`) may not read: under runner 130450 or Function
@@ -1631,7 +1650,7 @@ fn thaw_held(
 /// SingleInstance codeunits the held login left; on the hub under Disabled or Codeunit isolation without the held image
 /// (`thawed` false), those SingleInstance codeunits, whose state this session's own login set again. `None`: the image
 /// was thawed.
-fn held_reads(
+pub(super) fn held_reads(
     held: &al_vm::HeldLogin,
     unmeasured: Option<&'static str>,
     thawed: bool,
@@ -1656,7 +1675,10 @@ fn held_reads(
         out
     };
     let mut tables = written(wrote);
-    if let Some((first, _)) = held.opened.downcast_ref::<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits)>() {
+    if let Some((first, _)) = held
+        .opened
+        .downcast_ref::<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits)>()
+    {
         tables.extend(written(first));
     }
     Some(crate::install::HeldReads { tables, singles, why })
@@ -1666,7 +1688,7 @@ fn held_reads(
 /// run's one login on the hub is held (`login_once_on_hub`, `open_company`), `Ok(false)` when nothing is carried or the
 /// session opened without writes, `Err` for the shapes not pinned: among them a session that starts from what another
 /// codeunit left (`first_login`).
-fn carried_company_open(
+pub(super) fn carried_company_open(
     held: bool,
     hub: bool,
     isolation: TestIsolation,
@@ -1690,7 +1712,7 @@ fn carried_company_open(
 /// (`login_once_on_hub`) may not read what that login wrote (`held_reads`): the probe measured later codeunits on the hub
 /// (`Scratch::hub_leg`) under Disabled and Codeunit isolation only (assumption `hub-disabled-login-once`,
 /// LgnDisabledLoginWrites.al:474, :553). `None`: one of those.
-fn login_held_unmeasured(hub_leg: bool, isolation: TestIsolation) -> Option<&'static str> {
+pub(super) fn login_held_unmeasured(hub_leg: bool, isolation: TestIsolation) -> Option<&'static str> {
     match (hub_leg, isolation) {
         (true, TestIsolation::Disabled | TestIsolation::Codeunit) => None,
         (true, _) => Some(

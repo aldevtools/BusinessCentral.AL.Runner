@@ -1,1 +1,2 @@
 # key	entry	version
+# Same on both binaries: Z carries, so A does not start the run's login (run.rs first_login) and keeps main's refusal.
