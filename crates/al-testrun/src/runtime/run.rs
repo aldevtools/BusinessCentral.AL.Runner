@@ -3,6 +3,10 @@
 //! Entry points: `run_codeunit`, `run_codeunit_isolated`, `run_codeunit_observed`,
 //! `run_codeunit_core`.
 use super::al_runner::run_unit;
+use super::held_login::{
+    self, carried_company_open, first_login, held_reads, in_own_session, later_own_reads, later_runner_marks,
+    login_once_on_hub, login_rows_as_held, own_session_id, thaw_held,
+};
 use super::written::{
     self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,
 };
@@ -213,11 +217,76 @@ fn open_company(
     scratch: &Scratch,
     after_refusal: bool,
 ) -> Result<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits), crate::install::NotOpened> {
-    let steps = &start.steps;
-    let (lowered, isolation, observed, moved) = (steps.lowered, steps.isolation, steps.observed, steps.moved_in);
+    let (steps, isolation) = (&start.steps, start.steps.isolation);
     if steps.execute {
         return Ok(Default::default());
     }
+    // The run's one login a Disabled codeunit on the hub held (`login_once_on_hub`): a later hub codeunit takes its
+    // session state in place of a second login; one runner 130450 runs runs its own login on the held rows, in a session
+    // of its own (`own_session_id`, set when the session was made).
+    let held = session.login_held();
+    let own_login = steps.own_session.is_some();
+    let thawed = held
+        .as_deref()
+        .filter(|_| !own_login)
+        .and_then(|h| thaw_held(session, h));
+    let thaws = thawed.is_some();
+    let (mut wrote, hits) = match thawed {
+        Some(opened) => opened,
+        None => {
+            // On the hub BC runs no second login (LgnDisabledLoginWrites.al:471, :546): what this one writes is undone.
+            let before = (held.is_some() && !own_login).then(|| session.capture_baseline());
+            // The session before the run's first login, for the image a Disabled codeunit holds (`first_login`).
+            let base = first_login(scratch.hub, isolation, session).then(|| session.login_base());
+            let (wrote, mut hits) = run_login(start, session, skipped_installs, perturb, scratch, after_refusal)?;
+            if let Some(before) = before {
+                session.undo_login_writes(&before);
+                hits = hits.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce);
+            }
+            if let Some(base) = base.filter(|_| login_once_on_hub(scratch.hub, isolation, false, &wrote)) {
+                let image = session.login_image(&base).map_err(|not| not.reason());
+                let opened = held_login::HeldOpened::of(session, wrote.clone(), hits);
+                session.hold_login(image, Box::new(opened));
+            }
+            (wrote, hits)
+        }
+    };
+    let rows_as_held = held
+        .as_deref()
+        .is_some_and(|h| !own_login && login_rows_as_held(h, isolation, session));
+    wrote.held = held
+        .as_deref()
+        .and_then(|h| match steps.own_session.filter(al_vm::OwnLogin::after_another) {
+            Some(_) => Some(later_own_reads(
+                h,
+                &wrote,
+                scratch.leak.as_deref(),
+                session.own_id_read(),
+                session.single_instances(),
+            )),
+            None => held_reads(h, own_login, thaws, rows_as_held),
+        });
+    let hits = later_runner_marks(held.is_some(), scratch.hub_leg, isolation, hits);
+    // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
+    // a `WorkDate(d)` of the test still wins.
+    if let Some(shift) = perturb.work_date {
+        let day = session.work_date();
+        session.set_work_date(shift.apply_day(day));
+    }
+    Ok((wrote, hits))
+}
+
+/// The login of the test session (see [`open_company`]): replayed from a kept start, or run.
+fn run_login(
+    start: &Start,
+    session: &mut Session,
+    skipped_installs: &[al_vm::SkippedInstall],
+    perturb: &crate::stability::Perturb,
+    scratch: &Scratch,
+    after_refusal: bool,
+) -> Result<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits), crate::install::NotOpened> {
+    let steps = &start.steps;
+    let (lowered, isolation, observed, moved) = (steps.lowered, steps.isolation, steps.observed, steps.moved_in);
     let disabled = isolation == TestIsolation::Disabled;
     let engine = session.engine.clone();
     al_builtins::assumptions::clear_hits();
@@ -297,12 +366,6 @@ fn open_company(
     };
     #[cfg(test)]
     crate::login_start::opened(session, &wrote, hits);
-    // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
-    // a `WorkDate(d)` of the test still wins.
-    if let Some(shift) = perturb.work_date {
-        let day = session.work_date();
-        session.set_work_date(shift.apply_day(day));
-    }
     Ok((wrote, hits))
 }
 
@@ -515,25 +578,13 @@ fn run_codeunit_inner(
     let obj = &lowered.program.objects[object];
     let perturb = scratch.perturb.clone();
     let run_seed = scratch.run_seed;
-    let (mut session, moved) = new_session(engine, session_host(scratch), baseline, execute);
+    let host = session_host(scratch);
+    let held = baseline.and_then(|b| b.login_held.as_deref());
+    let own_session = own_session_id(held, scratch.hub_leg, isolation, execute, host.identity.session_id());
+    let (mut session, moved) = new_session(engine, host, own_session, baseline, execute);
     set_up_session(&mut session, scratch, observe.is_some());
     let covering = crate::coverage::enabled();
-    let is_on_run = |r: usize| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun");
-    let tests: Vec<usize> = (0..obj.routines.len())
-        .filter(|&r| {
-            if execute {
-                return is_on_run(r);
-            }
-            obj.routines[r]
-                .attributes
-                .iter()
-                .any(|a| a.name.eq_ignore_ascii_case("Test"))
-                // `--run-selected-only`: a test that is not selected does not run (issue 5611).
-                && scratch.run_only.as_ref().is_none_or(|keep| {
-                    keep.contains(&(obj.id.unwrap_or(0), obj.routines[r].name.to_lowercase()))
-                })
-        })
-        .collect();
+    let tests = test_routines(obj, scratch, execute);
     // `order.methods` of a stability run (ADR-058): the test methods in another order.
     let tests: Vec<usize> = perturb
         .method_order
@@ -591,6 +642,7 @@ fn run_codeunit_inner(
             execute,
             observed: observe.is_some(),
             moved_in: moved.is_some(),
+            own_session,
         },
         baseline,
     };
@@ -621,15 +673,14 @@ fn run_codeunit_inner(
     }
     // What a Disabled codeunit leaves for the later codeunits is its writes from here on ([`CARRIED`]). With
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
-    // meet the ones carried over is not pinned.
+    // meet the ones carried over is not pinned, except for the run's one login on the hub (`login_once_on_hub`).
     let carries = isolation == TestIsolation::Disabled && !execute;
-    if carries && (company_open.who.is_some() || company_open.login.is_some()) {
-        return all(Outcome::NotRun(
-            "Disabled test isolation with a Company Triggers subscriber that writes when the test session opens \
-             the company: how its writes meet what an earlier codeunit left is not pinned"
-                .into(),
-        ));
-    }
+    let held = session.login_held().is_some();
+    let company_open_marks = match carried_company_open(held, scratch.hub, isolation, execute, carries, &company_open) {
+        Ok(true) => company_open_marks.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce),
+        Ok(false) => company_open_marks,
+        Err(why) => return all(Outcome::NotRun(why.into())),
+    };
     let changes_from = session.store_mut().change_counter();
     let row_versions_from = session.row_versions_handed_out();
     let carried_from = carries.then(|| session.capture_baseline());
@@ -642,7 +693,7 @@ fn run_codeunit_inner(
     // The reach facts of a routine of this codeunit and the handler functions it names, for the writes of the Company
     // Triggers subscribers.
     let company_open_refuses = |r: usize| -> Option<String> {
-        company_open.who.as_ref()?;
+        company_open.can_refuse().then_some(())?;
         let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
         company_open.refuses(&test_reach_facts(&engine.events, lowered, &index, object, r), lowered)
     };
@@ -686,7 +737,8 @@ fn run_codeunit_inner(
             }
             // What the partner dependency apps' login subscribers left is watched too (`partner_login.rs`).
             let partner = &company_open.partner_login;
-            let watched = with_skipped(leak.iter().chain(partner.watched()), &skipped_installs);
+            let id_tables = company_open.held.iter().flat_map(|held| held.id_tables.iter());
+            let watched = with_skipped(leak.iter().chain(partner.watched()).chain(id_tables), &skipped_installs);
             session.store_mut().watch(watched);
             // Al-runner issue 5698: the time limit (CPU time, the wall backstop and the Sleep budget) applies to OnRun too,
             // with a budget of its own: its time counts toward no test method. A limit is tooling (ADR-009), not something
@@ -712,6 +764,11 @@ fn run_codeunit_inner(
                 return Err(on_run_refused(format!("OnRun: {why}")));
             }
             (partner.after_on_run(&hits, lowered)).map_err(|why| on_run_refused(format!("OnRun: {why}")))?;
+            // An OnRun that combined the session's own id with what an earlier runner 130450 session wrote
+            // (`later_own_reads`): what it left is not known.
+            if let Some(why) = company_open.id_read_hit(&hits, lowered, session.own_id_read()) {
+                return Err(on_run_refused(format!("OnRun: {why}")));
+            }
             match ran {
                 // NavTestCodeunit.DoRunAsync commits after a declared OnRun
                 // (codeunits/TestTestCodeunitOnRun.al).
@@ -1198,14 +1255,15 @@ fn run_codeunit_inner(
             // A read or write of any table an earlier Disabled codeunit left rows in is noted in `leak_hits`, whatever watched
             // table the test touched first (review of al-runner issue 7717, round five, probe p13).
             let touched = session.store_mut().watch_hits();
-            let hit = company_open.watch_hit(&touched, began);
+            let id_read = session.own_id_read();
+            let hit = company_open.watch_hit(&touched, began, id_read);
             // A test that read or wrote a table install code that could not run touches, through a path its record
             // variables do not show (a RecordRef): not run, as the static check does for a record variable (al-runner
             // issue 8115, scenario s03b).
             let skipped_hit = began
                 .then(|| skipped_install_hit(&skipped_installs, &touched, Marked))
                 .flatten();
-            let outcome = match (hit.and_then(|t| company_open.touched(t, lowered)))
+            let outcome = match (hit.and_then(|t| company_open.touched(t, lowered, id_read)))
                 .or_else(|| skipped_hit.map(|(_, why)| why.clone()))
             {
                 Some(why) => Outcome::NotRun(why),
@@ -1639,10 +1697,32 @@ fn ends_of(unfinished: &[Unfinished], test_panicked: bool) -> super::Ends {
     }
 }
 
+/// The routines of `obj` a run calls: its OnRun trigger for a scratch run (`execute`), else its test methods, those
+/// `--run-selected-only` keeps (issue 5611).
+fn test_routines(obj: &al_ir::Object, scratch: &Scratch, execute: bool) -> Vec<usize> {
+    let is_on_run = |r: usize| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun");
+    (0..obj.routines.len())
+        .filter(|&r| {
+            if execute {
+                return is_on_run(r);
+            }
+            obj.routines[r]
+                .attributes
+                .iter()
+                .any(|a| a.name.eq_ignore_ascii_case("Test"))
+                && scratch
+                    .run_only
+                    .as_ref()
+                    .is_none_or(|keep| keep.contains(&(obj.id.unwrap_or(0), obj.routines[r].name.to_lowercase())))
+        })
+        .collect()
+}
+
 /// A codeunit's session from the install baseline; in the lane with the single instances of the codeunit before.
 fn new_session(
     engine: &Arc<Engine>,
     host: al_host::Host,
+    own: Option<al_vm::OwnLogin>,
     baseline: Option<&al_vm::Baseline>,
     execute: bool,
 ) -> (Session, Option<al_vm::single_track::MovedSingles>) {
@@ -1652,17 +1732,20 @@ fn new_session(
     } else {
         LANE_SINGLES.with(|c| c.borrow_mut().as_mut().and_then(Option::take))
     };
-    (session_from(engine, host, baseline, moved.as_ref()), moved)
+    (session_from(engine, host, own, baseline, moved.as_ref()), moved)
 }
 
-/// A session on `baseline`; the temporary tables of the single instances `moved` keep their ids.
+/// A session on `baseline`, in the session of its own `own` names (`in_own_session`); the temporary tables of the single
+/// instances `moved` keep their ids.
 fn session_from(
     engine: &Arc<Engine>,
     host: al_host::Host,
+    own: Option<al_vm::OwnLogin>,
     baseline: Option<&al_vm::Baseline>,
     moved: Option<&al_vm::single_track::MovedSingles>,
 ) -> Session {
-    let mut session = Session::with_host(engine.clone(), host);
+    let mut session = Session::with_host(engine.clone(), in_own_session(host, own));
+    session.set_own_login(own);
     if let Some(b) = baseline {
         session.restore_baseline(b);
     }
@@ -1715,6 +1798,9 @@ struct Steps<'a> {
     observed: bool,
     /// Single instances of an earlier codeunit moved in (`new_session`).
     moved_in: bool,
+    /// The session runs a login of its own on the run's one login, with this `SessionId()` (`own_session_id`); a new
+    /// session of the codeunit and the check's twin take the same.
+    own_session: Option<al_vm::OwnLogin>,
 }
 
 type Opened = (
@@ -1762,7 +1848,7 @@ impl Steps<'_> {
         baseline: Option<&al_vm::Baseline>,
         moved: Option<&al_vm::single_track::MovedSingles>,
     ) -> Session {
-        let mut session = session_from(self.engine, session_host(scratch), baseline, moved);
+        let mut session = session_from(self.engine, session_host(scratch), self.own_session, baseline, moved);
         set_up_session(&mut session, scratch, self.observed);
         session
     }

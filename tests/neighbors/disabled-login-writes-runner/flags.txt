@@ -1,0 +1,3 @@
+# The runner codeunit's TestIsolation = Disabled (main's behavior: refused when the login writes).
+--isolation
+disabled

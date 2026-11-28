@@ -14,7 +14,8 @@
 #      junit-trywrite-allowed.xml;
 #   5. write the new pin, run and artifact ids into oracle/oracle.toml and oracle/README.md;
 #   6. build release and update the not-passing lists (ADR-065): lines for the new oracle cases that do not pass
-#      (--list-new-cases HEAD), stale lines deleted (--prune-not-passing); al-test-cli exits 1 on a regression; then
+#      (--list-new-cases HEAD), stale lines deleted (--prune-not-passing); al-test-cli exits 1 on a regression and on a
+#      case the corpus rename map renamed that passed and does not pass now (ADR-065 amendment 1); then
 #      print the assumptions whose awaited corpus pin is now in the corpus (al-test-cli --awaiting-assumptions);
 #   7. write the new case counts into crates/al-test-cli/tests/corpus_harness.rs.
 # It never edits a JUnit file and never edits docs/probes-needed.md: it prints the corpus files added

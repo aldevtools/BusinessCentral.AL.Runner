@@ -95,6 +95,19 @@ pub enum PlatformPublisher {
 pub const RAISED_CAPTION_CLASS_EVENTS: [&str; 2] = ["OnResolveCaptionClass", "OnAfterCaptionClassResolve"];
 
 /// Whether `event` (any case) is one of [`RAISED_CAPTION_CLASS_EVENTS`].
+/// An argument handed to a procedure called on the current instance (`same_instance`), of the object that calls it
+/// (`same_object`), declared `local` (`callee_local`) and without attributes (so no TryFunction and no publisher). The
+/// lowering (`TextConstantSite::ArgumentOfSameObjectProcedure`) and the VM compiler (the measured place of a
+/// `FieldRef.Value()` argument, FvcTemporalIntoNumberPlaces.al `argument`) both ask this.
+pub fn is_same_object_procedure_argument(
+    same_object: bool,
+    same_instance: bool,
+    callee_local: bool,
+    callee_has_attributes: bool,
+) -> bool {
+    same_object && same_instance && callee_local && !callee_has_attributes
+}
+
 pub fn is_raised_caption_class_event(event: &str) -> bool {
     RAISED_CAPTION_CLASS_EVENTS
         .iter()
@@ -827,6 +840,10 @@ pub struct ReportColumn {
     pub places_table: Option<usize>,
     #[serde(default)]
     pub places_field: Option<usize>,
+    /// The column takes the `decimalformatter` of its field's AutoFormatType 2 (al-sema `reports::field_unit_amount_measured`,
+    /// assumption `report-column-field-unit-amount-format`).
+    #[serde(default)]
+    pub field_unit_amount_format: bool,
 }
 
 /// The syntax tree of a report column's source expression, as written: parentheses, operators, indexes and calls with an
@@ -1945,6 +1962,9 @@ pub struct Routine {
     /// The routine is declared `local`.
     #[serde(default)]
     pub local: bool,
+    /// The routine is declared `internal`.
+    #[serde(default)]
+    pub internal: bool,
 }
 
 fn no_pos() -> u32 {
@@ -2431,6 +2451,7 @@ mod tests {
             expr_tys: vec![],
             reads_var_max_len: false,
             local: false,
+            internal: false,
         }
     }
 
@@ -2548,6 +2569,7 @@ mod tests {
                     expr_tys: vec![],
                     reads_var_max_len: false,
                     local: false,
+                    internal: false,
                     body: vec![
                         Stmt::Pos(0),
                         Stmt::Assign(

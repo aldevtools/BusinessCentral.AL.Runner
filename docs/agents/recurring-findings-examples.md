@@ -352,6 +352,13 @@ when the other fields equal a new session's, in one predicate next to the snapsh
 new field does not compile until it is decided. Probe each with code that writes it and a test that reads it, head
 against main.
 
+Al-runner PR 9334 round 3: a runner-130450 codeunit after the held login ran a login of its own, so BC gives it a
+session of its own, but the session kept the hub session's `SessionId()`. Its login rows carried the hub's id and a
+test of it found "same session as the snapshot" (corpus PR 1644, LgnHeldLoginRunners.al:664, :705). A session of its
+own also has an identity of its own: list the readers of the host identity too (`SessionId()`, the Session and Active
+Session rows, the ids of started sessions, `IsSessionActive`, the login replay key). Probe each reader that sees
+another session (the hub session's id, an earlier such session's id) and refuse the ones no probe measures.
+
 ## 23. A workflow or action change made without the Rust tests that read workflow text (al-runner PR 8179, and earlier CI edits)
 
 Rust tests in `crates/al-test-cli/tests/suite/ci_*.rs` read the text of `.github/workflows/*.yml` and
