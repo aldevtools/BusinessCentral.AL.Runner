@@ -206,7 +206,7 @@ fn guarded_run_fail_probe_shapes() {
     );
     // The argument marks its table and one other database variable marks a second table, no re-mark: corpus
     // errors/ConsistentGuardedRunRecFail.al RecX_ModifyRec_MarkRec_MarkYByA_Fails (steps `modrec,frec,fya,err`); the Modify of
-    // the argument is not tracked, so this runs as that shape (follow-up).
+    // the argument is not tracked, so this runs as that shape, also through guarded-run-consistent-arg (al-runner issue 9157).
     assert_eq!(get("RecXArgMarksThenHeldFails").0, Outcome::Pass);
     let refused = |name: &str, text: &str| match get(name).0 {
         Outcome::NotRun(why) => assert!(why.contains(text), "{name}: {why}"),
