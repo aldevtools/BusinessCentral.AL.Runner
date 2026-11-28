@@ -20,7 +20,8 @@ pub struct Base {
     cfg: Option<OracleFile>,
 }
 
-fn git(root: &Path, args: &[&str]) -> Result<std::process::Output, String> {
+/// `git -C root args`.
+pub(crate) fn git(root: &Path, args: &[&str]) -> Result<std::process::Output, String> {
     Command::new("git")
         .arg("-C")
         .arg(root)

@@ -4,7 +4,9 @@
 //! whole bucket before anything is compiled (to choose what to compile for a test filter).
 //!
 //! Finds `Subtype = Test` codeunits and their `[Test]` procedure names in AL text, without a syntax
-//! tree.
+//! tree. `objects.rs`: every object a text declares, with its members (what a corpus citation names).
+
+pub mod objects;
 
 /// `(codeunit id, [Test] procedure names)` for every `Subtype = Test` codeunit in `src`
 /// (comments are ignored).
@@ -148,12 +150,8 @@ fn attribute_is(w: &str, name: &str) -> bool {
         .eq(name.chars())
 }
 
-/// Returns `(codeunit id, [Test] procedure names)` for every test codeunit in `src`.
-fn scan(original: &str) -> Vec<Scanned> {
-    let stripped = strip_comments(original);
-    let src = stripped.as_str();
-    debug_assert_eq!(src.len(), original.len());
-    // The words of the code with their byte offsets (the same in `original`).
+/// The words of comment-stripped code with their byte offsets (the same in the original text).
+fn words(src: &str) -> Vec<(usize, &str)> {
     let mut spans: Vec<(usize, &str)> = Vec::new();
     let mut start = None;
     for (i, c) in src.char_indices() {
@@ -179,6 +177,15 @@ fn scan(original: &str) -> Vec<Scanned> {
     if let Some(s) = start {
         spans.push((s, &src[s..]));
     }
+    spans
+}
+
+/// Returns `(codeunit id, [Test] procedure names)` for every test codeunit in `src`.
+fn scan(original: &str) -> Vec<Scanned> {
+    let stripped = strip_comments(original);
+    let src = stripped.as_str();
+    debug_assert_eq!(src.len(), original.len());
+    let spans = words(src);
     let words: Vec<&str> = spans.iter().map(|w| w.1).collect();
     // Each codeunit as scanned, and whether it says `Subtype = Test`.
     let mut out: Vec<(Scanned, bool)> = Vec::new();
@@ -209,8 +216,8 @@ fn scan(original: &str) -> Vec<Scanned> {
                     cur.3.get_or_insert_with(|| v.to_string());
                 }
             } else if attribute_is(w, "[test]") || attribute_is(w, "[testdatasource") {
-                // A data-driven procedure carries `[TestDataSource(...)]` and no `[Test]` (al-runner issue 7180; corpus
-                // al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandlerDefault.al:12, :257-291).
+                // A data-driven procedure carries `[TestDataSource(...)]` and no `[Test]` (al-runner issue 7180;
+                // corpus:"LT BI DD Only" and its file header).
                 if let Some(pos) = words[i + 1..].iter().position(|w| w.eq_ignore_ascii_case("procedure")) {
                     // The name is read from the original text: a quoted name is blanked in `src` (issue 5572).
                     let (at, kw) = spans[i + 1 + pos];

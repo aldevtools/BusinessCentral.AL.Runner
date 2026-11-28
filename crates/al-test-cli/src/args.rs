@@ -125,6 +125,10 @@ pub struct Args {
     pub assumptions_doc: bool,
     /// `--refusals-doc`: rewrite the refusal keys table of `docs/probes-needed.md` from the key lists, then stop.
     pub refusals_doc: bool,
+    /// `--check-citations`: every corpus citation by name in `crates/` and `docs/` resolves at the pinned corpus.
+    pub check_citations: bool,
+    /// `--rewrite-citations REV`: rewrite the citations by name from the corpus at REV to the pinned corpus.
+    pub rewrite_citations: Option<String>,
     /// `--awaiting-assumptions`: check the assumptions that wait for a corpus pin against the pinned corpus.
     pub awaiting_assumptions: bool,
     /// `--summary` (with `--awaiting-assumptions`): one line, the oldest entry first.
@@ -218,6 +222,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             a.refusals_doc = true;
             continue;
         }
+        if flag == "--check-citations" {
+            a.check_citations = true;
+            continue;
+        }
         if flag == "--awaiting-assumptions" {
             a.awaiting_assumptions = true;
             continue;
@@ -263,6 +271,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--prune-not-passing" => a.prune_not_passing = true,
             "--list-new-cases" => a.list_new_cases = Some(text()?),
             "--list-changes" => a.list_changes = Some(text()?),
+            "--rewrite-citations" => a.rewrite_citations = Some(text()?),
             "--update-work" => a.update_work = true,
             "--no-ratchet" => a.no_ratchet = true,
             "--deps" | "--dep" => a.deps.push(text()?.into()),
@@ -459,6 +468,12 @@ DIAGNOSE
                               of unprobed assumptions, then stop
   --refusals-doc              rewrite the refusal keys table of docs/probes-needed.md from the
                               refusal key lists (ADR-071), then stop
+  --check-citations           check that every corpus citation by name (ADR-065 amendment 2) in
+                              crates/ and docs/ resolves at the pinned corpus;
+                              exit 1 on a citation that does not, then stop
+  --rewrite-citations REV     rewrite those citations from the corpus at REV (the old pin) to the
+                              pinned corpus, through the rename map; a split or removed test is
+                              listed, not rewritten, then stop
   --awaiting-assumptions      the assumptions that wait for a corpus pin (`awaiting` in the registry):
                               when every awaited file is in the pinned corpus, run those files and
                               fail with one line per assumption, `the pin landed: remove the
@@ -589,6 +604,13 @@ mod tests {
         assert!(!run(&["--no-deps"]).unwrap().list_assumptions);
         let a = run(&["--awaiting-assumptions", "--summary"]).unwrap();
         assert!(a.awaiting_assumptions && a.summary);
+    }
+
+    #[test]
+    fn the_citation_flags_parse() {
+        assert!(run(&["--check-citations"]).unwrap().check_citations);
+        let a = run(&["--rewrite-citations", "abc123"]).unwrap();
+        assert_eq!(a.rewrite_citations.as_deref(), Some("abc123"));
     }
 
     #[test]

@@ -15,7 +15,7 @@
 //!
 //! `carry` gives, per list of the major, the base cases in head keys: the moved list lines, and the new keys whose old key
 //! passed on the old pin, which must pass on the new one. Pure; `base_oracle.rs` reads the files. Entry points:
-//! `RenameMap`, `carry`, `bump_lines`, `rewrite_list`, `CodeunitNames`, `translate_named`.
+//! `RenameMap`, `carry`, `bump_lines`, `rewrite_list`. A citation by name follows the map through `citation.rs`.
 
 use crate::oracle::CaseId;
 use std::collections::{BTreeMap, BTreeSet};
@@ -444,79 +444,6 @@ fn suite_part(suite: &Option<String>) -> String {
     suite.as_deref().map(|s| format!(" (suite {s})")).unwrap_or_default()
 }
 
-/// The names of the test codeunits at one pin, from the corpus sources: citations name a codeunit by its name
-/// (`corpus:"<codeunit name>"/<test>`), the machine files by its id (BC's JUnit reports the id). AL compares names
-/// without case. A codeunit rename keeps the id; a renumber needs a map line.
-#[derive(Debug, Default)]
-pub struct CodeunitNames {
-    by_id: BTreeMap<u32, (String, String)>,
-    by_name: BTreeMap<String, BTreeSet<u32>>,
-}
-
-impl CodeunitNames {
-    /// From `(app folder, file text)` of every source file of the pin. One id in two apps is an error.
-    pub fn from_sources<'a>(files: impl Iterator<Item = (&'a str, &'a str)>) -> Result<CodeunitNames, String> {
-        let mut n = CodeunitNames::default();
-        for (app, text) in files {
-            for (id, name, _) in al_testrun::discover::test_codeunits_named(text) {
-                if let Some((had, _)) = n.by_id.get(&id).filter(|(had, _)| had != app) {
-                    return Err(format!(
-                        "codeunit {id} is in two corpus apps, {had} and {app}; a case key is the codeunit id and the \
-                         test name, so codeunit ids must be unique across the corpus apps"
-                    ));
-                }
-                n.by_name.entry(name.to_lowercase()).or_default().insert(id);
-                n.by_id.entry(id).or_insert((app.to_string(), name));
-            }
-        }
-        Ok(n)
-    }
-
-    pub fn name_of(&self, id: u32) -> Option<&str> {
-        self.by_id.get(&id).map(|(_, name)| name.as_str())
-    }
-
-    /// The id of the codeunit named `name`; an error when no codeunit or more than one has it.
-    pub fn id_of(&self, name: &str) -> Result<u32, String> {
-        match self
-            .by_name
-            .get(&name.to_lowercase())
-            .map(|ids| ids.iter().collect::<Vec<_>>())
-        {
-            Some(ids) if ids.len() == 1 => Ok(*ids[0]),
-            Some(ids) => Err(format!(
-                "codeunit name \"{name}\" is held by codeunits {}",
-                ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", ")
-            )),
-            None => Err(format!("no test codeunit is named \"{name}\"")),
-        }
-    }
-}
-
-/// A case cited by codeunit name at the old pin, in names at the new pin: the name to its id at `old`, the id through
-/// the map (`at_head` is the new pin's cases), each new id to its name at `new`.
-pub fn translate_named(
-    case: (&str, &str),
-    old: &CodeunitNames,
-    new: &CodeunitNames,
-    map: &RenameMap,
-    at_head: &dyn Fn(&CaseId) -> bool,
-) -> Result<Vec<(String, String)>, String> {
-    let key = CaseId {
-        codeunit: old.id_of(case.0)?,
-        name: case.1.to_string(),
-    };
-    map.translate(&key, at_head)?
-        .keys
-        .into_iter()
-        .map(|k| {
-            new.name_of(k.codeunit)
-                .map(|n| (n.to_string(), k.name.clone()))
-                .ok_or_else(|| format!("codeunit {} has no test codeunit source at the new pin", k.codeunit))
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -769,33 +696,6 @@ mod tests {
             translate_set(&set(&[(1, "Old"), (1, "Kept")]), &m, &at).unwrap(),
             set(&[(1, "New1"), (1, "New2"), (1, "Kept")])
         );
-    }
-
-    #[test]
-    fn a_name_citation_follows_a_codeunit_rename_and_a_renumber() {
-        let old_src = "codeunit 50100 \"LT Old\"\n{\n Subtype = Test;\n [Test]\n procedure A()\n begin end;\n}\n";
-        let new_src =
-            "codeunit 50100 \"LT New\"\n{\n Subtype = Test;\n}\ncodeunit 50200 \"LT Moved\"\n{\n Subtype = Test;\n}\n";
-        let old = CodeunitNames::from_sources([("app", old_src)].into_iter()).unwrap();
-        let new = CodeunitNames::from_sources([("app", new_src)].into_iter()).unwrap();
-        assert_eq!(old.id_of("lt old").unwrap(), 50100);
-        assert!(new.id_of("LT Old").is_err());
-        // A rename keeps the id: no map line.
-        let at = |k: &CaseId| k.codeunit == 50100 && k.name == "A";
-        let none = RenameMap::default();
-        assert_eq!(
-            translate_named(("LT Old", "A"), &old, &new, &none, &at).unwrap(),
-            vec![("LT New".to_string(), "A".to_string())]
-        );
-        // A renumber follows its map line.
-        let m = map(&["app/50100/A\tapp/50200/A"]);
-        let at2 = |k: &CaseId| k.codeunit == 50200;
-        assert_eq!(
-            translate_named(("LT Old", "A"), &old, &new, &m, &at2).unwrap(),
-            vec![("LT Moved".to_string(), "A".to_string())]
-        );
-        let two = CodeunitNames::from_sources([("a", old_src), ("b", old_src)].into_iter()).unwrap_err();
-        assert!(two.contains("codeunit 50100 is in two corpus apps, a and b"), "{two}");
     }
 
     #[test]

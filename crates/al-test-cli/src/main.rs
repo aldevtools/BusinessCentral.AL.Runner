@@ -121,13 +121,16 @@ fn run() -> Result<ExitCode, String> {
         al_test_cli::host::set_environment(env);
     }
     // The corpus pins that real BC's web address in its CI is http, has a port and the path /BC, and that its host is
-    // not `localhost` (session-system/session/GetUrlShape.al:283); the host name itself is masked there and stays the
+    // not `localhost` (corpus:"LT GetUrl Shape"/QA_GetUrl_Web_NoArgument_Whole#'web alone'); the host name itself is masked there and stays the
     // host setting of ADR-042. So the corpus tool runs with an address of that shape instead of al-runner's default.
     al_test_cli::host::set_server_url(Some(CORPUS_SERVER_URL.into()));
     if let Some(dir) = &args.files_dir {
         al_test_cli::host::set_files_dir(dir.clone());
     }
     let root = args.root.clone().unwrap_or_else(|| PathBuf::from("."));
+    if args.check_citations || args.rewrite_citations.is_some() {
+        return citations(&root, args.rewrite_citations.as_deref());
+    }
     if args.assumptions_doc || args.refusals_doc {
         let path = root.join("docs/probes-needed.md");
         let text = read(&path)?;
@@ -227,6 +230,33 @@ fn newest_version<'a>(versions: &[&'a config::VersionEntry]) -> &'a config::Vers
 }
 
 /// `--awaiting-assumptions`: the assumptions that wait for a corpus pin, against the pinned corpus (`awaiting.rs`).
+/// `--check-citations` and `--rewrite-citations REV` (ADR-065 amendment 2), against the corpus checkout the oracle
+/// names.
+fn citations(root: &Path, rewrite_from: Option<&str>) -> Result<ExitCode, String> {
+    let oracle_path = root.join("oracle/oracle.toml");
+    let cfg = config::OracleFile::parse(&read(&oracle_path)?).map_err(|e| format!("{}: {e}", oracle_path.display()))?;
+    if let Some(rev) = rewrite_from {
+        let (written, notes) = al_test_cli::citation_scan::rewrite_all(root, &cfg, rev)?;
+        for p in &written {
+            println!("rewrote {}", p.display());
+        }
+        for n in &notes {
+            println!("not rewritten: {n}");
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    let (errors, read) = al_test_cli::citation_scan::check(root, &root.join(&cfg.corpus_repo))?;
+    for e in &errors {
+        eprintln!("{e}");
+    }
+    println!("{read} corpus citations by name, {} do not resolve", errors.len());
+    Ok(if errors.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
+}
+
 /// Runs the awaited files of the entries whose pin landed, on one version, and fails with one message each.
 fn awaiting_assumptions(
     args: &mut Args,
@@ -1408,7 +1438,7 @@ fn run_version_inner(
         // The corpus CI runs a test codeunit without handlers through BC's TestRunnerHub, which takes its isolation from
         // the codeunit's RequiredTestIsolation, on BC 28 and later; on BC 27 it runs every codeunit under Microsoft's runner
         // 130450 (TestIsolation = Codeunit), where the property has no effect. A difference of the CI's harness, not of
-        // the platform (corpus codeunits/run-onrun/QuCommitIsolation.al:10-16 and 36-39).
+        // the platform (the file header of corpus:"LT QU Codeunit A").
         required_isolation: chosen
             .target
             .has(al_version::Gate::TestRunnerHubRequiredIsolationFrom28),
