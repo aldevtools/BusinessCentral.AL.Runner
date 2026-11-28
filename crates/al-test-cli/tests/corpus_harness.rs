@@ -654,7 +654,7 @@ fn list_changes_refuses_a_line_added_to_the_strict_list() {
     let (code, md) = changes("# header\n\n60900 FailsOnPurpose\n");
     assert_eq!(code, 3, "{md}");
     assert!(
-        md.contains("names their issue") && md.contains("60900 FailsOnPurpose"),
+        md.contains("names `issue <number>`") && md.contains("60900 FailsOnPurpose"),
         "{md}"
     );
     let (code, md) = changes("# header\n\n# not run: a reason (runner issue 1).\n60900 FailsOnPurpose\n");
@@ -669,6 +669,40 @@ fn list_changes_refuses_a_line_added_to_the_strict_list() {
     );
     let (code, md) = changes("");
     assert_eq!(code, 0, "{md}");
+}
+
+// ADR-070 decision 5, second rule (al-runner issue 8943): a listed file whose every case passes in the default order and
+// in BC's order fails the run with the line to delete. The CLI wiring is under test: the main pass, the suite mapping
+// and the exit code. A run that lists no such file, or a file with a failing case, exits 0.
+#[test]
+fn a_listed_file_that_passes_in_both_orders_fails_the_run_and_says_to_delete_its_line() {
+    let root = fake_root(|fixture| {
+        std::fs::write(
+            fixture.join("tests/app/Only.al"),
+            "codeunit 60901 \"Harness Only\"\n{\n    Subtype = Test;\n\n    [Test]\n    procedure AlsoPasses()\n    begin\n    end;\n}\n",
+        )
+        .unwrap();
+    });
+    let junit = root.path().join("oracle/27/junit.xml");
+    let text = std::fs::read_to_string(&junit).unwrap().replace(
+        "</testsuites>",
+        "  <testsuite name=\"Codeunit 60901\" tests=\"1\" failures=\"0\" errors=\"0\" skipped=\"0\">\n    <testcase classname=\"Codeunit 60901\" name=\"AlsoPasses\" time=\"0.001\" />\n  </testsuite>\n</testsuites>",
+    );
+    std::fs::write(&junit, text).unwrap();
+    let list = |text: &str| {
+        std::fs::create_dir_all(root.path().join("metrics")).unwrap();
+        std::fs::write(root.path().join("metrics/strict-order-files.txt"), text).unwrap();
+    };
+    for (text, code) in [("", 0), ("app/Only.al\n", 1)] {
+        list(text);
+        let (got, _, err) = run_fixture(root.path(), "60900 FailsOnPurpose\n", &[]);
+        assert_eq!(got, code, "{text:?}: {err}");
+        assert_eq!(
+            err.contains("every case of app/Only.al passes in the default order and in BC's order; delete its line"),
+            code == 1,
+            "{text:?}: {err}"
+        );
+    }
 }
 
 /// The corpus app depends on corpus apps next to it (corpus `tests/al-language/app.json`: the internals fixture and the

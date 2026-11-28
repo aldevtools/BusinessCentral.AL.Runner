@@ -319,7 +319,7 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
             grown = true;
             let why = match base_list {
                 Some(_) => "this list may only shrink",
-                None => "a new list's case lines need a `# not run:` paragraph that names their issue",
+                None => "a new list's case lines need a `# not run:` paragraph that names `issue <number>`",
             };
             println!("\n### Lines added to `{rel}` ({}): {why}\n", added.len());
             added.iter().for_each(|c| println!("- {} {}", c.codeunit, c.name));

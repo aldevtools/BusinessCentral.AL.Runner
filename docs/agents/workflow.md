@@ -82,6 +82,13 @@ keep the outcome of that run (nothing runs once more). It holds the
 not-passing lists and `metrics/<major>/strict-order-not-run.txt`: the cases the default run passes and that run does not
 run yet. That list only shrinks (`--list-changes` exits 3 on an added line); prune it with
 `AL_STRICT_ORDER_ALL=1 al-test-cli --root . --bc-version 29 --prune-not-passing`.
+A new list file (a seed line) needs a paragraph whose first comment line starts with `not run:` and whose
+comments name `issue <number>` (`issue #123` is refused); `--list-changes` exits 3 without it. `AL_STRICT_ORDER_ALL` is
+`1` or unset. A ratcheted run fails with "passes in the default order and in BC's order; delete its line" when every
+case of a listed file passes in both orders: delete that line from `metrics/strict-order-files.txt`. A writer that must
+stay (it sets state its reader reads) gets one more line, `<writer> writes-for <reader>`; it is held while the reader is
+listed and not reported itself. The nightly also prints a note for a default-list case that passes in BC's order and is
+not listed; it is not a failure.
 
 ## Generated docs and ids
 

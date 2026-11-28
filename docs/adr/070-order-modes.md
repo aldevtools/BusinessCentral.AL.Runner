@@ -86,8 +86,16 @@ Two modes. No speculation in either.
    (orchestrator call, 2026-11-23, for the owner to confirm): the strict run, on the latest major only, keeps the
    default not-passing lists, failures included. It adds `metrics/<major>/strict-order-not-run.txt` for cases the
    default run passes and the strict run does not run yet. A case only on that list that fails still fails the job. A
-   line on it that passes is stale. `--list-changes` refuses a line added against a base revision that has the file; a
-   new file is not checked (issue 8948). Each line names its cause by convention; no check reads it (migration step 4).
+   line on it that passes is stale. `--list-changes` refuses a line added against a base revision that has the file. A
+   new file (a seed) needs a paragraph whose first comment line starts with `not run:` and whose comments name
+   `issue <number>`; without it `--list-changes` exits 3. `AL_STRICT_ORDER_ALL` is `1` or unset; any other value is an
+   error. Second rule, checked in every ratcheted corpus run (pull request, push and nightly): a file on
+   `metrics/strict-order-files.txt` fails the run when every oracle case of it was recorded `Pass` in the default
+   order and in BC's order; a case with no recorded outcome leaves the file undecided. Writer exception (orchestrator
+   call, 2026-11-28, for the owner to confirm): a line `<writer> writes-for <reader>` holds the writer's file on the
+   list while the reader's file is listed and not reported itself. Reverse direction (orchestrator call, 2026-11-28,
+   for the owner to confirm): a default-list case that passes in BC's order and whose file is not on the list is a note
+   on the nightly's stderr, not a failure, until the corpus confirms the order that case expects (issue 8943).
 6. **Memory.** Amendments 9 and 10 stay as they are until ADR-069 is built. Then re-measure and reduce to: a budget, a
    learned cost per codeunit, admission before a codeunit starts, and a hard stop with exit code 2. The hard limit
    (`--max-memory`) and exit code 2 stay in every case. This goes into its own ADR (step 5), not here.
@@ -128,7 +136,7 @@ Small PRs, each red/green. Outcomes do not change in steps 1 to 3 except where t
    text (`--test-suites` only changes hints in the default mode). (Done, 2026-11-23. The nightly run fails on a case on
    no list that does not pass there; `metrics/<major>/strict-order-not-run.txt` lists the cases it does not run yet
    and only shrinks. Decision 5's second rule, a file on `metrics/strict-order-files.txt` whose cases pass in both
-   modes, has no check yet: runner issue 8943.)
+   modes, fails the run since 2026-11-28; the seed rule and the reverse note are in decision 5.)
 5. **Memory ADR** after the ADR-069 re-measure (decision 6).
 
 ## Consequences

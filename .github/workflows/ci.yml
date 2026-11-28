@@ -667,7 +667,7 @@ jobs:
           if [ "$status" = 1 ]; then
             echo "::warning::this pull request adds a not-passing line for a case the base oracle had (a regression); it needs the owner's OK"
           elif [ "$status" = 3 ]; then
-            echo "::error::this pull request adds a line to metrics/<major>/strict-order-not-run.txt, which may only shrink (ADR-070 decision 5)"
+            echo "::error::this pull request adds a line to a strict-order-not-run list that may only shrink, or seeds one without a '# not run:' paragraph naming its issue (ADR-070 decision 5)"
             exit 1
           elif [ "$status" != 0 ]; then
             echo "::error::al-test-cli --list-changes failed"
