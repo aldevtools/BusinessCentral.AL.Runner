@@ -549,7 +549,7 @@ impl<'a> Compiler<'a> {
                 self.chunk.types.push(t.clone());
                 let t = (self.chunk.types.len() - 1) as u32;
                 if field_value {
-                    self.emit(Op::ConvertFieldValue { d, a, t, slot: None });
+                    self.emit(Op::convert_field_value(d, a, t, false));
                 } else {
                     self.emit(Op::Convert { d, a, t });
                 }
@@ -1226,6 +1226,11 @@ impl<'a> Compiler<'a> {
             S::Exit(None) => {
                 self.emit(Op::Ret);
             }
+            S::Exit(Some(ir::Expr::Convert(t @ (RtType::Text(_) | RtType::Code(_)), inner)))
+                if is_fieldref_value(inner) =>
+            {
+                self.field_value_exit(t, inner)?;
+            }
             S::Exit(Some(e)) => {
                 let a = self.expr_any(e)?;
                 self.emit(Op::RetVal { a });
@@ -1390,6 +1395,7 @@ impl<'a> Compiler<'a> {
                     a,
                     t,
                     slot: Some(slot),
+                    at_exit: false,
                 });
                 let pi = self.place(p);
                 self.emit(Op::StoreLocal { i, a: d, p: pi });
@@ -1549,6 +1555,20 @@ fn arg_pure(a: &ir::Arg) -> bool {
         ir::Arg::Value(e) => pure(e),
         ir::Arg::Ref(ir::Place::Local(_) | ir::Place::Global(_)) => true,
         ir::Arg::Ref(_) => false,
+    }
+}
+
+impl<'a> Compiler<'a> {
+    /// `exit(FR.Value())` from a procedure that returns a Text or Code: `Op::ConvertFieldValue` marked as an exit
+    /// (al-builtins `fieldref_value_text::fieldref_value_at_exit`, issue 9285).
+    fn field_value_exit(&mut self, t: &RtType, inner: &'a ir::Expr) -> R<()> {
+        let a = self.expr_any(inner)?;
+        self.chunk.types.push(t.clone());
+        let t = (self.chunk.types.len() - 1) as u32;
+        let d = self.alloc()?;
+        self.emit(Op::convert_field_value(d, a, t, true));
+        self.emit(Op::RetVal { a: d });
+        Ok(())
     }
 }
 
