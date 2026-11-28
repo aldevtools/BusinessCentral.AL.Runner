@@ -77,9 +77,8 @@ codeunit 52620 "R5 F Memo 130450"
     end;
 }
 
-// As F, but its test counts the rows of the table the login wrote: the hub session's row A left alone, the row of F's
-// session and its own. 3 is the runner's answer under assumption hub-login-later-runners; BC's count is not measured
-// (a hub row left alone, and the row of another session runner 130450 ran).
+// As F, but its test counts the rows of the table the login wrote: the hub session's row A left alone and the row of the
+// one session F and G share (corpus PR 1657, LgnRunnerSessions.al:429, :431).
 codeunit 52621 "R5 G Login Rows 130450"
 {
     Subtype = Test;
@@ -98,8 +97,8 @@ codeunit 52621 "R5 G Login Rows 130450"
         Row: Record "DLW Login Row";
         Assert: Codeunit "DLW Assert";
     begin
-        Assert.Equal(3, Row.Count(), 'login rows');
-        // One of them is of this session, as after a delete (LgnHeldLoginRunners.al:669, :710).
+        Assert.Equal(2, Row.Count(), 'login rows');
+        // One of them is of this session (LgnRunnerSessions.al:431).
         Row.SetRange("Session Id", SessionId());
         Assert.Equal(1, Row.Count(), 'login rows of this session');
     end;
