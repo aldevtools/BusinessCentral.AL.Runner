@@ -224,13 +224,16 @@ fn citing_line<'t>(text: &'t str, c: &old::OldCite) -> &'t str {
 }
 
 /// An old citation's replacement `new` after the prose `before`, without repeating the prose: `corpus File.al:3` gives
-/// `corpus:"X"`, not `corpus corpus:"X"`, and `header of File.al:1` drops the token's own `the file header of`.
+/// the token, not the word and the token, and `header of File.al:1` drops the token's own `the file header of`.
 /// Returns the bytes at the end of `before` to drop, and the text.
 fn spliced<'n>(before: &str, new: &'n str) -> (usize, &'n str) {
     let lower = before.to_ascii_lowercase();
+    let word = format!("{} ", citation::PREFIX);
     match new.strip_prefix("the file header of ") {
         Some(token) if lower.ends_with("header of ") => (0, token),
-        _ if lower.ends_with("corpus ") && new.starts_with("corpus:") => ("corpus ".len(), new),
+        _ if lower.ends_with(&word) && new.strip_prefix(citation::PREFIX).is_some_and(|r| r.starts_with(':')) => {
+            (word.len(), new)
+        }
         _ => (0, new),
     }
 }
