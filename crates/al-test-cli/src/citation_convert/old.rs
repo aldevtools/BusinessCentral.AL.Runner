@@ -27,6 +27,9 @@ pub struct OldCite {
     pub bare: bool,
     /// In a comment of a Rust file, or anywhere in another file.
     pub in_comment: bool,
+    /// A `:` and a digit follow the path but do not read as a line list (`File.al:12:5`, `File.al:1-9: text`): what
+    /// it cites is unclear, so it is left for a hand fix.
+    pub odd: bool,
 }
 
 /// Every old citation of `text` in order; `rust` reads only its comments as prose.
@@ -50,6 +53,7 @@ pub fn find(text: &str, rust: bool) -> Vec<OldCite> {
             continue;
         }
         let (lines, end) = line_list(text, dot + 3);
+        let odd = lines.is_empty() && b.get(dot + 3) == Some(&b':') && b.get(dot + 4).is_some_and(u8::is_ascii_digit);
         out.push(OldCite {
             at: start..end,
             path: text[start..dot + 3].to_string(),
@@ -57,6 +61,7 @@ pub fn find(text: &str, rust: bool) -> Vec<OldCite> {
             parent: None,
             bare: false,
             in_comment: in_comment(start),
+            odd,
         });
         from = end;
     }
@@ -74,6 +79,7 @@ pub fn find(text: &str, rust: bool) -> Vec<OldCite> {
                 parent: None,
                 bare: true,
                 in_comment: true,
+                odd: false,
             });
         }
     }
@@ -306,6 +312,14 @@ mod tests {
         for (g, (text, lines)) in got.iter().zip(want) {
             assert_eq!((g.0.as_str(), &g.1), (text, &lines));
         }
+    }
+
+    #[test]
+    fn a_line_number_that_does_not_read_as_a_list_marks_the_citation() {
+        // `:279-302:` (a colon after the range) and `:12:5` are not line lists; the citation is not a whole file.
+        let got = find("Q.al:279-302: missing No; R.al:12:5; S.al:3; T.al", false);
+        let odd: Vec<(&str, bool)> = got.iter().map(|c| (c.path.as_str(), c.odd)).collect();
+        assert_eq!(odd, [("Q.al", true), ("R.al", true), ("S.al", false), ("T.al", false)]);
     }
 
     #[test]

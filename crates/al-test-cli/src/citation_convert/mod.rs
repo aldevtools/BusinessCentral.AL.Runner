@@ -299,6 +299,10 @@ impl Ctx<'_> {
             .zip(&f.pins)
             .map(|(c, pins)| match cited_file(c, cites) {
                 _ if !c.in_comment => Err((Class::InCode, String::new())),
+                _ if c.odd => Err((
+                    Class::HandFix,
+                    "the text after the path does not read as a line list".into(),
+                )),
                 None => Err((Class::Orphan, String::new())),
                 Some(cited) => self.checked(pins, cited, c, &quotes(citing_line(text, c))),
             })
