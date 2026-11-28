@@ -703,7 +703,8 @@ pub struct RecordState {
     /// commits of the session then). A stale buffer from the Insert of the transaction the last Commit closed may still be
     /// written (record/TestRecordStaleBufferWrite.al:395-690, `Session::stale_verdict`).
     pub row_origin: Option<RowOrigin>,
-    /// Where the buffer's row version came from, for the Modify after a failed guarded Insert (see [`VersionEntry`]).
+    /// Where the buffer's row version came from, for the Modify after a failed guarded Insert and the xRec of a nested
+    /// Validate (see [`VersionEntry`]).
     pub version_entry: VersionEntry,
     /// The variable's own Insert and its own Get of that row after it (see [`OwnRead`]).
     pub own_read: OwnRead,
@@ -831,8 +832,9 @@ pub struct OwnReadAt {
     pub store_changes: u64,
 }
 
-/// Where a buffer's row version came from, read only by the Modify after a failed guarded Insert (al-vm
-/// `stale_own_modify.rs` `check_failed_insert_stale`, al-runner issue 8721). A clone of the record state marks it
+/// Where a buffer's row version came from, read by the Modify after a failed guarded Insert (al-vm
+/// `stale_own_modify.rs` `check_failed_insert_stale`, al-runner issue 8721) and by the xRec of a nested Validate (al-vm
+/// `records/nested_validate.rs` `buffer_version_measured`). A clone of the record state marks it
 /// [`VersionVia::Cloned`]; `:=`, Record.Copy, a by-value parameter and RecordRef.GetTable carry it as themselves
 /// ([`VersionEntry::carried`]). Empty when no read or write of the buffer gave it its version (a TransferFields with
 /// the key copies one: the buffer neither read nor wrote that row).
@@ -853,6 +855,8 @@ impl VersionEntry {
             via: VersionVia::Own,
             failed_inserts: 0,
             deleted: false,
+            fields_replaced: false,
+            carried_from: None,
         }))
     }
 
@@ -863,6 +867,8 @@ impl VersionEntry {
             via,
             failed_inserts: 0,
             deleted: h.deleted,
+            fields_replaced: h.fields_replaced,
+            carried_from: Some(h.via),
         }))
     }
 
@@ -885,6 +891,11 @@ pub struct HeldVersion {
     pub failed_inserts: u32,
     /// The variable deleted its row since.
     pub deleted: bool,
+    /// Another record's fields replaced the buffer's since it got the version, by a writer that keeps the version
+    /// (al-vm `Session::replace_record_fields`: RecordRef.SetTable, Page.GetRecord, Page.SetSelectionFilter; a copy keeps it).
+    pub fields_replaced: bool,
+    /// The copy that this copy was made from held the version by this way (`None`: the version's own variable).
+    pub carried_from: Option<VersionVia>,
 }
 
 /// One [`VersionEntry`]'s source: the version, how it reached the buffer, and the open transaction at that moment.

@@ -23,7 +23,7 @@ use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
 use al_builtins::record_fields::Fields;
 use al_builtins::record_op::RecordOp;
-use al_builtins::value::{RecordState, Value, VersionHow, VersionVia};
+use al_builtins::value::{RecordState, Value, VersionHow, VersionSource, VersionVia};
 use al_ir::ObjKind;
 use std::rc::Rc;
 
@@ -104,6 +104,9 @@ pub(crate) struct ValidateRun {
     /// an assignment or a write-back, `RecordRef.SetTable`, `Page.GetRecord`, `Page.SetSelectionFilter`); no cell of
     /// assumption `xrec-table-proc-routes` measures those writers.
     pub(crate) whole_write: bool,
+    /// The source of the row version the record's buffer held when the Validate started (`HeldVersion::source`): a nested
+    /// Validate shares the xRec only while the buffer still holds it (`Session::nested_validate_xrec`).
+    pub(crate) version_at_start: Option<Rc<VersionSource>>,
 }
 
 impl Session {
@@ -177,6 +180,7 @@ impl Session {
             touched: false,
             kept_by_before_event: false,
             whole_write: false,
+            version_at_start: rec.borrow().version_entry.0.as_ref().map(|h| Rc::clone(&h.source)),
         });
         let r = hooks(self);
         self.validate_sites.pop();
@@ -307,11 +311,16 @@ impl Session {
     /// into a record variable that is no record method (those note `Session::note_record_op_under_validate`): an assignment
     /// and a write-back (`interp.rs` `write_as_general`), `RecordRef.SetTable` (`refs.rs`), `Page.GetRecord`
     /// (`page_get_record.rs`) and `Page.SetSelectionFilter` (`pageops.rs`). It also notes the write on a running
-    /// `Insert(true)` or `Delete(true)` of `rec` (`Session::note_ext_before_touch`). Returns the fields it replaced.
+    /// `Insert(true)` or `Delete(true)` of `rec` (`Session::note_ext_before_touch`), and marks the buffer's row version
+    /// `HeldVersion::fields_replaced` (an assignment then puts its source's version in its place). Returns the fields it
+    /// replaced.
     pub(crate) fn replace_record_fields(&mut self, rec: &Rec, d: &mut RecordState, fields: Fields) -> Fields {
         let handle = Rc::as_ptr(rec) as usize;
         for v in self.validate_sites.iter_mut().filter(|v| v.handle == handle) {
             v.whole_write = true;
+        }
+        if let Some(h) = d.version_entry.0.as_mut() {
+            h.fields_replaced = true;
         }
         if !self.ext_before_watch.borrow().is_empty() {
             self.note_ext_before_touch(None, rec);
@@ -474,21 +483,31 @@ impl Session {
     }
 
     /// Whether the buffer `r` of the nest whose outermost Validate's trigger runs in frame `o` (the nest's Validates `runs`)
-    /// holds a row version the cells of record/validate/XRecNestedValidateShapes.al measured: the one its own variable's
-    /// Insert gave it, with no Modify, Rename, read or Delete since (every cell but one inserts with the variable it validates,
-    /// :775); or that version taken by `:=` from that variable, validated from a `[MessageHandler]` with no whole record
-    /// written into it in the nest (Validate_FromMessageHandler_OneXRec, :1876).
+    /// holds a row version the cells of record/validate/XRecNestedValidateShapes.al measured, each inserting in the test that
+    /// validates and writing no whole record into the buffer (no `:=` into it, RecordRef.SetTable, Page.GetRecord or
+    /// Page.SetSelectionFilter) after the Insert: the version its own variable's Insert gave it, with no Modify, Rename, read
+    /// or Delete since (every cell but one inserts with the variable it validates, :775); or that version taken by `:=`
+    /// straight from that variable, validated from a `[MessageHandler]` (Validate_FromMessageHandler_OneXRec, :1876). In
+    /// both, the buffer holds when the nested Validate starts the version it held when the outermost one started: no cell
+    /// inserts, reads or writes the record in the outer trigger.
     fn buffer_version_measured(&self, r: &RecordState, o: usize, runs: &[&ValidateRun]) -> bool {
         let Some(h) = r.version_entry.0.as_ref() else {
             return false;
         };
-        match (h.via, h.source.how, h.deleted) {
-            (VersionVia::Own, VersionHow::OwnInsert, false) => true,
-            (VersionVia::Assigned, VersionHow::OwnInsert, false) => {
-                self.attribute_names(o - 1) == ["messagehandler"] && runs.iter().all(|v| !v.whole_write)
+        let same_test = h.source.tests == self.pages.test_methods_started;
+        let kept = runs[0]
+            .version_at_start
+            .as_ref()
+            .is_some_and(|s| Rc::ptr_eq(s, &h.source));
+        let no_whole_write = runs.iter().all(|v| !v.whole_write);
+        let arm = match (h.via, h.source.how, h.deleted, h.fields_replaced, h.carried_from) {
+            (VersionVia::Own, VersionHow::OwnInsert, false, false, None) => true,
+            (VersionVia::Assigned, VersionHow::OwnInsert, false, false, Some(VersionVia::Own)) => {
+                self.attribute_names(o - 1) == ["messagehandler"]
             }
             _ => false,
-        }
+        };
+        arm && same_test && kept && no_whole_write
     }
 
     /// The attribute names of the routine in frame `d`, lowercase and sorted.
