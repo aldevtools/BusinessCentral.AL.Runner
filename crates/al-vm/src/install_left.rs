@@ -389,6 +389,7 @@ impl Session {
             [
                 (self.variant_refs.as_new(), "variant_refs"),
                 (self.temp_blob_impl_fields.as_new(), "temp_blob_impl_fields"),
+                (self.global_group1.is_empty(), "global_group1"),
             ]
             .into_iter()
             .find_map(|(holds, field)| (!holds).then_some(field))

@@ -48,10 +48,10 @@ fn a_refused_field_is_named_and_an_image_only_one_is_not_held_of_install_code() 
 }
 
 // A group 1 entry a record took back (filter group 1, the global group) leaves no filter, so install code is held to
-// main's rule and passes; the image carries none of the group 1 state, so it refuses the session: the entry still
-// refuses the records that hold a filter in group 1 (`group1_sessions.rs`).
+// main's rule and passes; the entry still refuses the records that hold a filter in group 1 (`group1_sessions.rs`), so
+// the image carries it (`Group1Filters::image`) and a thawn session holds it too.
 #[test]
-fn a_taken_back_group_1_entry_refuses_the_image_and_not_install_code() {
+fn a_taken_back_group_1_entry_is_imaged_and_does_not_refuse_install_code() {
     let l = al_testkit::compile(
         "table 50100 G1Row { fields { field(1; Id; Integer) { } field(2; Qty; Integer) { } } keys { key(PK; Id) { } } }
         codeunit 50100 G1 {
@@ -64,5 +64,13 @@ fn a_taken_back_group_1_entry_refuses_the_image_and_not_install_code() {
     s.call(object, 0, inst, vec![]).expect("the routine runs");
     assert!(s.global_group1.is_empty(), "no table holds a group 1 filter");
     assert_eq!(s.install_refused_field(), None);
-    assert_eq!(s.image_refused_field(), Some("global_group1"));
+    s.commit_transaction();
+    let image =
+        (s.login_image(&crate::LoginBase::before_everything())).unwrap_or_else(|why| panic!("{}", why.reason()));
+    let mut twin = Session::new(s.engine.clone());
+    twin.thaw_login_image(&image).expect("a new session takes the image");
+    assert!(
+        twin.global_group1.has_tables() && twin.global_group1.is_empty(),
+        "the taken-back entry"
+    );
 }

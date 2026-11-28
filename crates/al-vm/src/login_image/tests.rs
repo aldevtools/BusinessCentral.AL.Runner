@@ -121,6 +121,10 @@ codeunit 50100 Keeper
     begin
         R.Get(5); R.CalcFields(Data); R.Data.CreateInStream(I, TextEncoding::UTF16); I.Read(T); exit(T);
     end;
+    // What a "System Initialization".OnAfterLogin subscriber of the corpus does in each session (G1sXaInstall.al:116-124,
+    // G1sInstallSessionTests.al:87-105): a group 1 filter through a local record, which the session keeps.
+    procedure SetGroup1() var R: Record Row; begin R.FilterGroup(1); R.SetFilter(Id, '>=3'); end;
+    procedure CountGroup1(): Text var R: Record Row; begin exit(Format(R.Count())); end;
     procedure ReadAccent(): Text begin Rec.SetRange(Name, 'é'); T1.SetRange(Name, 'é'); exit(Format(Rec.Count()) + '|' + Format(T1.Count())); end;
 }
 // "CLS SI Arr" of ClearSharedCodeunitTempArrayShare.al (SIArrNever_ :736): a SingleInstance codeunit whose global array of
@@ -712,6 +716,40 @@ fn a_handle_held_outside_the_globals_refuses() {
     f.session
         .login_image(&crate::LoginBase::before_everything())
         .unwrap_or_else(|why| panic!("{}", why.reason()));
+}
+
+// The run's one login on the TestRunnerHub sets a group 1 filter in the corpus (al-testrun run.rs `thaw_held`): the image
+// carries it, and a later session reads it as the login's session does (here: the read another record's filter makes is
+// refused in both, FilterGroupOtherVariable.al measures no Count).
+#[test]
+fn a_group_1_filter_the_login_set_comes_back() {
+    let mut f = fx();
+    f.run("FillDatabase");
+    f.run("SetGroup1");
+    let mut twin = round_trip(&mut f.session);
+    let ours = outcome(&mut f.session, f.keeper, "CountGroup1");
+    let group1 = |s: &mut Session| s.state_lines().lines.into_iter().find(|l| l.starts_with("group1 "));
+    assert_ne!(
+        group1(&mut twin),
+        group1(&mut new_session(&f.session)),
+        "the twin holds the entry"
+    );
+    assert_eq!(outcome(&mut twin, f.keeper, "CountGroup1"), ours);
+}
+
+// What the image does not take of the group 1 state refuses it (an install shape here), and a session with a group 1
+// entry is no thaw target: the thaw writes the entries only.
+#[test]
+fn group_1_state_beyond_plain_entries_refuses_the_image_and_the_target() {
+    let mut f = fx();
+    f.session
+        .set_group1_install_shape(crate::group1_sessions::Group1InstallShape::InstallTrigger((
+            f.keeper, 0,
+        )));
+    assert_eq!(refused(&mut f), NotImaged::Field("global_group1"));
+    let mut g = fx();
+    g.run("SetGroup1");
+    assert_eq!(g.session.thaw_target_why(), Some("global_group1"));
 }
 
 #[test]

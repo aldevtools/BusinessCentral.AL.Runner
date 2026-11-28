@@ -201,6 +201,10 @@ macro_rules! session_fields {
                 events,
                 // The live Temp Blob records; install code is held to `as_new` (`install_left`).
                 temp_blob_impl_fields,
+                // The group 1 entries: the image carries those no record refers to (`Group1Filters::image`), the thaw's
+                // target holds a new session's (`unwritten_fact_why`); install code leaves no table a group 1 filter
+                // (main's rule for it, `install_left`).
+                global_group1,
             }
             fresh {
                 spare_vecs,
@@ -245,10 +249,6 @@ macro_rules! session_fields {
                 shadow_lower_bound => |s: &Session| !s.shadow_lower_bound,
                 report_refusal_after_denial => |s: &Session| s.report_refusal_after_denial.is_none(),
                 scratch_messages => |s: &Session| s.scratch_messages.is_none(),
-                // Install code leaves no table a group 1 filter (main's rule for it). The image carries none of the group 1
-                // state, so it requires all of it as new: a taken-back entry and the worker's notes change later calls too.
-                global_group1 [image => |s: &Session| s.global_group1.as_new()]
-                    => |s: &Session| s.global_group1.is_empty(),
                 capture => |s: &Session| s.capture.is_none(),
                 form => |s: &Session| s.form == crate::Form::Plain,
                 debug => |s: &Session| s.debug.is_none(),
