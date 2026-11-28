@@ -16,7 +16,8 @@
 #   6. build release and update the not-passing lists (ADR-065): lines for the new oracle cases that do not pass
 #      (--list-new-cases HEAD), stale lines deleted (--prune-not-passing); al-test-cli exits 1 on a regression and on a
 #      case the corpus rename map renamed that passed and does not pass now (ADR-065 amendment 1); then
-#      print the assumptions whose awaited corpus pin is now in the corpus (al-test-cli --awaiting-assumptions);
+#      print the assumptions whose awaited corpus pin is now in the corpus (al-test-cli --awaiting-assumptions), and
+#      rewrite the citations by name of crates/ and docs/ to the new pin (al-test-cli --rewrite-citations OLD);
 #   7. write the new case counts into crates/al-test-cli/tests/corpus_harness.rs.
 # It never edits a JUnit file and never edits docs/probes-needed.md: it prints the corpus files added
 # since the old pin, and the number of table rows of probes-needed before and after, so the person
@@ -177,6 +178,13 @@ fi
 # The bump goes on; ./check.sh fails until they are dealt with.
 echo "assumptions waiting for a corpus pin:"
 ./target/release/al-test-cli --root . --awaiting-assumptions 2>&1 | grep -E "^(assumption |warning: assumption |awaiting assumptions: )" || echo "  the check failed (lines above): remove each assumption whose pin landed, or fix its code, before ./check.sh"
+
+# 6d. The citations by name in crates/ and docs/ (ADR-065 amendment 2): rewritten from the old pin to the new one by
+# object id and the rename map. A citation of a test the map splits or removes is printed as "not rewritten" and left;
+# the citations test (crates/al-test-cli/tests/suite/citations.rs) fails until it is cited by hand.
+echo "citations by name:"
+./target/release/al-test-cli --root . --rewrite-citations "$old" 2>&1 | sed 's/^/  /' \
+  || echo "  WARNING: the citation rewrite failed (lines above)"
 
 # 7. The harness counts: totals per major and the BC 29 area totals the harness asserts.
 dir="$(mktemp -d)"

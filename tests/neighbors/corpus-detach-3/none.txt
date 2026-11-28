@@ -1,0 +1,1 @@
+Comment text only in al-host and al-link (corpus citations rewritten to the new token form); the new al-test-cli citation converter subcommand and citation_scan.rs are tooling that no AL code sees.

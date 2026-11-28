@@ -134,15 +134,15 @@ pub trait Identity {
     fn user_security_id(&self) -> [u8; 16];
     /// `CompanyName()`: the company the session runs in (`BcRuntime.cs:1309`).
     fn company_name(&self) -> String;
-    /// `SessionId()`; positive for a live session (session-system/TestSessionIdentityValues.al:43-59).
+    /// `SessionId()`; positive for a live session (corpus:"Test Session Identity Values"/SessionId_ForTheTestSession_IsPositive, corpus:"Test Session Identity Values"/SessionId_WithDatabasePrefix_IsPositiveAndAgrees).
     fn session_id(&self) -> i32;
-    /// `ServiceInstanceId()`; positive (session-system/TestSessionIdentityValues.al:24-40).
+    /// `ServiceInstanceId()`; positive (corpus:"Test Session Identity Values"/ServiceInstanceId_ForTheTestSession_IsPositive, corpus:"Test Session Identity Values"/ServiceInstanceId_WithDatabasePrefix_IsPositiveAndAgrees).
     fn service_instance_id(&self) -> i32;
-    /// `TenantId()`; not empty (session-system/TestDatabaseExtended.al:63-70).
+    /// `TenantId()`; not empty (corpus:"Test Database Extended"/Database_TenantId_NotThrow).
     fn tenant_id(&self) -> String;
-    /// `GuiAllowed()` (session-system/TestBCPlatformContracts.al:27-32).
+    /// `GuiAllowed()` (corpus:"Test BC Platform Contracts"/GuiAllowed_InTestContext_ReturnsTrue).
     fn gui_allowed(&self) -> bool;
-    /// `IsServiceTier()` (session-system/TestBCPlatformContracts.al:37-42).
+    /// `IsServiceTier()` (corpus:"Test BC Platform Contracts"/IsServiceTier_InTestContext_ReturnsTrue).
     fn is_service_tier(&self) -> bool;
     /// `WindowsLanguage()`: the language id of the Windows user (a positive LCID).
     fn windows_language(&self) -> i32;
@@ -171,7 +171,7 @@ pub trait Identity {
         "localhost".into()
     }
     /// The time zones the host knows, as the Time Zone table lists them (`No.` counts from 1 in
-    /// this order). The default is the corpus CI's 144 rows (record/table-properties/UvTimeZoneRows.al).
+    /// this order). The default is the corpus CI's 144 rows (corpus:"LT UV Time Zone Rows").
     fn time_zones(&self) -> Vec<TimeZoneInfo> {
         default_time_zones()
     }
@@ -246,7 +246,7 @@ pub struct TimeZoneInfo {
     pub display_name: String,
 }
 
-/// The time zones of the default host: the 144 rows the corpus CI lists (record/table-properties/UvTimeZoneRows.al;
+/// The time zones of the default host: the 144 rows the corpus CI lists (corpus:"LT UV Time Zone Rows";
 /// see `time_zone_table` for why the real list depends on the host Windows version).
 pub fn default_time_zones() -> Vec<TimeZoneInfo> {
     time_zone_table::TIME_ZONE_ROWS
@@ -282,7 +282,7 @@ impl Identity for AlRunnerIdentity {
     fn user_security_id(&self) -> [u8; 16] {
         USER_SECURITY_ID
     }
-    /// The company of the oracle's test database (session-system/TestEnvironmentUserTenantContracts.al:235);
+    /// The company of the oracle's test database (corpus:"Probe Environment Contracts"/SystemFunctions_Answers);
     /// AL Runner's `My Company` (ADR-013 decision 9) is superseded.
     fn company_name(&self) -> String {
         "CRONUS International Ltd.".into()
@@ -318,12 +318,12 @@ impl Identity for AlRunnerIdentity {
     fn time_zone(&self) -> String {
         "UTC".into()
     }
-    /// The oracle's tests run in a web client session (session-system/W5SessionFacts.al:135, :137); AL Runner's
+    /// The oracle's tests run in a web client session (corpus:"W5 Session Facts Tests"/ClientType_CurrentAndDefault#'current_name', corpus:"W5 Session Facts Tests"/ClientType_CurrentAndDefault#'current_format_2'); AL Runner's
     /// `Background` is superseded.
     fn current_client_type(&self) -> ClientType {
         ClientType::Web
     }
-    /// The oracle's tier names Windows (session-system/W5SessionFacts.al:136, :138).
+    /// The oracle's tier names Windows (corpus:"W5 Session Facts Tests"/ClientType_CurrentAndDefault#'default_name', corpus:"W5 Session Facts Tests"/ClientType_CurrentAndDefault#'default_format_2').
     fn default_client_type(&self) -> ClientType {
         ClientType::Windows
     }
@@ -802,13 +802,13 @@ impl FileSystem for MemFileSystem {
         true
     }
     /// The temporary folders and a folder AL code created, until it is removed; the empty text names none
-    /// (QxDotNetDemoShapes.al:279-302: missing No, created Yes, with a closing separator Yes, a file No, '' No,
+    /// (corpus:"LT QX DotNet Demo Shapes"/RD_DirectoryExists_Static: missing No, created Yes, with a closing separator Yes, a file No, '' No,
     /// TemporaryPath Yes, deleted No).
     fn dir_exists(&self, path: &str) -> bool {
         let k = mem_dir_key(path);
         !path.is_empty() && (MEM_TEMP_ROOTS.contains(&k.as_str()) || self.dirs.contains(&k))
     }
-    /// The folder and the folders above it (a nested folder at once: QxDotNetDemoShapes.al:313-314). A file of that name
+    /// The folder and the folders above it (a nested folder at once: corpus:"LT QX DotNet Demo Shapes"/RD_FileManagement_ServerFolderOperations). A file of that name
     /// raises a .NET exception no test pins: refused.
     fn create_dir(&mut self, path: &str) -> Result<(), String> {
         self.changed = true;
@@ -823,7 +823,7 @@ impl FileSystem for MemFileSystem {
         }
         Ok(())
     }
-    /// A folder AL code created, with what it holds when `recursive` (QxDotNetDemoShapes.al:317-327); a missing folder,
+    /// A folder AL code created, with what it holds when `recursive` (corpus:"LT QX DotNet Demo Shapes"/RD_FileManagement_ServerFolderOperations); a missing folder,
     /// a temporary folder, and one that holds something without `recursive` raise .NET exceptions no test pins: refused.
     fn remove_dir(&mut self, path: &str, recursive: bool) -> Result<(), String> {
         self.changed = true;

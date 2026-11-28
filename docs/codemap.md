@@ -248,18 +248,19 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `corpus.rs`: Corpus discovery: test codeunits, their area folder and file. Entry: `discover`.
 - `coverage.rs`: The corpus coverage map. Entry: `collect_calls`.
 - `behavior_coverage.rs`: The behavior coverage map: triggers, properties. Entry: `collect`.
-- `cell_report.rs`: The cell report: per test that uses the observer… Entry: `build`.
+- `cell_report.rs`: The cell report of observer tests. Entry: `build`.
 - `language_catalog.rs`: The AL language catalog `docs/language-catalog.json`.
 - `drift.rs`: Comparing case sets across BC versions (ADR-015 3.6). Entry: `differences`.
 - `mnc.rs`: The must-not-compile corpus: parse a case header. Entry: `parse_case`.
 - `insight.rs`: --top-refusals (folded reason ranking). Entry: `top_refusals`.
 - `refusal_keys.rs`: The refusal key lists of every crate that refuses. Entry: `LISTS`.
-- `not_passing.rs`: ADR-065, the lists of the cases the runtime does… Entry: `check`.
+- `not_passing.rs`: The not-passing lists (ADR-065). Entry: `check`.
 - `base_oracle.rs`: The base branch's oracle and lists. Entry: `Base`.
 - `rename_map.rs`: Case keys through the corpus rename map (ADR-065 am. 1). Entry: `carry`.
 - `citation.rs`: Corpus citations by name (ADR-065 am. 2). Entry: `resolve`.
 - `citation_scan.rs`: Its files. Entry: `check`.
-- `lib.rs`: Runs the corpus's `[Test]` codeunits and reports…
+- `citation_old.rs`: Old `File.al:line` form. Entry: `find`.
+- `lib.rs`: Runs the corpus's `[Test]` codeunits.
 - `main.rs`: The binary: run each oracle version, report. Entry: `main`.
 - `oracle.rs`: The oracle: JUnit and xUnit cases of real BC, identified by. Entry: `CaseId`.
 - `output.rs`: Renders a report as Markdown and the runtime's… Entry: `markdown`.

@@ -339,8 +339,8 @@ the codeunit exists). The forms without a member token:
 - A whole file without a line cites the file's first test codeunit at object level (else its first object).
 - A must-not-compile case (`tests/must-not-compile/<stem>.al`) is keyed by its stem, not by a codeunit: it keeps the
   old form by its stem (`<stem>.al`), and step 3 does not make that form fail.
-- Old texts of `docs/adr/` and `docs/history/`: open, an owner question in step 3 (converted like code, or kept as
-  history and exempt from the old-form check).
+- Old texts of `docs/adr/` and `docs/history/` are converted like code, and the old-form check covers them (owner,
+  2026-11-28).
 
 **Resolution** (`crates/al-test-cli/src/citation.rs`, the one owner; `citation_scan.rs` reads the files). A pinned
 citation resolves when the pinned corpus has exactly one object of that kind and name (AL compares names without
@@ -355,7 +355,7 @@ N`); when a bump pins the probe and the entry goes, the pending citation fails u
 `test` job) read every token in `crates/` and `docs/` and fail on each that does not resolve at the pinned corpus or
 is not written as it prints. The old `File.al:line` form is not read in this step; step 3 converts it crate by crate
 (by blame, at the corpus pin of the commit that wrote the line, then forward by id and the map) and then makes the
-check fail on every old form except the must-not-compile form above (and the docs history, if the owner keeps it).
+check fail on every old form except the must-not-compile form above.
 
 **At a pin move.** `al-test-cli --root . --rewrite-citations <old corpus rev>` rewrites each pinned citation that
 resolves at the old pin: a test through the rename map (a codeunit rename keeps the id, so it needs no map line; a
