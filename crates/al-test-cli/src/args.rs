@@ -129,6 +129,10 @@ pub struct Args {
     pub check_citations: bool,
     /// `--rewrite-citations REV`: rewrite the citations by name from the corpus at REV to the pinned corpus.
     pub rewrite_citations: Option<String>,
+    /// `--convert-citations PATH` (repeatable): convert the old `File.al:line` citations under PATH to tokens by name.
+    pub convert_citations: Vec<PathBuf>,
+    /// `--dry-run`: with `--convert-citations`, report and write nothing.
+    pub dry_run: bool,
     /// `--awaiting-assumptions`: check the assumptions that wait for a corpus pin against the pinned corpus.
     pub awaiting_assumptions: bool,
     /// `--summary` (with `--awaiting-assumptions`): one line, the oldest entry first.
@@ -226,6 +230,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             a.check_citations = true;
             continue;
         }
+        if flag == "--dry-run" {
+            a.dry_run = true;
+            continue;
+        }
         if flag == "--awaiting-assumptions" {
             a.awaiting_assumptions = true;
             continue;
@@ -272,6 +280,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, String> {
             "--list-new-cases" => a.list_new_cases = Some(text()?),
             "--list-changes" => a.list_changes = Some(text()?),
             "--rewrite-citations" => a.rewrite_citations = Some(text()?),
+            "--convert-citations" => a.convert_citations.push(text()?.into()),
             "--update-work" => a.update_work = true,
             "--no-ratchet" => a.no_ratchet = true,
             "--deps" | "--dep" => a.deps.push(text()?.into()),
@@ -474,6 +483,11 @@ DIAGNOSE
   --rewrite-citations REV     rewrite those citations from the corpus at REV (the old pin) to the
                               pinned corpus, through the rename map; a split or removed test is
                               listed, not rewritten, then stop
+  --convert-citations PATH    convert the old File.al:line corpus citations under PATH (a file or
+                              folder; repeatable) to citations by name, read at the corpus pin of
+                              the commit that wrote each line; print a table per class and area
+                              and one row per citation, then stop
+  --dry-run                   with --convert-citations: print, write nothing
   --awaiting-assumptions      the assumptions that wait for a corpus pin (`awaiting` in the registry):
                               when every awaited file is in the pinned corpus, run those files and
                               fail with one line per assumption, `the pin landed: remove the
@@ -611,6 +625,19 @@ mod tests {
         assert!(run(&["--check-citations"]).unwrap().check_citations);
         let a = run(&["--rewrite-citations", "abc123"]).unwrap();
         assert_eq!(a.rewrite_citations.as_deref(), Some("abc123"));
+        let a = run(&[
+            "--convert-citations",
+            "crates/al-cache",
+            "--convert-citations",
+            "docs",
+            "--dry-run",
+        ])
+        .unwrap();
+        assert_eq!(
+            a.convert_citations,
+            [PathBuf::from("crates/al-cache"), PathBuf::from("docs")]
+        );
+        assert!(a.dry_run);
     }
 
     #[test]

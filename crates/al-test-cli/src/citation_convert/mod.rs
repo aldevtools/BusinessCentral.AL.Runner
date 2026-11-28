@@ -62,7 +62,7 @@ impl Class {
         Class::InCode,
         Class::Orphan,
     ];
-    fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Class::Test => "test",
             Class::Cell => "cell",
@@ -306,8 +306,8 @@ impl Ctx<'_> {
         // A group (a file citation and its continuations) with a hand fix stays whole.
         let group = |k: usize| if cites[k].bare { cites[k].parent } else { Some(k) };
         let mut group_fails = vec![false; cites.len()];
-        for k in 0..cites.len() {
-            if let (Some(g), Err((Class::HandFix, _))) = (group(k), &results[k]) {
+        for (k, r) in results.iter().enumerate() {
+            if let (Some(g), Err((Class::HandFix, _))) = (group(k), r) {
                 group_fails[g] = true;
             }
         }
@@ -370,10 +370,12 @@ impl Ctx<'_> {
             ("the next pin that changed the file", self.next.get(at)),
         ];
         for (what, other) in others {
-            if let Some(o) = other
-                && let Ok((t, _)) = self.one(o, &c.lines, c.bare, quotes)
-                && t != token
-            {
+            let Some(o) = other else { continue };
+            let t = match self.one(o, &c.lines, c.bare, quotes) {
+                Ok((t, _)) => t,
+                Err((_, e)) => format!("nothing ({e})"),
+            };
+            if t != token {
                 return Err((
                     Class::HandFix,
                     format!(

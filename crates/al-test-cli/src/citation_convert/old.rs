@@ -31,8 +31,8 @@ pub struct OldCite {
 
 /// Every old citation of `text` in order; `rust` reads only its comments as prose.
 pub fn find(text: &str, rust: bool) -> Vec<OldCite> {
-    let comments = if rust { rust_comments(text) } else { vec![0..text.len()] };
-    let in_comment = |at: usize| comments.iter().any(|r| r.contains(&at));
+    let comments = rust.then(|| rust_comments(text));
+    let in_comment = |at: usize| comments.as_ref().is_none_or(|c| c.iter().any(|r| r.contains(&at)));
     let b = text.as_bytes();
     let mut out: Vec<OldCite> = Vec::new();
     let mut from = 0;
@@ -280,7 +280,10 @@ fn rust_comments(text: &str) -> Vec<Range<usize>> {
 mod tests {
     use super::*;
 
-    fn shapes(text: &str, rust: bool) -> Vec<(String, Vec<(u32, u32)>, Option<usize>, bool)> {
+    /// A citation's text, its line ranges, its parent and whether it is in a comment.
+    type Shape = (String, Vec<(u32, u32)>, Option<usize>, bool);
+
+    fn shapes(text: &str, rust: bool) -> Vec<Shape> {
         find(text, rust)
             .into_iter()
             .map(|c| (text[c.at.clone()].to_string(), c.lines, c.parent, c.in_comment))

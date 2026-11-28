@@ -132,6 +132,9 @@ fn run() -> Result<ExitCode, String> {
     if args.check_citations || args.rewrite_citations.is_some() {
         return citations(&root, args.rewrite_citations.as_deref());
     }
+    if !args.convert_citations.is_empty() {
+        return convert_citations(&root, &args.convert_citations, args.dry_run);
+    }
     if args.assumptions_doc || args.refusals_doc {
         let path = root.join("docs/probes-needed.md");
         let text = read(&path)?;
@@ -255,6 +258,29 @@ fn citations(root: &Path, rewrite_from: Option<&str>) -> Result<ExitCode, String
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// `--convert-citations PATH` (step 3 of the corpus-detach plan): converts, or with `--dry-run` only reports, the old
+/// citations under the paths; prints the summary table, then one tab-separated row per citation.
+fn convert_citations(root: &Path, paths: &[PathBuf], dry_run: bool) -> Result<ExitCode, String> {
+    use al_test_cli::citation_convert;
+    let oracle_path = root.join("oracle/oracle.toml");
+    let cfg = config::OracleFile::parse(&read(&oracle_path)?).map_err(|e| format!("{}: {e}", oracle_path.display()))?;
+    let map = al_test_cli::base_oracle::rename_map_at_head(root, &cfg)?;
+    let rows = citation_convert::convert(root, &root.join(&cfg.corpus_repo), &map, paths, dry_run)?;
+    print!("{}", citation_convert::summary(&rows));
+    for r in &rows {
+        let new = r.new.as_deref().unwrap_or("-");
+        println!(
+            "{}:{}\t{}\t{}\t{new}\t{}",
+            r.path.display(),
+            r.line,
+            r.class.name(),
+            r.old,
+            r.note
+        );
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `--awaiting-assumptions`: the assumptions that wait for a corpus pin, against the pinned corpus (`awaiting.rs`).
