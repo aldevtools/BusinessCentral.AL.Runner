@@ -217,7 +217,7 @@ fn another_date_takes_the_rule_of_its_kind() {
     assert!(call("Targets", "date_early").starts_with(&format!("Integer={};", err("Date", "System.Int32"))));
 }
 
-/// The follow-up corpus probe, recordref-fieldref/fieldref-value-convert/FvcTemporalIntoNumberMore.al:158-310: values the
+/// Corpus PR 1641 (open), recordref-fieldref/fieldref-value-convert/FvcTemporalIntoNumberMore.al:162-326: values the
 /// first probe did not measure take the rule of their kind; a closing date is one more than its day.
 #[test]
 fn more_values_take_the_rule_of_their_kind() {

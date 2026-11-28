@@ -1,8 +1,8 @@
 // The shapes next to FieldRef.Value() of a Date, Time or DateTime field converted straight into a number (al-runner issues
 // 9265 and 9305). Corpus PR 1629 (FvcTemporalIntoNumberPlaces.al) measured a blank and a set value of each kind into each number
 // target and into an Integer in each place; head gives those readings, flagged with fieldref-value-temporal-into-number, and
-// takes the rule for every value of the kind (Other_ tests: the values the follow-up corpus probe FvcTemporalIntoNumberMore.al
-// measured). Same on both: the Variant route,
+// takes the rule for every value of the kind (Other_ tests: the values corpus PR 1641 measured, FvcTemporalIntoNumberMore.al
+// :162-326). Same on both: the Variant route,
 // a Date into a Text, an Integer field into an Integer, Abs of an Integer field and of a Variant holding a Date. Unmeasured_
 // tests: places the probes did not measure, which refuse on both.
 interface "FT Taker"

@@ -156,8 +156,8 @@ pub fn unmeasured(
 /// record field, an array element, `List.Add` with the list's element type, and `Abs` as a Decimal): corpus PR 1629
 /// (merged at 778b8fc1, not yet pinned),
 /// recordref-fieldref/fieldref-value-convert/FvcTemporalIntoNumberPlaces.al:296-680 `<Source>_Targets` and
-/// `<Source>_Places`, the DateTime split by major at :536 and :608; the follow-up corpus probe,
-/// FvcTemporalIntoNumberMore.al:158-310 `<Source>_Targets` (1753-01-01, 9999-12-31, a closing date, 08:30:15, 00:00:01
+/// `<Source>_Places`, the DateTime split by major at :536 and :608; corpus PR 1641 (open),
+/// FvcTemporalIntoNumberMore.al:162-326 `<Source>_Targets` (1753-01-01, 9999-12-31, a closing date, 08:30:15, 00:00:01
 /// and a DateTime of 1753-01-01; issue 9265, assumption `fieldref-value-temporal-into-number`). Into an Integer,
 /// BigInteger, Decimal, Byte or Char it raises `Unable to convert from Microsoft.Dynamics.Nav.Runtime.Nav<Kind> to
 /// <.NET type>.` (Conversion). A Date or Time into a Duration, Option or Boolean, and a DateTime into a Duration,
