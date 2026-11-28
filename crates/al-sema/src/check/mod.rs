@@ -1591,6 +1591,7 @@ mod member;
 mod object;
 pub(crate) mod posmap;
 mod protected_member;
+mod recordref_record_arg;
 pub mod tdd;
 pub mod tdd_decl;
 #[cfg(test)]

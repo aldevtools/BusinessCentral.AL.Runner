@@ -1167,3 +1167,93 @@ fn a_left_out_test_codeunit_keeps_its_error_at_the_position_of_a_selected_ones_e
         .collect();
     assert_eq!(apps, [0, 1], "{:?}", r.diagnostics);
 }
+
+// Page.Run, Page.RunModal and Report.Run with a RecordRef in the place of the record do not compile (al-runner issue
+// 9280): must-not-compile 1634-page-run-recordref.al:1-3 (runtime 17.1 and 18.0) and 1633-page-run-recordref-bc27.al:1-3
+// (runtime 16.1).
+const RECREF_RUN_OBJECTS: &str = "table 50910 \"RR Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } } \
+     page 50910 \"RR List\" { PageType = List; SourceTable = \"RR Row\"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } } } } } \
+     report 50910 \"RR Report\" { ProcessingOnly = true; dataset { dataitem(Row; \"RR Row\") { } } }";
+
+fn recref_run_calls(var: &str, arg: &str) -> String {
+    cu(&format!(
+        "procedure P() var RecRef: RecordRef; {var} begin RecRef.Open(Database::\"RR Row\"); \
+         Page.Run(Page::\"RR List\", {arg}); Page.RunModal(Page::\"RR List\", {arg}); \
+         Report.Run(Report::\"RR Report\", false, false, {arg}); end;"
+    ))
+}
+
+#[test]
+fn a_recordref_as_the_record_of_page_run_is_al0133_from_runtime_17() {
+    let src = recref_run_calls("", "RecRef");
+    let want = vec![
+        "AL0133 Argument 2: cannot convert from 'RecordRef' to 'Table'",
+        "AL0133 Argument 2: cannot convert from 'RecordRef' to 'Table'",
+        "AL0133 Argument 4: cannot convert from 'RecordRef' to 'var Table'",
+    ];
+    assert_eq!(diags_for("28", &[RECREF_RUN_OBJECTS, &src]), want);
+    assert_eq!(diags_for("29", &[RECREF_RUN_OBJECTS, &src]), want);
+    assert_eq!(diags_declared("29", "17.0", &[RECREF_RUN_OBJECTS, &src]), want);
+}
+
+#[test]
+fn a_recordref_as_the_record_of_page_run_is_al0666_at_runtime_16() {
+    let src = recref_run_calls("", "RecRef");
+    let want = |at: &str| {
+        ["Run", "RunModal", "Run"]
+            .map(|m| {
+                format!(
+                    "AL0666 '{m}' is not available in runtime version '{at}'. The supported runtime versions are: '17.0' or greater."
+                )
+            })
+            .to_vec()
+    };
+    assert_eq!(diags_declared("29", "16.1", &[RECREF_RUN_OBJECTS, &src]), want("16.1"));
+    assert_eq!(diags_declared("29", "16.0", &[RECREF_RUN_OBJECTS, &src]), want("16.0"));
+}
+
+#[test]
+fn a_recordref_as_the_record_of_page_run_below_the_runtime_floor_is_refused() {
+    // Below the runtimes the corpus covers, what the AL compiler reports is not measured: AR1007, not a guess.
+    let src = cu("procedure P() var RecRef: RecordRef; begin Page.Run(Page::\"RR List\", RecRef); end;");
+    let got = diags_declared("29", "15.0", &[RECREF_RUN_OBJECTS, &src]);
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert!(
+        got[0].starts_with(
+            "AR1007 `Run` takes a RecordRef as its record, which the AL compiler rejects; the app declares runtime 15.0"
+        ),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn a_recordref_record_of_page_run_is_reported_where_the_al_compiler_reports_it() {
+    // al-runner issue 9280: AL0133 at the argument (column 43 of `Page.Run(Page::"Repro Item Card", RecRef)`), AL0666 at
+    // the call (column 9).
+    let src = cu("procedure P() var RecRef: RecordRef; begin Page.Run(Page::\"RR List\", RecRef); end;");
+    let at = |runtime: &str| {
+        let w = ws(&[RECREF_RUN_OBJECTS, &src]);
+        let m = crate::members::build(&w);
+        let mut target = al_version::Target::for_bc(al_version::BcVersion::parse("29").unwrap());
+        target.app_runtimes = vec![("a".into(), al_version::Runtime::parse(runtime).unwrap())];
+        let r = check(&w, &m, &Catalog::for_target(&target));
+        assert_eq!(r.diagnostics.len(), 1, "{:?}", r.diagnostics);
+        src[r.diagnostics[0].offset..].to_string()
+    };
+    assert!(at("18.0").starts_with("RecRef); end;"), "{}", at("18.0"));
+    assert!(at("16.1").starts_with("Page.Run("), "{}", at("16.1"));
+}
+
+#[test]
+fn a_variant_that_holds_a_recordref_as_the_record_of_page_run_compiles() {
+    // al-runner issue 9280: the Variant form compiles at every runtime and runs on BC (tests/al-language/pages/lt-ce-page-run/
+    // CePageRun.al).
+    let src = recref_run_calls("V: Variant;", "V");
+    for runtime in ["16.0", "16.1", "17.0", "18.0"] {
+        assert_eq!(
+            diags_declared("29", runtime, &[RECREF_RUN_OBJECTS, &src]),
+            Vec::<String>::new(),
+            "{runtime}"
+        );
+    }
+}

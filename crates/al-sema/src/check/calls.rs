@@ -5,7 +5,7 @@ use super::*;
 
 /// The reason of an AR1007: a call in an app whose declared runtime is below the runtime floor, where the table of
 /// what the AL compiler reports (`al-builtins/catalog/alc-runtimes.txt`) gives no AL0666 text (al-runner issue 5573).
-fn below_floor(name: &str, at: al_version::Runtime, why: &str) -> String {
+pub(crate) fn below_floor(name: &str, at: al_version::Runtime, why: &str) -> String {
     format!(
         "`{name}` {why}; the app declares runtime {at}, older than the runtimes the corpus covers ({} and later), so AL Runner cannot tell what the AL compiler reports for the call",
         al_version::Runtime::floor()
@@ -23,7 +23,7 @@ impl<'a> Checker<'a> {
     }
 
     /// Whether the file belongs to a dependency app (not gated by runtime: alc compiled it already).
-    fn in_dependency(&self, file: usize) -> bool {
+    pub(crate) fn in_dependency(&self, file: usize) -> bool {
         self.ws
             .files
             .get(file)
@@ -264,6 +264,9 @@ impl<'a> Checker<'a> {
                     if (r < floor || self.removed_at(&id, argc, r)) && self.alc_verdict(sc, node, &id, argc, name, r) {
                         return Ty::Unknown;
                     }
+                }
+                if self.al_recordref_as_record(sc, node, &id, args, declared) {
+                    return Ty::Unknown;
                 }
             }
         }
