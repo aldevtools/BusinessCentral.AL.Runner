@@ -4886,3 +4886,22 @@ fn a_write_longer_than_the_bound_does_not_hold_the_shutdown_reply_back() {
     assert!(err.contains("a workspace cache entry was still being written"), "{err}");
     assert_eq!(workspace_entries(&cache).len(), 1);
 }
+
+/// ADR-070 step 4: the `runTests` summary says the order mode of the request, as `--output-json` does (`orderMode`):
+/// `isolated` by default, `bc` with `strictOrder`. Review of al-runner PR 9321 (Copilot, serve.rs).
+#[test]
+fn the_run_tests_summary_has_the_order_mode_of_the_request() {
+    let d = tempfile::tempdir().unwrap();
+    let a = app(d.path(), "mixed", MIXED);
+    let mut s = Server::start(&["--no-download", "--no-test-data"]);
+    assert_eq!(s.line(), json!({"ready": true}));
+    for (strict, mode) in [(false, "isolated"), (true, "bc")] {
+        s.send(json!({"command": "runTests", "sourcePaths": [a], "strictOrder": strict}));
+        let lines = s.until_summary();
+        let summary = lines.last().unwrap();
+        assert_eq!(summary["orderMode"], mode, "{summary}");
+    }
+    s.send(json!({"command": "shutdown"}));
+    assert_eq!(s.line(), json!({"status": "shutting down"}));
+    assert!(s.child.wait().unwrap().success());
+}

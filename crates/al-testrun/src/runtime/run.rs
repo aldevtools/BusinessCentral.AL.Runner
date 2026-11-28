@@ -881,7 +881,7 @@ fn run_codeunit_inner(
             }
             crate::events::starting(obj.id.unwrap_or(0), &obj.routines[r].name);
             // The number of this test for the SingleInstance notes (ADR-066 amendment 7; 0 without notes).
-            let test_no = single_test_begins(session, scratch.watch);
+            let test_no = test_begins(scratch, session);
             let test_started = std::time::Instant::now();
             let draws_before = session.inherited_random_draws();
             let carried_before = session.carried_random_draws();
@@ -1334,7 +1334,7 @@ fn run_codeunit_inner(
                 let row = (obj.id.unwrap_or(0), name.as_str(), routine.name.as_str());
                 stopped = scratch.stopped_after(&outcome, hit_time_limit, row);
             }
-            note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
+            note_test_ended(scratch, session, ended, runner_refused.is_some(), test_no, &name);
             let ended_from = unfinished.len();
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
                 unfinished.push(Unfinished {
@@ -1973,11 +1973,12 @@ fn start_singles(session: &mut Session, execute: bool, moved: Option<al_vm::sing
     }
 }
 
-/// A test method begins: its number for the SingleInstance notes (ADR-066 amendment 7). Without `watch` the lane uses no
-/// notes: 0.
-fn single_test_begins(session: &mut Session, watch: bool) -> u32 {
+/// A test method begins: its number for the SingleInstance notes (ADR-066 amendment 7). Without `Scratch::watch` the
+/// lane uses no notes: 0. Notes the numbers OnRun and the runner steps before this test took (ADR-070 decision 3).
+fn test_begins(scratch: &mut Scratch, session: &mut Session) -> u32 {
     let n = session.single_test_begins();
-    if watch { n } else { 0 }
+    super::order_hint::note_taken(scratch, session, "");
+    if scratch.watch { n } else { 0 }
 }
 
 /// What the session did with the watched single instances; in the lane, hands the instances to the next codeunit.
@@ -2231,11 +2232,23 @@ fn type_left_unknown(
     }
 }
 
-/// Notes test `test_no` in `Scratch::unfinished_at` when it started and did not run to its end, or a runner step around
-/// it did not (ADR-066 amendment 7, option 1).
-fn note_unfinished(scratch: &mut Scratch, ended: Option<Ended>, runner_refused: bool, test_no: u32, name: &str) {
+/// Test `test_no` ended. Notes it in `Scratch::unfinished_at` when it started and did not run to its end, or a runner
+/// step around it did not (ADR-066 amendment 7, option 1); notes the numbers it took (ADR-070 decision 3) and, in a
+/// watched codeunit, its number (ADR-070 decision 4).
+fn note_test_ended(
+    scratch: &mut Scratch,
+    session: &mut Session,
+    ended: Option<Ended>,
+    runner_refused: bool,
+    test_no: u32,
+    name: &str,
+) {
     if ended.is_some_and(|e| e != Ended::RefusedBeforeStart) || runner_refused {
         scratch.unfinished_at.push((test_no, name.to_string()));
+    }
+    super::order_hint::note_taken(scratch, session, name);
+    if scratch.watch {
+        scratch.test_numbers.push((test_no, name.to_string()));
     }
 }
 
