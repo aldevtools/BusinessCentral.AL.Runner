@@ -429,7 +429,7 @@ impl<'a, S: Space + ?Sized> Tables<'a, S> {
     }
 
     /// The routine of interface `iface` that declares procedure `name` with these parameters: its default body when a
-    /// codeunit does not declare the member (codeunits/CwDefaultInterfaceMethods.al:20-33). A member without a body is
+    /// codeunit does not declare the member (corpus:interface:"LT CW I68"/Req, corpus:interface:"LT CW I68"/Opt, corpus:interface:"LT CW I68"/Chain). A member without a body is
     /// a declaration alc makes every implementer declare, so only a default body is ever reached here.
     fn default_body(&self, iface: usize, name: &str, params: &[String]) -> Option<usize> {
         let keys = self.space.routines(iface);

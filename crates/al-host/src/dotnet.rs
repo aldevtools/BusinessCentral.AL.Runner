@@ -65,7 +65,7 @@ pub enum DotNetValue {
     /// An AL `InStream` handed to .NET: the unread bytes (section 4, streams).
     InStream(Vec<u8>),
     /// An AL `InStream` that stands after its first byte, handed to .NET: all its bytes and its read position. BC hands .NET the
-    /// Blob's own seekable stream (SgDotNetStreams.al:106-126), so .NET code can seek back before the position (Excel Buffer's
+    /// Blob's own seekable stream (corpus:"LT SG DotNet Streams"/SG_OutStreamToStream_Describe), so .NET code can seek back before the position (Excel Buffer's
     /// SelectSheetsNameStream then OpenBookStream on one InStream, al-runner issue 7134). The host's stream starts at `at`; what
     /// the host reports as consumed for it is its position in `bytes`.
     InStreamAt {
