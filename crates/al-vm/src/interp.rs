@@ -70,10 +70,13 @@ impl Session {
         if class == Class::FilterPageBuilder {
             return self.filter_page_builder_op(id, recv, &values, ret_used);
         }
-        if let (ids::CODEUNIT_RUN_1, Some(Value::Codeunit(rc))) = (id, &recv) {
-            return self.codeunit_run_noting_caller(rc.clone(), &values, ret_used, f);
+        // The receiver moves into the Run, so the run instance's reference count is the one of main.
+        match recv {
+            Some(Value::Codeunit(rc)) if id == ids::CODEUNIT_RUN_1 => {
+                self.codeunit_run_noting_caller(rc, &values, ret_used, f)
+            }
+            recv => self.codeunit_run(id, recv, &values, ret_used),
         }
-        self.codeunit_run(id, recv, &values, ret_used)
     }
 
     /// Runs the native of a builtin on evaluated operands and writes the by-reference ones back.

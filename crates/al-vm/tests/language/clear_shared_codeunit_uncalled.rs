@@ -155,6 +155,63 @@ codeunit 50112 HActivityPublic
         SalesPost.SetReg(Reg); SalesPost.Run(Row); Reg.SetCnt(5); exit(SalesPost.GetCnt());
     end;
 }
+// The owner held by more than the one variable that runs it (review of PR 9382): a parameter copy of the holder's
+// global, the test's own variable, or a SingleInstance codeunit's global.
+codeunit 50113 HShared
+{
+    var Reg: Codeunit Reg; O: Codeunit Owner;
+    procedure SetOwner(var X: Codeunit Owner) begin O := X; end;
+    procedure Post(): Integer var Row: Record Row temporary;
+    begin
+        Row."No." := 1; Row.Insert();
+        O.SetReg(Reg); O.Run(Row); Reg.SetCnt(5); exit(O.GetCnt());
+    end;
+    procedure PostByVar(): Integer begin O.SetReg(Reg); RunByVar(O); Reg.SetCnt(5); exit(O.GetCnt()); end;
+    local procedure RunByVar(var SalesPost: Codeunit Owner) var Row: Record Row temporary;
+    begin
+        Row."No." := 1; Row.Insert(); SalesPost.Run(Row);
+    end;
+    procedure PostByValue(): Integer begin O.SetReg(Reg); RunByValue(O); Reg.SetCnt(5); exit(O.GetCnt()); end;
+    local procedure RunByValue(SalesPost: Codeunit Owner) var Row: Record Row temporary;
+    begin
+        Row."No." := 1; Row.Insert(); SalesPost.Run(Row);
+    end;
+    procedure PostLocalKept(): Integer
+    var Row: Record Row temporary; LocalO: Codeunit Owner; K: Codeunit Keeper;
+    begin
+        Row."No." := 1; Row.Insert();
+        LocalO.SetReg(Reg); K.Keep(LocalO); LocalO.Run(Row); Reg.SetCnt(5); exit(LocalO.GetCnt());
+    end;
+}
+codeunit 50114 Keeper
+{
+    SingleInstance = true;
+    var Kept: Codeunit Owner;
+    procedure Keep(var X: Codeunit Owner) begin Kept := X; end;
+}
+// The owner's OnRun runs the chain on another instance of its own codeunit (review of PR 9382): 1650 runs the whole
+// chain on the instance run.
+codeunit 50115 OwnerOther
+{
+    TableNo = Row;
+    var Reg: Codeunit Reg; Other: Codeunit OwnerOther;
+    trigger OnRun() begin Other.RunWithCheck(); end;
+    internal procedure RunWithCheck() begin ClearAllVariables(); end;
+    local procedure ClearAllVariables() begin ClearAll(); end;
+    procedure SetOtherReg(var R: Codeunit Reg) begin Other.SetReg(R); end;
+    procedure SetReg(var R: Codeunit Reg) begin Reg := R; end;
+    procedure GetOtherCnt(): Integer begin exit(Other.GetCnt()); end;
+    procedure GetCnt(): Integer begin exit(Reg.GetCnt()); end;
+}
+codeunit 50116 HOther
+{
+    var Reg: Codeunit Reg; O: Codeunit OwnerOther;
+    procedure Post(): Integer var Row: Record Row temporary;
+    begin
+        Row."No." := 1; Row.Insert();
+        O.SetOtherReg(Reg); O.Run(Row); Reg.SetCnt(5); exit(O.GetOtherCnt());
+    end;
+}
 codeunit 50108 T
 {
     Subtype = Test;
@@ -210,6 +267,16 @@ codeunit 50108 T
     procedure LocalProcedureAndLocalOwner(): Text var X: Codeunit HLocalPair; begin exit(Format(X.Post())); end;
     procedure InternalWithClearAllInIt(): Text var X: Codeunit H; begin exit(Format(X.Post(7))); end;
     procedure PublicProcedureBeforeClearAll(): Text var X: Codeunit H; begin exit(Format(X.Post(8))); end;
+    procedure HolderGlobalRunThroughVarParameter(): Text var X: Codeunit HShared; begin exit(Format(X.PostByVar())); end;
+    procedure HolderGlobalRunThroughValueParameter(): Text var X: Codeunit HShared; begin exit(Format(X.PostByValue())); end;
+    procedure OwnerAlsoHeldByTheTest(): Text
+    var X: Codeunit HShared; O: Codeunit Owner;
+    begin
+        X.SetOwner(O);
+        exit(Format(X.Post()));
+    end;
+    procedure LocalOwnerAlsoHeldBySingleInstanceGlobal(): Text var X: Codeunit HShared; begin exit(Format(X.PostLocalKept())); end;
+    procedure ChainOnAnotherOwnerInstance(): Text var X: Codeunit HOther; begin exit(Format(X.Post())); end;
     procedure HolderIsALocal(): Text
     var R: Codeunit Reg; O: Codeunit Owner; Row: Record Row temporary;
     begin
@@ -284,6 +351,7 @@ fn a_never_called_register_in_an_unmeasured_holder_or_path_refuses() {
         "LocalProcedureAndLocalOwner",
         "InternalWithClearAllInIt",
         "PublicProcedureBeforeClearAll",
+        "ChainOnAnotherOwnerInstance",
     ] {
         let (got, hit) = tree(cell);
         assert_refused(
@@ -293,4 +361,22 @@ fn a_never_called_register_in_an_unmeasured_holder_or_path_refuses() {
         );
         assert!(!hit, "{cell}");
     }
+}
+
+// The owner held by another variable besides the one that runs it: a parameter copy (var or by value) of the holder's
+// global, the test's own variable set into the holder, or a SingleInstance codeunit's global beside the running local.
+// No cell of 1650 measures them; refused as main.
+#[test]
+fn a_never_called_register_whose_owner_two_variables_hold_refuses() {
+    let wrong: Vec<_> = [
+        "HolderGlobalRunThroughVarParameter",
+        "HolderGlobalRunThroughValueParameter",
+        "OwnerAlsoHeldByTheTest",
+        "LocalOwnerAlsoHeldBySingleInstanceGlobal",
+    ]
+    .into_iter()
+    .map(|cell| (cell, tree(cell)))
+    .filter(|(_, (got, hit))| *hit || !got.starts_with("refused: "))
+    .collect();
+    assert!(wrong.is_empty(), "{wrong:?}");
 }

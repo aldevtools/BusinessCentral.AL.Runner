@@ -2667,6 +2667,7 @@ impl Session {
             event: false,
             routine,
             pos: ir::NO_POS,
+            instance: Rc::as_ptr(&frame.instance),
         });
         self.profile_enter(object, routine, false);
         if self.capture.is_some() {
@@ -2872,6 +2873,9 @@ pub(crate) struct CallFrame {
     pub(crate) routine: usize,
     /// `Program::positions` id of the current statement; `NO_POS` before the first one.
     pub(crate) pos: u32,
+    /// The instance the routine runs on, compared by address only (the frame keeps the instance alive while it runs);
+    /// null for an event publisher's frame and a frame of an error's stack text.
+    pub(crate) instance: *const RefCell<Instance>,
 }
 
 /// A global passed by `var` to a running procedure call (`Session::var_alias_watch`).

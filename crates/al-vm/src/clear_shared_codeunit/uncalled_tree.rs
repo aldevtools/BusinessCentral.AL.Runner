@@ -84,8 +84,8 @@ fn access(r: &al_ir::Routine) -> Option<Access> {
 /// The call paths corpus PR 1650 measures. Each serves the never-called register the same way (the same values in every
 /// cell, on a local BC of the three supported majors). The base shape, ClearSharedCodeunitNeverCalledTree.al: the plain
 /// "CNC Holder" (:349-419) holds the register (:352) and the owner (:353) in globals and runs the owner by
-/// `SalesPost.Run(TempHeader)` (:364) from its public `Post` (:356), called from the test codeunit; "CNC Owner"'s OnRun
-/// (:294-300) reaches its ClearAll through the local "RunWithCheck" (:302) and the local "ClearAllVariables" (:313-316).
+/// `SalesPost.Run(TempHeader)` (:368) from its public `Post` (:360), called from the test codeunit; "CNC Owner"'s OnRun
+/// (:295-301) reaches its ClearAll through the local "RunWithCheck" (:303) and the local "ClearAllVariables" (:314-317).
 /// Each other row changes the facts of ClearSharedCodeunitNeverCalledShapes.al (at 03b9f669) its comment names.
 const MEASURED: [Path; 7] = [
     // The base shape (NeverCalled_OwnerClearAll_EveryGlobal :470 to NeverCalled_OwnerRunsInOnRun_ThenHolderRuns :623).
@@ -144,6 +144,11 @@ const MEASURED: [Path; 7] = [
     },
 ];
 
+/// The references to the owner instance when its `Run` begins in a measured path: the one variable that holds it (1650
+/// runs the owner only through the declared variable: ClearSharedCodeunitNeverCalledShapes.al LocalProc :617, LocalOwner
+/// :682) and the receiver moved into the Run. A parameter copy, a variable of the test or of another codeunit adds one.
+const HELD_AT_RUN: usize = 2;
+
 impl Session {
     /// `Codeunit.Run` of codeunit instance `rc` from frame `f` (`Codeunit.Run#1`), noted in `run_callers` while it runs.
     pub(crate) fn codeunit_run_noting_caller(
@@ -172,7 +177,8 @@ impl Session {
     }
 
     /// Which one variable of frame `f` declared as `rc`'s codeunit holds `rc`: exactly one global of its instance and no
-    /// declared local, or exactly one declared local (not a parameter, not the return value) and no global.
+    /// declared local, or exactly one declared local (not a parameter, not the return value) and no global; and no other
+    /// variable anywhere holds `rc` ([`HELD_AT_RUN`]).
     fn held_by(&self, f: &Frame, rc: &Rc<RefCell<Instance>>) -> Option<Held> {
         let globals = self.globals_holding(&f.instance, rc);
         let r = &self.engine.program.objects[f.object].routines[f.routine];
@@ -183,28 +189,28 @@ impl Session {
             .enumerate()
             .filter(|&(i, (v, s))| i >= r.params && r.ret_local != Some(i) && holds(v, &s.ty, rc))
             .count();
-        match (globals, locals) {
-            (1, 0) => Some(Held::HolderGlobal),
-            (0, 1) => Some(Held::RunningLocal),
+        match (Rc::strong_count(rc), globals, locals) {
+            (HELD_AT_RUN, 1, 0) => Some(Held::HolderGlobal),
+            (HELD_AT_RUN, 0, 1) => Some(Held::RunningLocal),
             _ => None,
         }
     }
 
     /// Whether the `ClearAll()` in `owner` that meets register instance `rc` runs in a call path corpus PR 1650 measures
     /// ([`MEASURED`]): in the owner's OnRun trigger through a procedure ("RunWithCheck") and the local "ClearAllVariables",
-    /// with no event frame; the OnRun entered by the statement form of `Run` of a codeunit variable, its result not used,
-    /// from a holder whose kind, entry and variable holding the owner are a measured row; and a global of that holder
-    /// declared as the register's codeunit holds `rc`.
+    /// with no event frame, each on the instance run; the OnRun entered by the statement form of `Run` of a codeunit
+    /// variable, its result not used, from a holder whose kind, entry and variable holding the owner are a measured row; and
+    /// a global of that holder declared as the register's codeunit holds `rc`.
     pub(super) fn uncalled_tree_path(&self, owner: usize, rc: &Rc<RefCell<Instance>>) -> bool {
         let Some(run) = self.run_callers.last() else {
             return false;
         };
-        let (Some(holder), Some(held)) = (run.caller.upgrade(), run.held) else {
+        let (Some(holder), Some(ran), Some(held)) = (run.caller.upgrade(), run.run.upgrade(), run.held) else {
             return false;
         };
         let holder_object = holder.borrow().object as usize;
         let n = self.call_stack.len();
-        let check = match (run.at + 3 == n).then(|| self.frame_access(n - 2, owner, false)) {
+        let check = match (run.at + 3 == n).then(|| self.frame_access(n - 2, &ran, false)) {
             Some(Some(check @ (Access::Local | Access::Internal))) => check,
             _ => return false,
         };
@@ -214,7 +220,7 @@ impl Session {
         let Some(entry) = run
             .at
             .checked_sub(1)
-            .and_then(|below| self.holder_entry(below, holder_object, &holder))
+            .and_then(|below| self.holder_entry(below, &holder))
         else {
             return false;
         };
@@ -226,8 +232,9 @@ impl Session {
         };
         !run.guarded
             && MEASURED.contains(&path)
-            && self.frame_access(n - 1, owner, false) == Some(Access::Local)
-            && self.is_on_run(run.at, owner)
+            && ran.borrow().object as usize == owner
+            && self.frame_access(n - 1, &ran, false) == Some(Access::Local)
+            && self.is_on_run(run.at, &ran)
             && self.globals_holding(&holder, rc) > 0
     }
 
@@ -243,17 +250,18 @@ impl Session {
             .count()
     }
 
-    /// How the holder (object `holder_object`, instance `holder`) reached the `Run` its frame `below` makes ([`Entry`]).
-    fn holder_entry(&self, below: usize, holder_object: usize, holder: &Rc<RefCell<Instance>>) -> Option<Entry> {
+    /// How the holder (instance `holder`, every frame of the chain on it) reached the `Run` its frame `below` makes
+    /// ([`Entry`]).
+    fn holder_entry(&self, below: usize, holder: &Rc<RefCell<Instance>>) -> Option<Entry> {
         let mut first = below;
-        while self.frame_access(first, holder_object, false) == Some(Access::Local) {
+        while self.frame_access(first, holder, false) == Some(Access::Local) {
             first = first.checked_sub(1)?;
         }
         let locals = u8::try_from(below - first).ok()?;
         let caller = first.checked_sub(1)?;
-        if self.frame_access(first, holder_object, false) == Some(Access::Public) {
+        if self.frame_access(first, holder, false) == Some(Access::Public) {
             let from_test = self.is_test_frame(caller);
-            let in_own_run = self.own_run_from_test(caller, holder_object, holder);
+            let in_own_run = self.own_run_from_test(caller, holder);
             return match (locals, from_test, in_own_run) {
                 (0, true, false) => Some(Entry::Public),
                 (0, false, true) => Some(Entry::PublicInOwnRun),
@@ -261,36 +269,38 @@ impl Session {
                 _ => None,
             };
         }
-        self.own_run_from_test(first, holder_object, holder)
+        self.own_run_from_test(first, holder)
             .then_some(Entry::OwnRunThenLocals(locals))
     }
 
-    /// Whether frame `i` is the OnRun of `holder` (object `holder_object`) that the codeunit variable run next below the
-    /// current one entered by the statement form of `Run`, its result not used, called from a test codeunit.
-    fn own_run_from_test(&self, i: usize, holder_object: usize, holder: &Rc<RefCell<Instance>>) -> bool {
+    /// Whether frame `i` is the OnRun of instance `holder` that the codeunit variable run next below the current one entered
+    /// by the statement form of `Run`, its result not used, called from a test codeunit.
+    fn own_run_from_test(&self, i: usize, holder: &Rc<RefCell<Instance>>) -> bool {
         let entered = self
             .run_callers
             .iter()
             .rev()
             .nth(1)
             .is_some_and(|r| r.at == i && !r.guarded && r.run.upgrade().is_some_and(|x| Rc::ptr_eq(&x, holder)));
-        entered && self.is_on_run(i, holder_object) && i.checked_sub(1).is_some_and(|c| self.is_test_frame(c))
+        entered && self.is_on_run(i, holder) && i.checked_sub(1).is_some_and(|c| self.is_test_frame(c))
     }
 
-    /// The access of the routine of frame `i` when it is a routine of `object`, a trigger exactly when `trigger`, not run
-    /// as an event.
-    fn frame_access(&self, i: usize, object: usize, trigger: bool) -> Option<Access> {
+    /// The access of the routine of frame `i` when it runs on `instance` (a routine of its codeunit), a trigger exactly when
+    /// `trigger`, not run as an event.
+    fn frame_access(&self, i: usize, instance: &Rc<RefCell<Instance>>, trigger: bool) -> Option<Access> {
+        let object = instance.borrow().object as usize;
         let frame = self
             .call_stack
             .get(i)
-            .filter(|f| self.frames[i] == object && !f.event)?;
+            .filter(|f| self.frames[i] == object && std::ptr::eq(f.instance, Rc::as_ptr(instance)) && !f.event)?;
         let r = &self.engine.program.objects[object].routines[frame.routine];
         (r.is_trigger == trigger).then(|| access(r))?
     }
 
-    /// Whether frame `i` runs the OnRun trigger of `object`, not as an event.
-    fn is_on_run(&self, i: usize, object: usize) -> bool {
-        self.frame_access(i, object, true).is_some()
+    /// Whether frame `i` runs the OnRun trigger of its codeunit on `instance`, not as an event.
+    fn is_on_run(&self, i: usize, instance: &Rc<RefCell<Instance>>) -> bool {
+        let object = instance.borrow().object as usize;
+        self.frame_access(i, instance, true).is_some()
             && self.engine.program.objects[object].routines[self.call_stack[i].routine]
                 .name
                 .eq_ignore_ascii_case("OnRun")
