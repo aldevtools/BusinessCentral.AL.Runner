@@ -213,6 +213,7 @@ impl Session {
             test_object: _,
             http_policy: _,
             scratch_messages: _,
+            test_local_blob_fields: _,
             tdd_reached: _,
             global_group1: _,
             // Set by the caller after the install code (al-testrun run.rs: capture, debugger).

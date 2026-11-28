@@ -1261,6 +1261,8 @@ pub struct Session {
     pub(crate) placeholder_files: placeholder_files::PlaceholderFiles,
     /// The Blob fields "Temp Blob Impl." opened a stream on (`temp_blob_impl_field.rs`).
     pub(crate) temp_blob_impl_fields: temp_blob_impl_field::TempBlobImplFields,
+    /// The Blob fields of local temporary-table records a `[Test]` method opened streams on (`temp_blob_impl_field.rs`).
+    pub(crate) test_local_blob_fields: temp_blob_impl_field::TestLocalBlobFields,
     /// The instant of the last system stamp (milliseconds since the Unix epoch).
     pub(crate) last_stamp: i64,
     /// The key and count of the draws of how far past a stamp the clock lands (`Session::stamp_millis`): the run seed's
@@ -1434,6 +1436,7 @@ impl Session {
             render_pending_files: std::collections::HashMap::new(),
             placeholder_files: Default::default(),
             temp_blob_impl_fields: Default::default(),
+            test_local_blob_fields: Default::default(),
             last_stamp: i64::MIN / 2,
             clock_key,
             clock_draws: 0,
