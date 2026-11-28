@@ -290,3 +290,34 @@ codeunit 91674 "PZR N FieldClear"
         Rep.Measured('x', Converter.ToBase64(InS, true));
     end;
 }
+
+// Review round 3 fix: the test opens the OutStream and hands it to a helper that makes the only WriteText. Main refuses
+// this; BC 28 is served flagged by the entry (the gate does not track which routine wrote).
+codeunit 91675 "PZR Handed Writer"
+{
+    procedure WriteHundred(var OutS: OutStream)
+    begin
+        OutS.WriteText(PadStr('', 100, 'A'));
+    end;
+}
+
+codeunit 91676 "PZR N HandedStream"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure WriteTextInHelperThroughHandedStream()
+    var
+        Converter: Codeunit "Base64 Convert";
+        Rep: Codeunit "PZR Report";
+        Writer: Codeunit "PZR Handed Writer";
+        OutS: OutStream;
+        InS: InStream;
+        Holder: Record "PZR Holder";
+    begin
+        Holder.Data.CreateOutStream(OutS);
+        Writer.WriteHundred(OutS);
+        Holder.Data.CreateInStream(InS);
+        Rep.Measured('x', Converter.ToBase64(InS, true));
+    end;
+}
