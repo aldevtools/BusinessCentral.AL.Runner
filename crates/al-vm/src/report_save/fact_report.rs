@@ -15,6 +15,7 @@ pub(crate) struct ReportFacts {
     pub data_items: DataItems,
     pub extensions: Extensions,
     pub triggers: Triggers,
+    pub own_layout: bool,
     pub sole_layout: bool,
     pub init_triggers: bool,
 }
@@ -58,6 +59,10 @@ pub(crate) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     };
     // corpus pull request 1579 (reports/layouts-saveas/SaveAsTriggerErrors.al): its reports declare one layout, no OnInitReport
     // and no request page; so do the processing-only report of streams/PnH6SaveAs.al:32 and the Html hash cells (`html_cell`).
+    // `ReportLayout::None`: no DefaultRenderingLayout, no DefaultLayout, no layout property and no layout section (al-sema
+    // `reports::default_layout`), so a lone WordLayout property or a rendering section without DefaultRenderingLayout is a
+    // layout of its own.
+    let own_layout = report.layout != al_ir::ReportLayout::None;
     let sole_layout = report.layout_properties.is_empty()
         && report.rendering_layouts.len() == 1
         && report.extension_layouts.is_empty();
@@ -96,6 +101,7 @@ pub(crate) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
         data_items,
         extensions,
         triggers,
+        own_layout,
         sole_layout,
         init_triggers,
     }

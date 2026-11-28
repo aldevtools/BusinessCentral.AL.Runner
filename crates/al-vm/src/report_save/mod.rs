@@ -164,6 +164,7 @@ impl Session {
             extensions: r.extensions,
             triggers: r.triggers,
             sole_layout: r.sole_layout,
+            own_layout: r.own_layout,
             init_triggers: r.init_triggers,
             custom,
             company_build: self.company_build,

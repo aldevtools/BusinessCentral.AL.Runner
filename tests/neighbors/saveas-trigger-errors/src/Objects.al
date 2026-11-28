@@ -690,6 +690,72 @@ reportextension 97123 "NBS Word Page Ext" extends "NBS Word Ext Page Rpt"
         Site: Codeunit "NBS Site";
 }
 
+// Processing-only reports that still declare a layout: a lone WordLayout property, and a rendering Word layout without
+// DefaultRenderingLayout.
+report 97124 "NBS Processing Word Prop Rpt"
+{
+    UsageCategory = None;
+    ProcessingOnly = true;
+    WordLayout = './src/NbsProcessingWord.docx';
+
+    dataset
+    {
+        dataitem(Int; Integer)
+        {
+            column(N; Number) { }
+
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+        }
+    }
+
+    trigger OnPreReport()
+    begin
+        Site.Fire(1);
+    end;
+
+    var
+        Site: Codeunit "NBS Site";
+}
+
+report 97125 "NBS Processing Rendering Rpt"
+{
+    UsageCategory = None;
+    ProcessingOnly = true;
+
+    dataset
+    {
+        dataitem(Int; Integer)
+        {
+            column(N; Number) { }
+
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+        }
+    }
+
+    rendering
+    {
+        layout(W)
+        {
+            Type = Word;
+            LayoutFile = './src/NbsProcessingRendering.docx';
+        }
+    }
+
+    trigger OnPreReport()
+    begin
+        Site.Fire(1);
+    end;
+
+    var
+        Site: Codeunit "NBS Site";
+}
+
 // The statement form, run inside Codeunit.Run so the raised error's code and text can be read afterwards.
 codeunit 97112 "NBS Statement"
 {

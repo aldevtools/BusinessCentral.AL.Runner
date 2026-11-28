@@ -158,6 +158,9 @@ pub(crate) struct Facts {
     pub data_items: DataItems,
     pub extensions: Extensions,
     pub triggers: Triggers,
+    /// The report declares a layout of its own: `ir::Report::layout` is not `ReportLayout::None` (a DefaultRenderingLayout, a
+    /// DefaultLayout, a layout property or a layout section; `fact_report`).
+    pub own_layout: bool,
     /// The report declares exactly one layout, in its `rendering` section, and no layout property, and no report extension
     /// adds a layout (`fact_report`).
     pub sole_layout: bool,
@@ -196,6 +199,7 @@ pub(crate) enum Fact {
     DataItems,
     Extensions,
     Triggers,
+    OwnLayout,
     SoleLayout,
     InitTriggers,
     Custom,
@@ -209,7 +213,7 @@ pub(crate) enum Fact {
 }
 
 impl Fact {
-    pub(crate) const ALL: [Fact; 23] = [
+    pub(crate) const ALL: [Fact; 24] = [
         Fact::Format,
         Fact::Target,
         Fact::Call,
@@ -223,6 +227,7 @@ impl Fact {
         Fact::DataItems,
         Fact::Extensions,
         Fact::Triggers,
+        Fact::OwnLayout,
         Fact::SoleLayout,
         Fact::InitTriggers,
         Fact::Custom,
@@ -257,8 +262,9 @@ impl Fact {
             Fact::Triggers => "report triggers",
             Fact::Custom => "custom layout",
             Fact::CompanyBuild => "company build",
+            Fact::OwnLayout => "a layout of its own",
             Fact::SoleLayout => "one layout only",
-            Fact::InitTriggers => "OnInitReport or request page triggers",
+            Fact::InitTriggers => "OnInitReport, request page triggers or an extended request page",
             Fact::Listed => "allow-listed",
             Fact::Selection => "layout selection",
             Fact::Stored => "stored selection row",
@@ -360,6 +366,7 @@ impl Facts {
             Fact::DataItems => self.data_items.describe(),
             Fact::Extensions => self.extensions.describe(),
             Fact::Triggers => self.triggers.describe(),
+            Fact::OwnLayout => self.own_layout.describe(),
             Fact::SoleLayout => self.sole_layout.describe(),
             Fact::InitTriggers => self.init_triggers.describe(),
             Fact::Custom => self.custom.describe(),

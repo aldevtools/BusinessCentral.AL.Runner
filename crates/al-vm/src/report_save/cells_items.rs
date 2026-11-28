@@ -49,6 +49,7 @@ fn base(answer: AnswerForm, format: Format, kind: Kind, data_items: DataItems) -
         extensions: Is(Extensions::None),
         triggers: Is(Triggers::None),
         sole_layout: K::Unread,
+        own_layout: K::Unread,
         init_triggers: K::Unread,
         custom: Is(false),
         company_build: Is(false),

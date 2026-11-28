@@ -71,6 +71,7 @@ fn base() -> Facts {
         extensions: Extensions::None,
         triggers: Triggers::None,
         sole_layout: true,
+        own_layout: true,
         init_triggers: false,
         custom: false,
         company_build: false,
@@ -273,6 +274,7 @@ fn report_save_every_fact_of_the_vector_is_in_fact_all() {
         extensions: _,
         triggers: _,
         sole_layout: _,
+        own_layout: _,
         init_triggers: _,
         custom: _,
         company_build: _,
@@ -298,6 +300,7 @@ fn report_save_every_fact_of_the_vector_is_in_fact_all() {
         Fact::Extensions,
         Fact::Triggers,
         Fact::SoleLayout,
+        Fact::OwnLayout,
         Fact::InitTriggers,
         Fact::Custom,
         Fact::CompanyBuild,
@@ -528,5 +531,40 @@ fn report_save_an_extensions_word_layout_is_not_the_default() {
         },
     ] {
         assert!(matches!(lookup::before_run(&CELLS, &f), Before::Miss(_)), "{f:?}");
+    }
+}
+
+/// The processing-only rows read "no layout of its own" (streams/PnH6SaveAs.al:32 and "SAE Processing Rpt" declare none): a
+/// processing-only report with a layout property or a layout section misses (a refusal).
+#[test]
+fn report_save_a_processing_only_report_with_a_layout_of_its_own_misses() {
+    for (format, answer) in [
+        (Format::Word, AnswerForm::Used),
+        (Format::Excel, AnswerForm::Used),
+        (Format::Html, AnswerForm::Used),
+        (Format::Word, AnswerForm::Statement),
+    ] {
+        let none = Facts {
+            format,
+            answer,
+            kind: Kind::Other,
+            decl: Decl::Legacy,
+            processing_only: true,
+            own_layout: false,
+            sole_layout: false,
+            ..base()
+        };
+        let Before::Answer(row) = lookup::before_run(&CELLS, &none) else {
+            panic!("the measured row for {none:?}")
+        };
+        assert_eq!(row.answer, Answer::Dataset);
+        let with_layout = Facts {
+            own_layout: true,
+            ..none
+        };
+        assert!(
+            matches!(lookup::before_run(&CELLS, &with_layout), Before::Miss(_)),
+            "{with_layout:?}"
+        );
     }
 }

@@ -68,6 +68,7 @@ fn base(answer: AnswerForm, format: Format, selection: Selection, stored: Stored
         extensions: Is(Extensions::None),
         triggers: Is(Triggers::None),
         sole_layout: K::Unread,
+        own_layout: K::Unread,
         init_triggers: K::Unread,
         custom: Is(false),
         selection: Is(selection),
