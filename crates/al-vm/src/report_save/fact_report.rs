@@ -5,7 +5,7 @@ use super::Schema;
 use super::facts::{DataItems, Decl, Declares, Extensions, Kind, Layout, LayoutFile, Triggers};
 
 /// What the report declares, as the cells tell it apart.
-pub(super) struct ReportFacts {
+pub(crate) struct ReportFacts {
     pub kind: Kind,
     pub layout: Layout,
     pub decl: Decl,
@@ -15,9 +15,12 @@ pub(super) struct ReportFacts {
     pub data_items: DataItems,
     pub extensions: Extensions,
     pub triggers: Triggers,
+    pub own_layout: bool,
+    pub sole_layout: bool,
+    pub init_triggers: bool,
 }
 
-pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportFacts {
+pub(crate) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportFacts {
     let report = schema.report();
     let kind = match report.default_layout_kind.as_str() {
         "rdlc" => Kind::Rdlc,
@@ -34,19 +37,7 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     };
     let extensions = match report.extensions.as_slice() {
         [] => Extensions::None,
-        [e] => match program.objects[*e].report_ext.as_ref() {
-            Some(x)
-                if x.on_pre.is_none()
-                    && x.on_post.is_none()
-                    && x.modifies.is_empty()
-                    && x.added.is_empty()
-                    && x.labels.is_empty()
-                    && !x.adds.is_empty() =>
-            {
-                Extensions::OneAddingColumns
-            }
-            _ => Extensions::Other,
-        },
+        [e] if adds_columns_only(program, *e) => Extensions::OneAddingColumns,
         _ => Extensions::Other,
     };
     let triggers = if report.on_post.is_some() {
@@ -56,6 +47,23 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     } else {
         Triggers::None
     };
+    // corpus pull request 1579 (reports/layouts-saveas/SaveAsTriggerErrors.al): its reports declare one layout, no OnInitReport
+    // and no request page; so do the processing-only report of streams/PnH6SaveAs.al:32 and the Html hash cells (`html_cell`).
+    // `ReportLayout::None`: no DefaultRenderingLayout, no DefaultLayout, no layout property and no layout section (al-sema
+    // `reports::default_layout`), so a lone WordLayout property or a rendering section without DefaultRenderingLayout is a
+    // layout of its own.
+    let own_layout = report.layout != al_ir::ReportLayout::None;
+    let sole_layout = report.layout_properties.is_empty()
+        && report.rendering_layouts.len() == 1
+        && report.extension_layouts.is_empty();
+    // A request page trigger counts also when a reportextension adds it (`ir::Page::ext_triggers`), and any extension of
+    // the request page counts, since none is measured (the runtime refuses an extension's OnInit where the page's runs,
+    // `reports/request_unshown.rs`).
+    let init_triggers = report.on_init.is_some()
+        || program.objects[schema.object]
+            .page
+            .as_ref()
+            .is_some_and(|p| !p.triggers.is_empty() || !p.ext_triggers.is_empty() || !p.extensions.is_empty());
     ReportFacts {
         kind,
         layout: if report.layout == al_ir::ReportLayout::Rdlc {
@@ -83,7 +91,23 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
         data_items,
         extensions,
         triggers,
+        own_layout,
+        sole_layout,
+        init_triggers,
     }
+}
+
+/// Whether the reportextension (object index) only adds columns to the report's data items: no trigger, data item, label or
+/// `modify`.
+fn adds_columns_only(program: &al_ir::Program, ext: usize) -> bool {
+    program.objects[ext].report_ext.as_ref().is_some_and(|x| {
+        x.on_pre.is_none()
+            && x.on_post.is_none()
+            && x.modifies.is_empty()
+            && x.added.is_empty()
+            && x.labels.is_empty()
+            && !x.adds.is_empty()
+    })
 }
 
 /// Whether every data item is as the false answers measured it (reports/html-email-body/RxdDeclFixtures.al:39-43): it declares

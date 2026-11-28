@@ -52,6 +52,7 @@ mod report_region_after_language;
 mod report_request_rec_in_init;
 mod report_save_decl_word_rdlc;
 mod report_save_html_record;
+mod report_save_trigger_error;
 mod report_saveas;
 mod report_saveas_events;
 mod report_saveas_failed_rename_held;

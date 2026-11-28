@@ -155,6 +155,15 @@ pub(crate) struct Facts {
     pub data_items: DataItems,
     pub extensions: Extensions,
     pub triggers: Triggers,
+    /// The report declares a layout of its own: `ir::Report::layout` is not `ReportLayout::None` (a DefaultRenderingLayout, a
+    /// DefaultLayout, a layout property or a layout section; `fact_report`).
+    pub own_layout: bool,
+    /// The report declares exactly one layout, in its `rendering` section, and no layout property, and no report extension
+    /// adds a layout (`fact_report`).
+    pub sole_layout: bool,
+    /// The report declares OnInitReport, or its request page declares a trigger, has a trigger a reportextension adds, or is
+    /// extended (`fact_report`).
+    pub init_triggers: bool,
     /// A layout of Type Custom renders (the dataset goes to the merger; `policy`).
     pub custom: bool,
     /// Microsoft's DemoTool builds the company (`policy`).
@@ -187,6 +196,9 @@ pub(crate) enum Fact {
     DataItems,
     Extensions,
     Triggers,
+    OwnLayout,
+    SoleLayout,
+    InitTriggers,
     Custom,
     CompanyBuild,
     Listed,
@@ -198,7 +210,7 @@ pub(crate) enum Fact {
 }
 
 impl Fact {
-    pub(crate) const ALL: [Fact; 21] = [
+    pub(crate) const ALL: [Fact; 24] = [
         Fact::Format,
         Fact::Target,
         Fact::Call,
@@ -212,6 +224,9 @@ impl Fact {
         Fact::DataItems,
         Fact::Extensions,
         Fact::Triggers,
+        Fact::OwnLayout,
+        Fact::SoleLayout,
+        Fact::InitTriggers,
         Fact::Custom,
         Fact::CompanyBuild,
         Fact::Listed,
@@ -244,6 +259,9 @@ impl Fact {
             Fact::Triggers => "report triggers",
             Fact::Custom => "custom layout",
             Fact::CompanyBuild => "company build",
+            Fact::OwnLayout => "a layout of its own",
+            Fact::SoleLayout => "one layout only",
+            Fact::InitTriggers => "OnInitReport, request page triggers or an extended request page",
             Fact::Listed => "allow-listed",
             Fact::Selection => "layout selection",
             Fact::Stored => "stored selection row",
@@ -344,6 +362,9 @@ impl Facts {
             Fact::DataItems => self.data_items.describe(),
             Fact::Extensions => self.extensions.describe(),
             Fact::Triggers => self.triggers.describe(),
+            Fact::OwnLayout => self.own_layout.describe(),
+            Fact::SoleLayout => self.sole_layout.describe(),
+            Fact::InitTriggers => self.init_triggers.describe(),
             Fact::Custom => self.custom.describe(),
             Fact::CompanyBuild => self.company_build.describe(),
             Fact::Listed => self.listed.describe(),

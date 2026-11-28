@@ -282,6 +282,8 @@ pub(crate) fn report_as_new(r: &ReportState) -> bool {
         report_quit,
         report_trigger,
         report_flow,
+        // Read only by the SaveAs whose run set it, which clears it before the run.
+        failed_trigger: _,
         flow_unwind,
         request_only_page,
         zero_date_view_failed,
