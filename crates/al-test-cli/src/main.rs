@@ -267,7 +267,14 @@ fn convert_citations(root: &Path, paths: &[PathBuf], dry_run: bool) -> Result<Ex
     let oracle_path = root.join("oracle/oracle.toml");
     let cfg = config::OracleFile::parse(&read(&oracle_path)?).map_err(|e| format!("{}: {e}", oracle_path.display()))?;
     let map = al_test_cli::base_oracle::rename_map_at_head(root, &cfg)?;
-    let rows = citation_convert::convert(root, &root.join(&cfg.corpus_repo), &map, paths, dry_run)?;
+    let rows = citation_convert::convert(
+        root,
+        &root.join(&cfg.corpus_repo),
+        &map,
+        paths,
+        citation_convert::PATH_REWRITES,
+        dry_run,
+    )?;
     print!("{}", citation_convert::summary(&rows));
     for r in &rows {
         let new = r.new.as_deref().unwrap_or("-");

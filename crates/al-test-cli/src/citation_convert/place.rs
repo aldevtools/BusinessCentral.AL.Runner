@@ -71,13 +71,19 @@ impl<'a> File<'a> {
     }
 
     /// What the line ranges name, in order and without repeats. A single line inside a test gets its cell when the
-    /// line holds one observation; a range keeps its members (its blank and comment lines name the object) and cites the
-    /// codeunit when it spans more than [`MANY_TESTS`] tests and at least half of them.
+    /// line holds one observation; a range from an object's declaration line to a line inside it names the object; any
+    /// other range keeps its members (its blank and comment lines name the object) and cites the codeunit when it spans
+    /// more than [`MANY_TESTS`] tests and at least half of them.
     pub fn targets(&self, ranges: &[(u32, u32)]) -> Result<Vec<Target>, String> {
         let mut out: Vec<Target> = Vec::new();
         for &(first, last) in ranges {
             if first == last {
                 self.lone_line(first as usize)?;
+            } else if let Some(o) = self.declared_over(first as usize, last as usize) {
+                if !out.contains(&Target::Object(o)) {
+                    out.push(Target::Object(o));
+                }
+                continue;
             }
             let mut here = Vec::new();
             for line in first..=last {
@@ -102,6 +108,14 @@ impl<'a> File<'a> {
             }
         }
         Ok(out)
+    }
+
+    /// The object whose declaration is on line `first` and that holds line `last`: a range over it names the object.
+    fn declared_over(&self, first: usize, last: usize) -> Option<usize> {
+        let line_of = |at: usize| self.starts.partition_point(|&s| s <= at);
+        self.objects
+            .iter()
+            .position(|o| line_of(o.span.start) == first && last <= line_of(o.span.end.saturating_sub(1)))
     }
 
     /// A single cited line that names nothing by itself (blank, or a lone brace) is an error: the line count was
@@ -309,6 +323,21 @@ table 50101 \"LT Place Table\"
         assert_eq!(
             t(&[(9, 9), (20, 20)]),
             Ok(vec![member(0, Some("'one'")), member(2, None)])
+        );
+    }
+
+    /// A range from an object's declaration line to a line inside it names the object, not the members it touches
+    /// (`Y19PermObjects.al:9-27` is the whole table "LT Y19 Row"; hand check of PR 9454, round 1).
+    #[test]
+    fn a_range_from_the_declaration_line_names_the_object() {
+        assert_eq!(t(&[(2, 22)]), Ok(vec![Target::Object(0)]));
+        assert_eq!(t(&[(2, 7)]), Ok(vec![Target::Object(0)]));
+        // Past the object's end: as before (here the blank line between the objects is an error).
+        assert!(t(&[(2, 24)]).unwrap_err().contains("line 23 is outside every object"));
+        // Not from the declaration line: the members.
+        assert_eq!(
+            t(&[(3, 22)]),
+            Ok(vec![member(0, None), member(1, None), member(2, None)])
         );
     }
 

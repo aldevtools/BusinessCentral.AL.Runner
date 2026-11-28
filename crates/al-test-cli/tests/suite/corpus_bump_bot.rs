@@ -652,23 +652,40 @@ fn commit_takes_rewritten_citation_lines_and_refuses_other_code_changes() {
     let token = |name: &str| format!("{}:\"{name}\"/A", "corpus");
     let r = runner();
     let p = r.dir.path();
+    let shapes = format!("{}:table:\"S\", {}:\"LT Old\"/A#'x'", "corpus", "corpus");
     put(
         p,
         "crates/x/src/a.rs",
-        &format!("fn a() {{}}\n// pinned ({})\n", token("LT Old")),
+        &format!("fn a() {{}}\n// pinned ({}) and {shapes}\n", token("LT Old")),
     );
     git(p, &["add", "-A"]);
     git(p, &["commit", "-qm", "cite"]);
     bump_files(&r);
+    // Every shape of the token: a kind, a quoted member, a cell with a doubled quote.
+    let shapes = format!("{}:table:\"T\", {}:\"LT New\"/\"A B\"#'it''s'", "corpus", "corpus");
     put(
         p,
         "crates/x/src/a.rs",
-        &format!("fn a() {{}}\n// pinned ({})\n", token("LT New")),
+        &format!("fn a() {{}}\n// pinned ({}) and {shapes}\n", token("LT New")),
     );
     let o = commit(&r, &r.corpus.c.clone());
     assert!(o.status.success(), "{}", text(&o));
     let files = git(p, &["show", "--name-only", "--format=", "HEAD"]);
     assert!(files.lines().any(|l| l == "crates/x/src/a.rs"), "{files}");
+    // Code changed on a line that holds a token is no rewrite either: refused (review r1 of PR 9454, L2). So is a token
+    // line added or removed, not rewritten.
+    for (before, after) in [("let x = 1; // ", "let x = 2; // "), ("", "fn evil() {}\n// ")] {
+        let r = runner();
+        let p = r.dir.path();
+        put(p, "crates/x/src/c.rs", &format!("{before}{}\n", token("LT Old")));
+        git(p, &["add", "-A"]);
+        git(p, &["commit", "-qm", "cite"]);
+        bump_files(&r);
+        put(p, "crates/x/src/c.rs", &format!("{after}{}\n", token("LT New")));
+        let o = commit(&r, &r.corpus.c.clone());
+        assert!(!o.status.success(), "{after}: {}", text(&o));
+        assert!(text(&o).contains("crates/x/src/c.rs"), "{}", text(&o));
+    }
     // A change of a line without a token is no rewrite: refused.
     let r = runner();
     let p = r.dir.path();

@@ -1,18 +1,20 @@
-//! `--convert-citations PATH`: rewrites old corpus citations (`File.al:line`, `old.rs`) under PATH into citation tokens
+//! `--convert-citations PATH`: rewrites old corpus citations (`File.al:line`, `citation_old.rs`) under PATH into citation tokens
 //! by name (ADR-065 amendment 2, step 3 of the corpus-detach plan). Each citation is read at the corpus pin of the
-//! commit that wrote its line (`git blame`): the file at that pin, the line mapped to what it names there (`place.rs`),
+//! commit that wrote it (`history.rs`): the file at that pin, the line mapped to what it names there (`place.rs`),
 //! then carried to the checked-out pin by object id and the rename map (`citation::carry`) and checked there
 //! (`citation::resolve`). What does not map is listed for a hand fix and left as it is; the run is deterministic and
-//! can be repeated (a converted line holds no old citation). The module goes once every crate is converted.
+//! can be repeated (a converted line holds no old citation). The module goes once every crate is converted; the old-form
+//! parser `citation_old.rs` stays for the check that none is left.
 //! Entry points: `convert`, `summary`.
 
 mod history;
-mod old;
 mod place;
 
 use crate::citation::{self, Citation, Corpus, Resolved, Status};
+use crate::citation_old as old;
 use crate::rename_map::RenameMap;
-use history::{At, Repo};
+use history::{At, First, Next, Repo};
+use old::line_of;
 use place::{File, Target};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -94,16 +96,26 @@ pub struct Row {
     pub note: String,
 }
 
+/// The runner commits that rewrote the paths of old citations and nothing else (`tools/rewrite_paths.py`, the corpus
+/// restructure of 2026-11-04): a citing line they changed was written before them, at an older pin.
+pub const PATH_REWRITES: &[&str] = &[
+    "3e173ef2a50dc88abb732f891cf3bdae61a214d5",
+    "00aa3c950d0c65764c94eadc8529aa07e658f849",
+    "e30c77a65b245e1b887cda70af257a77d3809e7b",
+];
+
 /// Converts the old citations of the files under `paths` (relative to `root`; files or folders). `corpus` is the
-/// corpus checkout (the pin citations are carried to), `map` its rename map. Writes the files unless `dry_run`.
+/// corpus checkout (the pin citations are carried to), `map` its rename map, `rewrites` the commits that only rewrote
+/// citation paths ([`PATH_REWRITES`]). Writes the files unless `dry_run`.
 pub fn convert(
     root: &Path,
     corpus: &Path,
     map: &RenameMap,
     paths: &[PathBuf],
+    rewrites: &[&str],
     dry_run: bool,
 ) -> Result<Vec<Row>, String> {
-    let repo = Repo::open(root, corpus)?;
+    let repo = Repo::open(root, corpus, rewrites)?;
     let new = crate::citation_scan::corpus_at_checkout(corpus)?;
     let files = citing_files(root, paths)?;
     let found: Vec<Found> = files
@@ -125,7 +137,7 @@ pub fn convert(
     for f in &found {
         for (c, p) in f.cites.iter().zip(&f.pins) {
             let Some(cited) = cited_file(c, &f.cites) else { continue };
-            for pin in [&p.first, &p.blame] {
+            for pin in [p.first.as_ref().ok(), Some(&p.blame)].into_iter().flatten() {
                 located
                     .entry((pin.clone(), cited.to_string()))
                     .or_insert_with(|| repo.locate(pin, cited));
@@ -133,11 +145,11 @@ pub fn convert(
         }
     }
     let mut wanted: BTreeSet<At> = located.values().filter_map(|r| r.as_ref().ok().cloned()).collect();
-    let next: BTreeMap<At, At> = wanted
-        .iter()
-        .filter_map(|a| repo.next_change(a).map(|n| (a.clone(), n)))
-        .collect();
-    wanted.extend(next.values().cloned());
+    let next: BTreeMap<At, Next> = wanted.iter().map(|a| (a.clone(), repo.next_change(a))).collect();
+    wanted.extend(next.values().filter_map(|n| match n {
+        Next::Changed(a) => Some(a.clone()),
+        _ => None,
+    }));
     let wanted: Vec<At> = wanted.into_iter().collect();
     let requests: Vec<String> = wanted.iter().map(|a| format!("{}:{}", a.pin, a.path)).collect();
     let texts = crate::citation_scan::cat_files(corpus, &requests)?;
@@ -171,37 +183,31 @@ struct Found {
 
 /// The corpus pins one old citation is read at.
 struct Pins {
-    /// The pin of the first commit whose added line holds the citation (`Repo::pickaxe_pins`), else `blame`.
-    first: String,
+    /// The pin of the first commit whose added line writes the citation's key, else of the blamed commit, either followed
+    /// across a move from another file (`Repo::first_pins`); else `blame`. Why that commit cannot be told.
+    first: Result<String, String>,
     /// The pin of the commit that last changed the citing line.
     blame: String,
 }
 
-/// The pins of each citation of a file. The text the first commit is looked up by: a file citation's own text, a
-/// bare continuation's whole line (`:12` alone is in too many lines).
+/// The pins of each citation of a file.
 fn cite_pins(repo: &Repo, path: &Path, text: &str, cites: &[old::OldCite]) -> Result<Vec<Pins>, String> {
     let lines: Vec<usize> = cites.iter().map(|c| line_of(text, c.at.start)).collect();
-    let blame = repo.blame_pins(path, &lines.iter().copied().collect())?;
-    let keys: Vec<String> = cites
-        .iter()
-        .map(|c| {
-            if c.bare {
-                citing_line(text, c).trim().to_string()
-            } else {
-                text[c.at.clone()].to_string()
-            }
-        })
-        .collect();
-    let first = repo.pickaxe_pins(path, &keys.iter().cloned().collect())?;
-    Ok(keys
+    let blamed = repo.blame(path, &lines.iter().copied().collect())?;
+    let blamed: Vec<_> = lines.iter().map(|l| blamed[l].clone()).collect();
+    let keys: Vec<old::Key> = (0..cites.len()).map(|k| old::Key::of(text, cites, k)).collect();
+    let commits: Vec<Option<String>> = blamed.iter().map(|b| b.commit.clone()).collect();
+    let first = repo.first_pins(path, &keys, &commits)?;
+    Ok(first
         .into_iter()
-        .zip(&lines)
-        .map(|(k, line)| {
-            let blame = blame[line].clone();
-            Pins {
-                first: first.get(&k).cloned().unwrap_or_else(|| blame.clone()),
-                blame,
-            }
+        .zip(blamed)
+        .map(|(f, b)| Pins {
+            first: match f {
+                First::Pin(p) => Ok(p),
+                First::Unwritten => Ok(b.pin.clone()),
+                First::Lost(why) => Err(why),
+            },
+            blame: b.pin,
         })
         .collect())
 }
@@ -214,13 +220,6 @@ fn cited_file<'c>(c: &old::OldCite, cites: &'c [old::OldCite]) -> Option<&'c str
         cites.iter().find(|x| x.at == c.at)?
     };
     (c.in_comment && f.in_comment).then_some(f.path.as_str())
-}
-
-/// The text line that holds citation `c`.
-fn citing_line<'t>(text: &'t str, c: &old::OldCite) -> &'t str {
-    let start = text[..c.at.start].rfind('\n').map_or(0, |i| i + 1);
-    let end = text[c.at.start..].find('\n').map_or(text.len(), |i| c.at.start + i);
-    &text[start..end]
 }
 
 /// An old citation's replacement `new` after the prose `before`, without repeating the prose: `corpus File.al:3` gives
@@ -279,11 +278,6 @@ fn quoted(quotes: &[String], cell: &str) -> bool {
         .any(|q| q == cell || q.as_str() == cell.trim_matches('\''))
 }
 
-/// The 1-based line of byte `at`.
-fn line_of(text: &str, at: usize) -> usize {
-    text[..at].matches('\n').count() + 1
-}
-
 /// The UTF-8 files under `paths` that may hold an old citation (`.al` in the text), generated files skipped.
 fn citing_files(root: &Path, paths: &[PathBuf]) -> Result<Vec<(PathBuf, String)>, String> {
     let mut files = Vec::new();
@@ -324,7 +318,7 @@ struct Ctx<'a> {
     map: &'a RenameMap,
     located: &'a BTreeMap<(String, String), Result<At, Class>>,
     /// Per located file: the next pin that changed it.
-    next: &'a BTreeMap<At, At>,
+    next: &'a BTreeMap<At, Next>,
     parsed: &'a BTreeMap<&'a At, File<'a>>,
 }
 
@@ -341,7 +335,7 @@ impl Ctx<'_> {
                 _ if !c.in_comment => Err((Class::InCode, String::new())),
                 _ if c.doubt.is_some() => Err((Class::HandFix, c.doubt.unwrap_or_default().into())),
                 None => Err((Class::Orphan, String::new())),
-                Some(cited) => self.checked(pins, cited, c, &quotes(citing_line(text, c))),
+                Some(cited) => self.checked(pins, cited, c, &quotes(c.line_in(text))),
             })
             .collect();
         // A group (a file citation and its continuations) with a hand fix stays whole.
@@ -389,26 +383,52 @@ impl Ctx<'_> {
     fn at(&self, pin: &str, cited: &str) -> Result<&At, (Class, String)> {
         match &self.located[&(pin.to_string(), cited.to_string())] {
             Ok(at) => Ok(at),
-            Err(Class::HandFix) => Err((Class::HandFix, format!("`{cited}` names several corpus files"))),
+            Err(Class::HandFix) => Err((
+                Class::HandFix,
+                format!("pin {} has no one corpus file `{cited}`", short(pin)),
+            )),
             Err(class) => Err((*class, String::new())),
         }
     }
 
     /// The tokens of citation `c` read at its first pin, when the same lines name the same at the blame pin and at the
     /// next pin that changed the file (review r1 of PR 9432, step-3 note 2), with the file and pin read; a hand fix
-    /// otherwise. A member cited by name is read at the first pin only: a name does not drift with the lines, and a
-    /// later rename is what `citation::carry` follows.
+    /// otherwise, also when one of those pins cannot be read (review r1 of PR 9454, M1). A member cited by name is read
+    /// at the first pin only: a name does not drift with the lines, and a later rename is what `citation::carry` follows.
     fn checked(&self, pins: &Pins, cited: &str, c: &old::OldCite, quotes: &[String]) -> Outcome {
-        let at = self.at(&pins.first, cited)?;
+        let first = pins.first.as_ref().map_err(|why| (Class::HandFix, why.clone()))?;
+        let at = self.at(first, cited)?;
         let (token, class) = self.one(at, c, quotes)?;
-        let blame = (pins.blame != pins.first)
-            .then(|| self.at(&pins.blame, cited).ok())
-            .flatten();
-        let others = [
-            ("the blame pin", blame),
-            ("the next pin that changed the file", self.next.get(at)),
-        ];
-        for (what, other) in others.into_iter().filter(|_| c.member.is_none()) {
+        if c.member.is_some() {
+            return Ok((token, class, format!("read at {} at {}", at.path, short(&at.pin))));
+        }
+        let unread = |what: &str, why: String| (Class::HandFix, format!("{what} cannot be read: {why}"));
+        let blame = match (pins.blame != *first).then(|| self.at(&pins.blame, cited)) {
+            None => None,
+            Some(Ok(b)) => Some(b),
+            Some(Err((_, why))) => {
+                return Err(unread(
+                    &format!("the blame pin ({})", short(&pins.blame)),
+                    if why.is_empty() {
+                        format!("it has no `{cited}`")
+                    } else {
+                        why
+                    },
+                ));
+            }
+        };
+        let next = match &self.next[at] {
+            Next::Same => None,
+            Next::Changed(n) => Some(n),
+            Next::Lost(last) => {
+                return Err((
+                    Class::HandFix,
+                    format!("{} cannot be followed after {}", at.path, short(last)),
+                ));
+            }
+        };
+        let others = [("the blame pin", blame), ("the next pin that changed the file", next)];
+        for (what, other) in others {
             let Some(o) = other else { continue };
             let t = match self.one(o, c, quotes) {
                 Ok((t, _)) => t,

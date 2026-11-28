@@ -1,8 +1,9 @@
-//! The old corpus citation form that `--convert-citations` replaces: `[path/]File.al`, optionally with lines
+//! The old corpus citation form that `--convert-citations` replaces, and its one parser: `[path/]File.al`, optionally with lines
 //! (`:12`, `:12-14`, `:273,312`, `:29, :59`, `:12 and :20`), and the bare `:line` continuations that cite more lines of
 //! a nearby `File.al` in the same text (`... (Foo.al:12) ... it is not 1 (:168)`). In a Rust file only comments are
-//! read: a path in a string literal is code (`include_str!`, gate evidence) or a registry text, and stays.
-//! Entry point: `find`.
+//! read: a path in a string literal is code (`include_str!`, gate evidence) or a registry text, and stays. `Key` is what
+//! a citation is looked up by in the runner history. This module stays when the converter goes: the check that no old
+//! citation is left uses `find`. Entry points: `find`, `Key`.
 
 use std::collections::BTreeSet;
 use std::ops::Range;
@@ -87,7 +88,10 @@ pub fn find(text: &str, form: Form) -> Vec<OldCite> {
         // `File.al:12:5` (no list), `File.al:Pk*_Order` (a pattern of names), or a list whose next part does not read.
         let odd = match (&member, lines.is_empty()) {
             (Some(_), _) => b.get(end) == Some(&b'*'),
-            (None, true) => b.get(dot + 3) == Some(&b':') && b.get(dot + 4).is_some_and(u8::is_ascii_digit),
+            (None, true) => {
+                (b.get(dot + 3) == Some(&b':') && b.get(dot + 4).is_some_and(u8::is_ascii_digit))
+                    || [" line ", " lines "].iter().any(|p| digit_after(text, dot + 3, p))
+            }
             (None, false) => unread_rest(text, end),
         };
         out.push(OldCite {
@@ -139,6 +143,111 @@ pub fn find(text: &str, form: Form) -> Vec<OldCite> {
         .collect()
 }
 
+/// What a citation is looked up by in the runner history (`citation_convert`): for a file citation its file name,
+/// lines and member, which a rewrite of its folders keeps; for a bare continuation (`:12` alone is in too many lines)
+/// its whole line with every cited path cut to its file name, trimmed.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Key {
+    Cite(Cited),
+    Line(String),
+}
+
+/// A file citation without its folders: the file name, the lines and the member.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Cited {
+    name: String,
+    lines: Vec<(u32, u32)>,
+    member: Option<String>,
+}
+
+/// What one line of text writes, in the form [`Key`] compares.
+pub struct Written {
+    cites: Vec<Cited>,
+    line: String,
+}
+
+impl Key {
+    /// The key of citation `k` of `cites`, found in `text`.
+    pub fn of(text: &str, cites: &[OldCite], k: usize) -> Key {
+        let c = &cites[k];
+        if c.bare {
+            let line = c.line_in(text);
+            Key::Line(names_only(line, &find(line, Form::Prose)))
+        } else {
+            Key::Cite(Cited::of(c))
+        }
+    }
+
+    /// Whether `w` writes this key: the same file name, lines and member in one of its citations (a whole citation, so
+    /// `Foo.al:12` is not `Foo.al:123` or `XFoo.al:12`), or the same line.
+    pub fn written_in(&self, w: &Written) -> bool {
+        match self {
+            Key::Cite(c) => w.cites.contains(c),
+            Key::Line(l) => w.line == *l,
+        }
+    }
+}
+
+impl Cited {
+    fn of(c: &OldCite) -> Cited {
+        Cited {
+            name: file_name(&c.path).to_string(),
+            lines: c.lines.clone(),
+            member: c.member.clone(),
+        }
+    }
+}
+
+impl Written {
+    pub fn of(line: &str) -> Written {
+        if !line.contains(".al") {
+            return Written {
+                cites: Vec::new(),
+                line: line.trim().to_string(),
+            };
+        }
+        let found = find(line, Form::Prose);
+        Written {
+            cites: found.iter().filter(|c| !c.bare).map(Cited::of).collect(),
+            line: names_only(line, &found),
+        }
+    }
+}
+
+/// `line` with each cited path (of `cites`, its citations) cut to its file name, trimmed.
+fn names_only(line: &str, cites: &[OldCite]) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut last = 0;
+    for c in cites.iter().filter(|c| !c.bare) {
+        out.push_str(&line[last..c.at.start]);
+        out.push_str(file_name(&c.path));
+        last = c.at.start + c.path.len();
+    }
+    out.push_str(&line[last..]);
+    out.trim().to_string()
+}
+
+/// The file name of a cited path (`record/X/TFoo.al` gives `TFoo.al`).
+fn file_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+impl OldCite {
+    /// The text line of `text` that holds this citation.
+    pub fn line_in<'t>(&self, text: &'t str) -> &'t str {
+        let start = text[..self.at.start].rfind('\n').map_or(0, |i| i + 1);
+        let end = text[self.at.start..]
+            .find('\n')
+            .map_or(text.len(), |i| self.at.start + i);
+        &text[start..end]
+    }
+}
+
+/// The 1-based line of byte `at`.
+pub fn line_of(text: &str, at: usize) -> usize {
+    text[..at].matches('\n').count() + 1
+}
+
 /// The doubt of a citation whose line list does not read to its end.
 const UNREAD: &str = "the text after the path does not read as a line list";
 
@@ -156,17 +265,25 @@ fn member_at(text: &str, at: usize) -> Option<String> {
         .then(|| name.to_string())
 }
 
-/// Whether a line list ending at `end` is followed by a part that does not read (`,86-90:`).
+/// Whether a line list ending at `end` is followed by a part that names more lines but does not read: a list
+/// separator (`,86-90:`), or `, 20`, ` and 20`, ` or 20`, ` or :20`, `/:20`, `/20` (review r1 of PR 9454, H2).
 fn unread_rest(text: &str, end: usize) -> bool {
     next_range(text, end).is_some()
+        || [", ", " and ", " or ", " or :", "/:", "/"]
+            .iter()
+            .any(|p| digit_after(text, end, p))
+}
+
+/// Whether `text` holds `p` at `at`, then a digit.
+fn digit_after(text: &str, at: usize, p: &str) -> bool {
+    text[at..].starts_with(p) && text.as_bytes().get(at + p.len()).is_some_and(u8::is_ascii_digit)
 }
 
 /// The byte after a list separator at `at` that a digit follows (`,20` with no space, `, :20`, `,:20`, ` and :20`).
 fn next_range(text: &str, at: usize) -> Option<usize> {
-    [",", ", :", ",:", " and :"].iter().find_map(|p| {
-        let j = at + p.len();
-        (text[at..].starts_with(p) && text.as_bytes().get(j).is_some_and(u8::is_ascii_digit)).then_some(j)
-    })
+    [",", ", :", ",:", " and :"]
+        .iter()
+        .find_map(|p| digit_after(text, at, p).then_some(at + p.len()))
 }
 
 /// The byte ranges of the comment lines of a data file: lines that start with `#` or `//` after blanks.
@@ -266,7 +383,7 @@ fn bare_starts(text: &str, files: &[OldCite]) -> Vec<usize> {
 /// [`BARE_AFTER`] lines above it: which one it continues is unclear (a doubt), unless it continues a list, on the line of
 /// the citation before it or the next line (that citation its file or a bare line without a doubt).
 fn attach(text: &str, cites: &mut [OldCite], files: usize) {
-    let line = |at: usize| super::line_of(text, at);
+    let line = |at: usize| line_of(text, at);
     let file_lines: Vec<usize> = cites[..files].iter().map(|c| line(c.at.start)).collect();
     // The bare line before: its byte, its line and whether it has a doubt.
     let mut last: Option<(usize, usize, bool)> = None;
@@ -278,10 +395,7 @@ fn attach(text: &str, cites: &mut [OldCite], files: usize) {
         let before = near_above.last().copied();
         let after = || (0..files).find(|&f| cites[f].at.start > at && file_lines[f] <= l + BARE_BEFORE);
         cites[k].parent = before.or_else(after);
-        let above: BTreeSet<&str> = near_above
-            .iter()
-            .map(|&f| cites[f].path.rsplit('/').next().unwrap_or_default())
-            .collect();
+        let above: BTreeSet<&str> = near_above.iter().map(|&f| file_name(&cites[f].path)).collect();
         let in_list = match (before, last) {
             (Some(f), Some((prev, bl, doubt))) if prev > cites[f].at.start => !doubt && bl + 1 >= l,
             (Some(f), _) => file_lines[f] + 1 >= l,
@@ -484,5 +598,74 @@ mod tests {
             ("F.al:5", true),
         ];
         assert_eq!(got.iter().map(|(s, b)| (s.as_str(), *b)).collect::<Vec<_>>(), want);
+    }
+
+    /// Review r1 of PR 9454, H2: a tail that names more lines than the list read is a hand fix, never a partial token.
+    #[test]
+    fn a_tail_that_names_more_lines_marks_the_citation() {
+        let tails = [
+            "A.al:12, 20.",
+            "A.al:380-447, 566-605, 640-670.",
+            "A.al:12 and 20",
+            "A.al:10-16 and 36",
+            "A.al:12 or 20",
+            "A.al:12 or :20",
+            "A.al:958/:1184",
+            "A.al:958/1184",
+            "A.al line 5",
+            "A.al lines 2591-2600",
+        ];
+        // The file citation has the doubt (` or :20` is also a bare continuation of it; a group with a hand fix stays whole).
+        for t in tails {
+            let got = find(t, Form::Prose);
+            assert_eq!(got[0].doubt, Some(UNREAD), "{t}: {got:?}");
+        }
+        // A bare continuation with such a tail.
+        let got = find("// A.al:3 then (:12, 20)\n", Form::Rust);
+        assert_eq!(got[1].doubt, Some(UNREAD), "{got:?}");
+        // Prose after a list or a path that names no line.
+        for t in [
+            "A.al:12, the test",
+            "A.al:12 and the rest",
+            "A.al:12/x",
+            "A.al lines up",
+            "A.al:12.",
+        ] {
+            assert_eq!(find(t, Form::Prose)[0].doubt, None, "{t}");
+        }
+    }
+
+    /// Review r1 of PR 9454, H1 and L4: the key a citation is looked up by in the history is its file name and line
+    /// list (a path rewrite does not change it), matched whole: `Foo.al:12` is not `Foo.al:123` or `XFoo.al:12`.
+    #[test]
+    fn a_key_matches_the_same_file_name_and_lines_only() {
+        let text = "// see types/Foo.al:12, ok";
+        let k = Key::of(text, &find(text, Form::Rust), 0);
+        let has = |line: &str| k.written_in(&Written::of(line));
+        assert!(has("// old/path/Foo.al:12 here"));
+        assert!(has("+Foo.al:12"));
+        for line in [
+            "// Foo.al:123",
+            "// XFoo.al:12",
+            "// Foo.al:12-14",
+            "// Bar.al:12",
+            "// Foo.al:Name",
+        ] {
+            assert!(!has(line), "{line}");
+        }
+        // A bare continuation: its whole line with the paths as file names, equal after trimming.
+        let text = "    // app/Foo.al:12, not 1 (:168)";
+        let cites = find(text, Form::Rust);
+        let k = Key::of(text, &cites, 1);
+        let has = |line: &str| k.written_in(&Written::of(line));
+        assert!(has("// Foo.al:12, not 1 (:168)"));
+        assert!(has("  // x/y/Foo.al:12, not 1 (:168)  "));
+        for line in [
+            "// Foo.al:12, not 1 (:1680)",
+            "// Foo.al:12, not 1 (:168) more",
+            "// :168",
+        ] {
+            assert!(!has(line), "{line}");
+        }
     }
 }

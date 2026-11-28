@@ -105,12 +105,28 @@ allowed() {
   return 1
 }
 
-# Whether every line the working tree changed in file $2 of repository $1 holds a citation token by name
-# (`corpus:"..."` or `corpus:<kind>:"..."`, ADR-065 amendment 2): a file the citation rewrite of the bump wrote.
+# Whether the working tree changed file $2 of repository $1 only in its citation tokens by name (ADR-065 amendment 2;
+# the form `Citation`'s Display in crates/al-test-cli/src/citation.rs writes): each hunk replaces as many lines as it
+# removes, each line holds a token, and each removed line equals its replacement once the tokens are cut out. So a file
+# the citation rewrite of the bump wrote, with no other change on a token's line.
 citations_only() { # repository, path
-  local changed
-  changed="$(git -C "$1" diff -U0 --no-color -- "$2" | grep -E '^[-+]' | grep -Ev '^(\+\+\+|---) ' || true)"
-  [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -Evq 'corpus:([a-z]+:)?"'
+  git -C "$1" diff -U0 --no-color -- "$2" | python3 -c '
+import re, sys
+token = re.compile(r"""corpus(-pr[0-9]+)?:([a-z]+:)?"[^"]*"(/("[^"]*"|[A-Za-z_][A-Za-z0-9_]*))?(#\x27([^\x27]|\x27\x27)*\x27)?""")
+hunks, cur = [], None
+for l in sys.stdin.read().splitlines():
+    if l.startswith("@@"):
+        cur = ([], [])
+        hunks.append(cur)
+    elif cur is not None and l.startswith("-"):
+        cur[0].append(l[1:])
+    elif cur is not None and l.startswith("+"):
+        cur[1].append(l[1:])
+ok = bool(hunks) and all(
+    len(old) == len(new) and all(token.search(a) and token.search(b) and token.sub("", a) == token.sub("", b)
+                                 for a, b in zip(old, new))
+    for old, new in hunks)
+sys.exit(0 if ok else 1)'
 }
 
 commit_bump() { # repository, commit, run

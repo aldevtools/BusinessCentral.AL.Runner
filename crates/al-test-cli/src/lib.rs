@@ -17,6 +17,7 @@ pub mod behavior_coverage;
 pub mod cell_report;
 pub mod citation;
 pub mod citation_convert;
+pub mod citation_old;
 pub mod citation_scan;
 pub mod config;
 pub mod corpus;
