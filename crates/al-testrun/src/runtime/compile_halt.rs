@@ -181,6 +181,7 @@ fn halted(
     CorpusRuntime {
         outcomes,
         times: Default::default(),
+        default_order: Default::default(),
         suites: suites.iter().map(|s| s.name.clone()).collect(),
         panics: 0,
         phases: Phases {

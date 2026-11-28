@@ -1020,6 +1020,7 @@ impl CorpusRuntime {
             return CorpusRuntime {
                 outcomes: Default::default(),
                 times: Default::default(),
+                default_order: Default::default(),
                 suites: suites.iter().map(|s| s.name.clone()).collect(),
                 panics: 0,
                 phases: Phases {
@@ -1839,6 +1840,7 @@ impl CorpusRuntime {
         CorpusRuntime {
             outcomes,
             times: times_by_case,
+            default_order: Default::default(),
             suites,
             panics,
             phases: Phases {
@@ -2086,6 +2088,12 @@ impl CorpusRuntime {
         let picked =
             |suites: &[String], si: usize, cu: u32| suites.get(si).is_some_and(|s| listed.contains(&(s.clone(), cu)));
         let suites = self.suites.clone();
+        self.default_order = self
+            .outcomes
+            .iter()
+            .filter(|((si, cu, _), _)| picked(&suites, *si, *cu))
+            .map(|(k, o)| (k.clone(), o.clone()))
+            .collect();
         self.outcomes.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
         self.times.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
         self.marks.retain(|(si, cu, _), _| !picked(&suites, *si, *cu));
@@ -2107,6 +2115,17 @@ impl CorpusRuntime {
                 }
             }
         }
+    }
+
+    /// The outcome `case` had in this run's default order before [`adopt_cases`](Self::adopt_cases) gave it the
+    /// strict run's (ADR-070 decision 5): in the run named `suite`, the first run when `None`. `None` when the case was
+    /// not adopted or the default run recorded nothing for it.
+    pub fn default_order_recorded(&self, suite: Option<&str>, case: &CaseId) -> Option<Outcome> {
+        let si = match suite {
+            Some(name) => self.suites.iter().position(|s| s == name)?,
+            None => 0,
+        };
+        super::case_lookup::find(&self.default_order, si, case.codeunit, &case.name.to_lowercase())
     }
 
     /// The outcome of `case` in the first run (the main corpus app, or the only run).

@@ -374,6 +374,9 @@ fn a_default_run_takes_the_outcomes_of_listed_codeunits_from_a_strict_run() {
     assert_eq!(rt.outcome_in("", &case("ReadsTheFlag", 60472)), Outcome::Pass);
     assert!(rt.assumptions_in("", &case("ReadsTheFlag", 60472)).is_empty());
     assert_eq!(rt.outcome_in("", &case("SetsTheFlag", 60471)), Outcome::Pass);
+    // Al-runner issue 8943: the default-order outcome stays readable after the strict one replaced it.
+    assert!(matches!(rt.default_order_recorded(None, &case("ReadsTheFlag", 60472)), Some(Outcome::Fail(_))));
+    assert_eq!(rt.default_order_recorded(None, &case("SetsTheFlag", 60471)), Some(Outcome::Pass));
 }
 
 /// The same over one compile: `RunOptions::strict_after` runs the listed codeunits again inside the run, so the pass

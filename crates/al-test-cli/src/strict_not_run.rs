@@ -20,6 +20,19 @@ use crate::oracle::{CaseId, OracleCase};
 use crate::report::Outcome;
 use std::collections::BTreeSet;
 
+/// The switch of the run in BC's order: `AL_STRICT_ORDER_ALL=1` is on, unset is off; any other value is an error
+/// (al-runner issue 8948: `=0` used to count as on).
+pub fn switch(value: Option<&std::ffi::OsStr>) -> Result<bool, String> {
+    match value.map(|v| v.to_str()) {
+        None => Ok(false),
+        Some(Some("1")) => Ok(true),
+        Some(v) => Err(format!(
+            "AL_STRICT_ORDER_ALL is {}: set it to 1 to run every pass in BC's order, or unset it",
+            v.unwrap_or("not UTF-8")
+        )),
+    }
+}
+
 /// The strict list of BC major `major`, relative to the repository root.
 pub fn path(major: u16) -> String {
     format!("metrics/{major}/strict-order-not-run.txt")
@@ -126,6 +139,16 @@ mod tests {
     /// The default list with `Fails` too, for the tests about another case.
     fn with_fails() -> BTreeSet<CaseId> {
         set(&[(1, "Fails"), (1, "DefaultFails"), (1, "DefaultRefused")])
+    }
+
+    #[test]
+    fn the_switch_is_on_for_1_only_and_refuses_other_values() {
+        use std::ffi::OsStr;
+        assert_eq!(switch(None), Ok(false));
+        assert_eq!(switch(Some(OsStr::new("1"))), Ok(true));
+        for v in ["0", "", "true", "yes"] {
+            assert!(switch(Some(OsStr::new(v))).is_err(), "{v:?}");
+        }
     }
 
     #[test]

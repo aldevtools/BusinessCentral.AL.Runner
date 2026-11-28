@@ -96,7 +96,7 @@ fn run() -> Result<ExitCode, String> {
         }
         Parsed::Run(a) => *a,
     };
-    args.strict_order_all = std::env::var_os("AL_STRICT_ORDER_ALL").is_some();
+    args.strict_order_all = al_test_cli::strict_not_run::switch(std::env::var_os("AL_STRICT_ORDER_ALL").as_deref())?;
     if args.strict_order_all && args.list_new_cases.is_some() {
         return Err("--list-new-cases cannot run with AL_STRICT_ORDER_ALL: new cases go to the default lists".into());
     }
@@ -877,7 +877,7 @@ impl StrictOrder {
         suite_data: &[(Vec<oracle::OracleCase>, corpus::CorpusIndex)],
         suite_cases: &[Vec<oracle::OracleCase>],
     ) -> Result<StrictOrder, String> {
-        let files = al_test_cli::strict_order::load(root)?;
+        let files = al_test_cli::strict_order::load(root)?.files;
         let mut s = StrictOrder {
             only: Vec::new(),
             listed: Default::default(),
@@ -898,6 +898,36 @@ impl StrictOrder {
         s.only.dedup();
         Ok(s)
     }
+}
+
+/// ADR-070 decision 5, second rule (al-runner issue 8943): a file of `metrics/strict-order-files.txt` whose every case
+/// passes in the default order and in BC's order may not be on the list. Prints one line per such file; 1 when there is
+/// one. A run in BC's order (`AL_STRICT_ORDER_ALL`) adopts nothing, so it has no default outcome and decides nothing.
+fn strict_files_in_both(
+    root: &Path,
+    index: &corpus::CorpusIndex,
+    main: bool,
+    all_cases: &[oracle::OracleCase],
+    version: &config::VersionEntry,
+    suite_data: &[(Vec<oracle::OracleCase>, corpus::CorpusIndex)],
+    rt: &runtime::CorpusRuntime,
+) -> Result<u8, String> {
+    let files = al_test_cli::strict_order::load(root)?;
+    let mut found = Vec::new();
+    if main {
+        let default = |c: &oracle::CaseId| rt.default_order_recorded(None, c);
+        let strict = |c: &oracle::CaseId| rt.first_recorded(c);
+        found.extend(al_test_cli::strict_order::passing_in_both(&files, index, all_cases, &default, &strict));
+    }
+    for (suite, (all, ix)) in version.suites.iter().zip(suite_data) {
+        let default = |c: &oracle::CaseId| rt.default_order_recorded(Some(&suite.name), c);
+        let strict = |c: &oracle::CaseId| rt.recorded_in(&suite.name, c);
+        found.extend(al_test_cli::strict_order::passing_in_both(&files, ix, all, &default, &strict));
+    }
+    found
+        .iter()
+        .for_each(|f| eprintln!("BC {}: {}", version.bc_version, al_test_cli::strict_order::passing_in_both_line(f)));
+    Ok(u8::from(!found.is_empty()))
 }
 
 /// The apps a pass compiles (`run_pass_compile`).
@@ -1779,6 +1809,7 @@ fn run_version_inner(
     } else {
         check_lists(args, root, &targets, Some((&renderer, render_note)))?
     };
+    let code = code.max(strict_files_in_both(root, index, pass.main, &all_cases, version, &suite_data, &rt)?);
     Ok(VersionRun {
         code: if args.no_ratchet { 0 } else { code },
         oracle: oracle_ok,
