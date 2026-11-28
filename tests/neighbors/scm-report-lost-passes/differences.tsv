@@ -1,11 +1,4 @@
 # key	entry
-NB Dot Tests::OwnItemDotted_Labels	PINNED tests/al-language/streams/P138ColCaptionQualified.al:251
-NB Dot Tests::OwnItemDotted_Columns	PINNED tests/al-language/reports/dataset/DatasetDecimalPlacesValueOrigins.al:216
-NB Dot Tests::ParentItemDotted_Labels	PINNED tests/al-language/streams/P138ColCaptionQualified.al:182
-NB Dot Tests::GlobalRecordQualifier_Labels	REFUSED report column GlobalName: IncludeCaption on a column that is not one field
-NB Dot Decimal Tests::OwnItemDotted_DecimalFormatter	PINNED tests/al-language/reports/dataset/DatasetDecimalPlacesValueOrigins.al:216
-NB Dot AutoFormat Tests::OwnItemDotted_AutoFormatSubscriber	REFUSED the decimalformatter of a report column: AutoFormatType 1 while
-NB Dot Unmodelled Tests::OwnItemDotted_AutoFormatUnmodelled	REFUSED the decimalformatter of a report column over a field with AutoFormatType 50733
-NB Dot Media Content Tests::OwnItemDotted_MediaWithContent	REFUSED report column QualPic holds a Media or MediaSet with content
-NB Dot Media Empty Tests::OwnItemDotted_MediaEmpty	PINNED tests/al-language/reports/layouts-saveas/BcXmlBlob.al:102
-NB Dot Blob Tests::OwnItemDotted_BlobNotCalculated	PINNED tests/al-language/reports/layouts-saveas/BcXmlBlobObjects.al:34
+NB Dot Tests::ParentItemDotted_Labels	ASSUMED report-column-dotted-item-qualifier (corpus PR 1652, merged, not yet pinned)
+NB Dot AutoFormat Cap Tests::OwnItemDotted_AutoFormatSubscriberIncludeCaption	REFUSED the decimalformatter of a report column: AutoFormatType 1 while
+NB Dot Unit Cap Tests::UnitAmountField_AutoFormatSubscriber	REFUSED the decimalformatter of a report column: AutoFormatType 2 while

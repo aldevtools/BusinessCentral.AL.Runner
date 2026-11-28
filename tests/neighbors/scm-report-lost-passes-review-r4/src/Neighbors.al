@@ -581,7 +581,8 @@ codeunit 51001 "NB DQ2 R51001 T"
     end;
 }
 
-// Option field with a Caption and no OptionCaption: the gate does not read OptionCaption (as for the enum). Head serves it.
+// Option field with a Caption and no OptionCaption: Option is out of the gate (a qualified Option column writes the member name,
+// not the OptionCaption: runner issue 9411). Main and head refuse.
 report 51002 "NB DQ2 R51002"
 {
     ProcessingOnly = false;

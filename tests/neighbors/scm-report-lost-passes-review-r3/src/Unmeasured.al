@@ -1,6 +1,7 @@
-// Dotted shapes corpus PR 1652 does not measure: head keeps main's answer (the qualifier names no field), so main and
-// head give the same outcome. The expected text is the undotted rule; it is not a pin. Each test has its own codeunit and
-// report, so a refused run leaves nothing to the next test.
+// Dotted shapes part 1 of corpus PR 1652 does not measure: head keeps main's answer (the qualifier names no field), so main
+// and head give the same outcome. The `Part2_` tests are shapes part 2 measures (fields :348-359 at cf6884b9): head serves
+// them through report-column-dotted-item-qualifier. The expected text is the undotted rule; it is not a pin. Each test has its
+// own codeunit and report, so a refused run leaves nothing to the next test.
 
 report 50952 "NB DQ U50952"
 {
@@ -23,7 +24,7 @@ codeunit 50952 "NB DQ U50952 T"
     TestPermissions = Disabled;
 
     [Test]
-    procedure Unmeasured_CodeField_IncludeCaption()
+    procedure Part2_CodeField_IncludeCaption()
     var
         Lib: Codeunit "NB DQ Lib";
     begin
@@ -53,7 +54,7 @@ codeunit 50953 "NB DQ U50953 T"
     TestPermissions = Disabled;
 
     [Test]
-    procedure Unmeasured_IntegerField_IncludeCaption()
+    procedure Part2_IntegerField_IncludeCaption()
     var
         Lib: Codeunit "NB DQ Lib";
     begin
@@ -83,7 +84,7 @@ codeunit 50954 "NB DQ U50954 T"
     TestPermissions = Disabled;
 
     [Test]
-    procedure Unmeasured_EnumField_IncludeCaption()
+    procedure Part2_EnumField_IncludeCaption()
     var
         Lib: Codeunit "NB DQ Lib";
     begin
@@ -113,7 +114,7 @@ codeunit 50955 "NB DQ U50955 T"
     TestPermissions = Disabled;
 
     [Test]
-    procedure Unmeasured_DateField_IncludeCaption()
+    procedure Part2_DateField_IncludeCaption()
     var
         Lib: Codeunit "NB DQ Lib";
     begin
@@ -143,7 +144,7 @@ codeunit 50956 "NB DQ U50956 T"
     TestPermissions = Disabled;
 
     [Test]
-    procedure Unmeasured_AutoFormatExpression_IncludeCaption()
+    procedure Part2_AutoFormatExpression_IncludeCaption()
     var
         Lib: Codeunit "NB DQ Lib";
     begin
@@ -307,7 +308,7 @@ codeunit 50962 "NB DQ U50962 T"
     TestPermissions = Disabled;
 
     [Test]
-    procedure Measured_UnitAmountType_KeepsMain()
+    procedure Part2_UnitAmountType()
     var
         Lib: Codeunit "NB DQ Lib";
     begin
