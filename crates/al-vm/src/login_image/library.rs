@@ -11,8 +11,8 @@ use super::thaw::Maker;
 use al_builtins::library_kind::LibraryKind;
 use al_builtins::text::Txt;
 use al_builtins::value::{
-    CookieState, EmptiedRef, ErrorInfoBuilt, ErrorInfoState, HandlerContext, LibraryValue, ModuleInfoState,
-    NotificationState, SessionSettingsState, WebServiceActionState,
+    CollectedInternal, CookieState, EmptiedRef, ErrorInfoBuilt, ErrorInfoState, HandlerContext, LibraryValue,
+    ModuleInfoState, NotificationState, SessionSettingsState, WebServiceActionState,
 };
 
 /// What a library cell holds.
@@ -88,6 +88,7 @@ pub(crate) struct ErrorInfoNode {
     custom_dimensions: Option<Frozen>,
     actions: u32,
     built: ErrorInfoBuilt,
+    collected_internal: Option<CollectedInternal>,
     /// The `Callstack` a collected error carries, kept by the cell in a thread-local side table (al-builtins
     /// errorinfo.rs `CALLSTACKS`), not in the state.
     pub(crate) callstack: Option<String>,
@@ -198,6 +199,7 @@ impl Walker<'_> {
             custom_dimensions,
             actions,
             built,
+            collected_internal,
         } = e;
         let opt = |w: &mut Self, v: &Option<al_builtins::value::Value>, what: &str| {
             v.as_ref().map(|v| w.value(v, &format!("{path} {what}"))).transpose()
@@ -219,6 +221,7 @@ impl Walker<'_> {
             custom_dimensions: opt(self, custom_dimensions, "custom dimensions")?,
             actions: *actions,
             built: *built,
+            collected_internal: collected_internal.clone(),
             callstack: None,
         })
     }
@@ -303,6 +306,7 @@ impl Maker<'_> {
             custom_dimensions: opt(&e.custom_dimensions),
             actions: e.actions,
             built: e.built,
+            collected_internal: e.collected_internal.clone(),
         }
     }
 }

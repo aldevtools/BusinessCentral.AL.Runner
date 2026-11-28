@@ -113,6 +113,30 @@ codeunit 77412 "NB EIT Scope Neighbors"
         AgainMessage := Collected.Message;
     end;
 
+    [ErrorBehavior(ErrorBehavior::Collect)]
+    local procedure CollectAfterClear(EI: ErrorInfo; var AfterClearMessage: Text)
+    var
+        Errors: List of [ErrorInfo];
+        Collected: ErrorInfo;
+    begin
+        Error(Client());
+        ClearCollectedErrors();
+        Error(EI);
+        Errors := GetCollectedErrors(true);
+        Errors.Get(1, Collected);
+        AfterClearMessage := Collected.Message;
+    end;
+
+    // One scope that held an error and was cleared: it holds no error now, the state the probe measured.
+    [Test]
+    procedure AfterClear_CollectedMessage_Bare()
+    var
+        AfterClearMessage: Text;
+    begin
+        CollectAfterClear(Internal(true), AfterClearMessage);
+        CheckText('collected message after clear', AfterClearMessage, 'bare');
+    end;
+
     // Nesting depth 2: the collected Message.
     [Test]
     procedure Nested_CollectedMessage_Braced()

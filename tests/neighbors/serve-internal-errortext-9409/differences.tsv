@@ -15,3 +15,4 @@ NB EIT Scope Neighbors::Reraise_CollectedNotCollectible_Braced	ASSUMED errorinfo
 NB EIT Scope Neighbors::Reraise_CollectedInScope_Braced	ASSUMED errorinfo-internal-text (corpus PR 1666; the first collection is the measured one; the second keeps the braced id)
 NB EIT Scope Neighbors::NonCollectible_EmptyScope_Bare	ASSUMED errorinfo-internal-text (corpus PR 1666; a raise while no collecting scope holds an error)
 NB EIT Scope Neighbors::ExplicitDefaults_Bare	ASSUMED errorinfo-internal-text (corpus PR 1666; the same state as a fresh ErrorInfo)
+NB EIT Scope Neighbors::AfterClear_CollectedMessage_Bare	ASSUMED errorinfo-internal-text (corpus PR 1666; the scope holds no error now, the state the probe measured)

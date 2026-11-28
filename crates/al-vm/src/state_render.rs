@@ -812,6 +812,7 @@ mod tests {
             custom_dimensions: None,
             actions: 0,
             built: al_builtins::value::ErrorInfoBuilt::Other,
+            collected_internal: None,
         };
         let kind = LibraryKind::from("ErrorInfo");
         let (with, without) = (

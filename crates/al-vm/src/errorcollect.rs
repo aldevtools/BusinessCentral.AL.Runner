@@ -132,7 +132,7 @@ impl Session {
                         .into(),
                 ));
             }
-            (first, exception_message) = al_builtins::errorinfo::internal_scope_end_texts(&first);
+            (first, exception_message) = al_builtins::errorinfo::internal_scope_end_texts(&held[0], &first);
         }
         let message = if held.len() == 1 { first } else { summary(&first) };
         // session-system/TestProbeSessionMiscContracts.al:ErrorCollection_ScopeExitText, ErrorCollection_SingleError: code Dialog.

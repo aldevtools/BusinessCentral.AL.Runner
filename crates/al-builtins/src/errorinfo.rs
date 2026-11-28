@@ -8,7 +8,7 @@
 use crate::describe::Describe;
 use crate::native::{Ctx, NativeFn, Signal, unsupported};
 use crate::signature::Signature;
-use crate::value::{ErrorInfoBuilt, ErrorInfoState, LibraryValue, Value};
+use crate::value::{CollectedInternal, ErrorInfoBuilt, ErrorInfoState, LibraryValue, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -147,6 +147,7 @@ fn fresh(message: String, collectible: bool) -> ErrorInfoState {
         custom_dimensions: None,
         actions: 0,
         built: ErrorInfoBuilt::Other,
+        collected_internal: None,
     }
 }
 
@@ -403,13 +404,17 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         let collected = match &braced {
             Some(braced) => {
                 let copy = copy_of(info).expect("an ErrorInfo");
-                set_message_of(
-                    &copy,
-                    &format!(
-                        "{INTERNAL_ERROR_TEXT}{COLLECTED_ID_LABEL}{}",
-                        shown_id(braced, measured.collected)
-                    ),
+                let message = format!(
+                    "{INTERNAL_ERROR_TEXT}{COLLECTED_ID_LABEL}{}",
+                    shown_id(braced, measured.collected)
                 );
+                state_mut_of(&copy, |s| {
+                    s.collected_internal = measured.collected.then(|| CollectedInternal {
+                        message: message.clone(),
+                        exception_message: raised_text(braced),
+                    });
+                    s.message = message;
+                });
                 copy
             }
             None => info.clone(),
@@ -443,7 +448,7 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
 
 /// Where an Internal `ErrorInfo` of a measured shape shows the measured id (assumption `errorinfo-internal-text`, corpus PR
 /// 1666 ErrorInfoInternalText.al:144-160, :339-389): never collected before (no collected call stack), and collected with
-/// exactly one collecting scope open that holds no error yet, or raised while no collecting scope holds an error.
+/// exactly one collecting scope open that holds no error now, or raised while no collecting scope holds an error.
 struct Measured {
     collected: bool,
     raised: bool,
@@ -520,79 +525,78 @@ pub fn copy_of(v: &Value) -> Option<Value> {
     Some(Value::Library(name.clone(), copy))
 }
 
-/// The texts of the error a collecting scope raises when it ends holding one Internal error, from its collected Message: the
-/// raised text has a backslash where the collected Message has a line break (errors/PnBErrorsCollections.al:360-375
-/// RO_CollectedErrorInfo_Internal_NotCleared_ScopeExit; corpus PR 1666 ErrorInfoInternalText.al:365-389). The second text is
-/// the Message of the exception `GetLastErrorObject` answers where it is not the raised text: GetLastErrorObject was not
-/// measured (assumption `errorinfo-internal-text`), so it keeps the braced id where the collected Message has the 36
-/// character measured one.
-pub fn internal_scope_end_texts(collected: &str) -> (String, Option<String>) {
-    let measured_id = collected
-        .strip_prefix(INTERNAL_ERROR_TEXT)
-        .and_then(|rest| rest.strip_prefix(COLLECTED_ID_LABEL))
-        .filter(|id| id.len() == 36);
-    (
-        collected.replace("\r\n", "\\"),
-        measured_id.map(|id| raised_text(&format!("{{{id}}}"))),
-    )
+/// The texts of the error a collecting scope raises when it ends holding one Internal error `held`, whose Message is
+/// `collected`: the raised text has a backslash where the collected Message has a line break (errors/PnBErrorsCollections.al:
+/// 360-375 RO_CollectedErrorInfo_Internal_NotCleared_ScopeExit; corpus PR 1666 ErrorInfoInternalText.al:365-389). The second
+/// text is the Message of the exception `GetLastErrorObject` answers where it is not the raised text. GetLastErrorObject was
+/// not measured (assumption `errorinfo-internal-text`): where `raise` collected `held` with the measured id and its Message is
+/// still that one, it keeps main's braced id; any other held Message (one the test wrote, also through TestField) gets
+/// main's answer.
+pub fn internal_scope_end_texts(held: &Value, collected: &str) -> (String, Option<String>) {
+    let stored = state_of(held, |s| s.collected_internal.clone()).flatten();
+    let exception_message = stored.filter(|m| m.message == collected).map(|m| {
+        crate::assumptions::assume(crate::assumptions::Assumption::ErrorInfoInternalText);
+        m.exception_message
+    });
+    (collected.replace("\r\n", "\\"), exception_message)
+}
+
+/// `f` on the state of an `ErrorInfo` value; `None` for any other value.
+fn state_of<R>(v: &Value, f: impl FnOnce(&ErrorInfoState) -> R) -> Option<R> {
+    let Value::Library(_, cell) = v else { return None };
+    match &*cell.borrow() {
+        LibraryValue::ErrorInfo(s) => Some(f(s)),
+        _ => None,
+    }
+}
+
+/// `f` on the state of an `ErrorInfo` value, to change it; `None` for any other value.
+fn state_mut_of<R>(v: &Value, f: impl FnOnce(&mut ErrorInfoState) -> R) -> Option<R> {
+    let Value::Library(_, cell) = v else { return None };
+    match &mut *cell.borrow_mut() {
+        LibraryValue::ErrorInfo(s) => Some(f(s)),
+        _ => None,
+    }
 }
 
 /// Whether an `ErrorInfo` value has ErrorType Internal.
 pub fn is_internal(v: &Value) -> bool {
-    let Value::Library(_, cell) = v else { return false };
-    matches!(&*cell.borrow(), LibraryValue::ErrorInfo(s) if s.error_type == Some(1))
+    state_of(v, |s| s.error_type == Some(1)).unwrap_or(false)
 }
 
 /// Sets the message of an `ErrorInfo` value and answers whether it is collectible.
 pub fn set_message_of(v: &Value, message: &str) -> bool {
-    let Value::Library(_, cell) = v else { return false };
-    match &mut *cell.borrow_mut() {
-        LibraryValue::ErrorInfo(s) => {
-            s.message = message.to_string();
-            s.collectible
-        }
-        _ => false,
-    }
+    state_mut_of(v, |s| {
+        s.message = message.to_string();
+        s.collectible
+    })
+    .unwrap_or(false)
 }
 
 /// Sets the table and field an `ErrorInfo` value names (what `TestField` records on a collected error) and
 /// answers whether it is collectible.
 pub fn set_origin_of(v: &Value, table_id: i32, field_no: i32) -> bool {
-    let Value::Library(_, cell) = v else { return false };
-    match &mut *cell.borrow_mut() {
-        LibraryValue::ErrorInfo(s) => {
-            s.table_id = table_id;
-            s.field_no = field_no;
-            s.collectible
-        }
-        _ => false,
-    }
+    state_mut_of(v, |s| {
+        s.table_id = table_id;
+        s.field_no = field_no;
+        s.collectible
+    })
+    .unwrap_or(false)
 }
 
 /// Sets the RecordId an `ErrorInfo` value names (what a collected `TestField` records).
 pub fn set_record_id_of(v: &Value, record_id: Value) {
-    let Value::Library(_, cell) = v else { return };
-    if let LibraryValue::ErrorInfo(s) = &mut *cell.borrow_mut() {
-        s.record_id = Some(record_id);
-    }
+    state_mut_of(v, |s| s.record_id = Some(record_id));
 }
 
 /// The message of an `ErrorInfo` value.
 pub fn message_of(v: &Value) -> Option<String> {
-    let Value::Library(_, cell) = v else { return None };
-    match &*cell.borrow() {
-        LibraryValue::ErrorInfo(s) => Some(s.message.clone()),
-        _ => None,
-    }
+    state_of(v, |s| s.message.clone())
 }
 
 /// How an `ErrorInfo` value was built.
 pub fn built_of(v: &Value) -> Option<ErrorInfoBuilt> {
-    let Value::Library(_, cell) = v else { return None };
-    match &*cell.borrow() {
-        LibraryValue::ErrorInfo(s) => Some(s.built),
-        _ => None,
-    }
+    state_of(v, |s| s.built)
 }
 
 pub fn native_for(sig: &Signature) -> Option<NativeFn> {
