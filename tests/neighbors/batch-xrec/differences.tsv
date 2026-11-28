@@ -16,3 +16,6 @@ NBX T27 ScopeOnPremWithHandler::ScopeOnPremWithHandler_Nested	ASSUMED xrec-table
 # [Scope('Cloud')], [Scope('OnPrem')] with another attribute, refused on both.
 # Review round 1, main's copy on both: the helper called by a [TryFunction] of the test codeunit (T32), a [TryFunction] table
 # procedure between the triggers (T33).
+# Review round 2, main's copy on both: a table extension OnAfterValidate of Mode that assigns xRec (T40), a table extension
+# OnBeforeValidate of "Item No." that assigns xRec (T41), an OnBeforeValidateEvent subscriber of "Item No." that assigns xRec
+# (T42).

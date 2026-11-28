@@ -435,7 +435,10 @@ impl Session {
     /// field OnValidate of the table (:104); the inner one a `Record.Validate` from AL code with a value, of another field
     /// (:197); between the two exactly [`NESTING_PROCEDURES_ASSIGNED`] procedures of the table that are no triggers and have no
     /// attribute, called on the trigger's record (`CopyFromItem`, `UpdateMode`, :116-118, :190-198); the buffer `AfterInsert`
-    /// (:498-507); the record and the outer xRec with the view no filter, mark, key or sort changed. Any other shape keeps its own copy of the before-image (`None`).
+    /// (:498-507); the record and the outer xRec with the view no filter, mark, key or sort changed; neither field with an
+    /// OnBeforeValidate or OnAfterValidate trigger of a table extension, and no OnBeforeValidateEvent or OnAfterValidateEvent
+    /// subscriber of the outer field (XRS Line Ext declares none, :238-274; XRS Subscriber subscribes to the validate events
+    /// of Mode only, :348-453). Any other shape keeps its own copy of the before-image (`None`).
     pub(crate) fn nested_validate_xrec(
         &self,
         handle: usize,
@@ -455,17 +458,27 @@ impl Session {
         let table = rec.borrow().table as usize;
         let (o, i) = (outer.depth, self.call_stack.len());
         let outer_field = self.routine_at(o).1.field;
+        let fields = &self.engine.program.objects[table].table.as_ref()?.fields;
+        let outer_def = fields.get(outer_field?)?;
+        let outer_unsubscribed = || {
+            ["onbeforevalidateevent", "onaftervalidateevent"]
+                .iter()
+                .all(|e| self.field_event_subscribers(table, e, &outer_def.name) == 0)
+        };
         let measured = outer.site == from_al
             && o == self.test_frame_base() + 2
             && o + 1 + NESTING_PROCEDURES_ASSIGNED == i
             && self.only_test_codeunit_frames(0, i - o)
             && self.field_on_validate_at(table, o)
             && outer_field != Some(pos)
+            && Self::no_ext_validate(outer_def)
+            && fields.get(pos).is_some_and(Self::no_ext_validate)
             && self.own_procedures_between(table, o, i)
             && ((o + 1)..i).all(|d| self.routine_at(d).1.attributes.is_empty())
             && Self::buffer_of_own_insert(&rec.borrow())
             && super::XrecView::of(&rec.borrow()).untouched()
-            && super::XrecView::of(&outer.xrec.borrow()).untouched();
+            && super::XrecView::of(&outer.xrec.borrow()).untouched()
+            && outer_unsubscribed();
         measured.then(|| outer.xrec.clone())
     }
 
