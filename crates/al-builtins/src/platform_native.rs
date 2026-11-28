@@ -957,10 +957,16 @@ mod tests {
         );
     }
 
-    // The neighbors of the 9322 shape the evidence does not measure keep main's refusal: another major, a stream read before
-    // the call, the OutStream form.
+    // The neighbors of the 9322 shape the evidence does not measure keep main's refusal: another major, other content than
+    // the repro's 100 ASCII bytes, a stream read before the call, the OutStream form.
     #[test]
     fn issue_9322_neighbors_refuse() {
+        let e_acute = [0xC3, 0xA9].repeat(50);
+        for bytes in [vec![b'A'; 57], vec![b'A'; 120], e_acute] {
+            let mut args = [in_stream(&bytes), Value::Boolean(true)];
+            let r = run_temporary_table(28, "Base64Convert.ToBase64#stream", &mut args);
+            assert!(matches!(r, Err(Signal::Unsupported(_))), "{} bytes: {r:?}", bytes.len());
+        }
         for major in [27, 29] {
             let mut args = [in_stream(&[b'A'; 100]), Value::Boolean(true)];
             let r = run_temporary_table(major, "Base64Convert.ToBase64#stream", &mut args);

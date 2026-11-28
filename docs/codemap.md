@@ -450,6 +450,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `resource_reads.rs`: The app resource files a session read, and whether their texts are unchanged. Entry: `Session::resource_reads`, `TextsRead`.
 - `sqlcount.rs`: The model behind `SqlStatementsExecuted` /… Entry: `SqlCounters::read`.
 - `tasks.rs`: `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`. Entry: `Session::task_scheduler_op`.
+- `temp_blob_impl_field.rs`: Blob fields a Temp Blob, or a `[Test]` method's local temporary-table record, opened streams on. Entry: `Session::note_temp_blob_impl_field`.
 - `tenant_set_delete.rs`: The Delete or DeleteAll of a stored Tenant… Entry: `tenant_set_delete_one`.
 - `testdata.rs`: Restored company rows. Entry: `TestBacking`.
 - `transaction_type.rs`: `Database.CurrentTransactionType`. Entry: `current_transaction_type`.

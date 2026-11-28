@@ -9,11 +9,15 @@
 //! `base-convert-line-breaks-temporary-table-blob`.
 
 use al_builtins::builtin_id::{BuiltinId, ids};
-use al_builtins::stream::BlobRef;
+use al_builtins::stream::{BlobCell, BlobRef};
 use al_builtins::value::{RecordState, Value};
 use al_ir as ir;
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
+
+/// A buffer a stream was opened on, without keeping it alive (compared by address only).
+type BufMark = std::sync::Weak<BlobCell>;
 
 use crate::{Frame, Session};
 
@@ -55,17 +59,19 @@ impl TempBlobImplFields {
     }
 }
 
-/// The Blob fields of records of a `TableType = Temporary` table in local variables of `[Test]` methods, with whether that
-/// method called `CreateOutStream` and `CreateInStream` on the field. A record no longer alive is dropped at the next note.
+/// The Blob fields of records of a `TableType = Temporary` table in local variables of `[Test]` methods, with the buffers
+/// that method opened a `CreateOutStream` and a `CreateInStream` on. A record no longer alive is dropped at the next note.
 /// No session image carries it: the image requires it empty (`session_fields`), and install code too.
 #[derive(Default)]
 pub(crate) struct TestLocalBlobFields(Vec<(Weak<RefCell<RecordState>>, usize, Opened)>);
 
-/// Which streams a `[Test]` method opened on a field of [`TestLocalBlobFields`].
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
+/// The buffers a `[Test]` method opened streams on, per call, in the field of a [`TestLocalBlobFields`] record: the field's
+/// buffer right after the call. A `Clear`, an `Init` or a record assignment gives the field another buffer, so a later
+/// stream on it is on a buffer these do not name.
+#[derive(Default)]
 struct Opened {
-    out_stream: bool,
-    in_stream: bool,
+    out_streams: Vec<BufMark>,
+    in_streams: Vec<BufMark>,
 }
 
 impl TestLocalBlobFields {
@@ -87,28 +93,30 @@ impl TestLocalBlobFields {
                 self.0.len() - 1
             }
         };
+        let Some(Value::Blob(buf)) = rec.borrow().fields.get(pos).cloned() else {
+            return;
+        };
         let opened = &mut self.0[i].2;
         match id {
-            ids::BLOB_CREATEOUTSTREAM_1 => opened.out_stream = true,
-            _ => opened.in_stream = true,
+            ids::BLOB_CREATEOUTSTREAM_1 => opened.out_streams.push(Arc::downgrade(&buf)),
+            _ => opened.in_streams.push(Arc::downgrade(&buf)),
         }
     }
 
-    /// Whether `b` is now the field of a noted live record on which both streams were opened.
+    /// Whether `b` is now the field of a noted live record on which the method opened one OutStream and one InStream,
+    /// both on `b` itself.
     pub(crate) fn holds(&self, b: &BlobRef) -> bool {
-        let both = Opened {
-            out_stream: true,
-            in_stream: true,
-        };
-        (self.0.iter()).any(|(w, pos, opened)| *opened == both && holds_field(w, *pos, b))
+        let only_on_b = |calls: &[BufMark]| matches!(calls, [w] if w.as_ptr() == Arc::as_ptr(b));
+        (self.0.iter()).any(|(w, pos, opened)| {
+            only_on_b(&opened.out_streams) && only_on_b(&opened.in_streams) && holds_field(w, *pos, b)
+        })
     }
 }
 
 /// Whether the record `w` still lives, is temporary and its field `pos` is now the buffer `b`.
 fn holds_field(w: &Weak<RefCell<RecordState>>, pos: usize, b: &BlobRef) -> bool {
     w.upgrade().is_some_and(|r| {
-        r.borrow().temporary
-            && matches!(r.borrow().fields.get(pos), Some(Value::Blob(f)) if std::sync::Arc::ptr_eq(f, b))
+        r.borrow().temporary && matches!(r.borrow().fields.get(pos), Some(Value::Blob(f)) if Arc::ptr_eq(f, b))
     })
 }
 
@@ -135,8 +143,10 @@ impl Session {
             }
             return;
         }
-        if matches!(**base, ir::Place::Local(_))
+        // The repro of issue 9322 declares the record without `temporary` (tests/neighbors/9322/src/Repro.al).
+        if let ir::Place::Local(slot) = **base
             && self.is_test_method(f.object, f.routine)
+            && !self.engine.program.objects[f.object].routines[f.routine].locals[slot].declared_temporary
             && let Ok(Value::Record(rc)) = self.read(base, f)
             && rc.borrow().temporary
             && self.engine.object_facts[rc.borrow().table as usize].table_type == Some(ir::TableType::Temporary)

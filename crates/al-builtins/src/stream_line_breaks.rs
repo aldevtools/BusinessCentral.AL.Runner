@@ -61,8 +61,8 @@ enum MeasuredHolder {
 /// variable by `:=`.
 ///
 /// The same history on the Blob field of a never inserted record of a `TableType = Temporary` table in a local variable of a
-/// `[Test]` method, the stream unread (position 0, no `ReadText`), in the InStream form, on BC 28: the repro of al-runner
-/// issue 9322, measured on BC 28.4 (a CR LF at position 77, 138 characters).
+/// `[Test]` method, the stream unread (position 0, no `ReadText`), in the InStream form, on BC 28, holding 100 ASCII bytes: the
+/// repro of al-runner issue 9322, measured on BC 28.4 with 100 'A' (a CR LF at position 77, 138 characters).
 fn measured_line_break_stream(ctx: &dyn Ctx, s: &InState, out_form: bool) -> Option<MeasuredHolder> {
     let b = s.live_blob()?;
     let buf = b.borrow();
@@ -96,10 +96,12 @@ fn measured_line_break_stream(ctx: &dyn Ctx, s: &InState, out_form: bool) -> Opt
         out_form,
         s.pos,
         s.text_len_reads,
+        buf.bytes.len(),
+        buf.bytes.is_ascii(),
         ctx.temporary_table_blob_line_breaks_measured(),
         ctx.held_by_temporary_table_test_local(b),
     );
-    (issue_9322 == (false, 0, 0, true, true)).then_some(MeasuredHolder::TemporaryTableTestLocal)
+    (issue_9322 == (false, 0, 0, 100, true, true, true)).then_some(MeasuredHolder::TemporaryTableTestLocal)
 }
 
 /// What happened to a Blob buffer since it was made or cleared, as far as `ToBase64(InStream, true[, OutStream])` asks
