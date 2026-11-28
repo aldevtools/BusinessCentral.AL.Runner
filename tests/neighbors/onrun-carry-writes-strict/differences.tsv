@@ -1,0 +1,3 @@
+# As onrun-carry-writes. The reader is flagged on main and head alike: OCW Temp Only Refused stops before it.
+OCW Reader::RecordRefInsert_Seen	ASSUMED strict-after-refused
+OCW Reader::SubscriberWrite_Seen	ASSUMED strict-after-refused

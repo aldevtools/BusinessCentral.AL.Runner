@@ -1,0 +1,4 @@
+# An OnRun that inserts through a RecordRef or in a subscriber it raises now carries its row, as a Record insert of OnRun
+# did on main. The delete-only and temporary shapes keep main's answer (no difference).
+OCW Reader::RecordRefInsert_Seen	PINNED tests/al-language/codeunits/run-onrun/RqIsolationModes.al:365
+OCW Reader::SubscriberWrite_Seen	PINNED tests/al-language/codeunits/run-onrun/RqIsolationModes.al:365
