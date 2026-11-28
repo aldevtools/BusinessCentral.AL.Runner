@@ -1139,7 +1139,8 @@ impl<'a> Owner<'a> {
                 });
                 // `Item.Field` on the item's own table (reports/layouts-saveas/BcXmlBlobObjects.al: `Row.Data`). The split
                 // skips a dot inside a quoted name: a data item name may hold one (reports/dataset/ReportDatasetNames.al:31
-                // `"A. B"`), and its qualified source is still one field of the own item.
+                // `"A. B"`), and a quoted qualifier of the own item names one field of it (streams/P138ColCaptionQualified.al:251
+                // `"LT QS Cap Row"."No."`).
                 let item_field = table.and_then(|t| {
                     let item = crate::scan::unquote_double(sec.args().first()?);
                     let parts = split_outside_quotes(args.get(1)?.trim());
