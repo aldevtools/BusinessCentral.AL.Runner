@@ -523,11 +523,10 @@ impl al_builtins::native::Ctx for Session {
                 .as_ref()
                 .is_some_and(|a| a.contains(&(i as u32)))
             {
-                self.note_order_unknown_hit(i as u32);
-                return ModuleLookup::OrderUnknown(format!(
-                    "NavApp.GetModuleInfo of app {} while an app installs that it has no dependency path to; the install \
-                     order of the two is not known",
-                    apps[i].name
+                return ModuleLookup::OrderUnknown(self.order_unknown_refusal(
+                    "NavApp.GetModuleInfo of app",
+                    i as u32,
+                    None,
                 ));
             }
             if let Some(m) = self.module_of_app(i) {

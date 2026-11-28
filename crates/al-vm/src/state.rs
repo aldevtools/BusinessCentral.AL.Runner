@@ -725,9 +725,10 @@ pub(crate) struct EventState {
     /// The pairs (installing app, app of `order_unknown_apps`) whose refusal the install code met
     /// (`Session::take_order_unknown_hits`, ADR-046 amendment 7).
     pub(crate) order_unknown_hits: std::cell::RefCell<std::collections::BTreeSet<(u32, u32)>>,
-    /// The tables the install code of the apps under test may write (`Session::set_install_written_tables`); `None`: not
-    /// known, so no table counts as empty in either install order (empty_reads.rs).
-    pub(crate) install_written: Option<std::collections::BTreeSet<u32>>,
+    /// The tables the install code of the apps under test may write (`Session::set_install_written_tables`); `None` or an
+    /// `Err` (the routine that makes them unknown): not known, so no table counts as empty in either install order
+    /// (empty_reads.rs).
+    pub(crate) install_written: Option<crate::order_trial::InstallWritten>,
     /// Tables of `install_written` that only their own app's install code writes, with the rows it may insert
     /// (`Session::set_install_rows`, empty_reads.rs).
     pub(crate) install_rows: Option<std::sync::Arc<crate::empty_reads::InstallRows>>,

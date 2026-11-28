@@ -98,8 +98,8 @@ fn is_upgrade(o: &al_ir::ObjectHead) -> bool {
 /// Install and Upgrade codeunits, their install subscribers and Company Triggers subscribers, what those call and the
 /// subscribers they reach. A subscriber whose install order is not known and that stops unless it finds a row of an empty
 /// table of its own app outside this set does nothing in either order (al-vm empty_reads.rs; al-runner issue 6924).
-/// `None` when that code holds a RecordRef or a DataTransfer, which may write any table.
-pub(crate) fn tables_install_code_may_write(lowered: &Lowered, engine: &Engine) -> Option<BTreeSet<u32>> {
+/// `Err` with the first routine that code reaches that holds a RecordRef or a DataTransfer, which may write any table.
+pub(crate) fn tables_install_code_may_write(lowered: &Lowered, engine: &Engine) -> al_vm::InstallWritten {
     tables_install_code_of_may_write(lowered, engine, |o| !lowered.dependency[o])
 }
 
@@ -109,7 +109,7 @@ pub(crate) fn tables_install_code_of_may_write(
     lowered: &Lowered,
     engine: &Engine,
     of: impl Fn(usize) -> bool + Copy,
-) -> Option<BTreeSet<u32>> {
+) -> al_vm::InstallWritten {
     use al_builtins::library_kind::LibraryKind;
     use al_builtins::value::RtType;
     let objs = &lowered.program.objects;
@@ -128,7 +128,7 @@ pub(crate) fn tables_install_code_of_may_write(
             .get(r)
             .is_none_or(|rt| rt.locals.iter().chain(&obj.globals).any(|s| dynamic(&s.ty)))
         {
-            return None;
+            return Err((o, r));
         }
         lowered.calls_into(o, r, &mut stack);
     }
@@ -136,7 +136,7 @@ pub(crate) fn tables_install_code_of_may_write(
     for &(o, r) in &all {
         out.extend(crate::baseline::tables_written(lowered, o, r));
     }
-    Some(out)
+    Ok(out)
 }
 
 /// The Install and Upgrade codeunit routines of the objects `of` accepts, their install and Company Triggers subscribers,
@@ -246,10 +246,9 @@ pub(crate) fn plan(lowered: &Lowered, events: &al_vm::events::Registry, dependen
     by_app.into_values().collect()
 }
 
-/// `codeunit "Name".Routine`, for notes and reasons.
+/// `codeunit "Name".Routine`, for notes and reasons (al-vm `routine_label`).
 pub(crate) fn label(lowered: &Lowered, object: usize, routine: usize) -> String {
-    let o = &lowered.program.objects[object];
-    format!("{} \"{}\".{}", o.kind, o.name, o.routines[routine].name)
+    al_vm::routine_label(&lowered.program, object, routine)
 }
 
 /// What one install routine's static closure touches: the tables it writes (`tables_written`), the tables it has a
@@ -550,10 +549,10 @@ pub(crate) fn run_apps_under_test(
     if under_test.len() > 1 {
         let written = tables_install_code_may_write(lowered, &engine);
         // A table only its own app's install code writes, with the rows constants show (al-runner issue 6971).
-        if written.is_some() {
+        if written.is_ok() {
             session.set_install_rows(Some(crate::install_rows::install_rows(lowered, &engine)));
         }
-        session.set_install_written_tables(written);
+        session.set_install_written_tables(Some(written));
     }
     let plans: Vec<AppInstall> = plan(lowered, &engine.events, false);
     // Microsoft's apps under test install before the partner apps under test (ADR-046 amendment 7, `install_orders.rs`).
@@ -1161,13 +1160,9 @@ pub(crate) fn company_open(
     })
     .first()
     {
-        session.note_order_unknown_hit(objs[o].app);
+        let what = format!("Company Triggers subscriber {} in app", label(lowered, o, r));
         return Err(Stopped {
-            why: format!(
-                "Company Triggers subscriber {} is in an app with no dependency path to the app that installs; the \
-                 install order of the two is not known",
-                label(lowered, o, r)
-            ),
+            why: session.order_unknown_refusal(&what, objs[o].app, None),
             root: (o, r),
             before: session.carried_state(),
             mark: session.store_mut().change_counter(),

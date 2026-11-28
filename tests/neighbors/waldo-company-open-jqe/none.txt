@@ -1,0 +1,1 @@
+Refusal reason text only: every install-order refusal uses one sentence and names the subscriber, what its trial run showed and the install routine that hides the written tables; no test outcome changes.

@@ -428,24 +428,20 @@ impl Session {
                     Ok(crate::order_trial::Verdict::HandedToSender) => {
                         self.events.trial.guarded.insert(engine.program.objects[s.object].app);
                     }
-                    Err(_why) => {
+                    Err(why) => {
                         self.events.next_is_subscriber = false;
                         self.events.next_blob_event = false;
                         self.events.next_event_args.clear();
                         self.events.next_aliases.clear();
                         self.events.next_var_lens.clear();
+                        let why = match &called {
+                            Err(Signal::Unsupported(r)) => format!("{why} ({})", r.reason()),
+                            Err(Signal::Error(e)) => format!("{why} ({})", e.message),
+                            _ => why,
+                        };
                         let app = engine.program.objects[s.object].app;
-                        self.note_order_unknown_hit(app);
-                        return unsupported(format!(
-                            "event {event}: a subscriber in app {} would run while an app installs that it has no dependency \
-                             path to; the install order of the two is not known",
-                            engine
-                                .program
-                                .apps
-                                .get(app as usize)
-                                .map(|a| a.name.as_str())
-                                .unwrap_or("?")
-                        ));
+                        let what = self.order_unknown_subscriber(event, s.object, s.routine);
+                        return unsupported(self.order_unknown_refusal(&what, app, Some(&why)));
                     }
                 }
             }
@@ -631,17 +627,8 @@ impl Session {
                     targets.push((s.clone(), self.static_instance(s.object)?));
                     continue;
                 }
-                self.note_order_unknown_hit(app);
-                return unsupported(format!(
-                    "event {event}: a subscriber in app {} would run while an app installs that it has no dependency path \
-                     to; the install order of the two is not known",
-                    engine
-                        .program
-                        .apps
-                        .get(app as usize)
-                        .map(|a| a.name.as_str())
-                        .unwrap_or("?")
-                ));
+                let what = self.order_unknown_subscriber(event, s.object, s.routine);
+                return unsupported(self.order_unknown_refusal(&what, app, None));
             }
             if self.events.skip_dependency_subscribers
                 && engine
