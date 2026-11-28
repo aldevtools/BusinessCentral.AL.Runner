@@ -1,0 +1,25 @@
+# key	entry
+# Main refused every port whose Namespaces no element uses; head serves the cells of corpus PR 1663 through an assumption.
+NB XUP Cells::XUP_OneUnused_Export	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:351)
+NB XUP Cells::XUP_TwoUnused_Export	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:359)
+NB XUP Cells::XUP_NoDefault_Export	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:428)
+NB XUP Cells::XUP_DnNoUdn_Export	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:436)
+NB XUP Cells::XUP_UdnNoDn_Export	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:444)
+NB XUP Cells::XUP_TextAttr_Export	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:452)
+NB XUP Cells::XUP_Table_Export	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:469)
+NB XUP Cells::XUP_TwoUnusedUtf16_Export	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:478)
+NB XUP Cells::XUP_Both_Export	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:486)
+NB XUP Cells::XUP_TwoUnused_InstanceExport	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:389)
+NB XUP Cells::XUP_Both_ImportOwnExport	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:486)
+NB XUP Cells::XUP_Both_ImportPlain_Fails	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:486)
+# Facts the gate does not read: the prefix names and uris (written as declared, BdXmlPort.al:407), and the instance export
+# of another cell (the instance and the static export write the same, corpus PR 1663 XpUnusedNsPrefix.al:389).
+NB XUP Export Neighbors::NB_OtherPrefixes_Export	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:359; names as declared: BdXmlPort.al:407)
+NB XUP Export Neighbors::NB_InstanceNoDefault_Export	ASSUMED xmlport-unused-namespace-prefix (corpus PR 1663 XpUnusedNsPrefix.al:428, :389)
+# The import of the Direction = Both cell reads only the documents the probe measures; the port's run now carries the
+# assumption, and the other documents refuse with their own reason.
+NB XUP Import Neighbors::NB_Both_ImportPrefixedRoot	REFUSED XmlPort import of an XmlPort document other than the measured ones
+NB XUP Import Neighbors::NB_Both_ImportPrefixedChild	REFUSED XmlPort import of an XmlPort document with an element outside the port's namespace
+NB XUP Import Neighbors::NB_Both_ImportDefaultOnly	REFUSED XmlPort import of an XmlPort document other than the measured ones
+NB XUP Import Neighbors::NB_Both_ImportPlainWithDecls	REFUSED XmlPort import of an XmlPort document other than the measured ones
+NB XUP Import Neighbors::NB_Both_ImportMissingName	REFUSED XmlPort import error in a port whose Namespaces no element uses

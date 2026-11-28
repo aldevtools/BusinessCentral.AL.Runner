@@ -127,10 +127,11 @@ pub enum InNamespace {
     RootAttributeInNamespace(String),
 }
 
-/// Reads the root element of `text` for a port whose elements are all in namespace `ns`.
-pub fn parse_in_namespace(text: &str, ns: &str) -> Result<InNamespace, ReadFailure> {
+/// Reads the root element of `text` for a port whose elements are all in namespace `ns`; `root_decls` are the Namespaces of a
+/// port that no element uses, else empty (see `xml::read_tree_in`).
+pub fn parse_in_namespace(text: &str, ns: &str, root_decls: &[(String, String)]) -> Result<InNamespace, ReadFailure> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    match crate::xml::read_tree_in(text, ns) {
+    match crate::xml::read_tree_in(text, ns, root_decls) {
         Ok(Ok(e)) => Ok(e),
         Ok(Err(message)) => Err(ReadFailure::Malformed(message)),
         Err(why) => Err(ReadFailure::Unsupported(why)),
@@ -406,25 +407,25 @@ mod tests {
     #[test]
     fn a_document_in_the_ports_namespace_reads_with_local_names() {
         let ns = "urn:n";
-        let Ok(InNamespace::Tree(e)) = parse_in_namespace("<p:a xmlns:p=\"urn:n\"><p:b>1</p:b></p:a>", ns) else {
+        let Ok(InNamespace::Tree(e)) = parse_in_namespace("<p:a xmlns:p=\"urn:n\"><p:b>1</p:b></p:a>", ns, &[]) else {
             panic!()
         };
         assert_eq!((e.name.as_str(), e.attrs.len()), ("a", 0));
         assert_eq!(e.elements().next().map(|b| b.name.as_str()), Some("b"));
         assert!(matches!(
-            parse_in_namespace("<a xmlns=\"urn:n\"><b/></a>", ns),
+            parse_in_namespace("<a xmlns=\"urn:n\"><b/></a>", ns, &[]),
             Ok(InNamespace::Tree(_))
         ));
         assert_eq!(
-            parse_in_namespace("<a><b/></a>", ns),
+            parse_in_namespace("<a><b/></a>", ns, &[]),
             Ok(InNamespace::RootElsewhere("a".into()))
         );
         assert_eq!(
-            parse_in_namespace("<a xmlns=\"urn:o\"/>", ns),
+            parse_in_namespace("<a xmlns=\"urn:o\"/>", ns, &[]),
             Ok(InNamespace::RootElsewhere("a".into()))
         );
         assert_eq!(
-            parse_in_namespace("<a xmlns=\"urn:n\"><b xmlns=\"\"/></a>", ns),
+            parse_in_namespace("<a xmlns=\"urn:n\"><b xmlns=\"\"/></a>", ns, &[]),
             Ok(InNamespace::FirstChildInNone {
                 root: "a".into(),
                 child: "b".into()
@@ -432,9 +433,34 @@ mod tests {
         );
         // A root attribute prefixed into the namespace (writer TF's branch, SgXmlPortOccurs.al TF_NsAttr_Import_Qualified).
         assert_eq!(
-            parse_in_namespace("<p:a xmlns:p=\"urn:n\" p:V=\"1\"><p:b p:W=\"2\"/></p:a>", ns),
+            parse_in_namespace("<p:a xmlns:p=\"urn:n\" p:V=\"1\"><p:b p:W=\"2\"/></p:a>", ns, &[]),
             Ok(InNamespace::RootAttributeInNamespace("V".into()))
         );
+        // A port whose Namespaces no element uses (corpus PR 1663, XpUnusedNsPrefix.al:486): its own export and a plain root
+        // are read; any other document is refused.
+        let decls = [
+            ("xsd".to_string(), "urn:xsd".to_string()),
+            ("xsi".to_string(), "urn:xsi".to_string()),
+        ];
+        let read = |doc: &str| parse_in_namespace(doc, ns, &decls);
+        let Ok(InNamespace::Tree(e)) =
+            read("<a xmlns:xsd=\"urn:xsd\" xmlns:xsi=\"urn:xsi\" xmlns=\"urn:n\"><b V=\"1\"/></a>")
+        else {
+            panic!()
+        };
+        assert_eq!((e.name.as_str(), e.attrs.len()), ("a", 0));
+        assert_eq!(read("<a><b/></a>"), Ok(InNamespace::RootElsewhere("a".into())));
+        for doc in [
+            "<a xmlns=\"urn:n\"><b/></a>",
+            "<a xmlns:xsi=\"urn:xsi\" xmlns:xsd=\"urn:xsd\" xmlns=\"urn:n\"><b/></a>",
+            "<a xmlns:xsd=\"urn:xsd\" xmlns:xsi=\"urn:xsi\"><b/></a>",
+            "<xsd:a xmlns:xsd=\"urn:xsd\"/>",
+            "<a xmlns:xsd=\"urn:xsd\" xmlns:xsi=\"urn:xsi\" xmlns=\"urn:n\"><b xmlns=\"\"/></a>",
+            "<a xmlns:xsd=\"urn:xsd\" xmlns:xsi=\"urn:xsi\" xmlns=\"urn:n\"><xsd:b/></a>",
+            "<a xmlns:xsd=\"urn:xsd\" xmlns:xsi=\"urn:xsi\" xmlns=\"urn:n\"><b xmlns:xsd=\"urn:xsd\"/></a>",
+        ] {
+            assert!(matches!(read(doc), Err(ReadFailure::Unsupported(_))), "{doc}");
+        }
         // Not pinned: a later child elsewhere, an element in a third namespace, another namespace declared.
         for doc in [
             "<a xmlns=\"urn:n\"><b/><c xmlns=\"\"/></a>",
@@ -442,7 +468,7 @@ mod tests {
             "<a xmlns=\"urn:n\" xmlns:z=\"urn:z\"><b/></a>",
         ] {
             assert!(
-                matches!(parse_in_namespace(doc, ns), Err(ReadFailure::Unsupported(_))),
+                matches!(parse_in_namespace(doc, ns, &[]), Err(ReadFailure::Unsupported(_))),
                 "{doc}"
             );
         }
