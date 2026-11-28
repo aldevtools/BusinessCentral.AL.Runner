@@ -103,7 +103,6 @@ impl Session {
                 return refuse(&format!("a {} handed to the session", crate::value_kind(&other)));
             }
         };
-        self.note_own_id_read();
         self.sessions_started += 1;
         let id = self.session_id().saturating_add(self.sessions_started);
         let tx = TxState {

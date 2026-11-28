@@ -44,10 +44,9 @@ pub struct Baseline {
     pub full_copies: Vec<String>,
     /// The rows whose SystemRowVersion is the Insert's, not BC's (`Session::restamped_rows`).
     restamped_rows: Vec<crate::state::RestampedRows>,
-    /// The data holds what the run's one login wrote: a codeunit under RequiredTestIsolation = Disabled on the
-    /// TestRunnerHub left it after its session's login (`Session::hold_login`). Not part of the bytes; a frozen copy
-    /// keeps it.
-    pub login_held: Option<std::sync::Arc<crate::HeldLogin>>,
+    /// The logins whose writes the data holds ([`crate::HeldLogins`]: `Session::hold_login`, `Session::hold_runner_login`).
+    /// Not part of the bytes; a frozen copy keeps them.
+    pub held_logins: crate::HeldLogins,
     /// The data is what a test codeunit left: captured in a session that entered one (`Session::in_test_codeunit`) or
     /// that started from such data. Not part of the bytes (no such baseline goes through them); a frozen copy keeps it.
     pub codeunit_left: bool,
@@ -344,7 +343,7 @@ impl Baseline {
             workspace_installs,
             company_built,
             // Not part of the bytes (see the field).
-            login_held: None,
+            held_logins: Default::default(),
             codeunit_left: false,
             company_unknown,
             full_copies,
@@ -430,7 +429,7 @@ impl Session {
             last_stamp: self.last_stamp,
             workspace_installs: None,
             company_built: self.company_built,
-            login_held: self.login_held.clone(),
+            held_logins: self.held_logins.clone(),
             codeunit_left: self.in_test_codeunit || self.codeunit_left,
             company_unknown: {
                 let mut v: Vec<(String, u32, String)> = self
@@ -589,7 +588,7 @@ impl Session {
         self.last_stamp = b.last_stamp.min(self.now_millis());
         self.baseline_rows = b.install_rows.clone().unwrap_or_else(|| b.nonempty_tables());
         self.company_built = b.company_built;
-        self.login_held = b.login_held.clone();
+        self.held_logins = b.held_logins.clone();
         self.codeunit_left = b.codeunit_left;
         self.company_unknown = b
             .company_unknown
@@ -671,7 +670,7 @@ mod tests {
                 why: "why".to_string(),
             }]),
             company_built: true,
-            login_held: None,
+            held_logins: Default::default(),
             codeunit_left: false,
             company_unknown: vec![("My Company".into(), 311, "why".into())],
             full_copies: vec!["Copy".into()],
@@ -733,23 +732,26 @@ mod tests {
     #[test]
     fn the_held_login_survives_a_freeze_but_not_the_bytes() {
         let mut b = sample();
-        b.login_held = Some(std::sync::Arc::new(crate::HeldLogin {
+        b.held_logins.hub = Some(std::sync::Arc::new(crate::HeldLogin {
             image: Err("none".into()),
             singles: vec![3],
             opened: Box::new(()),
-            own_logins: Default::default(),
         }));
+        b.held_logins.runner = b.held_logins.hub.clone();
         assert!(
             b.freeze()
                 .unwrap()
                 .thaw(None)
-                .login_held
+                .held_logins
+                .hub
                 .is_some_and(|h| h.singles == [3])
         );
+        assert!(b.freeze().unwrap().thaw(None).held_logins.runner.is_some());
         assert!(
             Baseline::from_bytes(&b.to_bytes().unwrap())
                 .unwrap()
-                .login_held
+                .held_logins
+                .hub
                 .is_none()
         );
         b.codeunit_left = true;

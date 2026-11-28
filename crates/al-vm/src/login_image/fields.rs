@@ -93,6 +93,7 @@ canon_by_debug!(
     al_host::random::NetRandom,
     crate::blob_transfer::Sources,
     crate::EncryptionKey,
+    crate::HeldLogins,
 );
 
 impl<T: std::fmt::Debug> Canon for Option<T> {
