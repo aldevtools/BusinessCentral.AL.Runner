@@ -1,0 +1,24 @@
+# key	entry
+# Main refused a Text page variable with a TableRelation, kept a Code variable's typed text and checked a table field's
+# exact key only. Head serves corpus PR 1646's cells through the assumption and refuses the neighbors it does not measure.
+NB TSV Tests::TextVar_Exact	ASSUMED test-page-set-value-table-relation (corpus PR 1646, TextVar_LowerCase)
+NB TSV Tests::TextVar_NoRow	ASSUMED test-page-set-value-table-relation (corpus PR 1646, TextVar_NoRow)
+NB TSV Tests::CodeVar_Prefix	ASSUMED test-page-set-value-table-relation (corpus PR 1646, CodeVar_PrefixOneKey)
+NB TSV Tests::CodeVar_PrefixTwoKeys	ASSUMED test-page-set-value-table-relation (corpus PR 1646, CodeVar_PrefixTwoKeys)
+NB TSV Tests::CodeVar_NoRow	ASSUMED test-page-set-value-table-relation (corpus PR 1646, CodeVar_NoRow)
+NB TSV Tests::Filtered_ExactOutside	ASSUMED test-page-set-value-table-relation (corpus PR 1646, Filtered_Outside)
+NB TSV Tests::Filtered_PrefixOutside	ASSUMED test-page-set-value-table-relation (corpus PR 1646, Filtered_PrefixOutside)
+NB TSV Tests::NameVar_AnyValue	ASSUMED test-page-set-value-table-relation (corpus PR 1646, NameVar_TwoRows)
+NB TSV Tests::HostField_Prefix	ASSUMED test-page-set-value-table-relation (corpus PR 1646, HostField_PrefixOneKey)
+NB TSV Tests::CodeVar_TableWithCaption	ASSUMED test-page-set-value-table-relation (corpus PR 1646, CapVar_NoRow)
+NB TSV Tests::CodeVar_LowerNoRow	ASSUMED test-page-set-value-table-relation (corpus PR 1646, TextVar_NoRowLower)
+NB TSV Tests::CodeVar_HeldValueThenNoRow	ASSUMED test-page-set-value-table-relation (corpus PR 1646, TextVar_ValueThenNoRow)
+NB TSV Tests::CodeVar_TextInAnotherField	ASSUMED test-page-set-value-table-relation (corpus PR 1646, TextVar_NameStart)
+NB TSV Tests::CodeVar_PrefixTwoKeysWrittenOutOfOrder	ASSUMED test-page-set-value-table-relation (corpus PR 1646, TextVar_PrefixTwoKeysAbdFirst)
+NB TSV Tests::TextVar_LowerPrefix	ASSUMED test-page-set-value-table-relation (corpus PR 1646, TextVar_LowerPrefix)
+NB TSV Tests::Filtered_PrefixInside	ASSUMED test-page-set-value-table-relation (corpus PR 1646, Filtered_Inside)
+NB TSV Tests::CodeVar_CompoundKey	REFUSED SetValue of a text into a page variable with a TableRelation, in a shape corpus PR 1646 does not measure
+NB TSV Tests::CodeVar_IntegerKey	REFUSED SetValue of a text into a page variable with a TableRelation, in a shape corpus PR 1646 does not measure
+NB TSV Tests::CodeVar_LongerThanVariable	REFUSED SetValue of a text into a page variable with a TableRelation, in a shape corpus PR 1646 does not measure
+NB TSV Tests::CodeVar_FilteredRelation	REFUSED SetValue of a text into a page variable with a TableRelation, in a shape corpus PR 1646 does not measure
+NB TSV Tests::HostField_LowerPrefix	REFUSED SetValue of a lower-case prefix of a related key into a table field
