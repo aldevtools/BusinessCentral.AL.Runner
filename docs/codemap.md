@@ -219,6 +219,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `queries.rs`: Query objects (corpus query/). Entry: `QueryLayout`.
 - `relation.rs`: `TableRelation` property text → arms. Entry: `ParsedArm`.
 - `reports.rs`: Report objects: dataset walk, columns. Entry: `layout`.
+- `reports/column_source.rs`: Report column sources: one parser, measured shapes. Entry: `ColumnSource`.
 - `types.rs`: Semantic types (Ty) and their display names. Entry: `Ty`.
 - `workspace.rs`: A set of apps: parse every file. Entry: `Workspace`.
 - `workspace/moved_tables.rs`: A workspace table kept as the… Entry: `moved_table_of_dependency`.

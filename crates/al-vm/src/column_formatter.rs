@@ -88,8 +88,8 @@ impl Session {
     /// earlier BC 28 `#,##0.00###` was a value left by an earlier test).
     ///
     /// A column that states no AutoFormatType takes its field's: a type the runtime does not model is refused (al-runner issue
-    /// 8011); AutoFormatType 2 gives `#,##0.00###` where `ReportColumn::field_unit_amount_format` says so; any other keeps the
-    /// rule above. The column's type, else its field's, is refused while a subscriber could write
+    /// 8011); `ReportColumn::measured_field` gives the formatter of the shapes a probe measures; any other type keeps the rule
+    /// above. The column's type, else its field's, is refused while a subscriber could write
     /// the AutoFormat result (`auto_format_writer`).
     pub(crate) fn decimal_column_formatter(
         &self,
@@ -122,12 +122,33 @@ impl Session {
                 "the decimalformatter of a report column: {why}"
             )));
         }
-        // A field's AutoFormatType 2 in the shapes al-sema `reports::field_unit_amount_measured` admits: the formatter of a
-        // column's own AutoFormatType 2 (`#,##0.00###`, corpus PR 1652).
-        if c.field_unit_amount_format {
-            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportColumnFieldUnitAmountFormat);
-            let expr = from_field("AutoFormatExpression");
-            return column_formatter(None, field_type.as_deref(), expr.as_deref(), None);
+        // The shapes al-sema `reports/column_source.rs` measures (`ir::MeasuredField`).
+        use al_builtins::assumptions::{Assumption, assume};
+        match c.measured_field {
+            // A field's AutoFormatType 2: the formatter of a column's own AutoFormatType 2 (`#,##0.00###`, corpus PR 1652).
+            al_ir::MeasuredField::UnitAmount => {
+                assume(Assumption::ReportColumnFieldUnitAmountFormat);
+                let expr = from_field("AutoFormatExpression");
+                return column_formatter(None, field_type.as_deref(), expr.as_deref(), None);
+            }
+            // AutoFormatType 1 beside DecimalPlaces: the AutoFormatType decides from BC 28, the DecimalPlaces before
+            // (reports/dataset/ReportColumnFormatsHeaderRest.al:123, :125).
+            al_ir::MeasuredField::AmountOverPlaces { assumed } => {
+                if assumed {
+                    assume(Assumption::ReportColumnFieldAmountPlacesFormat);
+                }
+                if self.has(al_version::Gate::AutoFormatAmountFieldRoundsFrom28) {
+                    return column_formatter(None, field_type.as_deref(), None, None);
+                }
+            }
+            // A parent's field in a child column: its DecimalPlaces, `#,##0.####` for AutoFormatType 1 (corpus PR 1652).
+            al_ir::MeasuredField::ParentField => {
+                assume(Assumption::ReportColumnParentFieldFormat);
+                if field_type.as_deref() == Some("1") {
+                    return dataset::decimal_formatter(Some("0:4"));
+                }
+            }
+            al_ir::MeasuredField::None | al_ir::MeasuredField::OptionCaption => {}
         }
         of_column(c, from_field("DecimalPlaces").as_deref())
     }

@@ -1,6 +1,23 @@
-//! The text a report dataset holds for a Blob column, and which columns are Media (moved out of reports.rs).
+//! The text a report dataset holds for a Blob column, which columns are Media, and which Option columns show the OptionCaption
+//! of their field (moved out of reports.rs).
 
 use super::*;
+
+/// The table and the field whose OptionCaption an Option column shows: the bare field, or `Item.Field` where al-sema
+/// `reports/column_source.rs` `option_caption_measured` admits it (assumption `report-column-qualified-option-caption`, corpus
+/// PR 1652: DataItemNamesDottedQualifier.al:678 at cf6884b9). Any other qualified Option column shows the member name.
+pub(super) fn option_field<'a>(
+    t: &'a Option<Arc<al_data::TableDef>>,
+    c: &ir::ReportColumn,
+) -> Option<(&'a Arc<al_data::TableDef>, usize)> {
+    let qualified = c
+        .item_field
+        .filter(|_| c.measured_field == ir::MeasuredField::OptionCaption);
+    if t.is_some() && c.field.is_none() && qualified.is_some() {
+        al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportColumnQualifiedOptionCaption);
+    }
+    Some((t.as_ref()?, c.field.or(qualified)?))
+}
 
 /// Whether column `c` of the report itself (`own`, not one a reportextension adds) reads a field of a global record variable
 /// of the report: its source is `Global.Field` (`places_table` is set) and it names no field of the data item.

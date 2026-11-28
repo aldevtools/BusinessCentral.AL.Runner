@@ -180,7 +180,7 @@ fn a_unit_amount_field_marks_its_measured_columns() {
         ));
         let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
         let c = &l.program.objects[oi].report.as_ref().unwrap().items[0].columns[0];
-        assert_eq!(c.field_unit_amount_format, want, "{column}");
+        assert_eq!(c.measured_field == al_ir::MeasuredField::UnitAmount, want, "{column}");
     }
 }
 

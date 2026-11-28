@@ -596,8 +596,8 @@ fn proc_sig(r: &al_syntax::ast::Routine, declared_in: usize) -> ProcSig {
 
 /// The `Interface = Codeunit` pairs of an implementation property (`I = C, J = D`).
 fn push_impls(m: &mut Members, slot: ImplSlot, value: &str, declared_in: usize) {
-    for pair in split_outside_quotes(value, ',') {
-        let sides = split_outside_quotes(&pair, '=');
+    for pair in crate::scan::split_names(value, ',') {
+        let sides = crate::scan::split_names(pair, '=');
         if let [interface, codeunit] = sides.as_slice() {
             m.enum_impls.push(EnumImpl {
                 slot: slot.clone(),
@@ -609,25 +609,9 @@ fn push_impls(m: &mut Members, slot: ImplSlot, value: &str, declared_in: usize) 
     }
 }
 
-fn split_outside_quotes(text: &str, sep: char) -> Vec<String> {
-    let mut out = vec![String::new()];
-    let mut in_quote = false;
-    for c in text.chars() {
-        match c {
-            '"' => {
-                in_quote = !in_quote;
-                out.last_mut().expect("non-empty").push(c);
-            }
-            c if c == sep && !in_quote => out.push(String::new()),
-            c => out.last_mut().expect("non-empty").push(c),
-        }
-    }
-    out
-}
-
 /// `Ns."Some Name"` as the parts of an object reference.
 pub(crate) fn name_parts(text: &str) -> Vec<String> {
-    split_outside_quotes(text.trim(), '.')
+    crate::scan::split_names(text.trim(), '.')
         .into_iter()
         .map(|p| p.trim().trim_matches('"').to_string())
         .collect()
