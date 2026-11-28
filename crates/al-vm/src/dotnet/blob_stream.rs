@@ -35,7 +35,7 @@ use super::registry::{MemberKind, Pin, RegistryMember, RegistryType};
 use super::*;
 use al_builtins::dotnet_sigs::{NAV_BLOB_STREAM, NAV_BLOB_STREAM_TYPE};
 use al_builtins::library_kind::LibraryKind;
-use al_builtins::stream::{BlobBuf, DOTNET_WRITE_AFTER_CLOSE};
+use al_builtins::stream::{self, BlobBuf, DOTNET_WRITE_AFTER_CLOSE};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 const PIN: &str = "tests/al-language-onprem-dotnet/dotnet/dotnet/SgDotNetStreams.al:106-446";
@@ -107,6 +107,11 @@ impl Session {
             LibraryValue::OutStream(blob, ..) => {
                 let mut buf = blob.borrow_mut();
                 plain(&buf)?;
+                // After a served .NET rewrite the AL position is not measured (`BlobBuf::dotnet_rewritten`): main's
+                // refusal of the mark.
+                if buf.dotnet_rewritten {
+                    return Err(stream::render_pending_error(stream::DOTNET_BRIDGE_OVERWRITTEN));
+                }
                 if buf.write_pos != buf.bytes.len() {
                     return unsupported(
                         "an OutStream whose position is not the end of its Blob given to a DotNet Stream (the .NET position is not pinned)",
@@ -333,6 +338,7 @@ fn put(state: &RefCell<Vec<Value>>, bytes: &[u8]) -> Result<(), Signal> {
     state.borrow_mut()[S_TOUCHED] = Value::Boolean(true);
     {
         let mut buf = blob.borrow_mut();
+        stream::note_write(&mut buf);
         let at = pos.min(buf.bytes.len());
         let overlap = bytes.len().min(buf.bytes.len() - at);
         buf.bytes[at..at + overlap].copy_from_slice(&bytes[..overlap]);
