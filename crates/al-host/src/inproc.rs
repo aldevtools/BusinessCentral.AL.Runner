@@ -878,6 +878,11 @@ impl DotNetSession for InprocSession {
         self.inner.stream_read(h, max)
     }
 
+    /// No stand-in changes the culture: the sidecar's answer.
+    fn formatting_at_start(&mut self) -> bool {
+        self.inner.formatting_at_start()
+    }
+
     fn release(&mut self, handles: &[DotNetHandle]) {
         let mut remote = Vec::new();
         for &h in handles {
