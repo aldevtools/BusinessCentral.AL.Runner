@@ -23,7 +23,7 @@ NBX T61 InnerTry_TwoProcs::InnerTry_TwoProcs	ASSUMED xrec-one-across-nested-vali
 NBX T62 TwoLevel_DeepAssign::TwoLevel_DeepAssign	ASSUMED xrec-one-across-nested-validate (probe Validate_TwoLevelInnerAssigns_OneXRec)
 NBX T63 TwoLevel_OuterAssign::TwoLevel_OuterAssign	ASSUMED xrec-one-across-nested-validate (probe Validate_TwoLevelOuterAssigns_OneXRec)
 NBX T64 FromTryFunction::FromTryFunction	ASSUMED xrec-one-across-nested-validate (probe Validate_FromTestTryFunction_OneXRec)
-NBX T65 FromTryFunctionStateme::FromTryFunctionStatement	ASSUMED xrec-one-across-nested-validate (the runner does not tell a TryFunction statement from a used result; XRecTableProcCallers.al, corpus PR 1482, measured both the same; probe cell Validate_FromTestTryFunctionStatement_OneXRec in observe mode at 8c6aa430)
+NBX T65 FromTryFunctionStateme::FromTryFunctionStatement	ASSUMED xrec-one-across-nested-validate (a TryFunction called as a statement is a plain call; probe cell Validate_FromTestTryFunctionStatement_OneXRec at XRecNestedValidateShapes.al:1949, corpus PR 1651 at 688f9f0a)
 NBX T66 FromMessageHandler::FromMessageHandler	ASSUMED xrec-one-across-nested-validate (probe Validate_FromMessageHandler_OneXRec, the handler validates a variable assigned from the one that inserted)
 # The fourth Validate is not measured: it keeps main's copy of the outer before-image; the three around it share.
 NBX T68 FourLevels::FourLevels	ASSUMED xrec-one-across-nested-validate (the three outer Validates; the fourth keeps main's copy)
