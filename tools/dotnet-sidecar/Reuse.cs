@@ -25,6 +25,7 @@ public sealed class SessionGuard
     readonly HashSet<string> assemblies;
     readonly CultureInfo culture, uiCulture;
     readonly CultureInfo? defaultCulture, defaultUiCulture;
+    readonly string[] formats;
     readonly string cwd;
     readonly Dictionary<string, string> env;
     readonly long timers;
@@ -36,6 +37,7 @@ public sealed class SessionGuard
         uiCulture = CultureInfo.CurrentUICulture;
         defaultCulture = CultureInfo.DefaultThreadCurrentCulture;
         defaultUiCulture = CultureInfo.DefaultThreadCurrentUICulture;
+        formats = Formats(culture);
         cwd = Directory.GetCurrentDirectory();
         env = Env();
         timers = Timer.ActiveCount;
@@ -50,6 +52,29 @@ public sealed class SessionGuard
     static Dictionary<string, string> Env() =>
         Environment.GetEnvironmentVariables().Cast<DictionaryEntry>()
             .ToDictionary(e => (string)e.Key, e => (string?)e.Value ?? "");
+
+    /// Every public property of the date and time formats of `c`, as text (name=value): the patterns, names, designators
+    /// and separators .NET formats a DateTime with, and the calendar.
+    static string[] Formats(CultureInfo c)
+    {
+        var f = c.DateTimeFormat;
+        return typeof(DateTimeFormatInfo).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.GetIndexParameters().Length == 0)
+            .OrderBy(p => p.Name, StringComparer.Ordinal)
+            .Select(p => p.Name + "=" + p.GetValue(f) switch
+            {
+                string[] a => string.Join("\u0001", a),
+                Calendar cal => cal.GetType().FullName + "/" + cal.TwoDigitYearMax.ToString(CultureInfo.InvariantCulture),
+                var v => Convert.ToString(v, CultureInfo.InvariantCulture),
+            })
+            .ToArray();
+    }
+
+    /// The current culture is the object of a process that just answered `hello` and its date and time formats have their
+    /// values of then (the `formatting` request; al-vm `dotnet/datetime_text.rs` reads it).
+    public bool FormattingAtStart() => ReferenceEquals(CultureInfo.CurrentCulture, culture) && FormatsAtStart();
+
+    bool FormatsAtStart() => Formats(culture).SequenceEqual(formats);
 
     static bool Framework(Assembly a) =>
         !a.IsDynamic && FrameworkDir.Length > 0 && a.Location.StartsWith(FrameworkDir, StringComparison.Ordinal);
@@ -72,6 +97,8 @@ public sealed class SessionGuard
             CultureInfo.CurrentUICulture = uiCulture;
             repaired.Add("culture");
         }
+        // The start culture object itself, changed in place (`DateTimeFormat.LongTimePattern := ..`), cannot be put back.
+        if (!FormatsAtStart()) dirty.Add("culture-formats");
         if (Directory.GetCurrentDirectory() != cwd)
         {
             Directory.SetCurrentDirectory(cwd);

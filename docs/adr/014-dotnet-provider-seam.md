@@ -848,6 +848,9 @@ process to `reset` at the end of its session and reports the tally at the end of
 stream bridges, puts back culture, current directory and environment, and reports the process dirty when a session loaded an
 assembly outside the .NET shared framework, named a type in a namespace that can reach state the check does not see
 (`System.Threading`, `System.Diagnostics`, `System.Net`, `System.Reflection`, `System.Runtime`, `System.Console`,
-`System.AppContext`, `System.AppDomain`, `System.Security`, `System.GC`, timers), or left a timer running. The first full runs: of 53
+`System.AppContext`, `System.AppDomain`, `System.Security`, `System.GC`, timers), left a timer running, or changed a
+property of the start culture's `DateTimeFormat` in place (that object cannot be put back; al-runner pull request 9427). The
+same snapshot answers the `formatting` request (protocol 8): whether the current culture is the start object with its date
+formats unchanged. The first full runs: of 53
 sessions that called .NET, 52 ended clean and 1 dirty (BC 28, 29); 74 and 1 on BC 27. The outcomes of the corpus runs with Microsoft's
 apps (all four suites of BC 27, 28 and 29) are identical with reuse on and off.

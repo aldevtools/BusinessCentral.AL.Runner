@@ -706,7 +706,9 @@ impl Session {
         match reply {
             Ok(r) => {
                 let v = self.apply_reply(r, &book, &places, &shown, f)?;
-                let v = datetime_text::datetime_default_text(&target, kind, &member, &values, v);
+                let v = datetime_text::datetime_default_text(&target, kind, &member, &values, v, || {
+                    self.datetime_text_state_measured()
+                });
                 if let Err(why) = self.workbook_effects(&target, &member, open_workbook, &v) {
                     return unsupported(format!("DotNet {shown}: {why} (ADR-056)"));
                 }
