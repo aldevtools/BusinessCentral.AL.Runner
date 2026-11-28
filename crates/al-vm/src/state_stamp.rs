@@ -16,6 +16,7 @@
 
 use crate::Session;
 use crate::sessionops::Sequence;
+use crate::single_track::Fp;
 use crate::state_render::content;
 use al_builtins::value::{Instance, LibraryValue, RecordState, Value};
 use std::cell::RefCell;
@@ -76,12 +77,19 @@ pub struct LeftStamp {
     group1: BTreeMap<u32, String>,
 }
 
+/// Per (codeunit, global index), the fingerprint of the value a fresh instance's global holds and the one it takes in a
+/// [`LeftStamp`] (`Session::left_fp`): what [`Session::singles_of`] compares a global with. Fingerprints only: `state_render`
+/// renders a value held twice as shared, so a kept fresh value would render otherwise than the one a stamp makes.
+pub(crate) type FreshGlobals = BTreeMap<(usize, usize), (Fp, Fp)>;
+
 /// One SingleInstance codeunit's instance in a [`LeftStamp`].
-struct Single {
-    /// The fingerprint of each global.
+pub(crate) struct Single {
+    /// The number of globals of the instance.
+    count: usize,
+    /// The fingerprint of each global stamped ([`stamped`]), in that order.
     globals: Vec<crate::single_track::Fp>,
-    /// Per global: it holds what a fresh instance of the codeunit holds ([`Session::at_declared`]). Empty when the instance has
-    /// another number of globals than a fresh one.
+    /// Per global stamped: it holds what a fresh instance of the codeunit holds ([`Session::at_declared`]). Empty when the
+    /// instance has another number of globals than a fresh one.
     declared: Vec<bool>,
     /// A global holds a codeunit instance a call made whose globals hold their declared values, and it took the fingerprint
     /// of the fresh variable ([`Session::at_declared`], assumption clear-shared-codeunit).
@@ -100,8 +108,8 @@ pub struct LeftChange {
     /// The SingleInstance codeunits (object index) whose state changed, each with the globals (index) that changed: of an
     /// instance that was there before, those that hold another value (all of them when it went away or its number of
     /// globals differs); of a new instance, those that do not hold what a fresh instance holds. A global with no
-    /// comparable form (a .NET object, a stream, a temporary record) counts as changed unless it holds what a fresh one
-    /// holds at both ends (`Session::at_declared`).
+    /// comparable form (a .NET object, a stream, a temporary record whose rows are not measured: `Session::left_fp`)
+    /// counts as changed unless it holds what a fresh one holds at both ends (`Session::at_declared`).
     pub singles: BTreeMap<usize, BTreeSet<usize>>,
     /// The SingleInstance codeunits (object index) one of whose globals came to hold a codeunit instance a call made, with
     /// every global of it at its declared value, and counts as unchanged only through assumption clear-shared-codeunit
@@ -137,30 +145,7 @@ impl LeftStamp {
         } else {
             None
         };
-        let objects: BTreeSet<usize> = self.singles.keys().chain(later.singles.keys()).copied().collect();
-        let singles = objects
-            .into_iter()
-            .filter_map(|o| {
-                let changed = match (self.singles.get(&o), later.singles.get(&o)) {
-                    (Some(x), Some(y)) if x.globals.len() == y.globals.len() => {
-                        // Two values that each hold what a fresh one holds hold the same, also where neither has a
-                        // comparable form (an untouched temporary record, `untouched_temp`).
-                        let both_declared =
-                            |g: usize| x.declared.get(g) == Some(&true) && y.declared.get(g) == Some(&true);
-                        (0..x.globals.len())
-                            .filter(|&g| x.globals[g] != y.globals[g] && !both_declared(g))
-                            .collect()
-                    }
-                    (None, Some(y)) if y.declared.len() == y.globals.len() => {
-                        (0..y.declared.len()).filter(|&g| !y.declared[g]).collect()
-                    }
-                    (Some(x), _) => (0..x.globals.len()).collect(),
-                    (None, Some(y)) => (0..y.globals.len()).collect(),
-                    (None, None) => BTreeSet::new(),
-                };
-                (!changed.is_empty()).then_some((o, changed))
-            })
-            .collect();
+        let singles = singles_changed(&self.singles, &later.singles, None);
         let declared_form = (later.singles.iter())
             .filter(|(o, y)| y.declared_form && !self.singles.get(o).is_some_and(|x| x.declared_form))
             .map(|(o, _)| *o)
@@ -185,6 +170,53 @@ impl LeftStamp {
     }
 }
 
+/// The globals (index) of codeunit `o`'s instance with `count` globals that [`Session::singles_of`] stamps: all of them, or with
+/// `only` (codeunit -> globals) those it names.
+fn stamped(only: Option<&BTreeMap<usize, BTreeSet<usize>>>, o: usize, count: usize) -> Vec<usize> {
+    match only {
+        Some(m) => (m.get(&o).into_iter().flatten())
+            .copied()
+            .filter(|&g| g < count)
+            .collect(),
+        None => (0..count).collect(),
+    }
+}
+
+/// The SingleInstance codeunits whose instance differs between `before` and `later`, each with the globals that differ
+/// ([`LeftChange::singles`]); `only` is what both stamps were taken with ([`Session::singles_of`]).
+pub(crate) fn singles_changed(
+    before: &BTreeMap<usize, Single>,
+    later: &BTreeMap<usize, Single>,
+    only: Option<&BTreeMap<usize, BTreeSet<usize>>>,
+) -> BTreeMap<usize, BTreeSet<usize>> {
+    let objects: BTreeSet<usize> = before.keys().chain(later.keys()).copied().collect();
+    objects
+        .into_iter()
+        .filter_map(|o| {
+            // Position `i` of a stamp holds global `stamped(..)[i]`.
+            let changed = match (before.get(&o), later.get(&o)) {
+                (Some(x), Some(y)) if x.count == y.count => {
+                    // Two values that each hold what a fresh one holds hold the same, also where neither has a
+                    // comparable form (an untouched temporary record, `untouched_temp`).
+                    let both_declared = |i: usize| x.declared.get(i) == Some(&true) && y.declared.get(i) == Some(&true);
+                    (stamped(only, o, x.count).into_iter().enumerate())
+                        .filter(|&(i, _)| x.globals[i] != y.globals[i] && !both_declared(i))
+                        .map(|(_, g)| g)
+                        .collect()
+                }
+                (None, Some(y)) if y.declared.len() == y.globals.len() => (stamped(only, o, y.count).into_iter())
+                    .enumerate()
+                    .filter(|&(i, _)| !y.declared[i])
+                    .map(|(_, g)| g)
+                    .collect(),
+                (Some(s), _) | (None, Some(s)) => stamped(only, o, s.count).into_iter().collect(),
+                (None, None) => BTreeSet::new(),
+            };
+            (!changed.is_empty()).then_some((o, changed))
+        })
+        .collect()
+}
+
 impl Session {
     /// Marks the reads of each SingleInstance codeunit of `change` that counted unchanged only through assumption
     /// clear-shared-codeunit ([`LeftChange::declared_form`]), when it carries no mark yet (`mark_single_assumed`).
@@ -196,46 +228,7 @@ impl Session {
 
     /// The state [`LeftStamp`] takes, now.
     pub fn left_stamp(&mut self) -> LeftStamp {
-        let made: Vec<(usize, Rc<RefCell<Instance>>)> = self.singletons.iter().map(|(&o, i)| (o, i.clone())).collect();
-        let mut singles = BTreeMap::new();
-        for (o, inst) in made {
-            let engine = self.engine.clone();
-            let fresh = self.slot_defaults(&engine.program.objects[o].globals);
-            let held = inst.borrow().globals.clone();
-            let declared: Vec<bool> = if held.len() == fresh.len() {
-                (held.iter().zip(&fresh))
-                    .map(|(v, f)| self.at_declared(v, f, 0, false))
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            // A global at its declared value takes the fingerprint of the fresh one: a codeunit variable whose first call made
-            // its instance, with every global of it at its declared value, reads as one never used (al-runner issue 8912).
-            let mut declared_form = false;
-            let globals = (held.iter().enumerate())
-                .map(|(g, v)| {
-                    let own = crate::single_track::fp(v, &engine);
-                    match fresh.get(g) {
-                        Some(f) if declared.get(g) == Some(&true) => {
-                            let fresh = crate::single_track::fp(f, &engine);
-                            // Only a codeunit variable's instance counts through its declared form (assumption
-                            // clear-shared-codeunit); a temporary record's fingerprints never compare.
-                            declared_form |= matches!(v, Value::Codeunit(_)) && fresh != own;
-                            fresh
-                        }
-                        _ => own,
-                    }
-                })
-                .collect();
-            singles.insert(
-                o,
-                Single {
-                    globals,
-                    declared,
-                    declared_form,
-                },
-            );
-        }
+        let singles = self.singles_of(None, &mut FreshGlobals::new());
         let group1 = self.global_group1.signatures();
         LeftStamp {
             state: self.state_stamp(),
@@ -245,9 +238,112 @@ impl Session {
             group1,
         }
     }
+
+    /// Each SingleInstance codeunit's instance as a [`LeftStamp`] holds it; with `only` (codeunit -> globals), of those
+    /// codeunits only, and of each only those globals ([`stamped`]; [`singles_changed`] then compares those only). `fresh`
+    /// keeps what a fresh instance's globals hold ([`FreshGlobals`]); a caller that stamps many times keeps it across them.
+    pub(crate) fn singles_of(
+        &mut self,
+        only: Option<&BTreeMap<usize, BTreeSet<usize>>>,
+        fresh: &mut FreshGlobals,
+    ) -> BTreeMap<usize, Single> {
+        let made: Vec<(usize, Rc<RefCell<Instance>>)> = match only {
+            Some(m) => (m.keys())
+                .filter_map(|o| self.singletons.get(o).map(|i| (*o, i.clone())))
+                .collect(),
+            None => (self.singletons.iter()).map(|(&o, i)| (o, i.clone())).collect(),
+        };
+        let mut singles = BTreeMap::new();
+        for (o, inst) in made {
+            let engine = self.engine.clone();
+            let slots = &engine.program.objects[o].globals;
+            let count = inst.borrow().globals.len();
+            // Without one slot per global the instance has no declared form: each global takes its own fingerprint.
+            let comparable = count == slots.len();
+            let indices = stamped(only, o, count);
+            let (mut globals, mut declared) = (Vec::with_capacity(indices.len()), Vec::new());
+            let mut declared_form = false;
+            for g in indices {
+                let v = &inst.borrow().globals[g].clone();
+                if !comparable {
+                    globals.push(self.left_fp(v));
+                    continue;
+                }
+                let (fresh_fp, fresh_left) = match fresh.get(&(o, g)) {
+                    Some(known) => known.clone(),
+                    None => {
+                        let f = self.slot_default(&slots[g]);
+                        let fp = crate::single_track::fp(&f, &engine);
+                        // Taken while `f` is the only holder of its value.
+                        let left = match fp {
+                            Fp::Val(_) => fp.clone(),
+                            Fp::Opaque(_) => self.left_fp(&f),
+                        };
+                        fresh.insert((o, g), (fp.clone(), left.clone()));
+                        (fp, left)
+                    }
+                };
+                // A value with no arm of its own in `at_declared` (not a record, codeunit, array or library value) and a
+                // comparable fingerprint holds what the fresh one holds exactly when the two fingerprints are equal, and
+                // takes its own fingerprint either way (`left_fp` of a value with a comparable fingerprint is that one).
+                let own = (!matches!(
+                    v,
+                    Value::Record(_) | Value::Codeunit(_) | Value::Array(_) | Value::Library(..)
+                ))
+                .then(|| crate::single_track::fp(v, &engine));
+                if let Some(own @ Fp::Val(_)) = own {
+                    declared.push(own == fresh_fp);
+                    globals.push(own);
+                    continue;
+                }
+                let f = self.slot_default(&slots[g]);
+                let at = self.at_declared(v, &f, 0, false);
+                declared.push(at);
+                // A global at its declared value takes the fingerprint of the fresh one: a codeunit variable whose first call
+                // made its instance, with every global of it at its declared value, reads as one never used (al-runner issue
+                // 8912).
+                globals.push(if at {
+                    // Only a codeunit variable's instance counts through its declared form (assumption
+                    // clear-shared-codeunit); a temporary record compares by its rendered rows (`left_fp`).
+                    declared_form |= matches!(v, Value::Codeunit(_)) && fresh_left != self.left_fp(v);
+                    fresh_left
+                } else {
+                    self.left_fp(v)
+                });
+            }
+            singles.insert(
+                o,
+                Single {
+                    count,
+                    globals,
+                    declared,
+                    declared_form,
+                },
+            );
+        }
+        singles
+    }
 }
 
 impl Session {
+    /// The fingerprint of SingleInstance global `v` in a [`LeftStamp`]: `single_track::fp`; for a value that has none there
+    /// (a temporary record), the exact text `state_render` gives it, its rows included, when it has one there.
+    fn left_fp(&self, v: &Value) -> crate::single_track::Fp {
+        let fp = crate::single_track::fp(v, &self.engine);
+        if let crate::single_track::Fp::Opaque(_) = fp {
+            let mut render = crate::state_render::Render::new(self);
+            if let Ok(text) = render.value(v, 0) {
+                let mut bytes = vec![0xFF];
+                for line in std::iter::once(&text).chain(&render.lines) {
+                    bytes.extend_from_slice(line.as_bytes());
+                    bytes.push(b'\n');
+                }
+                return crate::single_track::Fp::Val(bytes.into());
+            }
+        }
+        fp
+    }
+
     /// Whether global value `v` holds what `fresh`, the value a fresh instance's global holds, holds: the same fingerprint;
     /// for a record also the same view (key, sort order, filter group, load and calculated fields, read isolation, security
     /// filtering, company, marks) and nothing read or written through it, and for a temporary record, which has no
@@ -1280,5 +1376,50 @@ codeunit 50113 TempDriver
         session.clock_draws -= 1;
         session.last_stamp += 1;
         assert_ne!(session.state_lines(), base);
+    }
+
+    // A temporary record global compares by its rows: a run that leaves its rows as they were changes nothing, a run that
+    // adds a row changes it (al-runner issue 8945: a login subscriber that does not touch a memo is no changer of it).
+    #[test]
+    fn a_temporary_record_global_compares_by_its_rows() {
+        const SRC: &str = "table 50100 Row { fields { field(1; Id; Integer) { } } }
+            codeunit 50100 Keeper { SingleInstance = true; var T: Record Row temporary; N: Integer;
+              procedure Add(I: Integer) begin T.Id := I; T.Insert(); end;
+              procedure Same() begin N := N; end; }";
+        let (ws, l) = al_sema::lower::compile(
+            vec![al_sema::workspace::AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), SRC.into())],
+            }],
+            &Default::default(),
+        );
+        assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+        let engine = crate::Engine::new(l.program, Vec::new());
+        let at = engine.program.objects.iter().position(|o| o.name == "Keeper").unwrap();
+        let routine = |name: &str| {
+            engine.program.objects[at]
+                .routines
+                .iter()
+                .position(|r| r.name == name)
+                .unwrap()
+        };
+        let (add, same) = (routine("Add"), routine("Same"));
+        let mut session = crate::Session::new(engine.clone());
+        let run = |s: &mut crate::Session, r: usize, args: Vec<al_builtins::value::Value>| {
+            let inst = s.codeunit_instance(at);
+            s.call(at, r, inst, args).unwrap();
+        };
+        run(&mut session, add, vec![al_builtins::value::Value::Integer(1)]);
+        let before = session.left_stamp();
+        run(&mut session, same, vec![]);
+        assert!(before.changed(&session.left_stamp()).singles.is_empty());
+        run(&mut session, add, vec![al_builtins::value::Value::Integer(2)]);
+        let changed = before.changed(&session.left_stamp()).singles;
+        assert_eq!(
+            changed.get(&at).map(|g| g.iter().copied().collect::<Vec<_>>()),
+            Some(vec![0])
+        );
     }
 }

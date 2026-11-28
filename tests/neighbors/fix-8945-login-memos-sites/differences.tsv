@@ -1,0 +1,5 @@
+# key	entry
+# main failed (the install session's setup cache hid the test session's ask); head asks again (Y69InstallTriggerSetup.al:134) and keeps the cache the ask loaded (plain-job cell M3)
+LS Login Tests::ReadsChangeLogLoadedInAsk	ASSUMED partner-login-microsoft-cache (corpus PR 1571, merged, not yet pinned)
+# main passed clean (the login did not change 423, so no mark); head: the login's ask loaded it, the read is kept
+LS Login Tests::UsesChangeLogAfterLoginAsk	ASSUMED partner-login-microsoft-cache (corpus PR 1571, merged, not yet pinned)

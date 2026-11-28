@@ -168,6 +168,7 @@ pub(crate) fn events_not_as_new(e: &EventState) -> Option<&'static str> {
         install_rows,
         setup_no_ops,
         db_setup_table,
+        raise_watch,
         trial,
         global_setups: _,
     } = e;
@@ -225,6 +226,7 @@ pub(crate) fn events_not_as_new(e: &EventState) -> Option<&'static str> {
         (install_rows.is_none(), "events.install_rows"),
         (setup_no_ops.is_empty(), "events.setup_no_ops"),
         (db_setup_table.is_none(), "events.db_setup_table"),
+        (raise_watch.is_none(), "events.raise_watch"),
         (!allowed, "events.trial.allowed"),
         (picked.is_empty(), "events.trial.picked"),
         (*depth == 0, "events.trial.depth"),

@@ -594,6 +594,7 @@ pub(crate) fn run_apps_under_test(
     session.set_install_without_client(false);
     // The test session does not see the SingleInstance state of the install run (PeVTests.al:297, fact 6).
     session.reset_single_instances();
+    session.end_install_session_setups();
     session.commit_transaction();
     (skipped, notes)
 }

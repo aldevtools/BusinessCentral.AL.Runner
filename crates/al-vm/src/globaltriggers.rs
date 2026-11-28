@@ -20,7 +20,7 @@
 //! and session (AL Runner reads that in BC's `GetTriggersOnTable`); that `Insert(false)` and the
 //! other `RunTrigger = false` writes raise the database events too.
 //!
-//! Entry points: `global_setup`, `global_enabled`, `global_trigger`.
+//! Entry points: `global_setup`, `global_enabled`, `global_trigger`, `end_install_session_setups`.
 
 use crate::Session;
 use crate::dispatch::EventCall;
@@ -59,12 +59,22 @@ fn names(list: &[&str]) -> Vec<String> {
 
 impl Session {
     /// Raises a `Global Triggers` event. While the SQL counters log record methods, its AL code is not logged: it is part
-    /// of the record method that raised it (sqlcount.rs, `SqlCounters::mute_begin`).
+    /// of the record method that raised it (sqlcount.rs, `SqlCounters::mute_begin`). Its start and end are boundaries of
+    /// the raise watch, when one runs (raise_watch.rs).
     fn raise_global(&mut self, call: &EventCall, args: &mut [Value]) -> Result<(), Signal> {
+        self.raise_watch_boundary(Some(call.event));
         let m = self.sql.mute_begin(self.calls_made);
         let r = self.raise(call, args);
         self.sql.mute_end(m, self.calls_made);
+        self.raise_watch_boundary(None);
         r
+    }
+
+    /// The install sessions ended and the test session follows: what the subscribers answered there is gone, and the test
+    /// session's first write of a table asks again (Y69InstallTriggerSetup.al:104, :134 `d_setup_61180`: asked once per
+    /// table in the test session for a table the install code wrote).
+    pub fn end_install_session_setups(&mut self) {
+        self.events.global_setups.clear();
     }
 
     /// The setup of table `t`, asking the subscribers the first time (BC caches it per session).

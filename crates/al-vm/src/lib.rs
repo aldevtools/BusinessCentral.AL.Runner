@@ -39,6 +39,7 @@ pub(crate) use state::*;
 mod baseline;
 mod hub_sequences;
 mod sequence_start;
+pub use raise_watch::{AskChangers, RaiseChanges, WatchNotes};
 pub use sequence_start::{CommitBy, DataAccess, Interval, Reached, RefLoads, SequenceStart, TxPoint, TxPointKind};
 mod storage_checkpoint;
 pub use storage_checkpoint::{StorageCheckpoint, Unkept};
@@ -112,6 +113,7 @@ pub mod install_footprint;
 mod install_footprint_row_version;
 mod install_left;
 mod login_image;
+mod raise_watch;
 pub use login_image::{
     BaseShape, ImageSize, KindSize, LoginBase, LoginImage, NODE_KINDS, NotImaged, NotThawed, PortableBase,
 };

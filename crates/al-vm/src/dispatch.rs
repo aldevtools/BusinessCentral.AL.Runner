@@ -416,7 +416,9 @@ impl Session {
             let trial = trials.contains(&(s.object, s.routine));
             let snapshot: Vec<Value> = if trial { call_args.clone() } else { Vec::new() };
             let watch = trial.then(|| self.trial_start());
+            self.raise_watch_subscriber(Some((s.object, s.routine)));
             let called = self.call(s.object, s.routine, inst, call_args);
+            self.raise_watch_subscriber(None);
             self.events.subscriber_stack.pop();
             self.events.next_option_carried.clear();
             if let Some(w) = watch {

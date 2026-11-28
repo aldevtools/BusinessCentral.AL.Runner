@@ -1,0 +1,12 @@
+# key	entry
+LS Ask Tests Two::NextCodeunitReadsPartnerCache	ASSUMED partner-login-setup-ask-cache (corpus probe pending, cells of runner PR 9028 round 2)
+LS Ask Tests::LaterCacheChangedAfterTheFill	ASSUMED partner-login-setup-ask-cache (corpus probe pending, cells of runner PR 9028 round 2)
+LS Ask Tests::OwnCounterAfterOwnWrite	ASSUMED partner-login-setup-ask-cache (corpus probe pending, cells of runner PR 9028 round 2)
+LS Ask Tests::OwnCounterCountsTheAsk	ASSUMED partner-login-setup-ask-cache (corpus probe pending, cells of runner PR 9028 round 2)
+LS Ask Tests::PartnerCacheAfterOwnWrite	ASSUMED partner-login-setup-ask-cache (corpus probe pending, cells of runner PR 9028 round 2)
+LS Ask Tests::PartnerCacheHoldsTheAsk	ASSUMED partner-login-setup-ask-cache (corpus probe pending, cells of runner PR 9028 round 2)
+LS Ask Tests::SideCacheFilledBySetupSubscriberOfItsApp	ASSUMED partner-login-setup-ask-cache (corpus probe pending, cells of runner PR 9028 round 2)
+LS Ask Tests::TwoLoginWritesTwoAsks	ASSUMED partner-login-setup-ask-cache (corpus probe pending, cells of runner PR 9028 round 2)
+LS Ask Tests::EventCacheChangedByOtherEventSubscriber	ASSUMED partner-login-memo-kept (corpus PR 1490; the ask now runs in the login, cells E1-E4 requested)
+LS Ask Tests::ForeignCacheChangedByOtherAppSubscriber	ASSUMED partner-login-memo-kept (corpus PR 1490; the ask now runs in the login, cells E1-E4 requested)
+LS Ask Tests::NestedCacheAskInsideInsertRaise	ASSUMED partner-login-memo-kept (corpus PR 1490; the ask now runs in the login, cells E1-E4 requested)
