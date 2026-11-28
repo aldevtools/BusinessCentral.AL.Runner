@@ -269,7 +269,7 @@ codeunit 50131 C
         exit(Format(R.Body.HasValue()));
     end;
 
-    // Codeunit 73783 of BlobInsertUnloadedOrigin.al (corpus pull request 1654): a failed Insert leaves no mark (F1, F2), and
+    // Codeunit 73783 of BlobInsertUnloadedOrigin.al (corpus pull request 1654): a failed Insert leaves no mark (F4, F2), and
     // the scope of I4 (S2, S4, S5, S6).
     procedure GuardedInsertThenModify(): Text
     var L: Record "Bi Row"; C: Record "Bi Row";
@@ -279,8 +279,8 @@ codeunit 50131 C
         L.Get('FA');
         C := L;
         C.K := 'FB';
-        if not C.Insert() then
-            C.Modify();
+        if C.Insert() then
+            Error('the Insert went through');
         C.CalcFields(Body);
         exit(Show(C));
     end;
@@ -490,7 +490,8 @@ fn a_blob_field_assignment_into_another_table_stores_no_blob() {
 
 #[test]
 fn a_guarded_insert_onto_an_existing_key_leaves_no_mark() {
-    // F1: the Insert fails, the Modify keeps the other row's Blob, and CalcFields reads it.
+    // F4: the Insert fails and CalcFields reads the other row's Blob. (F1, with a Modify in between, meets an existing
+    // refusal of a Modify after a failed Insert in the same transaction, on main as well; the neighbor app runs it.)
     assert_eq!(text(run_in(SRC, "C", "GuardedInsertThenModify")), "Yes[other]");
 }
 

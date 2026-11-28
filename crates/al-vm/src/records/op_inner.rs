@@ -638,26 +638,7 @@ impl Session {
                         self.queue_stored_row(rec, &t);
                         Self::blobs_after_insert(rec, &t, empty_blob, &never_loaded);
                         rec.borrow_mut().inserted = true;
-                        if !rec.borrow().temporary {
-                            let company = rec.borrow().company.clone();
-                            if !self
-                                .tx
-                                .open
-                                .tables_inserted
-                                .iter()
-                                .any(|(o, c)| *o == t.object && *c == company)
-                            {
-                                self.tx.open.tables_inserted.push((t.object, company));
-                            }
-                        }
-                        let version = t
-                            .fields
-                            .iter()
-                            .position(|f| f.id == 2_000_000_005)
-                            .map(|i| rec.borrow().fields[i].clone());
-                        if let Some(Value::BigInteger(v)) = version {
-                            self.set_own_insert_origin(&t, rec, v);
-                        }
+                        self.note_inserted_row(&t, rec);
                         if let (Some(a), false) = (auto, taken) {
                             self.note_explicit_key(&t, a, &row, &cx.company);
                         }
@@ -2320,6 +2301,31 @@ fn valid_find_direction(which: &str) -> bool {
 }
 
 impl Session {
+    /// After an Insert stored the row of `rec`: the open transaction notes the table (and company) it inserted into, and
+    /// the record takes its row version as its own Insert's (`set_own_insert_origin`).
+    fn note_inserted_row(&mut self, t: &TableDef, rec: &Rec) {
+        if !rec.borrow().temporary {
+            let company = rec.borrow().company.clone();
+            if !self
+                .tx
+                .open
+                .tables_inserted
+                .iter()
+                .any(|(o, c)| *o == t.object && *c == company)
+            {
+                self.tx.open.tables_inserted.push((t.object, company));
+            }
+        }
+        let version = t
+            .fields
+            .iter()
+            .position(|f| f.id == 2_000_000_005)
+            .map(|i| rec.borrow().fields[i].clone());
+        if let Some(Value::BigInteger(v)) = version {
+            self.set_own_insert_origin(t, rec, v);
+        }
+    }
+
     /// The marks `record_op_inner` checks before a method runs, and the page view mark a method ends
     /// (`consistent_marks/page_view.rs`): the view of a by-value copy (`records/by_value_view.rs`
     /// `by_value_view_marks`); and Copy, CopyFilters, TransferFields and the like from a record `copy_refused_mark` names, which
