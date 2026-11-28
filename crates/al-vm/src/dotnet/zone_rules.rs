@@ -22,9 +22,9 @@
 //! Off Windows, the `TimeZoneInfo` checks that need the arguments (a zone passed as an argument,
 //! `GetUtcOffset`) run after the policy (issue 8012).
 
+use super::policy::Policy;
 use super::registry::MemberKind;
 use super::{TICKS_PER_MS, Target};
-use super::policy::Policy;
 use crate::Session;
 use crate::hostvalues::{day_number_of_unix_millis, unix_millis_of_datetime};
 use al_builtins::assumptions::{Assumption, assume};
@@ -186,7 +186,12 @@ impl Session {
     /// Now :280) and Unspecified (Origin_CtorUnspecified :421). The result DateTime goes back to AL as every .NET DateTime
     /// does, without its kind. `None`: not one of these calls, or `ToFileTime` of a moment before 1601 (.NET raises there;
     /// not measured), which keeps main's refusal (`datetime_kind_member`).
-    pub(super) fn datetime_utc_zone_member(target: &Target, kind: MemberKind, member: &str, values: &[Value]) -> Option<Value> {
+    pub(super) fn datetime_utc_zone_member(
+        target: &Target,
+        kind: MemberKind,
+        member: &str,
+        values: &[Value],
+    ) -> Option<Value> {
         let (Target::Boxed(DotNetValue::DateTime(ticks), clr_type), MemberKind::Call | MemberKind::Get, []) =
             (target, kind, values)
         else {

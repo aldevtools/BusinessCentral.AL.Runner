@@ -5199,8 +5199,16 @@ fn a_dotnet_datetime_answers_the_utc_zone_conversions_without_the_host() {
     let at = "CreateDateTime(DMY2Date(15, 1, 2023), 120000T)";
     let vars = "Dn: DotNet ClrDateTime; Al: DateTime; T: Text;";
     for (member, body, want) in [
-        ("ToUniversalTime", "Dn := Dn.ToUniversalTime(); Al := Dn; T := Format(Al, 0, 9);", "2023-01-15T12:00:00Z"),
-        ("ToLocalTime", "Al := Dn.ToLocalTime(); T := Format(Al, 0, 9);", "2023-01-15T12:00:00Z"),
+        (
+            "ToUniversalTime",
+            "Dn := Dn.ToUniversalTime(); Al := Dn; T := Format(Al, 0, 9);",
+            "2023-01-15T12:00:00Z",
+        ),
+        (
+            "ToLocalTime",
+            "Al := Dn.ToLocalTime(); T := Format(Al, 0, 9);",
+            "2023-01-15T12:00:00Z",
+        ),
         ("ToFileTime", "T := Format(Dn.ToFileTime());", "133182576000000000"),
     ] {
         let host = linux_zone_host();
@@ -5212,7 +5220,11 @@ fn a_dotnet_datetime_answers_the_utc_zone_conversions_without_the_host() {
             ": Text",
         );
         assert_eq!(text(r), want, "{body}");
-        assert_eq!(take_hits(), vec![Assumption::DotnetDatetimeUtcZoneConversions], "{body}");
+        assert_eq!(
+            take_hits(),
+            vec![Assumption::DotnetDatetimeUtcZoneConversions],
+            "{body}"
+        );
         assert!(!reached(&host, member), "{body}: {:?}", host.calls());
     }
 }
