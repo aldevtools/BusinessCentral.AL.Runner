@@ -256,7 +256,9 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `refusal_keys.rs`: The refusal key lists of every crate that refuses. Entry: `LISTS`.
 - `not_passing.rs`: ADR-065, the lists of the cases the runtime does… Entry: `check`.
 - `base_oracle.rs`: The base branch's oracle and lists. Entry: `Base`.
-- `rename_map.rs`: Case keys through the corpus rename map at a pin move (ADR-065 amendment 1). Entry: `carry`.
+- `rename_map.rs`: Case keys through the corpus rename map (ADR-065 am. 1). Entry: `carry`.
+- `citation.rs`: Corpus citations by name (ADR-065 am. 2). Entry: `resolve`.
+- `citation_scan.rs`: Its files. Entry: `check`.
 - `lib.rs`: Runs the corpus's `[Test]` codeunits and reports…
 - `main.rs`: The binary: run each oracle version, report. Entry: `main`.
 - `oracle.rs`: The oracle: JUnit and xUnit cases of real BC, identified by. Entry: `CaseId`.
@@ -281,6 +283,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `crash.rs`: Names the test a crashed process was running. Entry: `install`.
 - `deps.rs`: Dependency apps for a corpus run (ADR-013). Entry: `Dependencies`.
 - `discover.rs`: Finds test codeunits. Entry: `test_codeunits`.
+- `discover/objects.rs`: Objects of an AL text, members. Entry: `objects`.
 - `dotnet.rs`: The .NET sidecar host: one process per session. Entry: `SidecarConfig`.
 - `dotnet_runtime.rs`: Which `Microsoft.NETCore.App` the sidecar runs on. Entry: `ServiceRuntime`.
 - `emit_version.rs`: The emit version of the run's build for al-vm… Entry: `of_build`.
@@ -296,7 +299,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `impact_static.rs`: Static selection: the graph of routines, objects. Entry: `Graph`.
 - `login.rs`: The test session's login. Entry: `decide`.
 - `login_replay.rs`: The check that a replay of the raised login would… Entry: `Key::of`, `StartKey` (the key with the texts the login read).
-- `login_replay/` (3 files): What the login replay check's report names: where two states differ, and the parts a new key differs in, never a value. Entry: `differences`, `KeyParts::of`. Files: `difference.rs`, `key_parts.rs`, `rows_digest.rs`
+- `login_replay/` (3 files): What the login replay check's report names (differing parts). Entry: `differences`, `KeyParts::of`. Files: `difference.rs`, `key_parts.rs`, `rows_digest.rs`
 - `login_start.rs`: Replaying the raised login from a kept start (opt-in). Entry: `replay`.
 - `partner_login.rs`: The partner dependency apps' "System… Entry: `subscribers`.
 - `license.rs`: Which BC license a run uses: `--license FILE`. Entry: `LicenseUse`.
@@ -366,7 +369,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `callstack.rs`: The AL call stack of an error and the live stack. Entry: `add_frame`.
 - `caught_errors.rs`: The count of errors AL code caught: asserterror. Entry: `catch_error`.
 - `clear_shared_codeunit.rs`: Clear and ClearAll of a codeunit variable whose instance another holder shares. Entry: `Session::clear_shared_codeunit`.
-- `clear_shared_codeunit/uncalled_tree.rs`: the ClearAll cell of a never-called register tree shared into a TableNo owner, and the call path and holder it reads from the running `Codeunit.Run`s (open corpus PR 1650). Entry: `Session::uncalled_tree_pair`, `Session::uncalled_tree_path`, `Session::codeunit_run_noting_caller`.
+- `clear_shared_codeunit/uncalled_tree.rs`: the ClearAll cell of a never-called register tree shared into a TableNo owner (open corpus PR 1650). Entry: `Session::uncalled_tree_pair`, `Session::uncalled_tree_path`, `Session::codeunit_run_noting_caller`.
 - `crm.rs`: A `TableType = CRM` table through the `@@test@@`… Entry: `connection_check`.
 - `companies.rs`: The company a record works in, ChangeCompany. Entry: `find_company`.
 - `dataset.rs`: The dataset XML `Report.SaveAs` writes: header. Entry: `dataset_name`.

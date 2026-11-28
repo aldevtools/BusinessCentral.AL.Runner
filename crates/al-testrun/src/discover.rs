@@ -4,7 +4,9 @@
 //! whole bucket before anything is compiled (to choose what to compile for a test filter).
 //!
 //! Finds `Subtype = Test` codeunits and their `[Test]` procedure names in AL text, without a syntax
-//! tree.
+//! tree. `objects.rs`: every object a text declares, with its members (what a corpus citation names).
+
+pub mod objects;
 
 /// `(codeunit id, [Test] procedure names)` for every `Subtype = Test` codeunit in `src`
 /// (comments are ignored).
@@ -148,12 +150,21 @@ fn attribute_is(w: &str, name: &str) -> bool {
         .eq(name.chars())
 }
 
-/// Returns `(codeunit id, [Test] procedure names)` for every test codeunit in `src`.
-fn scan(original: &str) -> Vec<Scanned> {
-    let stripped = strip_comments(original);
-    let src = stripped.as_str();
-    debug_assert_eq!(src.len(), original.len());
-    // The words of the code with their byte offsets (the same in `original`).
+/// Whether word `w` and the word after it say `Subtype = Test` (the `=` is no word). The one reader of a test codeunit's
+/// subtype, for `scan` and `objects.rs`.
+fn says_test_subtype(w: &str, next: Option<&str>) -> bool {
+    w.eq_ignore_ascii_case("subtype") && next.is_some_and(|v| v.eq_ignore_ascii_case("test"))
+}
+
+/// Whether bracket word `w` marks a test procedure: `[Test]`, or `[TestDataSource(..)]` on a data-driven procedure that
+/// has no `[Test]` (al-runner issue 7180; corpus:"LT BI DD Only" and its file header). The one reader, for `scan` and
+/// `objects.rs`.
+fn is_test_attribute(w: &str) -> bool {
+    attribute_is(w, "[test]") || attribute_is(w, "[testdatasource")
+}
+
+/// The words of comment-stripped code with their byte offsets (the same in the original text).
+fn words(src: &str) -> Vec<(usize, &str)> {
     let mut spans: Vec<(usize, &str)> = Vec::new();
     let mut start = None;
     for (i, c) in src.char_indices() {
@@ -179,6 +190,15 @@ fn scan(original: &str) -> Vec<Scanned> {
     if let Some(s) = start {
         spans.push((s, &src[s..]));
     }
+    spans
+}
+
+/// Returns `(codeunit id, [Test] procedure names)` for every test codeunit in `src`.
+fn scan(original: &str) -> Vec<Scanned> {
+    let stripped = strip_comments(original);
+    let src = stripped.as_str();
+    debug_assert_eq!(src.len(), original.len());
+    let spans = words(src);
     let words: Vec<&str> = spans.iter().map(|w| w.1).collect();
     // Each codeunit as scanned, and whether it says `Subtype = Test`.
     let mut out: Vec<(Scanned, bool)> = Vec::new();
@@ -197,7 +217,7 @@ fn scan(original: &str) -> Vec<Scanned> {
         }
         if let Some((cur, is_test)) = out.last_mut() {
             if w.eq_ignore_ascii_case("subtype") {
-                if words.get(i + 1).is_some_and(|v| v.eq_ignore_ascii_case("test")) {
+                if says_test_subtype(w, words.get(i + 1).copied()) {
                     *is_test = true;
                 }
             } else if w.eq_ignore_ascii_case("testtype") {
@@ -208,9 +228,7 @@ fn scan(original: &str) -> Vec<Scanned> {
                 if let Some(v) = words.get(i + 1) {
                     cur.3.get_or_insert_with(|| v.to_string());
                 }
-            } else if attribute_is(w, "[test]") || attribute_is(w, "[testdatasource") {
-                // A data-driven procedure carries `[TestDataSource(...)]` and no `[Test]` (al-runner issue 7180; corpus
-                // al-language-testlibraries/test-framework/data-driven-tests-and-handlers/BiTestHandlerDefault.al:12, :257-291).
+            } else if is_test_attribute(w) {
                 if let Some(pos) = words[i + 1..].iter().position(|w| w.eq_ignore_ascii_case("procedure")) {
                     // The name is read from the original text: a quoted name is blanked in `src` (issue 5572).
                     let (at, kw) = spans[i + 1 + pos];

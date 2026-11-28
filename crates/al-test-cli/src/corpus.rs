@@ -66,7 +66,8 @@ pub fn discover(app_root: &Path) -> std::io::Result<CorpusIndex> {
     Ok(ix)
 }
 
-fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+/// The `.al` files under `dir`, in the order the folder lists them.
+pub(crate) fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let p = entry?.path();
         if p.is_dir() {

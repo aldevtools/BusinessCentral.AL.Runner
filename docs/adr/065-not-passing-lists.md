@@ -260,15 +260,15 @@ failed, came out of the bump as a new case, and `--list-new-cases` gave it a not
 **Case key.** A case key is the codeunit id and the test name, as in the oracle (BC's JUnit reports the id) and in the
 lists. The app folder is not part of the key (owner decision 2026-11-28). Corpus codeunit ids are unique across the
 corpus apps (the corpus check `check-object-ids`); the runner relies on that and fails loudly when two apps of one
-major's oracles hold the same id (`rename_map::CodeunitNames`, for step 2, will do the same for the corpus sources). When the runner reads the map, it drops the app part of
+major's oracles hold the same id (`citation::Corpus` does the same for the corpus sources, amendment 2). When the runner reads the map, it drops the app part of
 both keys, so a move to another app needs no map line. Must-not-compile keys (`mnc/<stem>`) are in no list and are
 skipped.
 
 Citations for people (code comments, assumption entries, docs; step 2 of the plan) name a codeunit by its name and
-the test name, for example `corpus:"LT XRec Nested"/Validate_X`. The runner resolves the name to the id at a pin from
-the corpus sources (`rename_map::CodeunitNames`). Machine files (oracle, not-passing lists, strict-order lists) stay
-keyed by id. A codeunit rename keeps the id; a renumber needs a map line, and `rename_map::translate_named` follows
-both forms (name to id at the old pin, the id through the map, the id to its name at the new pin).
+the test name (the token: amendment 2). The runner resolves the name to the id at a pin from the corpus sources
+(`citation::Corpus`). Machine files (oracle, not-passing lists, strict-order lists) stay keyed by id. A codeunit
+rename keeps the id; a renumber needs a map line, and `citation::rewrite` follows both forms (name to id at the old
+pin, the id through the map, the id to its name at the new pin).
 
 **Reading the map.** Each line by its first two tab-separated columns, as the corpus's own facts check reads it
 (`.github/scripts/facts.py`), and only for a base key that is gone. Two differences: facts.py follows no chains and
@@ -301,3 +301,67 @@ files):
 
 This tightens section 3 for mapped cases and leaves it as it is for cases removed without a map line. It never adds a
 line for a case that passed.
+
+## Amendment 2 (Accepted, owner 2026-11-28): the citation token and its check
+
+Status: Accepted (owner, 2026-11-28). Step 2 of the corpus-detach plan. It changes how code comments, assumption
+entries and docs cite the corpus (CLAUDE.md hard rule 3 says `file:line` until step 3 converts the citations).
+
+**Token.** A citation by name is one token:
+
+    corpus:[<kind>:]"<Object Name>"[/<Member>][#'<cell>']
+    corpus-pr<N>:[<kind>:]"<Object Name>"[/<Member>][#'<cell>']
+
+- `<kind>` is an AL object kind in lower case (`table`, `page`, `tableextension`, ...); no kind means `codeunit`.
+- The object name is always in double quotes, as AL writes a quoted name (AL names hold no double quote). A name in
+  angle brackets (`"<Object Name>"`) is a placeholder for texts like this one and is not checked.
+- `<Member>` is a `[Test]` procedure, another procedure or a trigger of the object: a plain identifier, or a name in
+  double quotes.
+- `<cell>` is the cell's name exactly as the AL string literal in the test (`#'two second empty'`, a quote doubled), so
+  a search for the literal in the corpus finds it. A cell needs a member.
+- `corpus-pr<N>:` is the pending form: corpus pull request N, not pinned yet.
+
+The forms `corpus:` before `"` or `<kind>:"`, and `corpus-pr` before a digit or `:`, start a token; any other `corpus`
+word is no token. A token is written as it prints: the corpus spelling of the object and member, no `codeunit:`, a
+plain member without quotes. The check names any other spelling, so a search for the printed token finds every
+citation of it.
+
+**Which form to write.** A line inside a test cites the test, and the cell when one cell holds the fact. A helper
+procedure or a trigger of the object cites the member. A helper object, a table or a page cites the object. A file
+header cites the file's first test codeunit at object level ("the file header of corpus:"<Name>""), but only when no
+test holds the fact: prefer the test and cell that the header's "Measured" line names (the header form checks only that
+the codeunit exists). The forms without a member token:
+
+- A trigger of a field, control, action or data item is no member (a member is a `procedure` or `trigger` at brace
+  depth 1 of its object): cite the object and name the field or control in prose, or cite the test that runs it.
+- An object whose name two corpus apps share (codeunit "LT SN Shared" in `al-language-xapp-a` and `-b`) has no token:
+  cite the test that uses it.
+- A whole file without a line cites the file's first test codeunit at object level (else its first object).
+- A must-not-compile case (`tests/must-not-compile/<stem>.al`) is keyed by its stem, not by a codeunit: it keeps the
+  old form by its stem (`<stem>.al`), and step 3 does not make that form fail.
+- Old texts of `docs/adr/` and `docs/history/`: open, an owner question in step 3 (converted like code, or kept as
+  history and exempt from the old-form check).
+
+**Resolution** (`crates/al-test-cli/src/citation.rs`, the one owner; `citation_scan.rs` reads the files). A pinned
+citation resolves when the pinned corpus has exactly one object of that kind and name (AL compares names without
+case), the object has the member, and the cell is the first argument of an observation call in the member (`Expect`,
+`Observe`, `ObserveError`, `Ignore`, as the corpus writes them). A member runs from its lead-in (the attribute and
+comment lines right above it) to its last `end`. A `[Test]` member of a test codeunit is the case key (codeunit id and
+test name, amendment 1). One codeunit id in two corpus apps is an error. A pending citation resolves when an entry of
+the assumption registry names its pull request as a corpus one (`corpus PR N`, `corpus PR #N`, `corpus pull request
+N`); when a bump pins the probe and the entry goes, the pending citation fails until it is written in the pinned form.
+
+**Check.** `al-test-cli --root . --check-citations` and the test `crates/al-test-cli/tests/suite/citations.rs` (CI's
+`test` job) read every token in `crates/` and `docs/` and fail on each that does not resolve at the pinned corpus or
+is not written as it prints. The old `File.al:line` form is not read in this step; step 3 converts it crate by crate
+(by blame, at the corpus pin of the commit that wrote the line, then forward by id and the map) and then makes the
+check fail on every old form except the must-not-compile form above (and the docs history, if the owner keeps it).
+
+**At a pin move.** `al-test-cli --root . --rewrite-citations <old corpus rev>` rewrites each pinned citation that
+resolves at the old pin: a test through the rename map (a codeunit rename keeps the id, so it needs no map line; a
+renumber or a test rename follows its line); a codeunit and its other members by its id, unless the map moves its
+tests to other codeunits and none stays (then to the one codeunit they all go to, else left with a note); any other
+object by its kind and id. A test the map splits or removes is listed and left; the check then fails until it is
+cited by hand. `tools/corpus_bump.sh` does not run the rewrite yet: step 3 adds it, with the bump bot committing the
+rewritten files.
+

@@ -1,0 +1,1 @@
+A tooling change no AL code sees: al-test-cli --check-citations, --rewrite-citations and the citation check test (ADR-065 amendment 2), and a new object scan in al-testrun discover.rs that no run path calls; the al-runner binary and the runtime are unchanged.
