@@ -1,0 +1,21 @@
+# key	entry	version
+# Only the 8 x 8 logo, so main runs: main gives its icon 0 x 0 and application/octet-stream, BC 8 x 8, image/jpeg and bytes 14, 16, 18 rewritten on Windows
+# 27.5 and 29.0 (corpus PR 1594, UsLogo_GuidedExperienceIcon_Jpeg8x8_AppE). BC 28: no difference (not measured on Windows).
+Logo Icon E Tests::IconE_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; main fails with 0 x 0 or application/octet-stream)	27
+Logo Icon E Tests::IconE_Mime	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; main fails with 0 x 0 or application/octet-stream)	27
+Logo Icon E Tests::DirectImportE_GuidDescription_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; main fails with 0 x 0 or application/octet-stream)	27
+Logo Icon E Tests::IconE_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a clean pass on main becomes flagged: the length is the file's on Windows, the reference; BC on Linux 27 and 28 stores a re-encoded icon of another length, corpus CI run of 12c6a982; the mark is per row)	27
+Logo Icon E Tests::IconE_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; main fails with 0 x 0 or application/octet-stream)	29
+Logo Icon E Tests::IconE_Mime	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; main fails with 0 x 0 or application/octet-stream)	29
+Logo Icon E Tests::DirectImportE_GuidDescription_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; main fails with 0 x 0 or application/octet-stream)	29
+Logo Icon E Tests::IconE_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a clean pass on main becomes flagged: the length is the file's on Windows, the reference; BC on Linux 27 and 28 stores a re-encoded icon of another length, corpus CI run of 12c6a982; the mark is per row)	29
+Logo Icon E Tests::CountOfJpegTenantMedia	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a reader of the mark: main counts 0 image/jpeg rows)	27
+Logo Icon E Tests::CountOfJpegTenantMedia	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a reader of the mark: main counts 0 image/jpeg rows)	29
+Logo Icon E Tests::DirectImportH16x8File_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a user import of the 16 x 8 file, the measured call; main fails with 0 x 0)	27
+Logo Icon E Tests::DirectImportH16x8File_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a clean pass on main becomes flagged: the length is the file's on Windows, the reference; BC on Linux 27 and 28 stores a re-encoded icon of another length, corpus CI run of 12c6a982; the mark is per row)	27
+Logo Icon E Tests::IconE_HeaderBytes	ASSUMED app-logo-jpeg-sizes (corpus PR 1594 at d030ce03, Windows 27.5 and 29.0: bytes 14, 16, 18 are 1, 0, 0; main keeps the file's 0, 1, 1)	27
+Logo Icon E Tests::DirectImportH16x8File_HeaderBytes	ASSUMED app-logo-jpeg-sizes (corpus PR 1594 at d030ce03, Windows 27.5 and 29.0: bytes 14, 16, 18 are 1, 0, 0; main keeps the file's 0, 1, 1)	27
+Logo Icon E Tests::DirectImportH16x8File_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a user import of the 16 x 8 file, the measured call; main fails with 0 x 0)	29
+Logo Icon E Tests::DirectImportH16x8File_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a clean pass on main becomes flagged: the length is the file's on Windows, the reference; BC on Linux 27 and 28 stores a re-encoded icon of another length, corpus CI run of 12c6a982; the mark is per row)	29
+Logo Icon E Tests::IconE_HeaderBytes	ASSUMED app-logo-jpeg-sizes (corpus PR 1594 at d030ce03, Windows 27.5 and 29.0: bytes 14, 16, 18 are 1, 0, 0; main keeps the file's 0, 1, 1)	29
+Logo Icon E Tests::DirectImportH16x8File_HeaderBytes	ASSUMED app-logo-jpeg-sizes (corpus PR 1594 at d030ce03, Windows 27.5 and 29.0: bytes 14, 16, 18 are 1, 0, 0; main keeps the file's 0, 1, 1)	29

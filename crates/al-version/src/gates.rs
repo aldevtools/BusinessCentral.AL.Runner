@@ -264,6 +264,9 @@ pub enum Gate {
     /// pinned by recordref-fieldref/fieldref/TestFieldRefValue.al:202 FieldRef_Value_TextIntoInteger_ErrorText and :229 FieldRef_Value_TextIntoNumberTypes.
     /// Also consumed by `fieldref_value_into_temporal` (al-builtins): a `FieldRef.Value` of a measured value read into a Date, Time or
     /// DateTime slot gives the Evaluate error of its text from BC 28 (assumption fieldref-value-temporal-error, corpus PRs 1511 and 1522).
+    /// And by `temporal_into_number` (al-builtins): a DateTime `FieldRef.Value` into an Option gives the Evaluate error of its
+    /// Format text from BC 28, the Int32 conversion error on BC 27 (assumption fieldref-value-temporal-into-number, corpus PR
+    /// 1629, FvcTemporalIntoNumberPlaces.al:536, :608).
     FieldRefTextNumberEvaluateErrorFrom28,
     /// `Evaluate(FieldRef, Text)` into a Guid field with its result used, on a text that is no Guid: it answers false and leaves
     /// the field on every version; BC 28 and 29 also clear the last error, BC 27 keeps the InvalidGuidFormat error

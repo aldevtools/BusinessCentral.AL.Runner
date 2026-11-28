@@ -37,6 +37,8 @@ mod single_unmeasured;
 mod state;
 pub(crate) use state::*;
 mod baseline;
+mod held_login;
+pub use held_login::{HeldLogin, OwnLogin};
 mod hub_sequences;
 mod sequence_start;
 pub use sequence_start::{CommitBy, DataAccess, Interval, Reached, RefLoads, SequenceStart, TxPoint, TxPointKind};
@@ -870,6 +872,10 @@ pub struct Session {
     pub(crate) frames: Vec<usize>,
     /// Set by `exec/run.rs` `run_iface` around an interface call, taken by the callee's frame (`records::ByValueCall`).
     pub(crate) next_interface_call: bool,
+    /// Per argument of the next call, set by `exec/run.rs` `run_call`: a plain local of a procedure of the callee's own
+    /// table or table extension, on the same instance (`Session::own_local_args`); taken by the callee's frame
+    /// (`records::ByValueCall`).
+    pub(crate) next_own_locals: Vec<bool>,
     /// The state of each table element without LinkTable right below another table element at the end of its last pass of the
     /// running export, by (xmlport instance address, node) (`xmlports.rs` `xp_unlinked_pass_start`).
     pub(crate) xp_unlinked_passes: Vec<(usize, usize, xmlports::UnlinkedPass)>,
@@ -920,6 +926,10 @@ pub struct Session {
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
+    /// The session's data holds what the run's one login wrote (`Baseline::login_held`).
+    pub(crate) login_held: Option<std::sync::Arc<HeldLogin>>,
+    /// The session's data is what a test codeunit left (`Baseline::codeunit_left`).
+    pub(crate) codeunit_left: bool,
     /// The `Engine::demo_tables` the running test's own code (not install code) wrote to (`records/op_inner.rs`): a read of
     /// one of the others is refused before the session's own code wrote it.
     demo_written: std::collections::HashSet<u32>,
@@ -1041,6 +1051,9 @@ pub struct Session {
     /// The `call_stack` index of each frame an interface method call entered (`run_iface`), innermost last: the codeunit
     /// procedure is reached through an interface (records/running_call_xrec.rs tells the chains apart by it).
     pub(crate) iface_frames: Vec<usize>,
+    /// Each `Codeunit.Run` of a codeunit variable that runs, innermost last
+    /// (`clear_shared_codeunit/uncalled_tree.rs` reads who ran the owner of a `ClearAll`).
+    pub(crate) run_callers: Vec<clear_shared_codeunit::RunCaller>,
     pub(crate) cx: al_data::AccessContext,
     /// The tables that held a row when the install baseline was captured (none without one).
     pub(crate) baseline_rows: std::collections::BTreeSet<u32>,
@@ -1258,6 +1271,8 @@ pub struct Session {
     pub(crate) placeholder_files: placeholder_files::PlaceholderFiles,
     /// The Blob fields "Temp Blob Impl." opened a stream on (`temp_blob_impl_field.rs`).
     pub(crate) temp_blob_impl_fields: temp_blob_impl_field::TempBlobImplFields,
+    /// The Blob fields of local temporary-table records a `[Test]` method opened streams on (`temp_blob_impl_field.rs`).
+    pub(crate) test_local_blob_fields: temp_blob_impl_field::TestLocalBlobFields,
     /// The instant of the last system stamp (milliseconds since the Unix epoch).
     pub(crate) last_stamp: i64,
     /// The key and count of the draws of how far past a stamp the clock lands (`Session::stamp_millis`): the run seed's
@@ -1431,6 +1446,7 @@ impl Session {
             render_pending_files: std::collections::HashMap::new(),
             placeholder_files: Default::default(),
             temp_blob_impl_fields: Default::default(),
+            test_local_blob_fields: Default::default(),
             last_stamp: i64::MIN / 2,
             clock_key,
             clock_draws: 0,
@@ -1485,6 +1501,7 @@ impl Session {
             ext_before_watch: Default::default(),
             shared_proc_xrec: Vec::new(),
             iface_frames: Vec::new(),
+            run_callers: Vec::new(),
             cx: al_data::AccessContext {
                 company: company.into(),
                 user: user.into(),
@@ -1499,6 +1516,7 @@ impl Session {
             var_alias_watch: Vec::new(),
             frames: Vec::new(),
             next_interface_call: false,
+            next_own_locals: Vec::new(),
             call_stack: Vec::new(),
             error_raised_in: None,
             runner_frames: String::new(),
@@ -1519,6 +1537,8 @@ impl Session {
             sessions_started: 0,
             install_without_client: false,
             company_built: false,
+            login_held: None,
+            codeunit_left: false,
             demo_written: Default::default(),
             gl_setup_written: false,
             setup_caption_read_early: false,
@@ -1652,6 +1672,7 @@ impl Session {
     /// Test13d end it with the run or the page operation, and a rollback ends it too).
     fn end_open_transaction(&mut self) {
         self.tx.open = Default::default();
+        self.tx.ended += 1;
         self.tx.commit_counter = self.store.change_counter();
         if self.tx.phase == crate::transactions::TxPhase::Write {
             self.tx.phase = crate::transactions::TxPhase::Fresh;
@@ -2003,7 +2024,7 @@ impl Session {
     }
 
     /// The `SessionId()` this session answers: an install session's own id, else the host's.
-    pub(crate) fn session_id(&self) -> i32 {
+    pub fn session_id(&self) -> i32 {
         self.session_id_override
             .unwrap_or_else(|| self.host.identity.session_id())
     }
@@ -2459,6 +2480,7 @@ impl Session {
             subscriber,
             std::mem::take(&mut self.next_interface_call),
             std::mem::take(&mut self.events.next_event_args),
+            std::mem::take(&mut self.next_own_locals),
         );
         let measured_event = std::mem::take(&mut self.events.next_blob_event);
         self.note_routine(object, routine);
@@ -2616,6 +2638,11 @@ impl Session {
                 // An event argument the platform leaves unknown (RequestPageXml of SubstituteReport for an Html SaveAs, reports.rs)
                 // is passed on by value as it is: a routine that never reads it runs, a read is refused where it happens.
                 (a @ Value::Unknown(_), false) => a,
+                // An OutStream handed by value is a copy (`dotnet::unstamp_out_stream`).
+                (a @ Value::Library(al_builtins::library_kind::LibraryKind::OutStream, _), false) => {
+                    crate::dotnet::unstamp_out_stream(&a);
+                    ops::convert_plain(a, &r.locals[i].ty)?
+                }
                 // A `var` Option parameter with another member list than the value (`var_option`).
                 (a, true) if carried_kept.get(i) == Some(&true) => a,
                 (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, subscriber) => v?,
@@ -2660,6 +2687,7 @@ impl Session {
             event: false,
             routine,
             pos: ir::NO_POS,
+            instance: Rc::as_ptr(&frame.instance),
         });
         self.profile_enter(object, routine, false);
         if self.capture.is_some() {
@@ -2752,6 +2780,8 @@ impl Session {
             (Some(t), None, None) => Value::default_for(t),
             (None, _, _) => Value::Null,
         };
+        // An OutStream a procedure returns is a copy (`dotnet::unstamp_out_stream`).
+        crate::dotnet::unstamp_out_stream(&value);
         frame.locals.truncate(r.params);
         Ok((value, frame.locals))
     }
@@ -2865,6 +2895,9 @@ pub(crate) struct CallFrame {
     pub(crate) routine: usize,
     /// `Program::positions` id of the current statement; `NO_POS` before the first one.
     pub(crate) pos: u32,
+    /// The instance the routine runs on, compared by address only (the frame keeps the instance alive while it runs);
+    /// null for an event publisher's frame and a frame of an error's stack text.
+    pub(crate) instance: *const RefCell<Instance>,
 }
 
 /// A global passed by `var` to a running procedure call (`Session::var_alias_watch`).

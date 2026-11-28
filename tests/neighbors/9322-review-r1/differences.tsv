@@ -1,0 +1,4 @@
+# key	entry	version
+PZR N Repro::ReproStillServed	ASSUMED base-convert-line-breaks-temporary-table-blob (al-runner issue 9322, probe still to write)	28
+PZR N OtherAscii::OtherAsciiContent	ASSUMED base-convert-line-breaks-temporary-table-blob (al-runner issue 9322, probe still to write)	28
+PZR N HandedStream::WriteTextInHelperThroughHandedStream	ASSUMED base-convert-line-breaks-temporary-table-blob (al-runner issue 9322, probe still to write)	28

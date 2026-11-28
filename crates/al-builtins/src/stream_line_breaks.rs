@@ -20,15 +20,18 @@ pub fn line_break_source(ctx: &dyn Ctx, v: &mut Value, out_form: bool) -> Result
         if !reads_blob {
             return Ok(None);
         }
-        if !measured_line_break_stream(ctx, s) {
+        let Some(holder) = measured_line_break_stream(ctx, s, out_form) else {
             return unsupported(
                 "Base64Convert.ToBase64(InStream, true ...) of a stream other than the one Blob.CreateInStream made with the default encoding on the Blob a Temp Blob holds, after one WriteText of the default encoding, used only by ReadText with a length, never assigned (not measured)",
             );
-        }
+        };
         if out_form && s.pos != 0 {
             return unsupported(
                 "Base64Convert.ToBase64(InStream, true, OutStream) on a stream not at position 0 (not measured)",
             );
+        }
+        if holder == MeasuredHolder::TemporaryTableTestLocal {
+            crate::assumptions::assume(crate::assumptions::Assumption::BaseConvertLineBreaksTemporaryTableBlob);
         }
         s.after_line_break_call = true;
         Ok(Some(s.with_data(<[u8]>::to_vec)))
@@ -40,16 +43,28 @@ pub fn line_break_source(ctx: &dyn Ctx, v: &mut Value, out_form: bool) -> Result
 /// and the converter's own.
 const IMPL_USES: u32 = 4;
 
+/// Who holds the Blob a measured stream reads ([`measured_line_break_stream`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MeasuredHolder {
+    /// A live "Temp Blob Impl." (Base64LineBreaks.al:53-61): pinned.
+    TempBlob,
+    /// A record of a `TableType = Temporary` table in a local variable of a `[Test]` method, never inserted: the repro of
+    /// al-runner issue 9322 (BC 28.4), assumption `base-convert-line-breaks-temporary-table-blob`.
+    TemporaryTableTestLocal,
+}
+
 /// The stream Base64LineBreaks.al measured (`FillStream`, :53-61): `Blob.CreateInStream` without an encoding, the one InStream
 /// created on the Blob the temporary record of a live "Temp Blob Impl." holds now, after one `WriteText(Text)` through the one
 /// OutStream of the default encoding opened on that Blob since it was made or cleared, and not opened for writing since; used
 /// by nothing but `ReadText(Text, Length)` calls (:188 reads 10 bytes; the file states that BC 28 and 29 convert the whole
 /// stream whatever was read before, :13-14) before "Base64 Convert Impl." takes it ([`IMPL_USES`]), never given to another
 /// variable by `:=`.
-fn measured_line_break_stream(ctx: &dyn Ctx, s: &InState) -> bool {
-    let Some(b) = s.live_blob() else {
-        return false;
-    };
+///
+/// The same history on the Blob field of a never inserted record of a `TableType = Temporary` table in a local variable of a
+/// `[Test]` method, the stream unread (position 0, no `ReadText`), in the InStream form, on BC 28, holding 100 ASCII bytes: the
+/// repro of al-runner issue 9322, measured on BC 28.4 with 100 'A' (a CR LF at position 77, 138 characters).
+fn measured_line_break_stream(ctx: &dyn Ctx, s: &InState, out_form: bool) -> Option<MeasuredHolder> {
+    let b = s.live_blob()?;
     let buf = b.borrow();
     let stream = (
         s.on_blob_field,
@@ -67,13 +82,26 @@ fn measured_line_break_stream(ctx: &dyn Ctx, s: &InState) -> bool {
         s.text_len_reads + IMPL_USES,
         false,
     );
-    stream == measured
-        && (
-            buf.line_breaks.text_writes(buf.content_edits),
-            buf.line_breaks.in_creates,
-        ) == (Some(1), 1)
-        && temp_blob_buffer(&buf)
-        && ctx.held_by_temp_blob_impl(b)
+    let history = (
+        buf.line_breaks.text_writes(buf.content_edits),
+        buf.line_breaks.in_creates,
+    );
+    if (stream, history) != (measured, (Some(1), 1)) || !never_stored_buffer(&buf) {
+        return None;
+    }
+    if ctx.held_by_temp_blob_impl(b) {
+        return Some(MeasuredHolder::TempBlob);
+    }
+    let issue_9322 = (
+        out_form,
+        s.pos,
+        s.text_len_reads,
+        buf.bytes.len(),
+        buf.bytes.is_ascii(),
+        ctx.temporary_table_blob_line_breaks_measured(),
+        ctx.held_by_temporary_table_test_local(b),
+    );
+    (issue_9322 == (false, 0, 0, 100, true, true, true)).then_some(MeasuredHolder::TemporaryTableTestLocal)
 }
 
 /// What happened to a Blob buffer since it was made or cleared, as far as `ToBase64(InStream, true[, OutStream])` asks
@@ -153,6 +181,11 @@ impl LineBreakHistory {
         })
     }
 
+    /// [`BlobBuf::content_edits`] when the buffer was made or cleared.
+    pub fn cleared_at(&self) -> u32 {
+        self.base_edits
+    }
+
     /// Whether the buffer holds what one `WriteText(Text)` through the one `CreateOutStream` of the default encoding on it empty
     /// wrote, and nothing else edited it since it was made or cleared (al-vm `blob_transfer::assigned_write`).
     pub fn one_text_write(&self, content_edits: u32) -> bool {
@@ -168,10 +201,10 @@ impl LineBreakHistory {
     }
 }
 
-/// The state of the Blob of a Temp Blob: the field of the temporary record inside "Temp Blob Impl.", which that codeunit never
-/// inserts, reads or assigns, holding what streams wrote to it (Base64LineBreaks.al:53-61, :351-403). That such a record holds
-/// the buffer is [`Ctx::held_by_temp_blob_impl`].
-fn temp_blob_buffer(b: &BlobBuf) -> bool {
+/// The state of the Blob field of a temporary record that was never inserted, read or assigned, holding what streams wrote
+/// to it: the record inside "Temp Blob Impl." (Base64LineBreaks.al:53-61, :351-403), and the record of the repro of al-runner
+/// issue 9322. Who holds the buffer is [`Ctx::held_by_temp_blob_impl`] and [`Ctx::held_by_temporary_table_test_local`].
+fn never_stored_buffer(b: &BlobBuf) -> bool {
     let row = (
         b.db_row,
         b.temp_row,
@@ -217,7 +250,7 @@ pub fn refuse_unmeasured_line_break_target(ctx: &dyn Ctx, target: &mut Value, so
     );
     if (enc, other_blob, buf.write_pos) == (Encoding::MsDos, true, buf.bytes.len())
         && measured_history
-        && temp_blob_buffer(&buf)
+        && never_stored_buffer(&buf)
         && ctx.held_by_temp_blob_impl(&b)
     {
         return Ok(());

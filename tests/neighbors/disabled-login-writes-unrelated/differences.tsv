@@ -1,0 +1,5 @@
+# key	entry	version
+R1 A Disabled::A_LoginRowThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	28
+R1 A Disabled::A_LoginRowThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	29
+R1 F2 OnRun Writer 130450::F2_OwnTableOnly	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:608, :656)	28
+R1 F2 OnRun Writer 130450::F2_OwnTableOnly	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:608, :656)	29

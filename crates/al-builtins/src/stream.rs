@@ -99,6 +99,11 @@ pub struct BlobBuf {
     /// The id of the `DotNet` System.IO.Stream an `OutStream` on this buffer was given to (al-vm `dotnet/blob_stream.rs`), or 0.
     /// `CreateOutStream` and `Import` set it back to 0: what the .NET stream does after that is not pinned.
     pub dotnet_view: u32,
+    /// A .NET rewrite the VM served under an assumption made these bytes (al-vm `dotnet/zip_blob_writes.rs`). BC keeps the
+    /// AL and the .NET write positions apart (SgDotNetStreams.al:154-172) and no cell measures where a later write lands:
+    /// the next write marks the buffer ([`note_write`]), and al-vm refuses to hand a stream of it to .NET. A Clear in place
+    /// and a copy drop it.
+    pub dotnet_rewritten: bool,
     /// The buffer is the copy `Target.Field := Source.Blob` stored, in the measured cell (al-vm
     /// `blob_transfer::assigned_copy`, al-runner issue 7961, tests/al-language/streams/BlobAssignThenCalcFields.al:244-256 (Assign_Ins_FromTmpIns)), and nothing saved, fetched or wrote it since:
     /// `CalcFields` keeps it as it keeps an unsaved stream write (al-vm `Session::load_blobs`). A copy does not keep it.
@@ -446,6 +451,7 @@ pub fn new_blob() -> BlobRef {
         first_write_truncates: false,
         file: false,
         dotnet_view: 0,
+        dotnet_rewritten: false,
         unread_content: false,
         never_loaded_insert: false,
         assigned_unsaved: false,
@@ -495,6 +501,7 @@ pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
 pub fn copy_for_assignment(b: &BlobRef) -> BlobRef {
     let mut copy = b.borrow().clone();
     copy.dotnet_view = 0;
+    copy.dotnet_rewritten = false;
     copy.temp_inserted = false;
     copy.assigned_unsaved = false;
     copy.never_loaded_insert = false;
@@ -532,6 +539,14 @@ pub fn replace_bytes(b: &BlobRef, bytes: &[u8]) {
     b.borrow_mut().bytes.truncate(bytes.len());
 }
 
+/// Every write into a buffer, AL's or .NET's, after a served .NET rewrite ([`BlobBuf::dotnet_rewritten`]): what the buffer then
+/// holds is not measured, so it gets main's mark for an unmeasured .NET write, and a read refuses (al-runner issue 7947).
+pub fn note_write(buf: &mut BlobBuf) {
+    if buf.dotnet_rewritten {
+        buf.render_pending = Some(DOTNET_BRIDGE_OVERWRITTEN.into());
+    }
+}
+
 /// [`write_bytes`]; answers whether the write started at the end of what the buffer held (an append). A write that is no
 /// append into a buffer a marked text was written to leaves bytes that no longer stand for what BC holds: the buffer's mark
 /// becomes `rendered_text::WRITTEN_OVER_KIND` (ADR-040 amendment 2026-11-12, A4).
@@ -555,6 +570,7 @@ fn write_bytes_at(b: &BlobRef, bytes: &[u8]) -> bool {
             buf.render_pending = None;
         }
     }
+    note_write(&mut buf);
     let at = buf.write_pos.min(buf.bytes.len());
     let appended = at == buf.bytes.len();
     if !appended
@@ -1135,13 +1151,14 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         }
     }
     let b = blob_of(r)?;
-    {
+    let edits = {
         // The content stays (:BlobField_CreateOutStream_DoesNotEmptyExistingData).
         let mut buf = b.borrow_mut();
         buf.dotnet_view = 0;
         // An InStream created before reads a buffer a new OutStream may write over (`stream_line_breaks`).
         buf.content_edits = buf.content_edits.wrapping_add(1);
         let empty = buf.bytes.is_empty();
+        let edits = buf.content_edits;
         buf.line_breaks.note_out_open(enc, empty);
         if !buf.loaded && buf.db_row {
             // A record read from the database without CalcFields: the stream replaces the stored content at its first
@@ -1151,7 +1168,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
             buf.write_pos = 0;
             buf.refetch = false;
             drop(buf);
-            set_stream(&a[0], LibraryValue::OutStream(b, enc, None))?;
+            set_stream(&a[0], LibraryValue::OutStream(b, enc, None, Some(edits)))?;
             return Ok(Value::Null);
         }
         // That case writes over content the record holds. Another unloaded Blob (a temporary record's, a copy of an unloaded
@@ -1172,8 +1189,9 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.loaded = true;
         buf.refetch = false;
         buf.persisted = false;
-    }
-    set_stream(&a[0], LibraryValue::OutStream(b, enc, None))?;
+        edits
+    };
+    set_stream(&a[0], LibraryValue::OutStream(b, enc, None, Some(edits)))?;
     Ok(Value::Null)
 }
 
@@ -1217,6 +1235,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         first_write_truncates: false,
         file: false,
         dotnet_view: 0,
+        dotnet_rewritten: false,
         unread_content: false,
         never_loaded_insert: false,
         assigned_unsaved: false,
@@ -2891,100 +2910,5 @@ pub fn keeps_receiver(id: crate::builtin_id::BuiltinId) -> bool {
 mod read_fixed_tests;
 
 #[cfg(test)]
-mod blob_cell_tests {
-    use super::*;
-
-    #[test]
-    fn readers_share_and_a_writer_excludes_them_as_in_a_refcell() {
-        let b = new_blob();
-        let (r1, r2) = (b.borrow(), b.borrow());
-        assert_eq!(r1.bytes, r2.bytes);
-        drop((r1, r2));
-        b.borrow_mut().bytes.push(1);
-        assert_eq!(b.borrow().bytes, vec![1]);
-    }
-
-    #[test]
-    #[should_panic(expected = "already borrowed")]
-    fn a_writer_while_a_reader_is_held_panics() {
-        let b = new_blob();
-        let _r = b.borrow();
-        let _w = b.borrow_mut();
-    }
-
-    #[test]
-    fn a_blob_is_read_by_two_threads() {
-        let b = new_blob();
-        b.borrow_mut().bytes.extend_from_slice(b"abc");
-        let copies: Vec<Vec<u8>> = std::thread::scope(|scope| {
-            let hs: Vec<_> = (0..2)
-                .map(|_| scope.spawn(|| copy_blob(&b, false).borrow().bytes.clone()))
-                .collect();
-            hs.into_iter().map(|h| h.join().unwrap()).collect()
-        });
-        assert_eq!(copies, vec![b"abc".to_vec(), b"abc".to_vec()]);
-        assert!(Value::Blob(b).is_plain());
-    }
-
-    // streams/TestStreamsRuntimeContracts.al:WriteText_ExplicitEncodings_Bytes, streams/StTEncodings.al:RoundTripSameEncoding and
-    /// π is written as `p` on an MS-DOS and a Windows stream (streams/StTEncodings.al:UnmappableCharacters); a box-drawing
-    /// character of code page 437 is not pinned.
-    #[test]
-    fn pi_is_written_as_p() {
-        assert_eq!(Encoding::MsDos.encode("aπb"), b"apb".to_vec());
-        assert_eq!(Encoding::Windows.encode("aπb"), b"apb".to_vec());
-        assert!(Encoding::MsDos.encode_pinned("π") && Encoding::Windows.encode_pinned("π"));
-        assert!(!Encoding::MsDos.encode_pinned("\u{2500}"));
-    }
-
-    /// The bytes pinned earlier one by one (`CP437_AS_READ`) read as the full table says.
-    #[test]
-    fn the_earlier_pins_agree_with_the_msdos_table() {
-        for (b, c) in CP437_AS_READ {
-            assert_eq!(Encoding::MsDos.decode(&[b]), c.to_string(), "{b:#x}");
-        }
-    }
-
-    /// `§` as 0x15 is measured for `OutStream.WriteText` only (`out_write_text`); the shared encoder that File.Write, the
-    /// XMLport writer and the Char-to-Byte conversion use keeps main's byte.
-    #[test]
-    fn the_section_sign_rule_stays_out_of_the_shared_encoder() {
-        assert_eq!(Encoding::MsDos.encode("a\u{A7}b"), b"a?b".to_vec());
-        assert!(!Encoding::MsDos.encode_pinned("\u{A7}"));
-    }
-
-    // CrossEncodingUtf8ToOthers: the default encoding is code page 437.
-    #[test]
-    fn the_default_encoding_is_code_page_437() {
-        assert_eq!(Encoding::default(), Encoding::MsDos);
-        assert_eq!(Encoding::MsDos.encode("hé€Ж"), vec![0x68, 0x82, 0xB1, 0x3F]);
-        assert_eq!(Encoding::Windows.encode("hé"), vec![0x68, 0xE9]);
-        // The euro sign comes back from its byte; the bytes whose character the Windows tier changes read as pinned.
-        assert_eq!(Encoding::MsDos.decode(&[0xB1]), "€");
-        assert_eq!(
-            Encoding::MsDos.decode(&[0x61, 0xC3, 0xA4, 0xE2, 0x82]),
-            "a\u{201C}ñË\u{e9}"
-        );
-        assert!(Encoding::MsDos.decode_pinned(&[0x82, 0xA4, 0xC3]));
-        // A box-drawing byte nothing pins is not decoded.
-        assert!(!Encoding::MsDos.decode_pinned(&[0xC4]));
-        // The UTF-8 bytes of U+202F and of `年月日` in a SaveAs Xml dataset read through the default encoding
-        // (reports/runtime/YReportPropsTests.al:80, :96).
-        let ja = "2025\u{5E74}1\u{6708}31\u{65E5} 1\u{202F}2".as_bytes();
-        assert!(Encoding::MsDos.decode_pinned(ja));
-        assert_eq!(
-            Encoding::MsDos.decode(ja),
-            "2025\u{CE}\u{2030}\u{201E}1\u{B5}\u{A3}\u{EA}31\u{B5}\u{F9}\u{D1} 1\u{CB}\u{C7}\u{BB}2"
-        );
-    }
-
-    // al-runner issue 6853: a call stack text written to a default (code page 437) stream reads back with its mark, as it does
-    // from a Windows stream (error-handling/lt-wd/WdCallStackToBlob.al:96-102).
-    #[test]
-    fn the_call_stack_mark_round_trips_through_the_default_encoding() {
-        let t = "\"C\"(CodeUnit 50100).Collect line 3\r\n\u{FDD0}";
-        let bytes = Encoding::MsDos.encode(t);
-        assert!(Encoding::MsDos.decode_pinned(&bytes));
-        assert_eq!(Encoding::MsDos.decode(&bytes), t);
-    }
-}
+#[path = "stream_blob_cell_tests.rs"]
+mod blob_cell_tests;

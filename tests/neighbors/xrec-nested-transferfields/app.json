@@ -1,0 +1,11 @@
+{
+  "id": "8d3f6b2e-41c7-4e0a-b9d2-5a7c1e9f0b34",
+  "name": "Neighbors nested Validate xRec after TransferFields",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "29.0.0.0",
+  "runtime": "18.0",
+  "target": "Cloud",
+  "idRanges": [{ "from": 50300, "to": 50399 }],
+  "dependencies": []
+}

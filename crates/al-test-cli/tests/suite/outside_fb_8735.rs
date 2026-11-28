@@ -1,5 +1,5 @@
 //! The corpus probe of al-runner issue 8735 (corpus pull request 1527, merged, and 1536, open, the review's cells:
-//! tests/al-language/pages/currpage/ListNewLineWritesOtherTable.al, measured on BC 29.1, 17 of 17 green in 3 runs), run here until a bump pins it: writes of
+//! tests/al-language/pages/currpage/ListNewLineWritesOtherTable.al, measured on BC 29.1, 19 of 19 green in 3 runs), run here until a bump pins it: writes of
 //! another table before `CurrPage.SaveRecord()` or `CurrPage.Update(true)` on the new line the table field's OnValidate inserted,
 //! on a List page without triggers (`al-vm` pages/code_inserted_extra.rs, `only_other_tables_written`). The probe is read from
 //! its copy in the neighbor app. Delete this file when the pin is in the corpus.
@@ -18,19 +18,18 @@ const NEIGHBORS: &str = include_str!("../../../../tests/neighbors/8735-new-line-
 /// before `Update(true)`; the table field modifies them, on both; the control modifies them; and the table field inserts one
 /// before the control writes the line through another record (the rewritten row); and the review of #8806's cells: the control
 /// inserts one, then `Update(true)`; the table field modifies them, then `Update(true)`; the table field and the control both
-/// insert one before the save; a FlowField over the written table. A write before the insert and a delete keep the refusal: the
-/// store does not tell which table they went to; so does a control that writes another table and rewrites the line, in either
-/// order: the rewritten row is measured where the rewrite is the control's only write (`Inserted::Rewritten`).
+/// insert one before the save; a FlowField over the written table; a control that writes another table and rewrites the line,
+/// in either order (the save writes Rec over the line); and the follow-ups: the control modifies another table, then
+/// `Update(true)`; the table field and the control both insert one, then `Update(true)`. A write before the insert and a delete
+/// keep the refusal: the store does not tell which table they went to.
 #[test]
 fn issue_8735_probe_cells() {
     let o = super::outside_fb_8712::outcomes(PROBE, "LT NW Tests");
-    assert_eq!(o.len(), 17);
+    assert_eq!(o.len(), 19);
     for (name, r, marks) in &o {
         let refused = [
             "NewLine_TableFieldWritesAnotherTableBeforeTheInsert_ShowsAndSavesTheRow",
             "NewLine_TableFieldDeletesAnotherTablesRowsBeforeSaveRecord_ShowsAndSavesTheRow",
-            "NewLine_ControlWritesAnotherTableAndTheLineBeforeSaveRecord_SaveWritesRecOverTheLine",
-            "NewLine_ControlWritesTheLineThenAnotherTableBeforeSaveRecord_SaveWritesRecOverTheLine",
         ]
         .contains(&name.as_str());
         match refused {
@@ -44,26 +43,52 @@ fn issue_8735_probe_cells() {
             }
         }
     }
+    for name in [
+        "NewLine_ControlWritesAnotherTableAndTheLineBeforeSaveRecord_SaveWritesRecOverTheLine",
+        "NewLine_ControlWritesTheLineThenAnotherTableBeforeSaveRecord_SaveWritesRecOverTheLine",
+    ] {
+        let (_, outcome, marks) = o.iter().find(|(n, _, _)| n == name).unwrap();
+        assert_eq!(*outcome, Outcome::Pass, "{name}");
+        assert!(
+            marks.contains(&ListNewLineWritesOtherTable) && marks.contains(&ListNewLineExtraCode),
+            "{name}: {marks:?}"
+        );
+    }
 }
 
 /// Writes of another table just past the cells keep the refusal: under TestPage.OpenEdit with a filter, before `Update(true)` with
 /// a row before, with a second row of the page's table inserted, with the row before modified, and with the line modified again
 /// through Rec. The two neighbors of the review of #8806 run as their cells do (:642, :666): the table field and the control both
-/// writing another table before the save, and a FlowField over the written table.
+/// writing another table before the save, and a FlowField over the written table. After the insert alone, the control rewriting
+/// the line twice, with or without one insert of another table, keeps the refusal: the cells (:630, :654) measure one rewrite.
+/// One rewrite next to a Modify of another table keeps it too, whether the control or the table field called Modify:
+/// those cells measure at most one Insert there. So do the shapes of the Copilot review of the train for #8878: an unchanged
+/// Modify of another table and a Commit before the insert, then an Insert of another table and the rewrite (the Commit empties
+/// the write log), and one or two Inserts into a temporary record before the rewrite (row versions no noted write accounts
+/// for). A Commit after New() leaves the row-version rule alone to decide, as on main: the line inserted then committed, or
+/// committed then inserted, and rewritten once runs as main ran it; a temporary Insert of the table field runs as on main too.
 #[test]
 fn issue_8735_neighbors_are_refused() {
     let o = super::outside_fb_8712::outcomes(NEIGHBORS, "LT NX Tests");
-    assert_eq!(o.len(), 7);
+    assert_eq!(o.len(), 17);
     let run = [
         "NewLine_TableFieldAndControlWriteAnotherTable_ShowsAndSavesTheRow",
         "NewLine_FlowFieldOverTheWrittenTable_ShowsTheCount",
+        "NewLine_TableFieldInsertsATemporaryRowThenControlRewritesTheLine_SaveWritesRecOverTheLine",
+    ];
+    let run_as_main = [
+        "NewLine_TableFieldInsertsAndCommitsThenControlRewritesTheLine_SaveWritesRecOverTheLine",
+        "NewLine_TableFieldCommitsThenInsertsThenControlRewritesTheLine_SaveWritesRecOverTheLine",
     ];
     let ran: Vec<_> = o
         .iter()
-        .filter(|(name, r, marks)| match run.contains(&name.as_str()) {
-            true => !(*r == Outcome::Pass && marks.contains(&ListNewLineWritesOtherTable)),
-            false => !matches!(r, Outcome::NotRun(_)),
-        })
+        .filter(
+            |(name, r, marks)| match (run.contains(&name.as_str()), run_as_main.contains(&name.as_str())) {
+                (true, _) => !(*r == Outcome::Pass && marks.contains(&ListNewLineWritesOtherTable)),
+                (_, true) => !(*r == Outcome::Pass && marks == &[ListNewLineExtraCode]),
+                _ => !matches!(r, Outcome::NotRun(_)),
+            },
+        )
         .map(|(name, r, _)| format!("{name}: {r:?}"))
         .collect();
     assert!(ran.is_empty(), "{ran:#?}");

@@ -1,0 +1,13 @@
+# key	entry	version
+# The measured shapes of corpus PR 1594 run through the assumption on BC 27 and 29; on 28 they stay refused (no difference).
+# The other shapes (units 1 and 96 dpi, 300 x 300, progressive 16 x 8) stay refused on every version (no difference).
+Logo Shapes Tests::Baseline16x8_Measured	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
+Logo Shapes Tests::Baseline400x300_Measured	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
+Logo Shapes Tests::Progressive535x534_Measured	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
+Logo Shapes Tests::NameOfRowWithAssumedLogo	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a clean pass on main becomes flagged: the mark is per row)	27
+Logo Shapes Tests::Baseline16x8_Measured	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
+Logo Shapes Tests::Baseline400x300_Measured	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
+Logo Shapes Tests::Progressive535x534_Measured	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
+Logo Shapes Tests::NameOfRowWithAssumedLogo	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a clean pass on main becomes flagged: the mark is per row)	29
+Logo Shapes Tests::DescriptionOfAssumedLogo	REFUSED the value of field 'Description' of platform table 'Media' is not known for the logo of app	27
+Logo Shapes Tests::DescriptionOfAssumedLogo	REFUSED the value of field 'Description' of platform table 'Media' is not known for the logo of app	29

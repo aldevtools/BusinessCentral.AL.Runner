@@ -152,6 +152,7 @@ impl Lowerer<'_> {
                 if let Some(slot) = locals.get_mut(before) {
                     slot.security_filtering = declared.clone().and_then(Result::ok);
                     slot.security_filtering_not_kept = security_filtering_not_kept(&attrs, &declared);
+                    slot.declared_temporary = matches!(ty, Ty::Record { temporary: true, .. });
                 }
             }
         }
@@ -305,6 +306,7 @@ impl Lowerer<'_> {
             expr_tys,
             reads_var_max_len: self.reads_var_max_len,
             local: r.is_local(),
+            internal: r.is_internal(),
         }
     }
 
@@ -849,6 +851,7 @@ impl Lowerer<'_> {
             expr_tys: Vec::new(),
             reads_var_max_len: false,
             local: r.is_local(),
+            internal: r.is_internal(),
         }
     }
 
@@ -1291,12 +1294,15 @@ impl Lowerer<'_> {
                             return self.convert_to(&decl, self.ty_ref(e), v).map(|v| ir::Stmt::Exit(Some(v)));
                         }
                     }
-                    // `exit(FR.Value())` from a procedure that returns a number converts as `I := FR.Value()` does (al-vm
-                    // `Op::ConvertFieldValue`, which refuses a Date, Time or DateTime value: issue 9265); the result then
-                    // converts into the return type as every exit value does.
+                    // `exit(FR.Value())` from a procedure that returns a number converts as `I := FR.Value()` does
+                    // (al-vm `Op::ConvertFieldValue`; a Date, Time or DateTime value takes BC's error, issue 9265); the
+                    // result then converts into the return type as every exit value does. Into a Text or Code the op
+                    // takes the cells of `fieldref_value_text::fieldref_value_at_exit` (issue 9285). The lowered value
+                    // is checked, so a parenthesized `exit((FR.Value()))` takes this path too (issue 9305).
                     if let Some(rt) = self.ret_ty.clone()
-                        && al_builtins::fieldref_value_temporal::is_number_target(&rt)
-                        && self.is_fieldref_value(e)
+                        && (al_builtins::fieldref_value_temporal::is_number_target(&rt)
+                            || matches!(rt, RtType::Text(_) | RtType::Code(_)))
+                        && super::convert::is_builtin(&v, "FieldRef.Value#1")
                     {
                         return Ok(ir::Stmt::Exit(Some(ir::Expr::Convert(rt, Box::new(v)))));
                     }

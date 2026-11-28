@@ -1,7 +1,8 @@
 //! ADR-066 amendment 12 (owner, 2026-11-09): by default every test codeunit starts with fresh SingleInstance state and
 //! from the install baseline's NumberSequence values; nothing runs again in BC's order. A failed test that read a
 //! SingleInstance global an earlier codeunit would have set on BC gets a hint (the SingleInstance codeunit, its app,
-//! the global, the writer and the flag), and the tests that take numbers after another codeunit took some are listed.
+//! the global, the writer and the flag); a failed test that took numbers from a sequence an earlier codeunit of its
+//! session also took from gets a numbers hint (ADR-070 decision 3, which dropped amendment 12's static numbers list).
 //! `--strict-order` (`RunOptions::strict_order`) restores the carry, the chain and the re-run in BC's
 //! order. BC runs all test codeunits in one session: codeunits/TestCuP7ASetter.al:24-58 against TestCuP7BReader.al:24-37.
 
@@ -184,22 +185,33 @@ fn with_strict_order_the_reader_runs_in_bcs_order_and_passes() {
     assert!(!order_flagged(reader) && reader.order_hint.is_none(), "{reader:?}");
 }
 
-/// Test plan 2 and owner answer 1: a reader that passes with fresh state gets no hint and is not flagged.
+/// Test plan 2 and owner answer 1: a reader that passes with fresh state gets no hint and is not flagged. ADR-070
+/// decision 4: it keeps the globals it read (the JUnit property `singleInstanceCarried` and the summary line; the
+/// console and JSON show no hint on a pass), and nothing else.
 #[test]
 fn a_reader_that_passes_with_fresh_state_gets_no_hint() {
     let rt = run(LENIENT, &RunOptions::default());
     let reader = result(&rt, "ReadsAnyFlag");
     assert_eq!(reader.outcome, Outcome::Pass);
+    let hint = reader.order_hint.as_ref().expect("decision 4: the reads");
     assert!(
-        reader.order_hint.is_none() && reader.assumptions.is_empty(),
+        hint.numbers.is_empty() && hint.reads.len() == 1 && reader.assumptions.is_empty(),
         "{reader:?}"
     );
+    assert_eq!(rt.phases.chain.single_lane.passing_read_carried, 1);
+}
+
+/// The numbers hint of a test (ADR-070 decision 3): the sequences and the earlier taker of each.
+fn numbers_hint(rt: &CorpusRuntime, test: &str) -> Vec<(String, u32)> {
+    let hint = result(rt, test).order_hint.as_ref();
+    hint.map(|h| h.numbers.iter().map(|n| (n.sequence.clone(), n.after.0)).collect())
+        .unwrap_or_default()
 }
 
 /// Test plan 3: by default each codeunit starts from the install baseline's sequence value (no carry chain), and the
-/// codeunit that takes numbers after another taker is listed.
+/// failed test that took numbers after another codeunit took some gets the numbers hint (ADR-070 decision 3).
 #[test]
-fn by_default_each_codeunit_takes_numbers_from_the_baseline_and_the_later_taker_is_listed() {
+fn by_default_each_codeunit_takes_numbers_from_the_baseline_and_the_later_taker_gets_a_hint() {
     let rt = run(NUMBERS, &RunOptions::default());
     assert_eq!(result(&rt, "TakesOne").outcome, Outcome::Pass);
     assert!(
@@ -213,15 +225,11 @@ fn by_default_each_codeunit_takes_numbers_from_the_baseline_and_the_later_taker_
         "no carry chain for numbers: {:?}",
         chain.members
     );
-    let listed: Vec<u32> = chain.numbers_order.iter().map(|n| n.codeunit).collect();
-    assert_eq!(listed, vec![60476], "{:?}", chain.numbers_order);
-    assert_eq!(chain.numbers_order[0].after, (60475, "Order First Taker".to_string()));
-    assert!(
-        chain
-            .lines()
-            .iter()
-            .any(|l| l.contains("Order Second Taker") && l.contains("--strict-order"))
-    );
+    assert_eq!(numbers_hint(&rt, "TakesTwo"), vec![("ORDERSEQ".to_string(), 60475)]);
+    let hint = result(&rt, "TakesTwo").order_hint.as_ref().unwrap();
+    assert_eq!(hint.numbers[0].after, (60475, "Order First Taker".to_string()));
+    assert!(hint.text().contains("--strict-order"), "{}", hint.text());
+    assert!(result(&rt, "TakesOne").order_hint.is_none());
 }
 
 /// Test plan 3: with `--strict-order` the numbers chain as on BC.
@@ -235,7 +243,7 @@ fn with_strict_order_the_numbers_chain_as_on_bc() {
         "{:?}",
         result(&rt, "TakesTwo")
     );
-    assert!(rt.phases.chain.numbers_order.is_empty());
+    assert!(result(&rt, "TakesTwo").order_hint.is_none());
     assert!(!rt.phases.chain.members.is_empty());
 }
 
@@ -295,22 +303,18 @@ fn with_hidden_readers() -> String {
     format!("{NUMBERS}{readers}{HIDDEN_READERS}")
 }
 
-/// al-runner issue 8152: by default a codeunit that only reads the sequence after a codeunit that takes numbers is listed
-/// too; one that reads before every taker, or reads nothing, is not.
+/// ADR-070 decision 3: the numbers hint goes to a failed test that took numbers. A test that only reads the sequence
+/// after the takers fails without one (the hint is for takers); the later taker gets it after the first.
 #[test]
-fn by_default_a_codeunit_that_only_reads_numbers_after_a_taker_is_listed() {
+fn by_default_only_a_later_taker_gets_the_numbers_hint_and_a_reader_does_not() {
     let rt = run(&with_readers(), &RunOptions::default());
-    let chain = &rt.phases.chain;
-    let listed: Vec<u32> = chain.numbers_order.iter().map(|n| n.codeunit).collect();
-    assert_eq!(listed, vec![60476, 60478], "{:?}", chain.numbers_order);
-    let reader = &chain.numbers_order[1];
-    assert_eq!(reader.after, (60476, "Order Second Taker".to_string()));
-    assert!(reader.text().contains("read"), "{}", reader.text());
     assert!(
-        !chain.numbers_order[0].text().contains("only read"),
-        "{}",
-        chain.numbers_order[0].text()
+        matches!(&result(&rt, "ReadsCurrent").outcome, Outcome::Fail(m) if m.contains("current 1")),
+        "{:?}",
+        result(&rt, "ReadsCurrent")
     );
+    assert!(numbers_hint(&rt, "ReadsCurrent").is_empty());
+    assert_eq!(numbers_hint(&rt, "TakesTwo"), vec![("ORDERSEQ".to_string(), 60475)]);
 }
 
 /// al-runner issue 8152: under `--strict-order` with TestIsolation = Function (`--isolation test`) what a later codeunit
@@ -406,17 +410,12 @@ fn strict_order_chains_the_numbers_to_a_handler_and_a_recordref_reader() {
             result(&rt, test)
         );
     }
-    // The default run lists the handler reader after the taker too; a codeunit that reads nothing stays out.
-    let rt = run(&with_hidden_readers(), &RunOptions::default());
-    let listed: Vec<u32> = rt.phases.chain.numbers_order.iter().map(|n| n.codeunit).collect();
-    assert!(listed.contains(&60479), "{listed:?}");
-    assert!(!listed.contains(&60477), "{listed:?}");
 }
 
 /// Review of al-runner PR 8363 (probe roots): a codeunit that takes numbers in a message handler, and one that reads them in
 /// a confirm handler, join the chain as the takers and readers of a test body do: under `--strict-order` the handler taker
-/// draws 3 after the two takers and the confirm reader sees it; the default run lists both after the takers. A routine a
-/// test names in [HandlerFunctions] that is no handler function never runs (the test is refused), so it lists nothing.
+/// draws 3 after the two takers and the confirm reader sees it. By default the handler taker fails with the numbers hint
+/// (it took numbers in its handler after the takers, ADR-070 decision 3); the confirm reader only reads, so it gets none.
 const HANDLER_TAKERS: &str = r#"
 codeunit 60485 "Order Handler Taker"
 {
@@ -459,7 +458,151 @@ fn a_taker_and_a_reader_in_handlers_join_the_chain_and_a_named_plain_routine_doe
         );
     }
     let rt = run(&src, &RunOptions::default());
-    let listed: Vec<u32> = rt.phases.chain.numbers_order.iter().map(|n| n.codeunit).collect();
-    assert!(listed.contains(&60485) && listed.contains(&60486), "{listed:?}");
-    assert!(!listed.contains(&60487), "{listed:?}");
+    assert_eq!(
+        numbers_hint(&rt, "TakesInHandler"),
+        vec![("ORDERSEQ".to_string(), 60476)]
+    );
+    assert!(numbers_hint(&rt, "ReadsInConfirm").is_empty());
+    assert!(numbers_hint(&rt, "NamesAPlainRoutine").is_empty());
+}
+
+/// Two codeunits whose OnRun writes a row (so they are carry-chain members under runner 130450: each hands on the numbers
+/// its tests took, `numbers_taken.rs`) and a codeunit outside the chain after them that takes numbers (run again from the
+/// chain's carry, `carry_after.rs`). With [`NUMBERS`] before them.
+const CARRY_TAKERS: &str = r#"
+table 60478 "Order Carry Row" { fields { field(1; Id; Integer) { } } }
+codeunit 60479 "Order Carry First"
+{
+    Subtype = Test;
+    trigger OnRun() var R: Record "Order Carry Row"; begin R.Id := 1; R.Insert(); end;
+    [Test] procedure CarryTakesOne() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQ'); end;
+}
+codeunit 60480 "Order Carry Second"
+{
+    Subtype = Test;
+    trigger OnRun() var R: Record "Order Carry Row"; begin R.Id := 2; R.Insert(); end;
+    [Test] procedure CarryTakesAndFails() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQ'); Error('unrelated %1', N); end;
+}
+codeunit 60481 "Order Carry Free"
+{
+    Subtype = Test;
+    [Test] procedure FreeTakesAndFails() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQ'); Error('unrelated %1', N); end;
+}
+"#;
+
+/// Review of al-runner PR 8947, LOW-1: the numbers hint names only an earlier taker whose numbers did not reach the test
+/// here. The second chain member starts from the first's carry and the codeunit outside the chain runs again from it, so
+/// both saw what the chain members took; the last earlier taker they did not see is the free codeunit 60476. MED-1: the
+/// passing chain member's numbers are kept for the stability cause (`numbers_taken_after`), not as a hint.
+#[test]
+fn the_numbers_hint_leaves_out_a_chain_member_whose_numbers_reached_the_test() {
+    let rt = run(&format!("{NUMBERS}{CARRY_TAKERS}"), &RunOptions::default());
+    let members: Vec<u32> = rt.phases.chain.members.iter().map(|m| m.id).collect();
+    assert_eq!(members, vec![60479, 60480], "{:?}", rt.phases.chain.members);
+    assert!(
+        rt.phases.chain.reruns.iter().any(|e| e.id == 60481),
+        "{:?}",
+        rt.phases.chain.reruns
+    );
+    for test in ["CarryTakesAndFails", "FreeTakesAndFails"] {
+        assert!(
+            matches!(&result(&rt, test).outcome, Outcome::Fail(m) if m.contains("unrelated")),
+            "{:?}",
+            result(&rt, test)
+        );
+        assert_eq!(numbers_hint(&rt, test), vec![("ORDERSEQ".to_string(), 60476)], "{test}");
+    }
+    assert!(result(&rt, "CarryTakesOne").order_hint.is_none());
+    let after: Vec<(u32, &str, u32)> = rt
+        .numbers_taken_after()
+        .iter()
+        .flat_map(|(cu, t, ns)| ns.iter().map(move |n| (*cu, t.as_str(), n.after.0)))
+        .collect();
+    assert!(after.contains(&(60479, "CarryTakesOne", 60476)), "{after:?}");
+}
+
+/// Two sequences and three takers: A takes X, B and C take Y. C always fails, so only the numbers hint says where BC's
+/// order differs.
+const TWO_SESSIONS: &str = r#"
+codeunit 60490 "Order Y Installer"
+{
+    Subtype = Install;
+    trigger OnInstallAppPerCompany() begin NumberSequence.Insert('ORDERSEQY', 1, 1); end;
+}
+codeunit 60491 "Order X Taker"
+{
+    Subtype = Test;
+    [Test] procedure TakesX() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQ'); end;
+}
+codeunit 60492 "Order Y Taker"
+{
+    Subtype = Test;
+    [Test] procedure TakesY() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQY'); end;
+}
+codeunit 60493 "Order Y Late Taker"
+{
+    Subtype = Test;
+    [Test] procedure TakesYAndFails() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQY'); Error('unrelated %1', N); end;
+}
+"#;
+
+/// Review of al-runner PR 9321 (Copilot, order_hint.rs): a codeunit in two BC sessions (`--test-suites`) gets its
+/// numbers hint from the session where an earlier codeunit took from the same sequence. In the first session the only
+/// earlier taker took from another sequence, so that session gives no hint and must not use up the codeunit.
+#[test]
+fn a_codeunit_in_two_sessions_gets_the_numbers_hint_from_the_session_that_matches() {
+    let opts = RunOptions {
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse("S1: 60491 60493\nS2: 60492 60493")
+                .expect("a valid suites file"),
+        )),
+        ..Default::default()
+    };
+    let rt = run(TWO_SESSIONS, &opts);
+    assert!(
+        matches!(&result(&rt, "TakesYAndFails").outcome, Outcome::Fail(m) if m.contains("unrelated")),
+        "{:?}",
+        result(&rt, "TakesYAndFails")
+    );
+    assert_eq!(
+        numbers_hint(&rt, "TakesYAndFails"),
+        vec![("ORDERSEQY".to_string(), 60492)]
+    );
+}
+
+/// A codeunit that fails only after the setter of PAIR ran in its session.
+const INVERSE: &str = r#"
+codeunit 60482 "Order Inverse Reader"
+{
+    Subtype = Test;
+    [Test] procedure FailsAfterTheSetter()
+    var S: Codeunit "Order State";
+    begin
+        if S.GetFlag() = 'left' then Error('the setter ran first');
+    end;
+}
+"#;
+
+/// Review of al-runner PR 9321 (Copilot, al-test-cli main.rs): in a run that is already in BC's order (the nightly
+/// whole-corpus run, `AL_STRICT_ORDER_ALL`) `strict_after` runs nothing again, so a listed codeunit keeps the outcome it
+/// had after the codeunits before it, not the one it gets alone.
+#[test]
+fn a_strict_run_keeps_its_outcomes_and_runs_nothing_again_for_strict_after() {
+    let opts = RunOptions {
+        strict_after: Some(al_testrun::runtime::StrictAfter {
+            only: vec![(0, 60482)],
+            listed: [(String::new(), 60482)].into(),
+        }),
+        ..strict()
+    };
+    let rt = run(&format!("{PAIR}{INVERSE}"), &opts);
+    let case = al_testrun::CaseId {
+        codeunit: 60482,
+        name: "FailsAfterTheSetter".into(),
+    };
+    assert!(
+        matches!(rt.outcome_in("", &case), Outcome::Fail(m) if m.contains("the setter ran first")),
+        "{:?}",
+        rt.outcome_in("", &case)
+    );
 }

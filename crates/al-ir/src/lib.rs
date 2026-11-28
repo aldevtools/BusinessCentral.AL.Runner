@@ -95,6 +95,19 @@ pub enum PlatformPublisher {
 pub const RAISED_CAPTION_CLASS_EVENTS: [&str; 2] = ["OnResolveCaptionClass", "OnAfterCaptionClassResolve"];
 
 /// Whether `event` (any case) is one of [`RAISED_CAPTION_CLASS_EVENTS`].
+/// An argument handed to a procedure called on the current instance (`same_instance`), of the object that calls it
+/// (`same_object`), declared `local` (`callee_local`) and without attributes (so no TryFunction and no publisher). The
+/// lowering (`TextConstantSite::ArgumentOfSameObjectProcedure`) and the VM compiler (the measured place of a
+/// `FieldRef.Value()` argument, FvcTemporalIntoNumberPlaces.al `argument`) both ask this.
+pub fn is_same_object_procedure_argument(
+    same_object: bool,
+    same_instance: bool,
+    callee_local: bool,
+    callee_has_attributes: bool,
+) -> bool {
+    same_object && same_instance && callee_local && !callee_has_attributes
+}
+
 pub fn is_raised_caption_class_event(event: &str) -> bool {
     RAISED_CAPTION_CLASS_EVENTS
         .iter()
@@ -1876,6 +1889,11 @@ pub struct Slot {
     /// A global declared `Label` (with or without properties) or `TextConst`: one al-sema `shared::label_text` gives a text.
     #[serde(default)]
     pub label: bool,
+    /// A local variable declared `Record X temporary`. `ty` cannot tell it apart from a local of a `TableType = Temporary`
+    /// table declared without `temporary`: both lower to a temporary record (al-sema `convert`). Read by al-vm
+    /// `temp_blob_impl_field` (assumption `base-convert-line-breaks-temporary-table-blob` measures the record without it).
+    #[serde(default)]
+    pub declared_temporary: bool,
 }
 
 impl Slot {
@@ -1890,6 +1908,7 @@ impl Slot {
             comment_label: false,
             locked_label: false,
             label: false,
+            declared_temporary: false,
         }
     }
 }
@@ -1939,6 +1958,9 @@ pub struct Routine {
     /// The routine is declared `local`.
     #[serde(default)]
     pub local: bool,
+    /// The routine is declared `internal`.
+    #[serde(default)]
+    pub internal: bool,
 }
 
 fn no_pos() -> u32 {
@@ -2425,6 +2447,7 @@ mod tests {
             expr_tys: vec![],
             reads_var_max_len: false,
             local: false,
+            internal: false,
         }
     }
 
@@ -2542,6 +2565,7 @@ mod tests {
                     expr_tys: vec![],
                     reads_var_max_len: false,
                     local: false,
+                    internal: false,
                     body: vec![
                         Stmt::Pos(0),
                         Stmt::Assign(

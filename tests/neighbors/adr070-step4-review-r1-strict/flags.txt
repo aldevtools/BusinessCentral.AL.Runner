@@ -1,0 +1,2 @@
+# The same app as ../adr070-step4-review-r1, in BC's order.
+--strict-order

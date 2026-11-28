@@ -1,0 +1,2 @@
+# The same app as ../adr070-step4-reports, in BC's order.
+--strict-order

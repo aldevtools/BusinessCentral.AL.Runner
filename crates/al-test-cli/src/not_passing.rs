@@ -44,6 +44,11 @@ impl Check {
     }
 }
 
+/// The regression text of a case that fails with `why`.
+pub fn fail_reason(why: &str) -> String {
+    format!("fail: {}", clip(why, 120))
+}
+
 /// Applies the rule. `selected` is the run's selection over the oracle (`all`): only the selected
 /// cases ran. `recorded` is the outcome the run recorded for a case, `None` when it recorded none.
 pub fn check(
@@ -69,9 +74,7 @@ pub fn check(
             (Outcome::Pass, false) => {}
             (_, true) => c.listed.push(case.id.clone()),
             (Outcome::NotRun(why), false) if why.contains(DOTNET_UNAVAILABLE) => c.skipped.push((case.id.clone(), why)),
-            (Outcome::Fail(why), false) => c
-                .regressions
-                .push((case.id.clone(), format!("fail: {}", clip(&why, 120)))),
+            (Outcome::Fail(why), false) => c.regressions.push((case.id.clone(), fail_reason(&why))),
             (Outcome::NotRun(why), false) => c
                 .regressions
                 .push((case.id.clone(), format!("not run: {}", clip(&why, 120)))),
@@ -263,14 +266,19 @@ pub struct ListChange {
     pub accepted_regressions: Vec<CaseId>,
     /// Deleted lines.
     pub deleted: usize,
+    /// Added lines that carry a base line to a new key through the corpus rename map or an app move (ADR-065
+    /// amendment 1): neither new cases nor regressions.
+    pub moved: Vec<CaseId>,
 }
 
 /// Compares a list with its version on the base branch. `base_oracle` holds the ids of the cases the
-/// base branch's oracle has that real BC passes.
+/// base branch's oracle has that real BC passes, and the head keys they reach (`rename_map::Carried::known`);
+/// `moved_in` the head keys of the base lines (`rename_map::Carried::listed`).
 pub fn list_change(
     path: &str,
     now: &BTreeSet<CaseId>,
     base: &BTreeSet<CaseId>,
+    moved_in: &BTreeSet<CaseId>,
     base_oracle: &BTreeSet<CaseId>,
 ) -> ListChange {
     let mut ch = ListChange {
@@ -279,7 +287,9 @@ pub fn list_change(
         ..ListChange::default()
     };
     for c in now.difference(base) {
-        if base_oracle.contains(c) {
+        if moved_in.contains(c) {
+            ch.moved.push(c.clone());
+        } else if base_oracle.contains(c) {
             ch.accepted_regressions.push(c.clone());
         } else {
             ch.new_cases.push(c.clone());
@@ -293,7 +303,9 @@ pub fn render_changes(base: &str, changes: &[ListChange]) -> String {
     let mut s = format!("## Not-passing lists against {base}\n\n");
     let changed: Vec<_> = changes
         .iter()
-        .filter(|c| c.deleted > 0 || !c.new_cases.is_empty() || !c.accepted_regressions.is_empty())
+        .filter(|c| {
+            c.deleted > 0 || !c.new_cases.is_empty() || !c.accepted_regressions.is_empty() || !c.moved.is_empty()
+        })
         .collect();
     if changed.is_empty() {
         s.push_str("No list changed.\n");
@@ -319,6 +331,19 @@ pub fn render_changes(base: &str, changes: &[ListChange]) -> String {
             accepted.len()
         ));
         for (p, c) in accepted {
+            s.push_str(&format!("- `{p}`: {} {}\n", c.codeunit, c.name));
+        }
+    }
+    let moved: Vec<_> = changed
+        .iter()
+        .flat_map(|c| c.moved.iter().map(move |x| (&c.path, x)))
+        .collect();
+    if !moved.is_empty() {
+        s.push_str(&format!(
+            "\n### Lines moved to new keys ({}): the corpus rename map or an app move, ADR-065 amendment 1\n\n",
+            moved.len()
+        ));
+        for (p, c) in moved {
             s.push_str(&format!("- `{p}`: {} {}\n", c.codeunit, c.name));
         }
     }
@@ -475,7 +500,13 @@ mod tests {
         let base = set(&[(1, "A"), (1, "B")]);
         let now = set(&[(1, "A"), (1, "C"), (2, "New")]);
         let base_oracle = set(&[(1, "A"), (1, "B"), (1, "C")]);
-        let ch = list_change("metrics/29/not-passing.txt", &now, &base, &base_oracle);
+        let ch = list_change(
+            "metrics/29/not-passing.txt",
+            &now,
+            &base,
+            &BTreeSet::new(),
+            &base_oracle,
+        );
         assert_eq!(ch.deleted, 1);
         assert_eq!(ch.accepted_regressions, vec![id(1, "C")]);
         assert_eq!(ch.new_cases, vec![id(2, "New")]);

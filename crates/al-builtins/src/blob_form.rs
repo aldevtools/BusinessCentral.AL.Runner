@@ -32,7 +32,8 @@ const FILE: u32 = 1 << 11;
 const ASSIGNED_UNSAVED: u32 = 1 << 12;
 const UNREAD_CONTENT: u32 = 1 << 13;
 const UTF16_BINARY: u32 = 1 << 14;
-const NEVER_LOADED_INSERT: u32 = 1 << 15;
+const DOTNET_REWRITTEN: u32 = 1 << 15;
+const NEVER_LOADED_INSERT: u32 = 1 << 16;
 
 /// Appends every field of `b`.
 pub(crate) fn put(b: &BlobBuf, out: &mut Vec<u8>) {
@@ -54,6 +55,7 @@ pub(crate) fn put(b: &BlobBuf, out: &mut Vec<u8>) {
         first_write_truncates,
         file,
         dotnet_view,
+        dotnet_rewritten,
         assigned_unsaved,
         assigned_write,
         unread_content,
@@ -82,6 +84,7 @@ pub(crate) fn put(b: &BlobBuf, out: &mut Vec<u8>) {
         (*unread_content, UNREAD_CONTENT),
         (*never_loaded_insert, NEVER_LOADED_INSERT),
         (*utf16_binary, UTF16_BINARY),
+        (*dotnet_rewritten, DOTNET_REWRITTEN),
     ];
     put_u32(out, flags.iter().filter(|(on, _)| *on).map(|(_, bit)| bit).sum());
     match written_base {
@@ -145,6 +148,7 @@ pub(crate) fn read(r: &mut Reader) -> Option<BlobBuf> {
         first_write_truncates: on(FIRST_WRITE_TRUNCATES),
         file: on(FILE),
         dotnet_view,
+        dotnet_rewritten: on(DOTNET_REWRITTEN),
         assigned_unsaved: on(ASSIGNED_UNSAVED),
         assigned_write,
         unread_content: on(UNREAD_CONTENT),
@@ -213,6 +217,7 @@ impl BlobBuf {
             first_write_truncates,
             file,
             dotnet_view,
+            dotnet_rewritten,
             assigned_unsaved,
             assigned_write,
             unread_content,
@@ -243,6 +248,7 @@ impl BlobBuf {
             ),
             ("file", *file == other.file),
             ("dotnet_view", *dotnet_view == other.dotnet_view),
+            ("dotnet_rewritten", *dotnet_rewritten == other.dotnet_rewritten),
             ("assigned_unsaved", *assigned_unsaved == other.assigned_unsaved),
             ("assigned_write", *assigned_write == other.assigned_write),
             ("unread_content", *unread_content == other.unread_content),
@@ -294,6 +300,7 @@ mod tests {
             first_write_truncates: true,
             file: true,
             dotnet_view: 9,
+            dotnet_rewritten: true,
             assigned_unsaved: true,
             assigned_write: AssignedWrite::NeverInsertedEmpties,
             unread_content: true,
@@ -344,6 +351,7 @@ mod tests {
                 "first_write_truncates",
                 "file",
                 "dotnet_view",
+                "dotnet_rewritten",
                 "assigned_unsaved",
                 "assigned_write",
                 "unread_content",
@@ -367,7 +375,7 @@ mod tests {
         let all = a.differing_fields(&crate::stream::new_blob().borrow());
         assert_eq!(
             all.len(),
-            25,
+            26,
             "every field of the set buffer is apart from a new one's: {all:?}"
         );
     }
