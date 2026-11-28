@@ -900,9 +900,9 @@ pub struct PageState {
     /// The store's write mark (`Session::write_mark`) when `New()` had started its line (OnNewRecord ran): a later write to the
     /// store before the line is inserted moves it (`split_part_second_control_xrec.rs`). Cleared with `after_new`.
     pub new_line_writes: Option<(i64, u64)>,
-    /// The number of noted Record writes when `New()` started its line; the rewrite gate of a code-inserted line uses the
+    /// The end of the noted Record writes when `New()` started its line; the rewrite gate of a code-inserted line uses the
     /// exact writes between this and the save. Cleared with `new_line_writes`.
-    pub new_line_record_writes: Option<usize>,
+    pub new_line_record_writes: Option<crate::state::WriteLogMark>,
     /// The client call that runs now (or the last one) saved the current row through `CurrPage.Update(true)` in page code;
     /// cleared at the start of every client call on the page except `New()` (al-vm pages/pageops.rs).
     pub saved_by_update: bool,

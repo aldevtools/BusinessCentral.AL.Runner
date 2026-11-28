@@ -20,9 +20,9 @@ pub struct ControlOnValidate {
     pub writes: (i64, u64),
     /// The store's change counter when it began: unlike the write mark, a Modify that changes no field moves it too.
     pub changes: u64,
-    /// The number of noted Record writes when it began. A code-inserted line's rewrite gate reads the writes after this
+    /// The end of the noted Record writes when it began. A code-inserted line's rewrite gate reads the writes after this
     /// boundary (the table writes and the at-most-one other-table Insert its cells measure).
-    pub record_writes: usize,
+    pub record_writes: crate::state::WriteLogMark,
     /// The `CurrPage.SaveRecord` and `CurrPage.Update` calls on the page since it began, in order, the running one last.
     pub saves: Vec<CurrPageSave>,
     /// The last record call of page code since it began that loaded a row into the page's Rec or moved it
@@ -41,8 +41,8 @@ pub struct RecCall {
 }
 
 impl ControlOnValidate {
-    /// An OnValidate that begins at `writes`, change counter `changes` and `record_writes` noted Record writes.
-    pub fn new(writes: (i64, u64), changes: u64, record_writes: usize) -> Self {
+    /// An OnValidate that begins at `writes`, change counter `changes` and the write log at `record_writes`.
+    pub fn new(writes: (i64, u64), changes: u64, record_writes: crate::state::WriteLogMark) -> Self {
         Self {
             writes,
             changes,
@@ -60,9 +60,10 @@ mod tests {
 
     #[test]
     fn a_new_onvalidate_has_no_saves() {
-        let v = ControlOnValidate::new((3, 1), 7, 11);
+        let log = crate::state::TxState::fresh().write_log_mark();
+        let v = ControlOnValidate::new((3, 1), 7, log);
         assert_eq!((v.writes, v.changes), ((3, 1), 7));
-        assert_eq!(v.record_writes, 11);
+        assert_eq!(v.record_writes, log);
         assert!(v.saves.is_empty() && v.positioned.is_none());
         assert_ne!(CurrPageSave::Update(true), CurrPageSave::Update(false));
     }

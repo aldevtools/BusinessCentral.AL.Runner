@@ -62,21 +62,33 @@ fn issue_8735_probe_cells() {
 /// writing another table before the save, and a FlowField over the written table. After the insert alone, the control rewriting
 /// the line twice, with or without one insert of another table, keeps the refusal: the cells (:630, :654) measure one rewrite.
 /// One rewrite next to a Modify of another table keeps it too, whether the control or the table field called Modify:
-/// those cells measure at most one Insert there.
+/// those cells measure at most one Insert there. So do the shapes of the Copilot review of the train for #8878: an unchanged
+/// Modify of another table and a Commit before the insert, then an Insert of another table and the rewrite (the Commit empties
+/// the write log), and one or two Inserts into a temporary record before the rewrite (row versions no noted write accounts
+/// for). A Commit after New() leaves the row-version rule alone to decide, as on main: the line inserted then committed, or
+/// committed then inserted, and rewritten once runs as main ran it; a temporary Insert of the table field runs as on main too.
 #[test]
 fn issue_8735_neighbors_are_refused() {
     let o = super::outside_fb_8712::outcomes(NEIGHBORS, "LT NX Tests");
-    assert_eq!(o.len(), 11);
+    assert_eq!(o.len(), 17);
     let run = [
         "NewLine_TableFieldAndControlWriteAnotherTable_ShowsAndSavesTheRow",
         "NewLine_FlowFieldOverTheWrittenTable_ShowsTheCount",
+        "NewLine_TableFieldInsertsATemporaryRowThenControlRewritesTheLine_SaveWritesRecOverTheLine",
+    ];
+    let run_as_main = [
+        "NewLine_TableFieldInsertsAndCommitsThenControlRewritesTheLine_SaveWritesRecOverTheLine",
+        "NewLine_TableFieldCommitsThenInsertsThenControlRewritesTheLine_SaveWritesRecOverTheLine",
     ];
     let ran: Vec<_> = o
         .iter()
-        .filter(|(name, r, marks)| match run.contains(&name.as_str()) {
-            true => !(*r == Outcome::Pass && marks.contains(&ListNewLineWritesOtherTable)),
-            false => !matches!(r, Outcome::NotRun(_)),
-        })
+        .filter(
+            |(name, r, marks)| match (run.contains(&name.as_str()), run_as_main.contains(&name.as_str())) {
+                (true, _) => !(*r == Outcome::Pass && marks.contains(&ListNewLineWritesOtherTable)),
+                (_, true) => !(*r == Outcome::Pass && marks == &[ListNewLineExtraCode]),
+                _ => !matches!(r, Outcome::NotRun(_)),
+            },
+        )
         .map(|(name, r, _)| format!("{name}: {r:?}"))
         .collect();
     assert!(ran.is_empty(), "{ran:#?}");

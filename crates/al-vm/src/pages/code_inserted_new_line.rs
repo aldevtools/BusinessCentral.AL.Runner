@@ -551,7 +551,9 @@ impl Session {
     /// no table extension and no event subscriber; with `manual_unbound` (the page with code), manual subscribers nobody binds
     /// are allowed (ListNewLineFactboxesCode.al:255-275). `Inserted::Rewritten` for that row when the control's OnValidate then
     /// wrote it exactly once, with no delete and either no other-table write or one Insert of another table, before or after
-    /// it (`code_inserted_extra.rs`, ListNewLineExtraCode.al:443; ListNewLineWritesOtherTable.al:630, :654).
+    /// it, the store's row versions moved by those writes only (`code_inserted_extra.rs`, ListNewLineExtraCode.al:443;
+    /// ListNewLineWritesOtherTable.al:630, :654). After a Commit or rollback since `New()` the write log no longer holds the
+    /// writes before it: then only the row written once and nothing else written is `Inserted::Rewritten` (:443).
     fn inserted_by_table_field(&mut self, st: &St, manual_unbound: bool) -> Result<Option<Inserted>, Signal> {
         let (Some(start), Some((line_mark, _)), Some(line_record_writes), Some(control)) = ({
             let s = st.borrow();
@@ -604,6 +606,16 @@ impl Session {
         // Keeping the exact write sequence here gives the row-version check only the cells it can prove and refuses a repeated
         // rewrite or a Modify of another table.
         drop(engine);
+        let began_on_line = control.row_version.is_some_and(by_table_field);
+        // A Commit or rollback since New() emptied the write log, so it no longer holds the writes before it (`WriteLogMark`):
+        // the row-version rule alone decides then, the row written once since the control's OnValidate began and nothing else
+        // written (ListNewLineExtraCode.al:443).
+        let Some(line_writes) = self.tx.writes_since(line_record_writes) else {
+            let once = began_on_line
+                && version == control_mark + 1
+                && self.write_mark() == (control_mark + 1, control_deletes);
+            return Ok(once.then_some(Inserted::Rewritten));
+        };
         let page_table = object as u32;
         let at_most_one_other_table_insert = |writes: &[crate::state::TxWrite]| {
             let mut other = writes.iter().filter(|w| w.table != page_table);
@@ -613,25 +625,30 @@ impl Session {
                 _ => false,
             }
         };
-        let measured_control_writes = self.tx.open.writes.get(control.record_writes..).is_some_and(|writes| {
+        // Each write the cells measure gives one row version (:463, :630, :654), so the store's mark moved by exactly the control's
+        // noted writes: a row version no noted write accounts for (a temporary record's Insert) is not measured.
+        let next_version = self.write_mark().0;
+        let measured_control_writes = self.tx.writes_since(control.record_writes).is_some_and(|writes| {
             let mut page_writes = writes.iter().filter(|w| w.table == page_table);
             let one_page_modify = page_writes
                 .next()
                 .is_some_and(|w| w.kind == crate::state::TxWriteKind::Modify)
                 && page_writes.next().is_none();
-            one_page_modify && at_most_one_other_table_insert(writes)
+            one_page_modify
+                && at_most_one_other_table_insert(writes)
+                && i64::try_from(writes.len()).is_ok_and(|n| next_version == control_mark + n)
         });
-        let measured_line_writes = self.tx.open.writes.get(line_record_writes..).is_some_and(|writes| {
-            let mut page_writes = writes.iter().filter(|w| w.table == page_table);
+        let measured_line_writes = {
+            let mut page_writes = line_writes.iter().filter(|w| w.table == page_table);
             let measured_page_writes = matches!(
                 (page_writes.next(), page_writes.next(), page_writes.next()),
                 (Some(insert), Some(modify), None)
                     if insert.kind == crate::state::TxWriteKind::Insert
                         && modify.kind == crate::state::TxWriteKind::Modify
             );
-            measured_page_writes && at_most_one_other_table_insert(writes)
-        });
-        let rewritten = control.row_version.is_some_and(by_table_field)
+            measured_page_writes && at_most_one_other_table_insert(line_writes)
+        };
+        let rewritten = began_on_line
             && version > control_mark
             && self.write_mark().1 == control_deletes
             && self.writes_all_noted()
@@ -678,7 +695,7 @@ impl Session {
         let mut begun = crate::pages::state::ControlOnValidate::new(
             self.write_mark(),
             self.store.change_counter(),
-            self.tx.open.writes.len(),
+            self.tx.write_log_mark(),
         );
         begun.row_version = self.new_line_row_version(st);
         let start = Some(begun);

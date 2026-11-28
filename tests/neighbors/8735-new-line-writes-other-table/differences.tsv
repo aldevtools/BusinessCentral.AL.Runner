@@ -7,3 +7,5 @@ LT NW Tests::NewLine_ControlWritesTheLineThenAnotherTableBeforeSaveRecord_SaveWr
 # The table field calls Modify on another table in the rewritten line's slice; the measured cells admit only at most one
 # other-table Insert there.
 LT NX Tests::NewLine_TableFieldModifiesAnotherTableThenControlRewritesTheLine_SaveWritesRecOverTheLine	REFUSED CurrPage.Update on a page that shows no row
+# The Copilot review of the train for #8878 (unchanged other-table Modify and Commit before the insert; temporary Inserts
+# before the rewrite; a Commit after New()): every such neighbor gives main's result on head, so none has a row here.

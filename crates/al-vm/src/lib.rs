@@ -1652,6 +1652,7 @@ impl Session {
     /// Test13d end it with the run or the page operation, and a rollback ends it too).
     fn end_open_transaction(&mut self) {
         self.tx.open = Default::default();
+        self.tx.ended += 1;
         self.tx.commit_counter = self.store.change_counter();
         if self.tx.phase == crate::transactions::TxPhase::Write {
             self.tx.phase = crate::transactions::TxPhase::Fresh;
