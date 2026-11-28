@@ -1,6 +1,7 @@
-// Corpus PR 1657, LgnRunnerSessions.al (e58a5a05a): hub rows :380-:391, runner rows :422-:444. The marker row an OnRun
-// inserts is not measured yet: the facts below hold in any order of the runner codeunits (marker row there: 3 login
-// table rows, else 2), the cell this app asks corpus PR 1657 for.
+// Corpus PR 1657, LgnRunnerSessions.al (1d9af7cd): hub rows :380-:391, runner rows :422-:444. The marker row W's OnRun
+// inserts is seen by W's tests and gone in every later runner codeunit (:795, :839, :877, :917); the login rows stay as the
+// login left them, 2 (:792-:794). As in the probe, markers count only rows of this session (the corpus harness also runs
+// each OnRun once in another session while it fills the suite, and those rows stay; not asserted there, not modelled here).
 codeunit 53910 "SRS H Hub Disabled"
 {
     Subtype = Test;
@@ -32,7 +33,7 @@ codeunit 53925 "SRS X Before W"
         Assert: Codeunit "SRS Assert";
         Rows: Codeunit "SRS Login Rows";
     begin
-        Assert.Equal(Rows.Expected(), Rows.Total(), 'login table rows');
+        Assert.Equal(2, Rows.LoginRows(), 'login rows');
     end;
 }
 
@@ -47,6 +48,7 @@ codeunit 53930 "SRS W Changes Login Rows"
     begin
         Row.Init();
         Row."Session Id" := -1;
+        Row."Writer Session" := SessionId();
         Row.Insert();
     end;
 
@@ -57,11 +59,11 @@ codeunit 53930 "SRS W Changes Login Rows"
         Rows: Codeunit "SRS Login Rows";
     begin
         Assert.Equal(1, Rows.Markers(), 'marker rows');
-        Assert.Equal(Rows.Expected(), Rows.Total(), 'login table rows');
+        Assert.Equal(2, Rows.LoginRows(), 'login rows');
     end;
 }
 
-// After W: the marker row W's OnRun committed, and no second login row of the session (:424, :429-:434).
+// After W: the marker row W's OnRun wrote is gone (:839, :877), and no second login row of the session (:424, :792-:794).
 codeunit 53931 "SRS Y After Changed Rows"
 {
     Subtype = Test;
@@ -73,7 +75,7 @@ codeunit 53931 "SRS Y After Changed Rows"
         Assert: Codeunit "SRS Assert";
         Rows: Codeunit "SRS Login Rows";
     begin
-        Assert.Equal(1, Rows.Markers(), 'the row the OnRun of W inserted');
+        Assert.Equal(0, Rows.Markers(), 'the row the OnRun of W inserted');
     end;
 
     [Test]
@@ -82,7 +84,7 @@ codeunit 53931 "SRS Y After Changed Rows"
         Assert: Codeunit "SRS Assert";
         Rows: Codeunit "SRS Login Rows";
     begin
-        Assert.Equal(Rows.Expected(), Rows.Total(), 'login table rows');
+        Assert.Equal(2, Rows.LoginRows(), 'login rows');
     end;
 
     // :424: one login call in the session.
@@ -107,26 +109,22 @@ codeunit 53931 "SRS Y After Changed Rows"
 
 codeunit 53903 "SRS Login Rows"
 {
+    // The marker rows a runner codeunit of this session wrote (LgnRunnerSessions.al:707-713, rows of this session).
     procedure Markers(): Integer
     var
         Row: Record "SRS Login Row";
     begin
         Row.SetRange("Session Id", -1);
+        Row.SetRange("Writer Session", SessionId());
         exit(Row.Count());
     end;
 
-    procedure Total(): Integer
+    // The login rows: the hub's and the runner session's (LgnRunnerSessions.al:698-704, :792).
+    procedure LoginRows(): Integer
     var
         Row: Record "SRS Login Row";
     begin
+        Row.SetRange("Session Id", 0);
         exit(Row.Count());
-    end;
-
-    // The hub's login row and the runner session's one, plus the marker row when W's OnRun ran before.
-    procedure Expected(): Integer
-    begin
-        if Markers() = 1 then
-            exit(3);
-        exit(2);
     end;
 }

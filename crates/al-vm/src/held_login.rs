@@ -24,6 +24,10 @@ pub struct HeldLogin {
     /// The background sessions that the session runner 130450 runs its codeunits in after this login ([`OwnLogin`])
     /// started, over all those codeunits, each a new `Session`: their ids stay apart (`Session::next_background_session_id`).
     pub own_session_starts: std::sync::atomic::AtomicI32,
+    /// The data the login ran on, kept only for the login of the session runner 130450 runs its codeunits in after the
+    /// held login when it left no image ([`Session::hold_runner_login`]): a later codeunit of that session runs the login
+    /// again on it (al-testrun runtime/held_login.rs `runner_login_data`).
+    pub ran_on: Option<crate::SharedBaseline>,
 }
 
 /// The logins whose writes a session's data holds, each with its image: the run's one login on the hub (`hub`,
@@ -72,23 +76,26 @@ impl Session {
         if self.held_logins.hub.is_some() {
             return;
         }
-        self.held_logins.hub = Some(self.held_now(image, opened));
+        self.held_logins.hub = Some(self.held_now(image, opened, None));
     }
 
     /// The session runner 130450 runs its codeunits in after the held login ran its own login, the first of those
     /// codeunits (al-testrun runtime/held_login.rs `own_session_id`): the session's data now holds what that login wrote,
     /// and `image` (taken right after it) is its session state, which the later codeunits of that session take in place
-    /// of a second login (corpus PR 1657, LgnRunnerSessions.al:424, :426, :433). A session that already holds one keeps
-    /// the first.
+    /// of a second login (corpus PR 1657, LgnRunnerSessions.al:424, :426, :433). `ran_on`: the data the login ran on,
+    /// kept (frozen, `HeldLogin` crosses threads with the baselines) when it left no image and the data has a bytes form.
+    /// A session that already holds one keeps the first.
     pub fn hold_runner_login(
         &mut self,
         image: Result<LoginImage, String>,
         opened: Box<dyn std::any::Any + Send + Sync>,
+        ran_on: Option<Baseline>,
     ) {
         if self.held_logins.runner.is_some() {
             return;
         }
-        self.held_logins.runner = Some(self.held_now(image, opened));
+        let ran_on = ran_on.filter(|_| image.is_err()).and_then(|b| b.freeze().ok());
+        self.held_logins.runner = Some(self.held_now(image, opened, ran_on));
     }
 
     /// The login the session just ran, with its image and the SingleInstance codeunits it holds now.
@@ -96,12 +103,14 @@ impl Session {
         &self,
         image: Result<LoginImage, String>,
         opened: Box<dyn std::any::Any + Send + Sync>,
+        ran_on: Option<crate::SharedBaseline>,
     ) -> Arc<HeldLogin> {
         Arc::new(HeldLogin {
             image,
             singles: self.single_instances(),
             opened,
             own_session_starts: Default::default(),
+            ran_on,
         })
     }
 

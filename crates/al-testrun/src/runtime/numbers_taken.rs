@@ -38,6 +38,22 @@ pub(super) fn onrun_left(
     }
 }
 
+/// What OnRun leaves (`left`, from [`onrun_left`]) when its rows are rolled back with the codeunit: the data before it
+/// (`start`), with the workspace installs and install rows `left` noted. Used under BcContainerHelper
+/// (`discovery::run_onrun_left`), and in the session runner 130450 runs its codeunits in after the held login, in the
+/// shape `held_login::RunnerLoginRows::onrun_rolled_back` admits (run.rs): there a later codeunit that reads a table OnRun
+/// wrote (`left.tables`) starts from `start`, which holds what the codeunits before it left and that session's login rows.
+pub(super) fn rolled_back_to(mut left: Carried, start: &al_vm::Baseline) -> Carried {
+    let mut b = start.clone();
+    if let Some(l) = &left.baseline {
+        b.workspace_installs.clone_from(&l.workspace_installs);
+        b.install_rows.clone_from(&l.install_rows);
+    }
+    left.baseline = Some(b);
+    left.as_started = false;
+    left
+}
+
 /// Sets [`CARRIED`] to what the codeunit leaves ([`left_after_tests`]), when it leaves something known.
 pub(super) fn carry_left(
     session: &al_vm::Session,

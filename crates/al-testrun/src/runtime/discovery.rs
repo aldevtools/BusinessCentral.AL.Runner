@@ -409,15 +409,9 @@ fn unpinned_reach(
 /// bc-linux carries it, `start` the state before it): its rows are rolled back with the codeunit (SwOnRunRunner.al:21-23),
 /// so the later codeunits start from `start`. Whether a number sequence or isolated storage it changed stays is not
 /// pinned: a later codeunit whose reach can touch them is refused (`Carried::storage_why`).
-pub(super) fn run_onrun_left(mut left: Carried, start: &al_vm::Baseline, name: &str) -> Carried {
-    let mut b = start.clone();
-    if let Some(l) = &left.baseline {
-        b.workspace_installs.clone_from(&l.workspace_installs);
-        b.install_rows.clone_from(&l.install_rows);
-    }
-    left.baseline = Some(b);
+pub(super) fn run_onrun_left(left: Carried, start: &al_vm::Baseline, name: &str) -> Carried {
+    let mut left = super::numbers_taken::rolled_back_to(left, start);
     left.tables.clear();
-    left.as_started = false;
     if left.everything {
         left.storage_why = Some(format!(
             "under BcContainerHelper the run called the OnRun trigger of the earlier codeunit {name} inside the runner's isolation, and it changed a number sequence or isolated storage: whether that change stays for the later codeunits is not pinned"

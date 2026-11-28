@@ -3,7 +3,8 @@
 //! holds it (`login_once_on_hub`, `first_login`), how each session logs in (`login_plan`: a later session takes a held
 //! login with `thaw_held`), which later codeunits run their own login (`runs_own_login`), in the one session runner
 //! 130450 runs them in (`own_session_id`; corpus PR 1657), or see other rows (`login_rows_as_held`) and what their tests
-//! may not read (`held_reads`), and how a Disabled codeunit's login writes meet what it carries
+//! may not read (`held_reads`), which OnRun writes that session rolls back (`RunnerLoginRows`), the data its login runs
+//! again on without an image (`runner_login_data`), and how a Disabled codeunit's login writes meet what it carries
 //! (`carried_company_open`). Called by run.rs `open_company` and `run_codeunit_inner`. Entry points: `login_plan`,
 //! `HeldOpened::of`, `held_reads`.
 
@@ -90,6 +91,16 @@ impl HeldOpened {
     }
 }
 
+/// The data the login of the session runner 130450 runs its codeunits in after the held login ran on, for a later codeunit
+/// of that session (`runner`) when that login left no image to thaw: the login runs again on it, so its SingleInstance
+/// codeunits hold what the session's one login set (assumption `hub-login-later-runners`; corpus PR 1657,
+/// LgnRunnerSessions.al:790 one login row at the session's first login, where a login on the current data counts 2; :791 the
+/// SecretText it set is kept; :789 one login call). `None`: not that session, or the login left an image.
+pub(super) fn runner_login_data(held: &al_vm::HeldLogin, runner: bool) -> Option<&al_vm::SharedBaseline> {
+    runner.then_some(())?;
+    held.ran_on.as_ref()
+}
+
 /// The tables a login wrote: those its dependency apps' login code wrote, and those the apps under test's own login
 /// subscribers wrote where they are watched.
 fn written(w: &crate::install::CompanyOpenWrites) -> std::collections::BTreeSet<u32> {
@@ -121,7 +132,8 @@ pub(super) enum LoginPlan {
     /// The session's data holds a login it shares with the codeunits before it in its session ([`shared_login`]): it
     /// takes that login's session state from its image ([`thaw_held`]); with no image it runs the login and undoes its
     /// writes, since BC runs no second login in a session (LgnDisabledLoginWrites.al:471, :546; corpus PR 1657,
-    /// LgnRunnerSessions.al:424). `runner`: the session runner 130450 runs its codeunits in after the held login.
+    /// LgnRunnerSessions.al:424). `runner`: the session runner 130450 runs its codeunits in after the held login, where
+    /// that login runs on the data the session's one login ran on ([`runner_login_data`]).
     Shared {
         held: std::sync::Arc<al_vm::HeldLogin>,
         runner: bool,
@@ -165,10 +177,11 @@ fn shared_login(session: &Session, own_login: bool) -> Option<std::sync::Arc<al_
 /// tables the held login wrote when their rows are not as the probe measured them (`rows_as_held` false,
 /// `login_rows_as_held`), and without the held image (`thawed` false) the SingleInstance codeunits the held login left,
 /// whose state this session's own login set again. In the session runner 130450 runs its codeunits in after the held
-/// login (`own_login`) nothing, main's answer: a later codeunit sees the committed rows as the codeunits before it left
-/// them, with no second login row (corpus PR 1657, LgnRunnerSessions.al:429-:434 measures them where no earlier codeunit
-/// changed them; after an earlier one changed them, not measured), and without the image the SingleInstance codeunits
-/// as the login, run again on the current data and undone, filled them (not measured). `None`: nothing.
+/// login (`own_login`) nothing: a later codeunit sees the committed rows as the codeunits before it left them, with no
+/// second login row (corpus PR 1657, LgnRunnerSessions.al:429-:434, :792-:794; what an earlier codeunit's OnRun inserted
+/// there is gone, [`RunnerLoginRows::onrun_rolled_back`]), and without the image the SingleInstance codeunits as the
+/// login, run again on the data the session's one login ran on, filled them ([`runner_login_data`], :789-:791).
+/// `None`: nothing.
 pub(super) fn held_reads(
     held: &al_vm::HeldLogin,
     own_login: bool,
@@ -176,7 +189,7 @@ pub(super) fn held_reads(
     rows_as_held: bool,
 ) -> Option<crate::install::HeldReads> {
     if own_login {
-        return None;
+        return runner_held_reads(held, thawed);
     }
     let reads = crate::install::HeldReads {
         tables: match rows_as_held {
@@ -197,6 +210,86 @@ pub(super) fn held_reads(
                       its SingleInstance codeunits hold is not pinned",
     };
     (!reads.tables.is_empty() || !reads.singles.is_empty()).then_some(reads)
+}
+
+/// The committed rows of the tables the login of the session runner 130450 runs its codeunits in after the held login
+/// wrote (al-vm `Session::runner_login`), right before a codeunit of that session runs its OnRun trigger (run.rs).
+pub(super) struct RunnerLoginRows {
+    tables: std::collections::BTreeSet<u32>,
+    /// `None`: a row with no byte form.
+    rows: Option<RowDigests>,
+}
+
+/// Per (company, table), the digest of each committed row in key order.
+type RowDigests = std::collections::BTreeMap<(String, u32), Vec<crate::login_replay::LinesDigest>>;
+
+impl RunnerLoginRows {
+    /// The rows before OnRun, in a codeunit that runs in that session (`own_login`, [`own_session_id`]) once its login is
+    /// held. `None`: not such a codeunit.
+    pub(super) fn before_on_run(session: &mut Session, own_login: bool) -> Option<RunnerLoginRows> {
+        own_login.then_some(())?;
+        let held = session.runner_login()?;
+        let tables = written(&held_opened(&held)?.wrote);
+        let rows = Self::committed(session, &tables);
+        Some(RunnerLoginRows { tables, rows })
+    }
+
+    fn committed(session: &mut Session, tables: &std::collections::BTreeSet<u32>) -> Option<RowDigests> {
+        (session.store_mut().committed_rows())
+            .filter(|t| tables.contains(&t.object))
+            .map(|t| {
+                let rows = t
+                    .rows()
+                    .map(|row| crate::login_replay::table_digest(t.company, t.object, 1, std::iter::once(row)).ok());
+                Some(((t.company.to_string(), t.object), rows.collect::<Option<_>>()?))
+            })
+            .collect()
+    }
+
+    /// Whether what OnRun wrote is rolled back when the codeunit ends, so the later codeunits start from the rows as they
+    /// were before it (assumption `hub-login-later-runners`; corpus PR 1657, LgnRunnerSessions.al:795, :840 seen by the
+    /// codeunit's own tests; :839, :877, :917 and :878, :918 gone in every later runner codeunit, with or without Commit()
+    /// in OnRun). The measured shape: OnRun inserted rows (`changed`, the tables it changed, not empty) into the tables
+    /// that session's login wrote, and nothing else: every row of those tables from before OnRun is still there, unchanged,
+    /// and no number sequence or isolated storage changed (`storage_or_sequences` false). Any other OnRun keeps main's
+    /// answer: what it wrote reaches the later codeunits (not measured).
+    pub(super) fn onrun_rolled_back(
+        &self,
+        session: &mut Session,
+        changed: &std::collections::BTreeSet<u32>,
+        storage_or_sequences: bool,
+    ) -> bool {
+        let into_login_tables = !changed.is_empty() && changed.iter().all(|t| self.tables.contains(t));
+        into_login_tables
+            && !storage_or_sequences
+            && matches!((&self.rows, Self::committed(session, &self.tables)), (Some(before), Some(after)) if only_inserted(before, &after))
+    }
+}
+
+/// Every row of `before` is in `after`, unchanged and in key order, in the same table entry: only inserts happened.
+fn only_inserted(before: &RowDigests, after: &RowDigests) -> bool {
+    before.iter().all(|(entry, rows)| {
+        let mut now = after.get(entry).into_iter().flatten();
+        rows.iter().all(|row| now.any(|r| r == row))
+    })
+}
+
+/// What a later codeunit of the session runner 130450 runs its codeunits in after the held login may not read: without
+/// the image (`thawed` false) and without the data that session's one login ran on ([`runner_login_data`]: a row with no
+/// bytes form), the SingleInstance codeunits that login left, whose state a login on the current data would set
+/// otherwise than the one login did (corpus PR 1657, LgnRunnerSessions.al:790). `None`: nothing.
+fn runner_held_reads(held: &al_vm::HeldLogin, thawed: bool) -> Option<crate::install::HeldReads> {
+    match thawed || held.ran_on.is_some() || held.singles.is_empty() {
+        true => None,
+        false => Some(crate::install::HeldReads {
+            tables: Default::default(),
+            tables_why: "",
+            singles: held.singles.iter().copied().collect(),
+            singles_why: "the login of the session runner 130450 runs its codeunits in after the held login left no \
+                          image, and the data it ran on has no bytes form to run it again on: what its SingleInstance \
+                          codeunits hold for this codeunit is not pinned",
+        }),
+    }
 }
 
 /// How what the session wrote when it opened the company meets what a Disabled codeunit carries: `Ok(true)` when the

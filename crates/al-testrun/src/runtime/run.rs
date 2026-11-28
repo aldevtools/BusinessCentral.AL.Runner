@@ -233,6 +233,11 @@ fn open_company(
                 Some(opened) => opened,
                 None => {
                     let before = session.capture_baseline();
+                    // In the runner session the login runs again on the data that session's one login ran on.
+                    if let Some(first) = held_login::runner_login_data(&shared, runner) {
+                        let engine = session.engine.clone();
+                        session.undo_login_writes(&first.thaw(Some(&engine)));
+                    }
                     let (wrote, hits) = login(session)?;
                     session.undo_login_writes(&before);
                     (
@@ -247,13 +252,14 @@ fn open_company(
         }
         plan @ (LoginPlan::HoldRunner | LoginPlan::HoldHub) => {
             let base = session.login_base();
-            let (wrote, hits) = login(session)?;
             let runner = matches!(plan, LoginPlan::HoldRunner);
+            let data = runner.then(|| session.capture_baseline());
+            let (wrote, hits) = login(session)?;
             if runner || login_once_on_hub(scratch.hub, isolation, false, &wrote) {
                 let image = session.login_image(&base).map_err(|not| not.reason());
                 let opened = Box::new(held_login::HeldOpened::of(session, wrote.clone(), hits));
                 match runner {
-                    true => session.hold_runner_login(image, opened),
+                    true => session.hold_runner_login(image, opened, data),
                     false => session.hold_login(image, opened),
                 }
             }
@@ -681,6 +687,11 @@ fn run_codeunit_inner(
     let carried_from = carries.then(|| session.capture_baseline());
     // Under runner 130450 what the OnRun trigger writes reaches the later codeunits (`Scratch::onrun_carry`).
     let onrun_from = (scratch.onrun_carry && !execute).then(|| session.capture_baseline());
+    // In the session runner 130450 runs its codeunits in after the held login, the login's rows before OnRun
+    // (`held_login::RunnerLoginRows`).
+    let runner_rows = onrun_from
+        .as_ref()
+        .and_then(|_| held_login::RunnerLoginRows::before_on_run(&mut session, own_session.is_some()));
     let mut onrun_left: Option<Carried> = None;
     // The tables an earlier Disabled codeunit left rows in (`Scratch::leak`): a read of one is noted, and the codeunit
     // then runs again from what that codeunit left (`corpus.rs`).
@@ -773,9 +784,12 @@ fn run_codeunit_inner(
                     if let Some(start) = &onrun_from {
                         let left =
                             super::numbers_taken::onrun_left(session, start, baseline, &skipped_installs, changes_from);
-                        onrun_left = Some(match scratch.driver.run_onrun_carries() {
-                            true => left,
-                            false => super::discovery::run_onrun_left(left, start, &obj.name),
+                        let rolled_back = (runner_rows.as_ref())
+                            .is_some_and(|rows| rows.onrun_rolled_back(session, &left.tables, left.everything));
+                        onrun_left = Some(match (scratch.driver.run_onrun_carries(), rolled_back) {
+                            (true, false) => left,
+                            (true, true) => super::numbers_taken::rolled_back_to(left, start),
+                            (false, _) => super::discovery::run_onrun_left(left, start, &obj.name),
                         });
                     }
                 }

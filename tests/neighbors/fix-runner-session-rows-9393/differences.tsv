@@ -1,0 +1,3 @@
+# key	entry	version
+FRS R Reader::R_CommitRows	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657 at 1d9af7cd, LgnRunnerSessions.al:878, :918: the row OnRun inserted and committed is gone in a later runner codeunit)	28
+FRS R Reader::R_CommitRows	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657 at 1d9af7cd, LgnRunnerSessions.al:878, :918: the row OnRun inserted and committed is gone in a later runner codeunit)	29

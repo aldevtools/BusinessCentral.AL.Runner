@@ -1,0 +1,3 @@
+# key	entry	version
+FRN C Commit::C_Cell	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657 at 1d9af7cd, LgnRunnerSessions.al:834: 1 login row at the session's first login; without an image the login runs again on the data the first one ran on)	28
+FRN C Commit::C_Cell	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657 at 1d9af7cd, LgnRunnerSessions.al:834: 1 login row at the session's first login; without an image the login runs again on the data the first one ran on)	29

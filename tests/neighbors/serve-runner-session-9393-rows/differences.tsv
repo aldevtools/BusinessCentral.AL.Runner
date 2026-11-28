@@ -1,9 +1,3 @@
 # key	entry	version
-SRS Y After Changed Rows::Y_Marker	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: rows an earlier runner codeunit changed, as committed: not measured, cell asked of PR 1657)	28
-SRS Y After Changed Rows::Y_MemoLoginCalls	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:424: hub-disabled-login-once marks the thawed login)	28
-SRS Y After Changed Rows::Y_OtherTableOnly	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:423, :436: hub-disabled-login-once marks the thawed login)	28
-SRS Y After Changed Rows::Y_Total	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: LgnRunnerSessions.al:424, :429: no second login row; the marker row as committed is not measured, cell asked of PR 1657)	28
-SRS Y After Changed Rows::Y_Marker	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: rows an earlier runner codeunit changed, as committed: not measured, cell asked of PR 1657)	29
-SRS Y After Changed Rows::Y_MemoLoginCalls	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:424: hub-disabled-login-once marks the thawed login)	29
-SRS Y After Changed Rows::Y_OtherTableOnly	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:423, :436: hub-disabled-login-once marks the thawed login)	29
-SRS Y After Changed Rows::Y_Total	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: LgnRunnerSessions.al:424, :429: no second login row; the marker row as committed is not measured, cell asked of PR 1657)	29
+SRS Y After Changed Rows::Y_Marker	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657 at 1d9af7cd, LgnRunnerSessions.al:839, :877: the row an earlier runner codeunit's OnRun inserted is gone)	28
+SRS Y After Changed Rows::Y_Marker	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657 at 1d9af7cd, LgnRunnerSessions.al:839, :877: the row an earlier runner codeunit's OnRun inserted is gone)	29
