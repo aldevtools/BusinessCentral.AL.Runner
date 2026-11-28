@@ -166,9 +166,10 @@ macro_rules! session_fields {
                 // The login replay key holds it in a field of its own (al-testrun `Key::test_codeunit`), not in the
                 // state lines, so the check can compare the logins of two test codeunits.
                 test_object [own_key_field],
-                // The run's one login a Disabled codeunit on the hub carried (`held_login.rs`): set by al-testrun
-                // `open_company` and carried by the baselines; an image keeps the target's own.
-                login_held,
+                // The run's one login a Disabled codeunit on the hub carried, and the login of the session runner 130450
+                // runs its codeunits in after it (`held_login.rs` `HeldLogins`): set by al-testrun `open_company` and
+                // carried by the baselines; an image keeps the target's own.
+                held_logins,
                 // The session's data is what a test codeunit left (`Baseline::codeunit_left`): set by the baseline.
                 codeunit_left,
             }
