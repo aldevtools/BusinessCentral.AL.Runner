@@ -1,0 +1,12 @@
+# key	entry
+NBS Tests::Word_OnPreReportError_PdfStatement_Raises	ASSUMED saveas-trigger-error-reaches-caller (corpus PR 1579, SaveAsTriggerErrors.al:450)
+NBS Tests::Word_OnAfterGetRecordError_WordBoolean_FalseWithError	ASSUMED saveas-trigger-error-reaches-caller (corpus PR 1579, SaveAsTriggerErrors.al:466)
+NBS Tests::Word_TestFieldOnPreDataItem_XmlBoolean_FalseWithError	ASSUMED saveas-trigger-error-reaches-caller (corpus PR 1579, SaveAsTriggerErrors.al:482)
+NBS Tests::Word_OnPostReportError_XmlStatement_Raises	ASSUMED saveas-trigger-error-reaches-caller (corpus PR 1579, SaveAsTriggerErrors.al:498)
+NBS Tests::RdlcColumnExt_OnPreReportError_PdfBoolean_FalseWithError	ASSUMED saveas-trigger-error-reaches-caller (corpus PR 1579, SaveAsTriggerErrors.al:1005)
+NBS Tests::Excel_OnAfterGetRecordError_XmlBoolean_FalseWithError	ASSUMED saveas-trigger-error-reaches-caller (corpus PR 1579, SaveAsTriggerErrors.al:636)
+NBS Tests::Excel_OnPreReportError_PdfStatement_RaisesUnsupportedFormat	ASSUMED saveas-platform-error-before-triggers (corpus PR 1579, SaveAsTriggerErrors.al:620)
+NBS Tests::ProcessingOnly_OnPreReportError_WordBoolean_FalseWithProcessingOnly	PINNED tests/al-language/streams/PnH6SaveAs.al:196
+NBS Tests::ProcessingOnly_OnPreReportError_WordStatement_RaisesProcessingOnly	ASSUMED saveas-platform-error-before-triggers (corpus PR 1579, SaveAsTriggerErrors.al:700)
+NBS Tests::NoLayout_VariableXml_OnPreReportError_LastErrorHoldsIt	PINNED tests/al-language/text/PnBReportSaveAs.al:698
+NBS Tests::ProcessingOnly_OnPreReportError_ExcelBoolean_FalseWithProcessingOnly	PINNED tests/al-language/streams/PnH6SaveAs.al:217
