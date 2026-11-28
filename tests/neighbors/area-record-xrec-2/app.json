@@ -1,0 +1,11 @@
+{
+  "id": "5b0e2c7a-93f4-4d1e-8a6b-2f7c9d4e1a58",
+  "name": "Neighbors xRec of a table procedure under a running trigger",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "Cloud",
+  "idRanges": [{ "from": 50400, "to": 50499 }],
+  "dependencies": []
+}

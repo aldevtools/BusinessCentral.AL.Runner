@@ -980,7 +980,7 @@ pub enum TableWritten {
     Unmeasured,
 }
 
-/// See [`RecordState::row_origin`]. Two origins are equal when every field but `by_get` is: the stale-buffer rules compare
+/// See [`RecordState::row_origin`]. Two origins are equal when every field but `read_by` is: the stale-buffer rules compare
 /// origins without it.
 #[derive(Debug, Clone, Copy)]
 pub struct RowOrigin {
@@ -1003,9 +1003,22 @@ pub struct RowOrigin {
     pub own_modified: bool,
     /// A read by a Find, FindFirst, FindLast, FindSet or Next, not by Get, gave the buffer its committed version.
     pub from_find: bool,
-    /// A `Get` gave the buffer its version (not GetBySystemId, not a Find), committed or written in the open transaction. Read
-    /// only by the xRec rule of record/validate/XRecTableProcThroughCodeunit.al (al-vm `records/nested_validate.rs` `measured_buffer`).
-    pub by_get: bool,
+    /// Which read gave the buffer its version, committed or written in the open transaction. Read only by the xRec rule of
+    /// record/validate/XRecTableProcThroughCodeunit.al (al-vm `records/running_call_xrec.rs` `measured_buffer`).
+    pub read_by: ReadBy,
+}
+
+/// The read that gave a buffer its row version ([`RowOrigin::read_by`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadBy {
+    /// No read: the variable's own write gave it.
+    NoRead,
+    /// `Record.Get`.
+    Get,
+    /// `Record.FindFirst` that AL code called on the variable.
+    AlFindFirst,
+    /// GetBySystemId, another Find, Next, or a read the runtime made.
+    OtherRead,
 }
 
 impl PartialEq for RowOrigin {
@@ -1018,7 +1031,7 @@ impl PartialEq for RowOrigin {
             lock_only,
             own_modified,
             from_find,
-            by_get: _,
+            read_by: _,
         } = *self;
         (
             own_write,
@@ -1053,7 +1066,7 @@ impl RowOrigin {
             lock_only: false,
             own_modified: false,
             from_find: false,
-            by_get: false,
+            read_by: ReadBy::NoRead,
         }
     }
 }

@@ -45,12 +45,16 @@ pub(crate) type BeforeImage = (Vec<Value>, Option<&'static str>);
 pub(crate) enum ProcXrec {
     /// The caller's xRec handle, shared.
     Shared(Rec),
-    /// The running trigger's xRec handle, shared for reading: a Validate the table's own code nested runs, whose xRec here is a
-    /// copy of the outer Validate's, so an assignment to it or a filter on it refuses when the call returns
-    /// (`running_call_xrec.rs` `XREC_CHANGED_UNDER_NESTED_VALIDATE`).
-    SharedReadOnly(Rec),
+    /// The running trigger's xRec handle, shared for reading: an assignment to it or a filter on it refuses with this reason when
+    /// the call returns. A Validate the table's own code nested runs, whose xRec here is a copy of the outer Validate's
+    /// (`running_call_xrec.rs` `XREC_CHANGED_UNDER_NESTED_VALIDATE`), or a write trigger runs (`XREC_CHANGED_UNDER_WRITE_TRIGGER`).
+    SharedReadOnly(Rec, &'static str),
     /// The blank xRec of a plain call (`enter_record`).
     Plain,
+    /// The xRec of a plain call holding a copy of the running write trigger's xRec values (`running_call_xrec.rs`
+    /// `write_trigger_own_call_xrec`): a read gets the trigger's values; an assignment or a filter stays in the procedure, as on
+    /// a plain call.
+    PlainWith(Fields),
     /// The blank xRec of a plain call, marked with this `RecordState::unpinned_buffer` reason ([`XREC_OF_RUNNING_CALL`], or
     /// `ext_trigger_xrec.rs` `XREC_OF_EXT_INSERT_DELETE_TRIGGER`).
     PlainUnpinned(&'static str),
@@ -69,8 +73,12 @@ pub(crate) enum ValidateSite {
     FieldRef,
     /// The write of a TestPage control (SetValue and the like). `new_line_of_trapped_static_card`: the control is on the line
     /// `New()` started on a Card that a static `Page.Run(Id, Rec)` opened and `TestPage.Trap()` caught
-    /// (`Session::new_line_of_trapped_static_card`).
-    TestPageControl { new_line_of_trapped_static_card: bool },
+    /// (`Session::new_line_of_trapped_static_card`). `after_go_to_key_on_card`: the control is written on a Card right after
+    /// `GoToKey`, the test's only call since the open (`Session::write_after_go_to_key_on_card`).
+    TestPageControl {
+        new_line_of_trapped_static_card: bool,
+        after_go_to_key_on_card: bool,
+    },
     /// The field element or attribute of an XmlPort import.
     XmlPortField,
     /// A part's link value stamped on its new line.
@@ -366,10 +374,13 @@ impl Session {
     ///   `xrec-table-proc-from-field-validate` (al-runner issue 7785), and only when that xRec holds other values than the blank
     ///   record a plain call gets (else the two read the same).
     ///
-    /// Every other call from the table's or a table extension's own code keeps the blank xRec of a plain call, unprobed (OnInsert,
-    /// OnModify, OnDelete, OnRename, OnBeforeValidate, another record variable, a table extension's own procedure, a table
-    /// extension's trigger at a call site that is not measured). A subscriber of a validate event calling it on Rec:
-    /// [`Session::validate_event_xrec`]. A call from other code: [`Session::running_call_xrec`].
+    /// A call from the table's own OnInsert, OnModify or OnDelete or a table extension's OnBeforeModify, in the chains
+    /// record/validate/XRecTableProcThroughCodeunit.al pins (`Rec.Proc()`, :577-647, :722-737): a copy of the trigger's xRec
+    /// values (`running_call_xrec.rs` `write_trigger_own_call_xrec`). Every other call from the table's or a table extension's
+    /// own code keeps the blank xRec of a plain call, unprobed (those triggers on other buffers or through other procedures,
+    /// OnRename, OnBeforeValidate, another record variable, a table extension's own procedure, a table extension's trigger at a
+    /// call site that is not measured). A subscriber of a validate event calling it on Rec: [`Session::validate_event_xrec`].
+    /// A call from other code: [`Session::running_call_xrec`].
     pub(crate) fn table_proc_xrec(&mut self, object: usize, rc: &Rec, f: &Frame) -> ProcXrec {
         if let Some(x) = self.frame_xrec(object, rc, f) {
             return ProcXrec::Shared(x);
@@ -425,8 +436,13 @@ impl Session {
 
     /// Whether object `x` is table `object` itself or one of its table extensions.
     pub(super) fn table_or_its_extension(&self, x: usize, object: usize) -> bool {
+        x == object || self.objects_extension_of(x, object)
+    }
+
+    /// Whether object `x` is a table extension of table `table`.
+    pub(super) fn objects_extension_of(&self, x: usize, table: usize) -> bool {
         let objects = &self.engine.program.objects;
-        x == object || (objects[x].kind == ObjKind::TableExtension && objects[x].extends_id == objects[object].id)
+        objects[x].kind == ObjKind::TableExtension && objects[x].extends_id == objects[table].id
     }
 
     /// The before-image of the innermost running Validate of the record at `handle`, when the Validate about to start is

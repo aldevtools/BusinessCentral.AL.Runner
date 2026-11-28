@@ -1902,7 +1902,20 @@ impl Session {
     fn test_page_control_site(&self, st: &St) -> ValidateSite {
         ValidateSite::TestPageControl {
             new_line_of_trapped_static_card: self.new_line_of_trapped_static_card(st),
+            after_go_to_key_on_card: self.write_after_go_to_key_on_card(st),
         }
+    }
+
+    /// The control written is on a Card the test opened with `OpenEdit`, at the top level, right after `GoToKey`: the test's
+    /// calls since the open are exactly GoToKey, then this write (record/validate/XRecTableProcThroughCodeunit.al:454-457
+    /// `Way3_TestPageSetValue`). The page call form of `ValidateSite::TestPageControl` that `running_call_xrec.rs`
+    /// `validate_of_own_procedure_chain` takes.
+    fn write_after_go_to_key_on_card(&self, st: &St) -> bool {
+        matches!(
+            Self::test_calls_all_succeeded(st).as_deref(),
+            Some([TestCall::Page(PageMethod::GoToKey), TestCall::Write(_)])
+        ) && st.borrow().mode == PageMode::Edit
+            && self.is_card(st)
     }
 
     /// The control written is the second SetValue on the line `New()` started, the first one being the key, on a Card that AL code

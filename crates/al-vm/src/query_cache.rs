@@ -1141,7 +1141,7 @@ impl Session {
                         lock_only: false,
                         own_modified: false,
                         from_find: false,
-                        by_get: false,
+                        read_by: al_builtins::value::ReadBy::NoRead,
                         ..
                     })
                 )
