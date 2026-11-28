@@ -27,11 +27,9 @@ impl Session {
             Some(false) if !import && args.get(3).is_none() && schema.xp().request_page => {
                 let sink = Value::Library(
                     al_builtins::library_kind::LibraryKind::OutStream,
-                    Rc::new(std::cell::RefCell::new(LibraryValue::OutStream(
+                    Rc::new(std::cell::RefCell::new(LibraryValue::out_stream(
                         al_builtins::stream::new_blob(),
                         al_builtins::stream::Encoding::default(),
-                        None,
-                        None,
                     ))),
                 );
                 Self::xp_run_use_request_page_refused(schema)?;

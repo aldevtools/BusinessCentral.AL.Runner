@@ -592,7 +592,7 @@ impl Session {
         {
             let blob = al_builtins::stream::new_blob();
             save_to = Some((p.to_string(), blob.clone()));
-            let out = LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None, None);
+            let out = LibraryValue::out_stream(blob, al_builtins::stream::Encoding::default());
             let out = std::rc::Rc::new(std::cell::RefCell::new(out));
             values[0] = Value::Library(al_builtins::library_kind::LibraryKind::OutStream, out);
         }
@@ -812,7 +812,7 @@ impl Session {
             let blob = al_builtins::stream::new_blob();
             *(if create_book { open_workbook } else { save_to }) = Some((path.to_string(), blob.clone()));
             values[0] = lib(
-                LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None, None),
+                LibraryValue::out_stream(blob, al_builtins::stream::Encoding::default()),
                 al_builtins::library_kind::LibraryKind::OutStream,
             );
             return Ok(());
@@ -1633,8 +1633,8 @@ impl Session {
                     // that zip (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al:77-96
                     // WD_Zip_ReadThroughAnOutStream, al-runner issue 6317). The bridge starts with the bytes when the stream
                     // stands at their end; a write over them is refused by the host. A stream standing elsewhere keeps the
-                    // empty bridge whose bytes land at the AL position (the earlier behavior), except the stream of the newest
-                    // CreateOutStream handed to a ZipArchive in Update mode (`zip_blob_writes`).
+                    // empty bridge whose bytes land at the AL position (the earlier behavior), except the stream of the
+                    // newest CreateOutStream handed to a ZipArchive in Update mode (`zip_blob_writes`).
                     let buf = blob.borrow();
                     let at_end = buf.loaded
                         && !buf.first_write_truncates

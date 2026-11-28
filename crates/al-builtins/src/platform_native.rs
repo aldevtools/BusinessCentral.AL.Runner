@@ -881,12 +881,7 @@ mod tests {
     fn out_stream_on(b: &BlobRef) -> Value {
         Value::Library(
             LibraryKind::OutStream,
-            Rc::new(RefCell::new(LibraryValue::OutStream(
-                b.clone(),
-                Encoding::default(),
-                None,
-                None,
-            ))),
+            Rc::new(RefCell::new(LibraryValue::out_stream(b.clone(), Encoding::default()))),
         )
     }
 
@@ -1172,12 +1167,7 @@ mod tests {
         let target = new_blob();
         let utf16 = Value::Library(
             LibraryKind::OutStream,
-            Rc::new(RefCell::new(LibraryValue::OutStream(
-                target,
-                Encoding::Utf16,
-                None,
-                None,
-            ))),
+            Rc::new(RefCell::new(LibraryValue::out_stream(target, Encoding::Utf16))),
         );
         assert!(refused(out(in_stream(&digits(100)), utf16)));
         let own = blob_with(&digits(100));
@@ -1189,12 +1179,7 @@ mod tests {
         let target = new_blob();
         let utf16 = Value::Library(
             LibraryKind::OutStream,
-            Rc::new(RefCell::new(LibraryValue::OutStream(
-                target.clone(),
-                Encoding::Utf16,
-                None,
-                None,
-            ))),
+            Rc::new(RefCell::new(LibraryValue::out_stream(target.clone(), Encoding::Utf16))),
         );
         run(
             "Base64Convert.ToBase64#stream-out",

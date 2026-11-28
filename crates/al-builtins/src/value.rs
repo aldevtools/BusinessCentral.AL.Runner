@@ -2013,6 +2013,13 @@ pub enum LibraryValue {
     ),
 }
 
+impl LibraryValue {
+    /// An OutStream on `blob` that no `Blob.CreateOutStream` of a temporary record's field made.
+    pub fn out_stream(blob: crate::stream::BlobRef, enc: crate::stream::Encoding) -> Self {
+        LibraryValue::OutStream(blob, enc, None, None)
+    }
+}
+
 impl Value {
     /// Exact structural identity: the same variant with the same contents, down to a decimal's scale and sign, a
     /// list's mutation count and every flag of a Blob buffer. This is NOT AL equality (`=` coerces, ignores case

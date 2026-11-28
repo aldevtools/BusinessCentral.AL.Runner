@@ -8,17 +8,19 @@
 //!
 //! Assumed (`zip-blob-writes`, corpus PR 1633, tests/al-language-onprem-dotnet/dotnet/zip-blob-writes/, the same values on
 //! every BC version the corpus runs), each fact by equality:
-//! 1. ZipBlobUpdateFreshOutStream.al:49-223: the archive made by the 2-, 3- or 4-argument constructor (Update; leaveOpen false;
-//!    Encoding.UTF8) over the OutStream of the `CreateOutStream` that is the newest edit of a loaded Blob with content
-//!    (the stream's stamp, not the shared buffer, says which open made it) reads that content (BC hands .NET the Blob's own stream; the Blob is not cut). Its Dispose, the Blob unchanged since, makes
-//!    the Blob the archive (108 -> 194 bytes). Temporary and stored records alike (:49 with CalcFields; :85 without it the
-//!    Blob is not loaded and the bridge starts empty, as on main).
-//! 2. ZipBlobUpdateBlobChanged.al:48-152, a temporary record (`CreateOutStream` opened the stream on a Blob field of a record
-//!    that is temporary, and no read or Insert had given the record that Blob when the archive was made): `ZipArchive(OutStream, Update, false, UTF8)` over an
-//!    OutStream AL copied a zip into; its Dispose makes the Blob the archive also after AL changed the Blob, in the measured
-//!    states only, AL's first change a Clear: Clear, one `CreateOutStream` and one two-argument `CopyStream` through that new
-//!    stream of as many bytes as the archive read (:48); that rewrite and bytes .NET then appended through another stream (:69); Clear only (:98); the Dispose of another
-//!    archive that read the same bytes, no AL change (:152).
+//! 1. ZipBlobUpdateFreshOutStream.al:49-223: the archive made by the 2-, 3- or 4-argument constructor (Update;
+//!    leaveOpen false; Encoding.UTF8) over the OutStream of the `CreateOutStream` that is the newest edit of a loaded
+//!    Blob with content (the stream's stamp, not the shared buffer, says which open made it) reads that content (BC
+//!    hands .NET the Blob's own stream; the Blob is not cut). Its Dispose, the Blob unchanged since, makes the Blob the
+//!    archive (108 -> 194 bytes). Temporary and stored records alike (:49 with CalcFields; :85 without it the Blob is
+//!    not loaded and the bridge starts empty, as on main).
+//! 2. ZipBlobUpdateBlobChanged.al:48-152, a temporary record (`CreateOutStream` opened the stream on a Blob field of
+//!    a record that is temporary, and no read or Insert had given the record that Blob when the archive was made):
+//!    `ZipArchive(OutStream, Update, false, UTF8)` over an OutStream AL copied a zip into; its Dispose makes the Blob
+//!    the archive also after AL changed the Blob, in the measured states only, AL's first change a Clear: Clear, one
+//!    `CreateOutStream` and one two-argument `CopyStream` through that new stream of as many bytes as the archive read
+//!    (:48); that rewrite and bytes .NET then appended through another stream (:69); Clear only (:98); the Dispose of
+//!    another archive that read the same bytes, no AL change (:152).
 //! 3. ZipBlobDotNetOverwrite.al:25-71, :96-123: the helper reports "overwrite" once per bridge, for a bridge that started empty whose one
 //!    .NET object is `StreamWriter(OutStream)` and that holds just the handed-back bytes: that StreamWriter's write inside AL's
 //!    `Write(Text)` or `Flush()`, from 0 right after AL's `Position := 0` to the stream's end (48 x B), or AL's `SetLength(10)`
@@ -102,8 +104,8 @@ pub(super) fn fresh_update_seed(buf: &BlobBuf, opened_at: Option<u32>) -> bool {
         && buf.write_pos == 0
 }
 
-/// Part 2's Blob: no read or Insert gave the record that Blob. Read when the bridge is made: a Clear in place gives the Blob a
-/// fresh buffer, which resets these flags.
+/// Part 2's Blob: no read or Insert gave the record that Blob. Read when the bridge is made: a Clear in place gives the
+/// Blob a fresh buffer, which resets these flags.
 pub(super) fn of_no_row(buf: &BlobBuf) -> bool {
     !buf.db_row && !buf.temp_row && !buf.inserted && !buf.temp_inserted
 }
@@ -157,9 +159,9 @@ impl Session {
         }
     }
 
-    /// Part 2: the archive `ZipArchive(OutStream, Update, false, Encoding.UTF8)`, a Blob of a temporary record (the stream
-    /// opened on it, no read or Insert gave it the Blob when the bridge was made), cleared in place, no mark, in one measured
-    /// state.
+    /// Part 2: the archive `ZipArchive(OutStream, Update, false, Encoding.UTF8)`, a Blob of a temporary record (the
+    /// stream opened on it, no read or Insert gave it the Blob when the bridge was made), cleared in place, no mark, in one
+    /// measured state.
     fn changed_state_measured(&self, bridge: &Bridge, before: usize, buf: &BlobBuf) -> bool {
         if !(bridge.update4_utf8
             && bridge.temp_record

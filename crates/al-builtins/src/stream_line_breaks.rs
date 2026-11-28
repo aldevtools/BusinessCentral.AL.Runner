@@ -198,7 +198,8 @@ impl LineBreakHistory {
         self.out_open_edits
     }
 
-    /// The stamp of the OutStream a two-argument `CopyStream` wrote through, when that copy left the buffer with `edits` edits.
+    /// The stamp of the OutStream a two-argument `CopyStream` wrote through, when that copy left the buffer with `edits`
+    /// edits.
     pub fn copied_through(&self, edits: u32) -> Option<u32> {
         (self.copies > 0 && self.copy_edits == edits).then_some(self.copy_stamp)
     }
@@ -243,6 +244,18 @@ fn temp_blob_buffer(b: &BlobBuf) -> bool {
             (false, false, false, false, false, false),
             (false, false, false, false, 0),
         )
+}
+
+/// After a two-argument `CopyStream` into the OutStream `target`: its Blob notes the stream's `CreateOutStream` stamp
+/// (`LibraryValue::OutStream`, last part; [`LineBreakHistory::note_copy`]). A stream made otherwise notes nothing.
+pub(crate) fn note_copy_through(target: &Value) {
+    if let Value::Library(_, h) = target
+        && let LibraryValue::OutStream(b, _, _, Some(stamp)) = &*h.borrow()
+    {
+        let mut buf = b.borrow_mut();
+        let edits = buf.content_edits;
+        buf.line_breaks.note_copy(*stamp, edits);
+    }
 }
 
 /// The target of `ToBase64(InStream, true, OutStream)` as Base64LineBreaks.al:275-403 measured it: the one OutStream of the
