@@ -311,7 +311,7 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
     for v in &cfg.versions {
         let rel = al_test_cli::strict_not_run::path(v.major);
         let path = root.join(&rel);
-        let text = if path.exists() { read(&path)? } else { String::new() };
+        let text = read_or_empty(&path)?;
         let now = not_passing::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         let base_list = base.list_opt(&rel)?;
         let added = al_test_cli::strict_not_run::added(base_list.as_ref(), &now, &text);
@@ -331,10 +331,15 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
 
 /// The not-passing list at `path`, empty when the file does not exist.
 fn read_list(path: &Path) -> Result<std::collections::BTreeSet<oracle::CaseId>, String> {
-    if !path.exists() {
-        return Ok(Default::default());
+    not_passing::parse(&read_or_empty(path)?).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The text at `path`, empty when the file does not exist.
+fn read_or_empty(path: &Path) -> Result<String, String> {
+    match path.exists() {
+        true => read(path),
+        false => Ok(String::new()),
     }
-    not_passing::parse(&read(path)?).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn coverage_map(root: &Path, dir: Option<&Path>) -> Result<ExitCode, String> {
@@ -1820,17 +1825,9 @@ fn run_version_inner(
     } else {
         check_lists(args, root, &targets, Some((&renderer, render_note)))?
     };
-    let code = code.max(strict_files_in_both(
-        root,
-        index,
-        pass.main,
-        &all_cases,
-        version,
-        &suite_data,
-        &rt,
-    )?);
+    let both = strict_files_in_both(root, index, pass.main, &all_cases, version, &suite_data, &rt)?;
     Ok(VersionRun {
-        code: if args.no_ratchet { 0 } else { code },
+        code: if args.no_ratchet { 0 } else { code.max(both) },
         oracle: oracle_ok,
         passing,
         rep: Some(rep),
@@ -1893,7 +1890,7 @@ fn check_lists(
     let mut writes: Vec<(PathBuf, String, Vec<String>)> = Vec::new();
     for t in targets {
         let Some(path) = &t.list_path else { continue };
-        let text = if path.exists() { read(path)? } else { String::new() };
+        let text = read_or_empty(path)?;
         let mut list = not_passing::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut notes = Vec::new();
         if let Some(base) = &base {

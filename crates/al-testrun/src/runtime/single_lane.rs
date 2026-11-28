@@ -236,9 +236,6 @@ pub struct LaneReport {
     pub dependent: usize,
     /// The failed tests that got an order hint.
     pub hinted: usize,
-    /// ADR-070 decision 4: the passing tests that read SingleInstance state an earlier codeunit would have left
-    /// differently on BC.
-    pub passing_read_carried: usize,
     /// ADR-058 amendment 1: the dependent codeunits, with what they read.
     pub carried: Vec<super::CarriedCodeunit>,
     /// ADR-070 decision 7: `CorpusRuntime::numbers_taken_after` (`order_hint::hint_numbers`).
@@ -306,9 +303,7 @@ impl Lane<'_> {
                     self.dependent_why(&ks, &found, p)
                 ));
                 self.note_carried(&ks, &found, p, report);
-                let (failed, passing) = self.hint(&ks, &found, p, slots);
-                report.hinted += failed;
-                report.passing_read_carried += passing;
+                report.hinted += self.hint(&ks, &found, p, slots);
             }
             // ADR-070 decision 3, after the SingleInstance hints: a test with both gets one hint.
             let after = &mut report.numbers_taken_after;
@@ -319,10 +314,10 @@ impl Lane<'_> {
 
     /// The hint of each failed test of dependent codeunit `p` of session `ks` that read first, in it or in a test
     /// before it, a global the earlier codeunits left otherwise; the same reads on each passing test (ADR-070 decision
-    /// 4). Returns how many failed and how many passing tests got one.
-    fn hint(&self, ks: &[usize], found: &Found, p: usize, slots: &mut [Option<UnitResult>]) -> (usize, usize) {
+    /// 4). Returns how many failed tests got one.
+    fn hint(&self, ks: &[usize], found: &Found, p: usize, slots: &mut [Option<UnitResult>]) -> usize {
         let Some(Ok(done)) = slots[ks[p]].as_mut().map(|r| &mut r.result) else {
-            return (0, 0);
+            return 0;
         };
         let number = |t: &String, at: &[(u32, String)]| at.iter().find(|(_, name)| name == t).map(|(n, _)| *n);
         let failed: Vec<(String, Option<u32>)> = done
@@ -350,10 +345,9 @@ impl Lane<'_> {
         let read_in = done.5.singles_out.as_ref().map(|o| &o.read_in);
         let hints = super::order_hint::hints_for(self.lowered, self.units, changed, &writers, read_in, &failed);
         let reads = super::order_hint::hints_for(self.lowered, self.units, changed, &writers, read_in, &passing);
-        (
-            merge_hints(&mut done.5.order_hints, hints),
-            merge_hints(&mut done.5.order_hints, reads),
-        )
+        let hinted = merge_hints(&mut done.5.order_hints, hints);
+        merge_hints(&mut done.5.order_hints, reads);
+        hinted
     }
 
     /// ADR-058 amendment 1, decision 4: dependent codeunit `p` of session `ks` and what it read, for the report.

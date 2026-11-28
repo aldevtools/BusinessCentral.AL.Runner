@@ -198,7 +198,6 @@ fn a_reader_that_passes_with_fresh_state_gets_no_hint() {
         hint.numbers.is_empty() && hint.reads.len() == 1 && reader.assumptions.is_empty(),
         "{reader:?}"
     );
-    assert_eq!(rt.phases.chain.single_lane.passing_read_carried, 1);
 }
 
 /// The numbers hint of a test (ADR-070 decision 3): the sequences and the earlier taker of each.

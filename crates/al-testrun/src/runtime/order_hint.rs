@@ -12,7 +12,7 @@
 //!   130450 does not give taken numbers back (test-framework/onrun-storage/Y35OnRunStorage.al:30-31), so on BC the test
 //!   took later numbers.
 //! * The same reads on a passing test (decision 4): the JUnit property `singleInstanceCarried` and one summary line
-//!   (`LaneReport::passing_read_carried`, `ChainReport::run_output_lines`).
+//!   (`ChainReport::run_output_lines`).
 //!
 //! Under `--strict-order` the numbers chain as on BC, except under TestIsolation = Function, where what a later codeunit
 //! sees of them is not measured: [`mark_unmeasured_numbers`] marks every later codeunit (`Unit::numbers_unmeasured`) so
