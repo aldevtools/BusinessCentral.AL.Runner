@@ -2,7 +2,9 @@
 // (merged at 778b8fc1; FvcTimestampField.al:443, :466, :485, :214) measured the exit of an Integer, BigInteger, Decimal, Enum,
 // Option, Boolean, Date and Duration field and the timestamp into Code[20], Text and Code[3]: head gives those, flagged with
 // fieldref-value-exit-into-text. A Code or Text field, a number return, a Variant return, a Variant variable, assignment and
-// argument answer the same on both. Paren_ tests: a parenthesized exit (issue 9305).
+// argument answer the same on both. Paren_ tests: a parenthesized exit (issue 9305), into a Code and into an
+// Integer return. German_ tests: a session in another language, where no cell is measured. More_ tests:
+// the cells of the follow-up corpus probe (FvcExitValueMore.al).
 enum 50310 "FY Kind" { Extensible = false; value(0; Zero) { } value(1; One) { Caption = 'One Caption'; } }
 
 table 50311 "FY Row"
@@ -21,6 +23,10 @@ table 50311 "FY Row"
         field(10; CodeF; Code[20]) { }
         field(11; TextF; Text[30]) { }
         field(12; GuidF; Guid) { }
+        field(13; DigitsF; Text[30]) { }
+        field(14; DecBigF; Decimal) { }
+        field(15; OptCapF; Option) { OptionMembers = Alpha,Beta,Gamma; OptionCaption = 'First,Second,Third'; }
+        field(16; EnumZeroF; Enum "FY Kind") { }
     }
     keys { key(PK; Id) { Clustered = true; } }
 }
@@ -41,6 +47,16 @@ codeunit 50312 "FY Helper"
     end;
 
     procedure Code3Of(var RecRef: RecordRef; FieldNo: Integer): Code[3]
+    begin
+        exit(RecRef.Field(FieldNo).Value());
+    end;
+
+    procedure Text3Of(var RecRef: RecordRef; FieldNo: Integer): Text[3]
+    begin
+        exit(RecRef.Field(FieldNo).Value());
+    end;
+
+    procedure Text30Of(var RecRef: RecordRef; FieldNo: Integer): Text[30]
     begin
         exit(RecRef.Field(FieldNo).Value());
     end;
@@ -102,6 +118,10 @@ codeunit 50313 "FY Tests"
         Row.DurF := 1500;
         Row.CodeF := 'FY-1';
         Row.TextF := 'Mixed Case';
+        Row.DigitsF := '123';
+        Row.DecBigF := 1234.5;
+        Row.OptCapF := Row.OptCapF::Beta;
+        Row.EnumZeroF := Row.EnumZeroF::Zero;
         Row.Insert();
         RecRef.Open(Database::"FY Row");
         RecRef.FindFirst();
@@ -548,5 +568,164 @@ codeunit 50313 "FY Tests"
     begin
         Seed(RecRef);
         Error('got [%1]', H.Echo(RecRef.Field(2).Value()));
+    end;
+
+    [Test]
+    procedure Paren_TextDigits_IntoInteger()
+    var
+        H: Codeunit "FY Helper";
+        RecRef: RecordRef;
+    begin
+        Seed(RecRef);
+        Error('got [%1]', H.ParenIntegerOf(RecRef, 13));
+    end;
+
+    [Test]
+    procedure Paren_TextLetters_IntoInteger()
+    var
+        H: Codeunit "FY Helper";
+        RecRef: RecordRef;
+    begin
+        Seed(RecRef);
+        Error('got [%1]', H.ParenIntegerOf(RecRef, 11));
+    end;
+
+    [Test]
+    procedure Paren_Decimal_IntoInteger()
+    var
+        H: Codeunit "FY Helper";
+        RecRef: RecordRef;
+    begin
+        Seed(RecRef);
+        Error('got [%1]', H.ParenIntegerOf(RecRef, 4));
+    end;
+
+    [Test]
+    procedure More_DecimalThousands_IntoCode20()
+    var
+        H: Codeunit "FY Helper";
+        RecRef: RecordRef;
+    begin
+        Seed(RecRef);
+        Error('got [%1]', H.Code20Of(RecRef, 14));
+    end;
+
+    [Test]
+    procedure More_DecimalThousands_IntoText3()
+    var
+        H: Codeunit "FY Helper";
+        RecRef: RecordRef;
+    begin
+        Seed(RecRef);
+        Error('got [%1]', H.Text3Of(RecRef, 14));
+    end;
+
+    [Test]
+    procedure More_OptionCaption_IntoText()
+    var
+        H: Codeunit "FY Helper";
+        RecRef: RecordRef;
+    begin
+        Seed(RecRef);
+        Error('got [%1]', H.TextOf(RecRef, 15));
+    end;
+
+    [Test]
+    procedure More_EnumNoCaption_IntoCode20()
+    var
+        H: Codeunit "FY Helper";
+        RecRef: RecordRef;
+    begin
+        Seed(RecRef);
+        Error('got [%1]', H.Code20Of(RecRef, 16));
+    end;
+
+    [Test]
+    procedure More_Integer_IntoText3()
+    var
+        H: Codeunit "FY Helper";
+        RecRef: RecordRef;
+    begin
+        Seed(RecRef);
+        Error('got [%1]', H.Text3Of(RecRef, 2));
+    end;
+
+    [Test]
+    procedure More_Date_IntoText30()
+    var
+        H: Codeunit "FY Helper";
+        RecRef: RecordRef;
+    begin
+        Seed(RecRef);
+        Error('got [%1]', H.Text30Of(RecRef, 8));
+    end;
+
+    [Test]
+    procedure More_Code_IntoText3()
+    var
+        H: Codeunit "FY Helper";
+        RecRef: RecordRef;
+    begin
+        Seed(RecRef);
+        Error('got [%1]', H.Text3Of(RecRef, 10));
+    end;
+}
+
+// GlobalLanguage stays set for the rest of a session: each German_ test has a codeunit of its own.
+codeunit 50314 "FY German Tests"
+{
+    Subtype = Test;
+
+    local procedure Seed(var RecRef: RecordRef)
+    var
+        Row: Record "FY Row";
+    begin
+        Row.DeleteAll();
+        Row.Id := 1;
+        Row.IntF := 5;
+        Row.CodeF := 'FY-1';
+        Row.Insert();
+        RecRef.Open(Database::"FY Row");
+        RecRef.FindFirst();
+    end;
+
+    [Test]
+    procedure German_Integer_IntoCode20()
+    var
+        H: Codeunit "FY Helper";
+        RecRef: RecordRef;
+    begin
+        Seed(RecRef);
+        GlobalLanguage(1031);
+        Error('got [%1]', H.Code20Of(RecRef, 2));
+    end;
+}
+
+codeunit 50315 "FY German Code Tests"
+{
+    Subtype = Test;
+
+    local procedure Seed(var RecRef: RecordRef)
+    var
+        Row: Record "FY Row";
+    begin
+        Row.DeleteAll();
+        Row.Id := 1;
+        Row.IntF := 5;
+        Row.CodeF := 'FY-1';
+        Row.Insert();
+        RecRef.Open(Database::"FY Row");
+        RecRef.FindFirst();
+    end;
+
+    [Test]
+    procedure German_Code_IntoCode20()
+    var
+        H: Codeunit "FY Helper";
+        RecRef: RecordRef;
+    begin
+        Seed(RecRef);
+        GlobalLanguage(1031);
+        Error('got [%1]', H.Code20Of(RecRef, 10));
     end;
 }
