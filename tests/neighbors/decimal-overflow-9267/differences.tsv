@@ -7,7 +7,7 @@ DOV Decimal Limit Tests::Overflow_AssignmentKeepsOtherTarget	ASSUMED decimal-ove
 DOV Decimal Limit Tests::Overflow_IntegerTimesMax18	ASSUMED decimal-overflow-past-limit (corpus PR 1630)
 DOV Decimal Limit Tests::Overflow_Max18TimesBigInteger	ASSUMED decimal-overflow-past-limit (corpus PR 1630)
 DOV Decimal Limit Tests::Overflow_Max18DividedByHalf	ASSUMED decimal-overflow-past-limit (corpus PR 1630)
-DOV Decimal Limit Tests::Overflow_NegativeQuotient	ASSUMED decimal-overflow-past-limit (corpus PR 1630; the sign is the issue spec's, no cell)
+DOV Decimal Limit Tests::Overflow_NegativeMax18TimesNegativeInteger	ASSUMED decimal-overflow-past-limit (corpus PR 1630, mul_negmax_neg10)
 DOV Decimal Limit Tests::RoundDown_SumUpToTheDotNetMaximum	ASSUMED decimal-limit-rounds-down (corpus PR 1630)
 DOV Decimal Limit Tests::RoundDown_NegativeDifference	ASSUMED decimal-limit-rounds-down (corpus PR 1630)
 DOV Decimal Limit Tests::RoundDown_LiteralAtLimit	ASSUMED decimal-limit-rounds-down (corpus PR 1630)

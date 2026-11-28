@@ -109,9 +109,9 @@ codeunit 61930 "DOV Decimal Limit Tests"
         ExpectOverflow();
     end;
 
-    // No cell measures a negative quotient; the rule takes the size of the result for either sign.
+    // No cell measures a negative quotient: main's refusal.
     [Test]
-    procedure Overflow_NegativeQuotient()
+    procedure Refused_NegativeQuotient()
     var
         D: Decimal;
     begin
@@ -210,6 +210,62 @@ codeunit 61930 "DOV Decimal Limit Tests"
         D := Max18();
         B := 10;
         asserterror D := B * D;
+        ExpectOverflow();
+    end;
+
+    // No cell measures these sign pairs: main's refusal.
+    [Test]
+    procedure Refused_SumOfTwoNegativeMax18()
+    var
+        D: Decimal;
+    begin
+        D := -Max18();
+        asserterror D := D + D;
+        ExpectOverflow();
+    end;
+
+    [Test]
+    procedure Refused_PositiveDifference()
+    var
+        D: Decimal;
+        E: Decimal;
+    begin
+        D := Max18();
+        E := -Max18();
+        asserterror D := D - E;
+        ExpectOverflow();
+    end;
+
+    [Test]
+    procedure Refused_NegativeMax18TimesDecimal()
+    var
+        D: Decimal;
+        E: Decimal;
+    begin
+        D := -Max18();
+        E := 10;
+        asserterror D := D * E;
+        ExpectOverflow();
+    end;
+
+    [Test]
+    procedure Refused_NegativeIntegerTimesMax18()
+    var
+        D: Decimal;
+    begin
+        D := Max18();
+        asserterror D := -10 * D;
+        ExpectOverflow();
+    end;
+
+    // Measured for every sign pair: a negative Decimal times a negative Integer (`mul_negmax_neg10`).
+    [Test]
+    procedure Overflow_NegativeMax18TimesNegativeInteger()
+    var
+        D: Decimal;
+    begin
+        D := -Max18();
+        asserterror D := D * -10;
         ExpectOverflow();
     end;
 

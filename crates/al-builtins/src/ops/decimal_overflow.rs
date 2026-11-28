@@ -167,35 +167,54 @@ pub(super) fn past_decimal_range(op: Arith, (l, a): (&Value, Decimal), (r, b): (
 }
 
 /// The shapes of DecimalOverflowCells.al that raise AL:Overflow, by equality on each fact:
-/// - the operand types: `+` and `-` of two Decimals (`add_max_max`, `sub_negmax_max`, `plusassign_max_max`,
-///   `minusassign_negmax_max`, the field and argument forms); `*` of a Decimal and an Integer on either side
-///   (`mul_max_10`, `mul_max_var10`, `mul_10_max`), of two Decimals (`mul_max_dec10`) and of a Decimal and a BigInteger
-///   (`mul_max_big10`, `mul_1e19_bigmax`); `/` of two Decimals (`max_div_half`, `1e28_div_001`);
+/// - the (operator, operand types, operand signs) triples its cells measure, one cell each in [`measured_triple`];
 /// - every operand of 18 significant digits or fewer, as a Decimal variable holds it;
 /// - the exact result's size at least the smallest one a cell measures for that operator: [`TWICE_MAX18`] for `+`, `-`
 ///   and `/`, [`FIRST_PRODUCT`] for `*` (`mul_4e19_2e9`, `bigmax_times_1e10`, `mul_max_2` and the larger products lie
-///   above it), for either sign (`mul_negmax_10`, `mul_max_neg10`, `mul_negmax_neg10`).
+///   above it).
 ///
 /// Not measured, so main's refusal: a result past the .NET maximum below that size (`D + 93543950336` with D the
 /// largest 18-digit Decimal, a quotient just past the limit), an operand of more than 18 digits (whose 18-digit value
-/// may give another result), and every other type pair.
+/// may give another result), and every other triple (a negative quotient, a negative sum, a positive difference, a
+/// negative operand beside a Decimal, a BigInteger or an Integer on the left of a Decimal).
 fn measured_overflow(op: Arith, (l, a): (&Value, Decimal), (r, b): (&Value, Decimal)) -> bool {
-    use Value as V;
-    let types = match op {
-        Arith::Add | Arith::Sub | Arith::Div => matches!((l, r), (V::Decimal(_), V::Decimal(_))),
-        Arith::Mul => matches!(
-            (l, r),
-            (V::Decimal(_), V::Decimal(_) | V::Integer(_) | V::BigInteger(_)) | (V::Integer(_), V::Decimal(_))
-        ),
-        Arith::IntDiv | Arith::Mod => false,
-    };
-    if !types || !digits_18(a) || !digits_18(b) {
+    if !measured_triple(op, l, r) || !digits_18(a) || !digits_18(b) {
         return false;
     }
     match op {
         Arith::Add | Arith::Sub => exact::sum_at_least(a, b, TWICE_MAX18),
         Arith::Mul => exact::product_at_least(a, b, FIRST_PRODUCT),
         _ => exact::quotient_at_least(a, b, TWICE_MAX18),
+    }
+}
+
+/// Whether a cell of DecimalOverflowCells.al measures the overflow of `l op r` for this operator, these operand types
+/// and these operand signs (`+` for a value at or above zero).
+fn measured_triple(op: Arith, l: &Value, r: &Value) -> bool {
+    use Value as V;
+    let sign = |v: &Value| match v {
+        V::Decimal(d) => !d.is_sign_negative(),
+        V::Integer(n) => *n >= 0,
+        V::BigInteger(n) => *n >= 0,
+        _ => false,
+    };
+    let (pl, pr) = (sign(l), sign(r));
+    match (op, l, r) {
+        // `add_max_max`, `plusassign_max_max`, `field_add_max_max`, `argument_add_max_max`: (+, +).
+        (Arith::Add, V::Decimal(_), V::Decimal(_)) => pl && pr,
+        // `sub_negmax_max`, `minusassign_negmax_max`, `field_sub_negmax_max`: (-, +).
+        (Arith::Sub, V::Decimal(_), V::Decimal(_)) => !pl && pr,
+        // Every sign pair: `mul_max_10` (+, +), `mul_negmax_10` (-, +), `mul_max_neg10` (+, -), `mul_negmax_neg10` (-, -).
+        (Arith::Mul, V::Decimal(_), V::Integer(_)) => true,
+        // `mul_max_dec10`, `bigmax_times_1e10`: (+, +).
+        (Arith::Mul, V::Decimal(_), V::Decimal(_)) => pl && pr,
+        // `mul_10_max`: (+, +).
+        (Arith::Mul, V::Integer(_), V::Decimal(_)) => pl && pr,
+        // `mul_max_big10`, `mul_1e19_bigmax`: (+, +).
+        (Arith::Mul, V::Decimal(_), V::BigInteger(_)) => pl && pr,
+        // codeunit 73592 `max_div_half`, `1e28_div_001`: (+, +).
+        (Arith::Div, V::Decimal(_), V::Decimal(_)) => pl && pr,
+        _ => false,
     }
 }
 
@@ -332,6 +351,23 @@ mod tests {
         // Unmeasured operand types: a BigInteger on the left of a product.
         assert!(refused(run(Arith::Mul, &Value::BigInteger(10), &max)));
         assert!(!take_hits().contains(&Assumption::DecimalOverflowPastLimit));
+    }
+
+    /// Only the sign pairs a cell measures overflow; every other pair keeps main's refusal.
+    #[test]
+    fn unmeasured_signs_keep_the_refusal() {
+        let (max, neg) = (Value::Decimal(MAX18), Value::Decimal(-MAX18));
+        assert!(refused(run(Arith::Div, &neg, &dec("0.5"))));
+        assert!(refused(run(Arith::Div, &max, &dec("-0.5"))));
+        assert!(refused(run(Arith::Add, &neg, &neg)));
+        assert!(refused(run(Arith::Sub, &max, &neg)));
+        assert!(refused(run(Arith::Mul, &neg, &dec("10"))));
+        assert!(refused(run(Arith::Mul, &Value::Integer(-10), &max)));
+        assert!(refused(run(Arith::Mul, &neg, &Value::BigInteger(10))));
+        assert!(!take_hits().contains(&Assumption::DecimalOverflowPastLimit));
+        // Decimal times Integer: every sign pair is measured.
+        assert!(overflow(run(Arith::Mul, &neg, &Value::Integer(-10))));
+        assert!(overflow(run(Arith::Mul, &max, &Value::Integer(-10))));
     }
 
     #[test]
