@@ -599,6 +599,97 @@ report 97117 "NBS No Layout Pin Rpt"
         Site: Codeunit "NBS Site";
 }
 
+report 97118 "NBS Processing Ext Page Rpt"
+{
+    UsageCategory = None;
+    ProcessingOnly = true;
+
+    dataset
+    {
+        dataitem(Int; Integer)
+        {
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+        }
+    }
+
+    trigger OnPreReport()
+    begin
+        Site.Fire(1);
+    end;
+
+    var
+        Site: Codeunit "NBS Site";
+}
+
+// A reportextension that only adds a request page OnInit.
+reportextension 97119 "NBS Processing Page Ext" extends "NBS Processing Ext Page Rpt"
+{
+    requestpage
+    {
+        trigger OnInit()
+        begin
+            Site.Fire(12);
+        end;
+    }
+
+    var
+        Site: Codeunit "NBS Site";
+}
+
+report 97122 "NBS Word Ext Page Rpt"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = L;
+
+    dataset
+    {
+        dataitem(Int; Integer)
+        {
+            column(N; Number) { }
+
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+        }
+    }
+
+    rendering
+    {
+        layout(L)
+        {
+            Type = Word;
+            LayoutFile = './src/NbsWordExtPage.docx';
+        }
+    }
+
+    trigger OnPreReport()
+    begin
+        Site.Fire(1);
+    end;
+
+    var
+        Site: Codeunit "NBS Site";
+}
+
+// A reportextension that only adds a request page trigger.
+reportextension 97123 "NBS Word Page Ext" extends "NBS Word Ext Page Rpt"
+{
+    requestpage
+    {
+        trigger OnOpenPage()
+        begin
+            Site.Fire(12);
+        end;
+    }
+
+    var
+        Site: Codeunit "NBS Site";
+}
+
 // The statement form, run inside Codeunit.Run so the raised error's code and text can be read afterwards.
 codeunit 97112 "NBS Statement"
 {

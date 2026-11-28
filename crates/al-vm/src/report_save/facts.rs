@@ -158,7 +158,8 @@ pub(crate) struct Facts {
     /// The report declares exactly one layout, in its `rendering` section, and no layout property, and no report extension
     /// adds a layout (`fact_report`).
     pub sole_layout: bool,
-    /// The report declares OnInitReport, or its request page declares a trigger (`fact_report`).
+    /// The report declares OnInitReport, or its request page declares a trigger, has a trigger a reportextension adds, or is
+    /// extended (`fact_report`).
     pub init_triggers: bool,
     /// A layout of Type Custom renders (the dataset goes to the merger; `policy`).
     pub custom: bool,

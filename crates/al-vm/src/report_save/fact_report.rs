@@ -51,11 +51,14 @@ pub(crate) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     let sole_layout = report.layout_properties.is_empty()
         && report.rendering_layouts.len() == 1
         && report.extension_layouts.is_empty();
+    // A request page trigger counts also when a reportextension adds it (`ir::Page::ext_triggers`), and any extension of
+    // the request page counts, since none is measured (the runtime refuses an extension's OnInit where the page's runs,
+    // `reports/request_unshown.rs`).
     let init_triggers = report.on_init.is_some()
         || program.objects[schema.object]
             .page
             .as_ref()
-            .is_some_and(|p| !p.triggers.is_empty());
+            .is_some_and(|p| !p.triggers.is_empty() || !p.ext_triggers.is_empty() || !p.extensions.is_empty());
     ReportFacts {
         kind,
         layout: if report.layout == al_ir::ReportLayout::Rdlc {

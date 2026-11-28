@@ -251,6 +251,18 @@ codeunit 97120 "NBS Tests"
     end;
 
     [Test]
+    procedure ProcessingOnly_ExtRequestPageOnInit_WordBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBS Processing Ext Page Rpt", 1, ReportFormat::Word, 'false ReportProcessingOnly/Report 97118 is a processing-only report. Output cannot be rendered and saved to a file.');
+    end;
+
+    [Test]
+    procedure Word_ExtRequestPageTrigger_OnPreReportError_PdfBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBS Word Ext Page Rpt", 1, ReportFormat::Pdf, 'false Dialog/N1');
+    end;
+
+    [Test]
     procedure Rdlc_OnPreReportError_PdfBoolean_MainsRule()
     begin
         BooleanForm(Report::"NBS Rdlc Rpt", 1, ReportFormat::Pdf, 'false Dialog/N1');
