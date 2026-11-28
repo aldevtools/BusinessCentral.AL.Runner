@@ -127,9 +127,13 @@ pub(super) fn has_elements(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Valu
 pub(super) fn is_empty(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     unassigned_element::check(&r, unassigned_element::Member::IsEmpty, a, c.ret_used())?;
     let h = recv(r)?;
-    // xml/XmlElement.al:692-711 IsEmpty_States: `<a/>` and `<a x="1"/>` are empty, a parsed `<a></a>` is not. An open
-    // element that got a child later (`filled`) is not measured: it answers from its children, as every other node.
-    let parsed_open = with(&h, |d| matches!(d, XData::Element { open: true, filled: false, .. }));
+    // xml/XmlElement.al:692-711 IsEmpty_States: `<a/>` and `<a x="1"/>` are empty, a parsed root `<a></a>` is not. Only
+    // the pin's element answers No: parsed open, no child added later (`filled`), no attribute, no namespace, the root of
+    // its document. Every other one is not measured and answers from its children, as every other node.
+    let parsed_open = with(&h, |d| {
+        matches!(d, XData::Element { open: true, filled: false, attrs, prefix, ns, .. }
+            if attrs.is_empty() && prefix.is_empty() && ns.is_empty())
+    }) && parent_of(&h).is_some_and(|p| with(&p, |d| matches!(d, XData::Document { .. })));
     Ok(Value::Boolean(!parsed_open && children_of(&h).is_empty()))
 }
 

@@ -32,3 +32,13 @@ fn a_copy_of_it_keeps_that_answer() {
          exit(Format(N.AsXmlElement().IsEmpty()) + ' ' + Format(R.GetChildElements().Count()));");
     assert_eq!(r, "Yes 2");
 }
+
+#[test]
+fn only_the_pinned_parsed_root_without_attributes_answers_no() {
+    // The pin's element is a parsed root with no attribute and no namespace; a nested one, one with an attribute and a
+    // namespaced one are not measured and answer from their children.
+    let r = run("XmlDocument.ReadFrom('<r><a></a></r>', Doc); Doc.GetRoot(R); R.SelectSingleNode('a', N); S := Format(N.AsXmlElement().IsEmpty());
+         XmlDocument.ReadFrom('<a x=\"1\"></a>', Doc); Doc.GetRoot(E); S += ' ' + Format(E.IsEmpty());
+         XmlDocument.ReadFrom('<p:a xmlns:p=\"u\"></p:a>', Doc); Doc.GetRoot(E); S += ' ' + Format(E.IsEmpty()); exit(S);");
+    assert_eq!(r, "Yes Yes Yes");
+}

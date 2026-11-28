@@ -295,6 +295,7 @@ mod xml_ns_scopes;
 mod xml_options_assign;
 mod xml_prefix_of_undeclared_namespace;
 mod xml_reserved_prefix;
+mod xml_self_add_lone_remove;
 mod xml_sibling_unparented;
 mod xml_text_into_document;
 mod xml_text_kind_uninit;
