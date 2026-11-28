@@ -24,4 +24,10 @@ codeunit 50310 "NEdit Tests"
         if not B then
             Error('editable: %1', B);
     end;
+
+    // Passes when the app compiles: a wrong compile error would stop it too.
+    [Test]
+    procedure OtherTestOfTheApp_Runs()
+    begin
+    end;
 }

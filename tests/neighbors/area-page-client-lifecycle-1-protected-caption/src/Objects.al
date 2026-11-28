@@ -24,4 +24,10 @@ codeunit 50310 "NProt Tests"
         if S <> 'Static' then
             Error('caption: %1', S);
     end;
+
+    // Passes when the app compiles: a wrong compile error would stop it too.
+    [Test]
+    procedure OtherTestOfTheApp_Runs()
+    begin
+    end;
 }
