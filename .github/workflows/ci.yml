@@ -669,6 +669,9 @@ jobs:
           elif [ "$status" = 3 ]; then
             echo "::error::this pull request adds a line to metrics/<major>/strict-order-not-run.txt, which may only shrink (ADR-070 decision 5)"
             exit 1
+          elif [ "$status" = 4 ]; then
+            echo "::error::the corpus rename map sends a case that passed on the base branch to a key no oracle has (ADR-065 amendment 1)"
+            exit 1
           elif [ "$status" != 0 ]; then
             echo "::error::al-test-cli --list-changes failed"
             exit 1

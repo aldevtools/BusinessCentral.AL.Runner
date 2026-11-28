@@ -290,7 +290,8 @@ fn awaiting_assumptions(
 /// `--coverage-map`: which builtin overloads the corpus calls (`coverage.rs`).
 /// `--list-changes REV`: how each not-passing list changed against REV, as Markdown (ADR-065, owner decision 2: a line
 /// added for a case REV's oracle had is a regression the owner approves in review). Exit 1 when there is one; exit 3 when
-/// a line was added to a strict list (`strict_not_run.rs`), which may only shrink.
+/// a line was added to a strict list (`strict_not_run.rs`), which may only shrink; exit 4 when the corpus rename map sends
+/// a case that passed at REV to a key no oracle has (ADR-065 amendment 1, item 2).
 fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String> {
     let oracle_path = args.oracle.clone().unwrap_or_else(|| root.join("oracle/oracle.toml"));
     let cfg = config::OracleFile::parse(&read(&oracle_path)?).map_err(|e| format!("{}: {e}", oracle_path.display()))?;
@@ -319,6 +320,24 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
         carries.insert(v.major, carry);
     }
     print!("{}", not_passing::render_changes(rev, &changes));
+    // ADR-065 amendment 1, item 2: a passing case the map sends to a key no head oracle has makes the bump red. Exit 4.
+    let lost: Vec<String> = cfg
+        .versions
+        .iter()
+        .flat_map(|v| {
+            carries[&v.major]
+                .lost
+                .iter()
+                .map(|l| al_test_cli::rename_map::lost_line(&v.bc_version, l))
+        })
+        .collect();
+    if !lost.is_empty() {
+        println!(
+            "\n### Passing cases the rename map sends to no oracle ({})\n",
+            lost.len()
+        );
+        lost.iter().for_each(|l| println!("- {l}"));
+    }
     // ADR-070 decision 5: the strict lists only shrink. Exit 3 when a line was added to one the base revision has.
     let mut grown = false;
     for v in &cfg.versions {
@@ -340,7 +359,11 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
         }
     }
     let accepted = changes.iter().any(|c| !c.accepted_regressions.is_empty());
-    Ok(ExitCode::from(if grown { 3 } else { u8::from(accepted) }))
+    Ok(ExitCode::from(match (grown, lost.is_empty()) {
+        (true, _) => 3,
+        (false, false) => 4,
+        (false, true) => u8::from(accepted),
+    }))
 }
 
 /// The not-passing list at `path`, empty when the file does not exist.
@@ -2012,8 +2035,9 @@ struct CarryOut<'a> {
 }
 
 /// ADR-065 amendment 1 at `--list-new-cases`, for one target: adds the moved lines to `list`, prints each renamed case
-/// that lost its pass (and, for the main app, each passing case the map sends nowhere), and queues the strict list with
-/// its renamed lines moved. Returns the head keys the base cases reached (no new cases) and whether the bump is red.
+/// that lost its pass and each passing case of this target's base list that the map sends nowhere, and (main app)
+/// queues the strict list with its renamed lines moved. Returns the head keys the base cases reached (no new cases) and
+/// whether the bump is red.
 fn carry_lines(
     t: &Target,
     path: &Path,
@@ -2040,11 +2064,13 @@ fn carry_lines(
         eprintln!("{}", rename_map::lost_pass_line(&t.label, r, why));
         red = true;
     }
+    // Each lost case is reported by the target of the base list it came from, so a suite's is not left out.
+    // Each lost case is reported by the target of the base list it came from, so a suite's is not left out.
+    for l in carry.lost.iter().filter(|l| l.old_suite == t.suite) {
+        eprintln!("{}", rename_map::lost_line(&t.label, l));
+        red = true;
+    }
     if t.suite.is_none() {
-        for l in &carry.lost {
-            eprintln!("{}", rename_map::lost_line(&t.label, l));
-            red = true;
-        }
         // `--list-new-cases` refuses BC's order (`run`), so the strict list is written here only.
         let strict = root.join(al_test_cli::strict_not_run::path(t.major));
         if strict.exists() {
@@ -2326,6 +2352,60 @@ mod tests {
         v.sort_by_key(|v| v.major);
         let top = cfg.versions.iter().map(|v| v.major).max().unwrap();
         assert_eq!(newest_version(&v).major, top);
+    }
+
+    /// ADR-065 amendment 1, item 2: a passing case of a suite's base list that the rename map sends to no oracle makes
+    /// that suite's target red; the main app's target reports only its own.
+    #[test]
+    fn a_lost_case_is_reported_by_the_target_of_its_base_list() {
+        use al_test_cli::rename_map::{self, BaseList, HeadOracle};
+        let id = |n: &str| oracle::CaseId {
+            codeunit: 7,
+            name: n.into(),
+        };
+        let map = rename_map::RenameMap::parse("iso/7/Old\tiso/7/Nowhere\n").unwrap();
+        let base = [BaseList {
+            suite: Some("iso".into()),
+            app: "iso".into(),
+            oracle: [id("Old")].into(),
+            list: Default::default(),
+        }];
+        let head = [
+            HeadOracle {
+                suite: None,
+                app: "main".into(),
+                cases: Default::default(),
+            },
+            HeadOracle {
+                suite: Some("iso".into()),
+                app: "iso".into(),
+                cases: [id("Other")].into(),
+            },
+        ];
+        let carry = rename_map::carry(&map, &base, &head).unwrap();
+        let d = tempfile::tempdir().unwrap();
+        let red = |suite: Option<&str>| {
+            let t = Target {
+                label: "27.5".into(),
+                major: 27,
+                suite: suite.map(str::to_string),
+                list_path: None,
+                cases: &[],
+                all: &[],
+                recorded: Box::new(|_| None),
+                area_of: Box::new(|_| None),
+                selected: Box::new(|_| true),
+            };
+            let (mut list, mut notes, mut writes) = Default::default();
+            let mut out = CarryOut {
+                list: &mut list,
+                notes: &mut notes,
+                writes: &mut writes,
+            };
+            carry_lines(&t, d.path(), &carry, &mut out, d.path()).unwrap().1
+        };
+        assert!(red(Some("iso")));
+        assert!(!red(None));
     }
 
     /// al-runner issue 7625: an error on a later list leaves every list file as it was, also one an earlier target

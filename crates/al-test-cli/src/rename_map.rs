@@ -5,11 +5,13 @@
 //! the app folder is not part of the key: the app part of a map key is ignored, an app move needs no map line, and two
 //! apps that hold the same codeunit id are an error (`app_of`).
 //!
-//! The map is read the way the corpus's own facts check reads it (`.github/scripts/facts.py`, "It is only read for a
-//! base key that is gone at head"): a base key that a head oracle of the major still has keeps its key; a gone key goes
-//! to its new keys, following a chain through new keys that are gone too (a bump can span several corpus pull
-//! requests). A split sends one key to many, a merge many keys to one. A gone key without a line is a removed case
-//! (ADR-065 section 3); a must-not-compile key (`mnc/<stem>`) is in no list and is skipped.
+//! A line is read by its first two columns and only for a base key that is gone, as the corpus's facts check reads it
+//! (`.github/scripts/facts.py`). Unlike facts.py, the runner follows chains and calls a key gone when no head oracle of
+//! the major has it (facts.py: when the corpus sources lack it). A base key that a head oracle still has keeps its key;
+//! a gone key goes to its new keys, following a chain through new keys that are gone too (a bump can span several
+//! corpus pull requests). A split sends one key to many, a merge many keys to one. A gone key without a line is a
+//! removed case (ADR-065 section 3); a gone key whose only line is a self line is a dead target, as is a new key no
+//! head oracle has; a must-not-compile key (`mnc/<stem>`) is in no list and is skipped.
 //!
 //! `carry` gives, per list of the major, the base cases in head keys: the moved list lines, and the new keys whose old key
 //! passed on the old pin, which must pass on the new one. Pure; `base_oracle.rs` reads the files. Entry points:
@@ -30,7 +32,8 @@ pub struct Translation {
     /// The head keys: the key itself when a head oracle has it, its new keys when the map moved it, none when it was
     /// removed without a line.
     pub keys: BTreeSet<CaseId>,
-    /// New keys the map names that no head oracle has and the map does not move on (a bad map line).
+    /// New keys the map names that no head oracle has and the map does not move on (a bad map line), and a gone key
+    /// whose only line is a self line.
     pub dead: BTreeSet<CaseId>,
 }
 
@@ -56,7 +59,8 @@ fn key(text: &str) -> Result<Option<CaseId>, String> {
 }
 
 impl RenameMap {
-    /// The map file's text: `old_key<TAB>new_key` lines, `#` comments and the header line `old_key<TAB>new_key` skipped.
+    /// The map file's text: `old_key<TAB>new_key` lines (further columns ignored), `#` comments and the header line
+    /// `old_key<TAB>new_key` skipped.
     pub fn parse(text: &str) -> Result<RenameMap, String> {
         let mut map = RenameMap::default();
         for (n, line) in text.lines().enumerate() {
@@ -64,10 +68,12 @@ impl RenameMap {
             if line.trim().is_empty() || line.starts_with('#') || line.starts_with("old_key\tnew_key") {
                 continue;
             }
-            let Some((old, new)) = line.split_once('\t') else {
+            // The first two columns, as facts.py `load_map` reads them; further columns are not part of a key.
+            let mut cols = line.split('\t');
+            let (Some(old), Some(new)) = (cols.next(), cols.next()) else {
                 return Err(at(format!("not old_key<TAB>new_key: `{line}`")));
             };
-            match (key(old).map_err(at)?, key(new.trim_end()).map_err(at)?) {
+            match (key(old).map_err(at)?, key(new).map_err(at)?) {
                 (Some(old), Some(new)) => {
                     map.next.entry(old).or_default().insert(new);
                 }
@@ -83,7 +89,7 @@ impl RenameMap {
     }
 
     /// Where `key` went: itself when `at_head` has it, else its new keys through the map. A line that moves a key to
-    /// itself (an app move written as a line) keeps it.
+    /// itself (an app move written as a line) is followed nowhere: a gone key whose only line is such a line is dead.
     pub fn translate(&self, key: &CaseId, at_head: &dyn Fn(&CaseId) -> bool) -> Result<Translation, String> {
         let mut t = Translation {
             keys: BTreeSet::new(),
@@ -104,12 +110,15 @@ impl RenameMap {
             t.keys.insert(key.clone());
             return Ok(());
         }
-        let Some(next) = self.next.get(key) else {
-            if !path.is_empty() {
+        let next: Vec<&CaseId> = self.next.get(key).into_iter().flatten().filter(|n| *n != key).collect();
+        if next.is_empty() {
+            // Reached through the map, or named by a self line only: a key the map sends nowhere. A base key without
+            // a line is a removed case.
+            if !path.is_empty() || self.next.contains_key(key) {
                 t.dead.insert(key.clone());
             }
             return Ok(());
-        };
+        }
         if path.contains(key) {
             return Err(format!(
                 "tests/rename-map.tsv has a cycle through {} {}",
@@ -117,7 +126,7 @@ impl RenameMap {
             ));
         }
         path.push(key.clone());
-        for n in next.iter().filter(|n| *n != key) {
+        for n in next {
             self.follow(n, at_head, path, t)?;
         }
         path.pop();
@@ -294,24 +303,40 @@ pub fn carry(map: &RenameMap, base: &[BaseList], head: &[HeadOracle]) -> Result<
     Ok(c)
 }
 
-/// A list's text with every line whose key is gone at head replaced by its new keys' lines, in place; comments, and the
-/// lines of keys that stay or were removed without a map line, unchanged. `None` when no line changes. For the strict
-/// list (`strict_not_run.rs`), which only shrinks: a moved line is not an added one.
+/// A list's text with every line whose key is gone at head replaced by its new keys' lines, in place, each new key once
+/// and none the list already holds; comments, and the lines of keys that stay or were removed without a map line,
+/// unchanged. `None` when no line changes. For the strict list (`strict_not_run.rs`), which only shrinks: a moved line
+/// is not an added one.
 pub fn rewrite_list(text: &str, map: &RenameMap, at_head: &dyn Fn(&CaseId) -> bool) -> Result<Option<String>, String> {
     let mut changed = false;
     let mut out = String::new();
+    let mut lines = Vec::new();
     for line in text.lines() {
-        let ids = crate::not_passing::parse(line)?;
-        let moved = match ids.iter().next() {
-            Some(id) => map.translate(id, at_head)?.keys,
+        let id = crate::not_passing::parse(line)?.into_iter().next();
+        // The new keys of a line that moves; empty for a line that stays.
+        let moved = match &id {
+            Some(id) => Some(map.translate(id, at_head)?.keys)
+                .filter(|k| !k.contains(id))
+                .unwrap_or_default(),
             None => BTreeSet::new(),
         };
-        match ids.iter().next() {
-            Some(id) if !moved.is_empty() && !moved.contains(id) => {
+        lines.push((line, id, moved));
+    }
+    // A moved key is written once, and not when the list keeps a line of its own for it.
+    let mut written: BTreeSet<CaseId> = lines
+        .iter()
+        .filter(|(_, _, moved)| moved.is_empty())
+        .filter_map(|(_, id, _)| id.clone())
+        .collect();
+    for (line, id, moved) in lines {
+        match id {
+            Some(_) if !moved.is_empty() => {
                 changed = true;
-                moved
-                    .iter()
-                    .for_each(|n| out.push_str(&format!("{} {}\n", n.codeunit, n.name)));
+                for n in moved {
+                    if written.insert(n.clone()) {
+                        out.push_str(&format!("{} {}\n", n.codeunit, n.name));
+                    }
+                }
             }
             _ => {
                 out.push_str(line);
@@ -395,10 +420,7 @@ pub fn lost_pass_line(label: &str, r: &Renamed, why: &str) -> String {
          {why}",
         r.old.codeunit,
         r.old.name,
-        r.old_suite
-            .as_deref()
-            .map(|s| format!(" (suite {s})"))
-            .unwrap_or_default(),
+        suite_part(&r.old_suite),
         r.new.codeunit,
         r.new.name
     )
@@ -407,10 +429,19 @@ pub fn lost_pass_line(label: &str, r: &Renamed, why: &str) -> String {
 /// The error line of a passing case the map sends to a key no head oracle of the major has.
 pub fn lost_line(label: &str, l: &Lost) -> String {
     format!(
-        "error: BC {label}: the rename map sends the passing case {} {} to {} {}, which no oracle of this version has \
-         (ADR-065 amendment 1)",
-        l.old.codeunit, l.old.name, l.new.codeunit, l.new.name
+        "error: BC {label}: the rename map sends the passing case {} {}{} to {} {}, which no oracle of this version \
+         has (ADR-065 amendment 1)",
+        l.old.codeunit,
+        l.old.name,
+        suite_part(&l.old_suite),
+        l.new.codeunit,
+        l.new.name
     )
+}
+
+/// ` (suite <name>)` after an old key of a suite's base list; nothing for the main app's.
+fn suite_part(suite: &Option<String>) -> String {
+    suite.as_deref().map(|s| format!(" (suite {s})")).unwrap_or_default()
 }
 
 /// The names of the test codeunits at one pin, from the corpus sources: citations name a codeunit by its name
@@ -657,8 +688,71 @@ mod tests {
             head(None, "app", &[(1, "A")]),
             head(Some("onprem"), "onprem", &[(1, "B")]),
         ];
+        assert_eq!(
+            lost_line(
+                "27.5",
+                &Lost {
+                    old_suite: Some("iso".into()),
+                    ..c.lost[0].clone()
+                }
+            ),
+            "error: BC 27.5: the rename map sends the passing case 1 Old (suite iso) to 1 Nowhere, which no oracle of \
+             this version has (ADR-065 amendment 1)"
+        );
         let e = carry(&m, &[], &two).unwrap_err();
         assert!(e.contains("codeunit 1 is in two corpus apps, app and onprem"), "{e}");
+    }
+
+    #[test]
+    fn a_gone_key_whose_only_line_is_a_self_line_is_dead() {
+        // An app move written as a line, to a key no head oracle of the major has: the passing case is lost.
+        let none = |_: &CaseId| false;
+        let app_move = map(&["al-language/1/A\tal-language-onprem/1/A"]);
+        let t = app_move.translate(&id(1, "A"), &none).unwrap();
+        assert!(t.keys.is_empty());
+        assert_eq!(t.dead, set(&[(1, "A")]));
+        // The same line with the key at head keeps it.
+        let at_a = |k: &CaseId| *k == id(1, "A");
+        assert_eq!(
+            app_move.translate(&id(1, "A"), &at_a).unwrap(),
+            Translation {
+                keys: set(&[(1, "A")]),
+                dead: BTreeSet::new()
+            }
+        );
+        // A chain that ends in a self line of a gone key.
+        let chain = map(&["a/1/A\ta/1/B", "a/1/B\ta/1/B"]);
+        assert_eq!(chain.translate(&id(1, "A"), &none).unwrap().dead, set(&[(1, "B")]));
+        let b = [base(None, "app", &[(1, "A")], &[])];
+        let h = [head(None, "app", &[(1, "Other")])];
+        assert_eq!(
+            carry(&chain, &b, &h).unwrap().lost,
+            vec![Lost {
+                old: id(1, "A"),
+                old_suite: None,
+                new: id(1, "B")
+            }]
+        );
+    }
+
+    #[test]
+    fn a_map_line_is_read_by_its_first_two_columns() {
+        // facts.py `load_map` takes parts[0] and parts[1]; further columns are not part of the key.
+        let m = RenameMap::parse("a/1/A\ta/1/B\ta reason\n").unwrap();
+        let at = |k: &CaseId| *k == id(1, "B");
+        assert_eq!(m.translate(&id(1, "A"), &at).unwrap().keys, set(&[(1, "B")]));
+        assert!(RenameMap::parse("a/1/A\t\n").is_err());
+    }
+
+    #[test]
+    fn a_rewritten_strict_list_writes_each_key_once() {
+        // Two lines merged into one key, and a new key the list already holds: one line each.
+        let m = map(&["a/1/M1\ta/1/Merged", "a/1/M2\ta/1/Merged", "a/1/Old\ta/1/Kept"]);
+        let at = |k: &CaseId| k.name == "Merged" || k.name == "Kept";
+        assert_eq!(
+            rewrite_list("1 M1\n1 M2\n1 Kept\n1 Old\n", &m, &at).unwrap().as_deref(),
+            Some("1 Merged\n1 Kept\n")
+        );
     }
 
     #[test]

@@ -19,7 +19,8 @@
 #       lists metrics/*/not-passing*.txt (and the strict-order lists, whose renamed lines a bump moves). Any other
 #       changed path is refused. A list may only gain lines for cases the
 #       base oracle (HEAD) did not have and lose lines: `al-test-cli --list-changes HEAD` must find no line for a case
-#       HEAD's oracle had (that line would hide a regression; adding one is the owner's decision, CLAUDE.md hard rule 2).
+#       HEAD's oracle had (that line would hide a regression; adding one is the owner's decision, CLAUDE.md hard rule 2)
+#       and no passing case the corpus rename map sends to no oracle (ADR-065 amendment 1).
 #
 # It never pushes and never opens a pull request; the workflow does. For tests: CORPUS_BUMP_GH,
 # CORPUS_BUMP_CORPUS and CORPUS_BUMP_NO_FETCH as for tools/corpus_bump.sh, CORPUS_BUMP_BOT_PIN (the pin),
@@ -130,14 +131,14 @@ commit_bump() { # repository, commit, run
     fi
   done < <(git -C "$r" ls-files -- 'oracle/*.xml')
   [ "$bad" = 0 ] || die "an oracle file lost cases; nothing committed"
-  # ADR-065: a list line for a case HEAD's oracle had is a regression, never the bot's to add.
-  if [ -n "$(git -C "$r" status --porcelain=v1 -uall -- 'metrics/*/not-passing*.txt' 'metrics/*/strict-order-not-run.txt')" ]; then
-    local cli="${CORPUS_BUMP_BOT_CLI:-$r/target/release/al-test-cli}" changes
-    changes="$("$cli" --root "$r" --list-changes HEAD 2>&1)" || {
-      printf '%s\n' "$changes" >&2
-      die "a not-passing list gained a line for a case the base oracle had (a regression), or a strict-order list gained a line; nothing committed"
-    }
-  fi
+  # ADR-065: a list line for a case HEAD's oracle had is a regression, never the bot's to add. Run on every bump, not
+  # only when a list changed: a passing case the rename map sends to no oracle changes no list (exit 4, ADR-065
+  # amendment 1, item 2).
+  local cli="${CORPUS_BUMP_BOT_CLI:-$r/target/release/al-test-cli}" changes
+  changes="$("$cli" --root "$r" --list-changes HEAD 2>&1)" || {
+    printf '%s\n' "$changes" >&2
+    die "a not-passing list gained a line for a case the base oracle had (a regression), a strict-order list gained a line, or the rename map sends a passing case to no oracle; nothing committed"
+  }
   local now
   now="$(git -C "$r/corpus" rev-parse HEAD)"
   [ "$now" = "$sha" ] || die "the corpus submodule is at ${now:0:12}, not at the target ${sha:0:12}; nothing committed"

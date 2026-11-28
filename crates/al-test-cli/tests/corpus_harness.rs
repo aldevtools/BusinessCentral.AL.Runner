@@ -643,10 +643,15 @@ fn renamed_changes(root: &Path, list: &str) -> (i32, String) {
 }
 
 fn renamed_root_named_list(base_list: &str, strict: Option<&str>) -> tempfile::TempDir {
+    renamed_root_named_list_with(RENAME, base_list, strict)
+}
+
+/// [`renamed_root_named_list`] with the map line `map_line`.
+fn renamed_root_named_list_with(map_line: &str, base_list: &str, strict: Option<&str>) -> tempfile::TempDir {
     let root = fake_root(|corpus| {
         std::fs::write(
             corpus.join("tests/rename-map.tsv"),
-            format!("old_key\tnew_key\n{RENAME}\n"),
+            format!("old_key\tnew_key\n{map_line}\n"),
         )
         .unwrap();
     });
@@ -683,6 +688,23 @@ fn list_changes_reads_a_renamed_case_under_its_old_key() {
         !md.contains("New cases listed") && md.contains("Lines moved to new keys (1)"),
         "{md}"
     );
+}
+
+// ADR-065 amendment 1, item 2: a passing case the map sends to a key no oracle of the version has makes `--list-changes`
+// red with its own exit code (4), so PR CI and the bump bot's commit step stop; a listed case sent there does not.
+#[test]
+fn list_changes_is_red_when_the_map_sends_a_passing_case_nowhere() {
+    let root = renamed_root_named_list_with("app/60900/WasFailing\tapp/60900/Nowhere", "", None);
+    let (code, md) = renamed_changes(root.path(), "");
+    assert_eq!(code, 4, "{md}");
+    assert!(
+        md.contains("the rename map sends the passing case 60900 WasFailing to 60900 Nowhere"),
+        "{md}"
+    );
+    let root = renamed_root_named_list_with("app/60900/WasFailing\tapp/60900/Nowhere", "60900 WasFailing\n", None);
+    let (code, md) = renamed_changes(root.path(), "");
+    assert_eq!(code, 0, "{md}");
+    assert!(!md.contains("sends the passing case"), "{md}");
 }
 
 // ADR-065 amendment 1 and ADR-070 decision 5: a bump rewrites a strict-list line the map renames in place, and

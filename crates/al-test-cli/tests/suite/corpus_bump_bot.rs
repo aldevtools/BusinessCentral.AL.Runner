@@ -580,6 +580,18 @@ fn commit_takes_a_moved_strict_list_line_and_refuses_one_list_changes_rejects() 
     assert_eq!(commits(&r), 1, "nothing committed");
 }
 
+/// ADR-065 amendment 1, item 2: a passing case the rename map sends to no oracle changes no list, so the bot runs
+/// `al-test-cli --list-changes HEAD` on every bump; its exit 4 stops the commit.
+#[test]
+fn commit_refuses_a_bump_list_changes_rejects_with_no_list_changed() {
+    let r = runner();
+    bump_files(&r);
+    let o = commit_with(&r, &r.corpus.c.clone(), 4);
+    assert!(!o.status.success(), "{}", text(&o));
+    assert!(text(&o).contains("list changes --root"), "{}", text(&o));
+    assert_eq!(commits(&r), 1, "nothing committed");
+}
+
 /// Under `metrics/` a bump writes the not-passing and strict-order lists only.
 #[test]
 fn commit_refuses_any_other_metrics_change() {
@@ -781,6 +793,27 @@ fn report_lists_each_judgment_item_left_for_a_person() {
     assert!(
         body.contains("never adds a line for a case the old oracle had"),
         "says the bot added no regression line: {body}"
+    );
+}
+
+/// ADR-065 amendment 1: the error lines of a renamed case that lost its pass, or of a passing case the rename map sends
+/// to no oracle, are quoted in the body; the generic regression item alone does not name them.
+#[test]
+fn report_quotes_the_rename_map_error_lines() {
+    let d = clean_inputs();
+    let p = d.path();
+    put(
+        p,
+        "diff.txt",
+        "error: BC 29.1: the rename map sends the passing case 100 A to 100 Nowhere, which no oracle of this version \
+         has (ADR-065 amendment 1)\nBaseline diff, BC 29: 0 regressions, 0 stale lines to delete, 0 cases still listed, \
+         0 cases without an outcome\n",
+    );
+    put(p, "diff.code", "1\n");
+    let body = report(p);
+    assert!(
+        body.contains("the rename map sends the passing case 100 A to 100 Nowhere"),
+        "{body}"
     );
 }
 
