@@ -343,7 +343,7 @@ impl Session {
         let globals = f.instance.borrow().globals.clone();
         let bound = self.clear_all_bound_globals(&globals, &keep, true)?;
         let mut keep: Vec<usize> = keep.into_iter().chain(bound).collect();
-        keep.extend(self.clear_all_in_place(object, &globals, &keep)?);
+        keep.extend(self.clear_all_in_place(object, &f.instance, &globals, &keep)?);
         let kept_tables = self.clear_all_temp_arrays(object, &globals, &keep)?;
         let fresh = self.slot_defaults(&o.globals);
         let mut inst = f.instance.borrow_mut();
