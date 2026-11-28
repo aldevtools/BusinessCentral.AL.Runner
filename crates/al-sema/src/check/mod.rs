@@ -1587,6 +1587,7 @@ pub(crate) use enum_overload::EnumFit;
 pub(crate) use infer::in_request_page;
 mod fit;
 mod infer;
+mod joker_compound;
 mod member;
 mod object;
 pub(crate) mod posmap;

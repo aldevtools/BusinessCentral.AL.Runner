@@ -1257,3 +1257,38 @@ fn a_variant_that_holds_a_recordref_as_the_record_of_page_run_compiles() {
         );
     }
 }
+
+// An Integer += or -= the Value() of a FieldRef does not compile: the value is typed Joker (al-runner issue 9283).
+fn fieldref_value_into_integer(stmt: &str) -> String {
+    cu(&format!(
+        "procedure P() var RecRef: RecordRef; FR: FieldRef; I: Integer; begin RecRef.Open(50900); FR := RecRef.Field(2); {stmt} end;"
+    ))
+}
+
+#[test]
+fn an_integer_plus_or_minus_assigned_a_fieldref_value_is_al0175() {
+    for op in ["+=", "-="] {
+        let src = fieldref_value_into_integer(&format!("I {op} FR.Value();"));
+        let want = format!("AL0175 Operator '{op}' cannot be applied to operands of type 'Integer' and 'Joker'");
+        for runtime in ["16.0", "18.0"] {
+            assert_eq!(
+                diags_declared("29", runtime, &[TABLE, &src]),
+                vec![want.clone()],
+                "{op} at {runtime}"
+            );
+        }
+        // At the statement (al-runner issue 9283: column 9 of `        I += FR.Value();`).
+        let w = ws(&[TABLE, &src]);
+        let m = crate::members::build(&w);
+        let r = check(&w, &m, &Catalog::load());
+        assert_eq!(r.diagnostics.len(), 1, "{:?}", r.diagnostics);
+        assert!(src[r.diagnostics[0].offset..].starts_with(&format!("I {op} FR.Value()")));
+    }
+}
+
+#[test]
+fn an_integer_assigned_a_fieldref_value_compiles() {
+    // al-runner issue 9283: `I := FR.Value()` compiles.
+    let src = fieldref_value_into_integer("I := FR.Value();");
+    assert_eq!(diags_declared("29", "18.0", &[TABLE, &src]), Vec::<String>::new());
+}

@@ -218,7 +218,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0175",
-        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for `=`, `<>`, `<`, `+`, `-` and `+=` (and `Char - Text` of must-not-compile 0500, and a Variant variable against an Integer literal or an enum value of 0502); a call operand, any other literal right operand, other operators and DotNet operands (the .NET type behind the alias decides) are not decided.",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for `=`, `<>`, `<`, `+`, `-` and `+=` (and `Char - Text` of must-not-compile 0500, and a Variant variable against an Integer literal or an enum value of 0502, and an Integer variable `+=` or `-=` a `FieldRef.Value()` call: check/joker_compound.rs, al-runner issue 9283, assumption `integer-compound-assign-fieldref-value`); any other call operand, any other literal right operand, other operators and DotNet operands (the .NET type behind the alias decides) are not decided.",
     ),
     (
         "AL0369",
