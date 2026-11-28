@@ -1025,6 +1025,7 @@ impl Session {
         self.tx.rollback_unpinned = None;
         self.tx.rollback_kind = None;
         self.isolated_committed = self.isolated_storage.clone();
+        self.demo_written.commit();
         self.pages.saved_values_committed = self.pages.saved_values.clone();
         self.tasks.commit();
         let removed = std::mem::take(&mut self.media_removed.0);

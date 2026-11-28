@@ -105,16 +105,36 @@ fn a_view_without_rows_counts_nothing_and_leaves_the_store() {
 }
 
 // A table marked as written stays marked in every copy of the store: a clone, a frozen store each thread thaws, a store
-// rebuilt from its export, through commit and rollback (al-vm `records/op_inner.rs`, al-runner issue 8981).
+// rebuilt from its export, through a commit and a later rollback (al-vm `records/op_inner.rs`, al-runner issue 8981).
 #[test]
 fn a_written_mark_goes_with_every_copy_of_the_store() {
     let mut s = store();
     assert!(!s.was_written(7));
     s.note_written(7);
+    s.commit();
     s.rollback();
     assert!(s.was_written(7) && s.clone().was_written(7));
     assert!(FrozenStore::freeze(&s).unwrap().thaw().was_written(7));
     let rebuilt = MemStore::from_exported(s.export_committed().unwrap(), &[], &[]).with_written(&s.written_tables());
     assert!(rebuilt.was_written(7) && !rebuilt.was_written(8));
     assert!(!rebuilt.same_unshown_marks(&MemStore::default()));
+}
+
+// A rollback undoes the writes since the last commit, and with them their mark and its change stamp (al-runner issue 9277;
+// codeunits/run-onrun/QuCommitIsolation.al:28, X07). A mark committed before stays.
+#[test]
+fn a_rollback_undoes_a_written_mark_set_since_the_last_commit() {
+    let mut s = store();
+    let from = s.change_counter();
+    s.note_written(7);
+    assert!(s.tables_changed_since(from).contains(&7));
+    s.rollback();
+    assert!(!s.was_written(7));
+    assert!(!s.tables_changed_since(from).contains(&7));
+    s.note_written(8);
+    s.commit();
+    s.note_written(7);
+    s.rollback();
+    assert!(s.was_written(8) && !s.was_written(7));
+    assert!(s.tables_changed_since(from).contains(&8));
 }

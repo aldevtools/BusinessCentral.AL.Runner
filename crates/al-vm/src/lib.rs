@@ -927,9 +927,8 @@ pub struct Session {
     pub(crate) held_logins: HeldLogins,
     /// The session's data is what a test codeunit left (`Baseline::codeunit_left`).
     pub(crate) codeunit_left: bool,
-    /// The `Engine::demo_tables` the running test's own code (not install code) wrote to (`records/op_inner.rs`): a read of
-    /// one of the others is refused before the session's own code wrote it.
-    demo_written: std::collections::HashSet<u32>,
+    /// The demo tables the running test's own code wrote, while the write stands (`records/demo_written.rs`).
+    demo_written: crate::records::demo_written::DemoWritten,
     /// The running test's own code (not install code) wrote General Ledger Setup (table 98), before any caption of areas 1 or 101
     /// was resolved (`setup_caption_read_early`): such captions read the test's row (`refuse_setup_caption`).
     pub(crate) gl_setup_written: bool,
@@ -1708,6 +1707,7 @@ impl Session {
         self.tx.open.runner_tx = runner_tx;
         self.tx.rolled_back = true;
         self.isolated_storage = self.isolated_committed.clone();
+        self.demo_written.rollback();
         // What SaveValues pages stored is kept in the database: a rollback takes back what was stored since the last commit. An
         // asserterror under TestIsolation = Codeunit (one transaction for the codeunit) takes back what an earlier test stored
         // (pages/PnF02SaveValuesExt.al:207-234, SaveValues_Ext_CancelThenReopen after SaveValues_Ext_OkThenReopen),

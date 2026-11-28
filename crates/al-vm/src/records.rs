@@ -26,6 +26,7 @@ mod boolean_filter_error;
 mod delete_all;
 mod delete_all_flow;
 pub(crate) mod delete_all_order;
+pub(crate) mod demo_written;
 mod empty_find_origin;
 mod filter_error;
 mod flowfield_key;

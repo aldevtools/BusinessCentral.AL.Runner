@@ -111,7 +111,7 @@ macro_rules! session_fields {
                 // The session's baseline bookkeeping (`restore_baseline`).
                 company_built: bool,
                 // What the session's own code wrote or resolved (lib.rs).
-                demo_written: HashSet<u32>,
+                demo_written: crate::records::demo_written::DemoWritten,
                 gl_setup_written: bool,
                 setup_caption_read_early: bool,
                 table_connections: HashSet<(i32, String)>,
