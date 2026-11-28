@@ -1010,9 +1010,10 @@ fn a_seeded_outstream_bridge_holds_the_bytes_appends_after_them_and_refuses_a_wr
 
 // al-runner issue 8360: the one writer allowed over a seed, a ZipArchive made by `ZipArchive(Stream, Update, Boolean, Encoding)`
 // over a seeded bridge, disposed, hands back its whole content with the seed's length (corpus
-// tests/al-language/streams/blob-tempblob/ZipBlobFieldUpdate.al:5-8). The three-argument constructor keeps the refusal.
+// tests/al-language/streams/blob-tempblob/ZipBlobFieldUpdate.al:5-8). The three-argument constructor hands it back too, tagged
+// "update": the VM serves that one only over a fresh CreateOutStream (al-vm `dotnet/zip_blob_writes.rs`).
 #[test]
-fn a_disposed_update_zip_over_a_seeded_bridge_hands_back_its_whole_content_and_other_shapes_stay_refused() {
+fn a_disposed_update_zip_over_a_seeded_bridge_hands_back_its_whole_content_tagged_by_constructor() {
     let Some(h) = host() else { return };
     let mut sess = h.open_session(&DotNetSessionConfig::default());
     let mut empty_zip = b"PK\x05\x06".to_vec();
@@ -1045,13 +1046,31 @@ fn a_disposed_update_zip_over_a_seeded_bridge_hands_back_its_whole_content_and_o
     let r = sess.invoke(DotNetTarget::Instance(zip), "Dispose", vec![]).unwrap();
     assert!(r.streams.written.is_empty(), "{:?}", r.streams.written);
     assert_eq!(r.streams.replaced.len(), 1);
-    let (id, before, bytes) = &r.streams.replaced[0];
-    assert_eq!((*id, *before), (bridge, 22));
+    let (id, before, bytes, kind) = &r.streams.replaced[0];
+    assert_eq!(
+        (*id, *before, *kind),
+        (bridge, 22, Some(al_host::dotnet::Rewrite::ZipUpdate4))
+    );
     assert!(bytes.starts_with(b"PK\x03\x04") && bytes.len() > 22, "{bytes:?}");
-    let three = vec![DotNetValue::OutStreamWith(empty_zip), update, DotNetValue::Bool(false)];
+    // The two- and three-argument archives rewrite only a bridge seeded from a fresh CreateOutStream; over another seed they
+    // keep the refusal of a write over the bytes the OutStream held.
+    let three = vec![
+        DotNetValue::OutStreamWith(empty_zip.clone()),
+        update.clone(),
+        DotNetValue::Bool(false),
+    ];
     let (zip, _) = open(&mut sess, three);
     let why = refused(sess.invoke(DotNetTarget::Instance(zip), "Dispose", vec![]));
-    assert!(why.contains("over the bytes an AL OutStream held"), "{why}");
+    assert!(
+        why.contains("a .NET write over the bytes an AL OutStream held before the call"),
+        "{why}"
+    );
+    let three = vec![DotNetValue::OutStreamFresh(empty_zip), update, DotNetValue::Bool(false)];
+    let (zip, bridge) = open(&mut sess, three);
+    let r = sess.invoke(DotNetTarget::Instance(zip), "Dispose", vec![]).unwrap();
+    assert_eq!(r.streams.replaced.len(), 1);
+    let (id, kind) = (r.streams.replaced[0].0, r.streams.replaced[0].3);
+    assert_eq!((id, kind), (bridge, Some(al_host::dotnet::Rewrite::ZipUpdate)));
     sess.close();
 }
 
@@ -1102,6 +1121,7 @@ fn a_write_over_bytes_a_bridge_already_handed_back_names_the_bridge() {
             vec![arg(DotNetValue::Int64(1))],
         )
         .unwrap();
+    // Not the measured SetLength(10) of a stream holding just the handed-back bytes (`Bridge.OverwriteMeasured`): marked.
     assert_eq!(r.streams.overwritten, vec![bridge]);
     let r = sess.invoke(DotNetTarget::Instance(base), "Flush", vec![]).unwrap();
     assert!(r.streams.overwritten.is_empty(), "named once");
@@ -1449,11 +1469,24 @@ fn an_unbuilt_sidecar_is_unavailable_with_the_publish_command() {
 #[cfg(unix)]
 #[test]
 fn a_protocol_mismatch_is_a_refusal_naming_both_versions() {
+    refuses_a_helper_speaking(99, false);
+}
+
+// A helper of protocol 6 sends rewrite replies without the writer tag (al-vm `dotnet/zip_blob_writes.rs`): the handshake
+// refuses it rather than reading its rewrites as untagged, even when it calls itself compatible.
+#[cfg(unix)]
+#[test]
+fn a_helper_of_protocol_6_is_refused() {
+    refuses_a_helper_speaking(6, true);
+}
+
+#[cfg(unix)]
+fn refuses_a_helper_speaking(version: u64, compatible: bool) {
     let dir = tempfile::tempdir().unwrap();
     let dll = dir.path().join("AlDotNetSidecar.dll");
     std::fs::write(&dll, b"").unwrap();
-    // `dotnet --list-runtimes` answers; run as `dotnet <dll>` it writes one hello frame of version 99.
-    let reply = r#"{"id":1,"ok":true,"value":{"protocol":99,"compatible":false,"major":8}}"#;
+    // `dotnet --list-runtimes` answers; run as `dotnet <dll>` it writes one hello frame of `version`.
+    let reply = format!(r#"{{"id":1,"ok":true,"value":{{"protocol":{version},"compatible":{compatible},"major":8}}}}"#);
     let len = reply.len();
     let script = [
         "if [ \"$1\" = \"--list-runtimes\" ]; then echo 'Microsoft.NETCore.App 8.0.1 [/x]'; exit 0; fi".to_string(),
@@ -1472,7 +1505,9 @@ fn a_protocol_mismatch_is_a_refusal_naming_both_versions() {
     let mut sess = h.open_session(&DotNetSessionConfig::default());
     let why = refused(sess.invoke(st("System.Convert"), "ToInt32", vec![s("1")]));
     assert!(
-        why.contains("protocol mismatch") && why.contains("99") && why.contains(&PROTOCOL.to_string()),
+        why.contains("protocol mismatch")
+            && why.contains(&format!("speaks version {version}"))
+            && why.contains(&format!("host version {PROTOCOL}")),
         "{why}"
     );
     sess.close();
