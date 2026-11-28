@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 /// The protocol version the sidecar must speak.
-pub const PROTOCOL: u64 = 7;
+pub const PROTOCOL: u64 = 8;
 
 /// Where the sidecar and .NET are found and how a call is bounded.
 #[derive(Debug, Clone)]
@@ -1487,6 +1487,11 @@ impl DotNetSession for SidecarSession {
             DotNetValue::InStream(b) => Ok(b),
             _ => Err(bad("expected bytes for stream_read".into())),
         }
+    }
+    /// The sidecar's `formatting` answer (`SessionGuard.FormattingAtStart`, Reuse.cs); a failed request: no.
+    fn formatting_at_start(&mut self) -> bool {
+        self.request(json!({"op":"formatting"}))
+            .is_ok_and(|v| v["value"] == json!(true))
     }
     fn release(&mut self, handles: &[DotNetHandle]) {
         if self.dead.is_some() {
