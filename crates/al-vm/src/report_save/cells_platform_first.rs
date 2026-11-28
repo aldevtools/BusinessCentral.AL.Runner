@@ -4,7 +4,7 @@
 //! (reports/layouts-saveas/SaveAsTriggerErrors.al) have one data item over Integer and no report extension, and are saved by
 //! `Report.SaveAs(Id, '', Format, OutStream)` with no layout selection row, as a statement inside `Codeunit.Run` and in the
 //! Boolean form; each test runs the control and an error in OnPreReport, OnAfterGetRecord, OnPreDataItem and OnPostReport,
-//! and no error site is reached. Measured the same on BC 27.5, 28.5 and 29.0.
+//! and no error site is reached. Measured the same on every supported major.
 
 use super::Format;
 use super::cell::K::Is;
