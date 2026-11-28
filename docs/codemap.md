@@ -209,7 +209,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `property_values.rs`: AL0169, a property set to a name that is none of its values. Entry: `check`.
 - `base_access.rs`: Page and report extension code that names the base… Entry: `PINNED`.
 - `calcformula.rs`: The `CalcFormula` property of a FlowField, as syntax. Entry: `Formula`.
-- `check/` (14 files): Resolves names, member access and calls. Entry: `check_with`. Files: `mod.rs`, `tdd.rs`, `tdd_decl.rs`, `posmap.rs`, `object.rs`, `infer.rs`, `calls.rs`, `member.rs`, `protected_member.rs`, `fit.rs`, `conv.rs`, `field_enum.rs`, `diag_index.rs`, `demand.rs`, `recordref_record_arg.rs`, `joker_compound.rs`
+- `check/` (16 files): Resolves names, member access and calls. Entry: `check_with`. Files: `mod.rs`, `tdd.rs`, `tdd_decl.rs`, `posmap.rs`, `object.rs`, `infer.rs`, `calls.rs`, `member.rs`, `protected_member.rs`, `fit.rs`, `conv.rs`, `field_enum.rs`, `diag_index.rs`, `demand.rs`, `recordref_record_arg.rs`, `joker_compound.rs`
 - `lib.rs`: Crate root of the semantic model.
 - `lower/` (24 files): Lowers resolved syntax to the typed IR (ADR-011). Entry: `Lowered`. Files: `mod.rs`, `assemble.rs`, `ext_order.rs`, `ext_request_page.rs`, `localize.rs`, `routine_lists.rs`, `shared.rs`, `tables.rs`, `table_no_rec.rs`, `pages.rs`, `page_client_expr.rs`, `convert.rs`, `copy_array.rs`, `conv_matrix.rs`, `stmt.rs`, `expr.rs`, `dotnet.rs`, `with_events.rs`, `call.rs`, `evaluate_id.rs`, `var_option_arg.rs`, `compile.rs`, `extend.rs`, `stored.rs`
 - `members.rs`: Members of objects: table fields, enum values. Entry: `MemberTable`.

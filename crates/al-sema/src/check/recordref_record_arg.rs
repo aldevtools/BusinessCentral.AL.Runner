@@ -47,11 +47,19 @@ impl Checker<'_> {
         };
         // The app's runtime: the one it declares, else the catalog's; neither known is the newest compiler's, AL0133.
         let at = declared.or(self.catalog.runtime());
+        // The runtime of the overloads by name the AL compiler tries instead (1633-page-run-recordref-bc27.al:5): those
+        // whose first parameter is the object's name and that take this many arguments, not any tagged overload.
         let since = self
             .catalog
             .overloads(recv, method)
             .into_iter()
             .chain(self.catalog.hidden(recv, method))
+            .filter(|s| {
+                let required = s.params.iter().filter(|p| !p.optional).count();
+                s.params.first().is_some_and(|p| p.name == "FullyQualifiedName")
+                    && required <= argc
+                    && argc <= s.params.len()
+            })
             .filter_map(|s| s.since)
             .min();
         match (at, since) {
