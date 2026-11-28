@@ -5,7 +5,7 @@
 use super::al_runner::run_unit;
 use super::held_login::{
     self, carried_company_open, first_login, held_reads, in_own_session, later_runner_marks, login_once_on_hub,
-    login_rows_as_held, own_session_id, thaw_held,
+    later_own_reads, login_rows_as_held, own_session_id, thaw_held,
 };
 use super::written::{
     self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,
@@ -254,9 +254,16 @@ fn open_company(
     let rows_as_held = held
         .as_deref()
         .is_some_and(|h| !own_login && login_rows_as_held(h, isolation, session));
-    wrote.held = held
-        .as_deref()
-        .and_then(|h| held_reads(h, own_login, thaws, rows_as_held));
+    wrote.held = held.as_deref().and_then(|h| match steps.own_session.filter(al_vm::OwnLogin::after_another) {
+        Some(_) => Some(later_own_reads(
+            h,
+            &wrote,
+            scratch.leak.as_deref(),
+            session.own_id_read(),
+            session.single_instances(),
+        )),
+        None => held_reads(h, own_login, thaws, rows_as_held),
+    });
     let hits = later_runner_marks(held.is_some(), scratch.hub_leg, isolation, hits);
     // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
     // a `WorkDate(d)` of the test still wins.
@@ -728,7 +735,8 @@ fn run_codeunit_inner(
             }
             // What the partner dependency apps' login subscribers left is watched too (`partner_login.rs`).
             let partner = &company_open.partner_login;
-            let watched = with_skipped(leak.iter().chain(partner.watched()), &skipped_installs);
+            let id_tables = company_open.held.iter().flat_map(|held| held.id_tables.iter());
+            let watched = with_skipped(leak.iter().chain(partner.watched()).chain(id_tables), &skipped_installs);
             session.store_mut().watch(watched);
             // Al-runner issue 5698: the time limit (CPU time, the wall backstop and the Sleep budget) applies to OnRun too,
             // with a budget of its own: its time counts toward no test method. A limit is tooling (ADR-009), not something
@@ -754,6 +762,14 @@ fn run_codeunit_inner(
                 return Err(on_run_refused(format!("OnRun: {why}")));
             }
             (partner.after_on_run(&hits, lowered)).map_err(|why| on_run_refused(format!("OnRun: {why}")))?;
+            // An OnRun that combined the session's own id with what an earlier runner 130450 session wrote
+            // (`later_own_reads`): what it left is not known.
+            let id_read = session.own_id_read();
+            if let Some(why) = (hits.iter()).find_map(|&t| company_open.touched(t, lowered, id_read).filter(|_| {
+                company_open.held.as_ref().is_some_and(|held| id_read && held.id_tables.contains(&t))
+            })) {
+                return Err(on_run_refused(format!("OnRun: {why}")));
+            }
             match ran {
                 // NavTestCodeunit.DoRunAsync commits after a declared OnRun
                 // (codeunits/TestTestCodeunitOnRun.al).
@@ -1240,14 +1256,15 @@ fn run_codeunit_inner(
             // A read or write of any table an earlier Disabled codeunit left rows in is noted in `leak_hits`, whatever watched
             // table the test touched first (review of al-runner issue 7717, round five, probe p13).
             let touched = session.store_mut().watch_hits();
-            let hit = company_open.watch_hit(&touched, began);
+            let id_read = session.own_id_read();
+            let hit = company_open.watch_hit(&touched, began, id_read);
             // A test that read or wrote a table install code that could not run touches, through a path its record
             // variables do not show (a RecordRef): not run, as the static check does for a record variable (al-runner
             // issue 8115, scenario s03b).
             let skipped_hit = began
                 .then(|| skipped_install_hit(&skipped_installs, &touched, Marked))
                 .flatten();
-            let outcome = match (hit.and_then(|t| company_open.touched(t, lowered)))
+            let outcome = match (hit.and_then(|t| company_open.touched(t, lowered, id_read)))
                 .or_else(|| skipped_hit.map(|(_, why)| why.clone()))
             {
                 Some(why) => Outcome::NotRun(why),

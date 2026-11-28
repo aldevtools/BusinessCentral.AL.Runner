@@ -181,6 +181,8 @@ pub(crate) fn events_not_as_new(e: &EventState) -> Option<&'static str> {
         no_client_test_session: _,
         // `Session::set_own_login`: set by al-testrun on a test codeunit's session after it is made, never on install code's.
         own_login: _,
+        // `Session::note_own_id_read`: noted only while `own_login` is set, so never in install code.
+        own_id_read: _,
     } = &**event_stats;
     let crate::order_trial::TrialState {
         allowed,

@@ -92,11 +92,23 @@ pub(crate) struct EventStats {
     pub install_view: RefCell<InstallView>,
     /// The value of `Session::no_client_test_session` (the test session under `--no-client`, not install code, not a page
     /// background task worker); its one writer is `Session::sync_no_client_test_session`. A read of the Session or Active
-    /// Session table is refused while it holds ([`Providers::session_read_refusal`]).
+    /// Session table is refused while it holds ([`Providers::no_client_session_read`]).
     pub no_client_test_session: std::cell::Cell<bool>,
     /// The session runner 130450 made for a login of its own after the held login (`Session::set_own_login`, its one
-    /// writer). A read of the Session or Active Session table is refused while it is set ([`Providers::session_read_refusal`]).
+    /// writer).
     pub own_login: std::cell::Cell<Option<crate::OwnLogin>>,
+    /// The session answered its own id while `own_login` comes after another such session (`Session::note_own_id_read`;
+    /// a read of the Session or Active Session table, [`Providers::note_session_read`]).
+    pub own_id_read: std::cell::Cell<bool>,
+}
+
+impl EventStats {
+    /// See `Session::note_own_id_read`: noted only where `own_login` comes after another such session.
+    pub(crate) fn note_own_id_read(&self) {
+        if self.own_login.get().is_some_and(|own| own.after_another()) {
+            self.own_id_read.set(true);
+        }
+    }
 }
 
 /// The apps an install has not reached, and the app whose install runs: the "NAV App Installed App" list leaves them out
@@ -583,7 +595,7 @@ impl Providers {
     /// The session's own Active Session row and the rows an Insert added: a Get, Count and Count with a filter find them
     /// (RvActiveSessionWrites.al:42-70, :90-130, :173-204).
     fn active_session_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
-        self.session_read_refusal(Virtual::ActiveSession)?;
+        self.no_client_session_read(Virtual::ActiveSession)?;
         let stored = store.stored_rows(cx, t);
         if stored.is_empty() {
             return self.listed(t, Virtual::ActiveSession);
@@ -663,16 +675,7 @@ impl Providers {
     /// of the Active Session table does there is not measured (BC's error on the Session read says "The Active Session does not
     /// exist"). Both are refused; install code and a page background task worker keep their own answers, and with a client the
     /// session's own row is listed.
-    ///
-    /// In a session that runner 130450 made for a login of its own after the held login (`EventStats::own_login`) every
-    /// read of both is refused: whether they hold the hub session's row there is not measured (assumption
-    /// `hub-login-later-runners`; corpus PR 1644 reads neither).
-    fn session_read_refusal(&self, kind: Virtual) -> Result<(), StoreError> {
-        if self.events.own_login.get().is_some() && matches!(kind, Virtual::Session | Virtual::ActiveSession) {
-            return Err(refused(
-                "a read of the Session or Active Session table in a session runner 130450 made for a login of its own after the held login: whether the hub session's row is there is not measured (assumption `hub-login-later-runners`)",
-            ));
-        }
+    fn no_client_session_read(&self, kind: Virtual) -> Result<(), StoreError> {
         if !self.events.no_client_test_session.get() {
             return Ok(());
         }
@@ -687,9 +690,20 @@ impl Providers {
         }
     }
 
+    /// A read of the Session or Active Session table `t`: both list the reading session's own row (metadata/platform-tables/
+    /// PlTSession.al:294; RvActiveSessionWrites.al:42-70; session-system/TestSessionVirtualTable.al:120), so the read
+    /// answers the session's id, as `SessionId()` does (`Session::note_own_id_read`). In a session runner 130450 made for a
+    /// login of its own after the held login, whether the Active Session table also lists the hub session's row is not
+    /// measured (assumption `hub-login-later-runners`): every read keeps main's answer, the own row.
+    fn note_session_read(&self, t: &TableDef) {
+        if matches!(self.kind(t), Virtual::Session | Virtual::ActiveSession) {
+            self.events.note_own_id_read();
+        }
+    }
+
     /// The rows of a table that is listed in full.
     fn listed(&self, t: &TableDef, kind: Virtual) -> Result<Listed, StoreError> {
-        self.session_read_refusal(kind)?;
+        self.no_client_session_read(kind)?;
         // In another language than 1033 the layouts' descriptions are that language's: listed per read, not kept.
         if kind == Virtual::ReportLayoutList && self.language() != 1033 {
             return Ok(Listed::Own(Rc::new(mat::Mat::new(
@@ -1001,6 +1015,7 @@ impl VirtualTables for Providers {
     }
 
     fn get(&self, store: &MemStore, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
+        self.note_session_read(t);
         match self.kind(t) {
             Virtual::AggregatePermissionSet => self.aggregate(store, cx, t)?.get(t, pk),
             Virtual::MetadataPermission | Virtual::ExpandedPermission | Virtual::Permission => {
@@ -1047,6 +1062,7 @@ impl VirtualTables for Providers {
     }
 
     fn next(&self, store: &MemStore, cx: &AccessContext, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
+        self.note_session_read(t);
         if self.kind(t) == Virtual::TimeZone
             && let Some(m) = host_tables::time_zone_by_id(t, &self.ident, scan.filters)?
         {
@@ -1121,6 +1137,7 @@ impl VirtualTables for Providers {
         t: &TableDef,
         filters: &[FieldFilter],
     ) -> Result<usize, StoreError> {
+        self.note_session_read(t);
         if self.kind(t) == Virtual::TimeZone
             && let Some(m) = host_tables::time_zone_by_id(t, &self.ident, filters)?
         {
@@ -1255,27 +1272,6 @@ mod tests {
 
     fn some_mat() -> mat::Mat {
         mat::Mat::new(&some_def(), Vec::new())
-    }
-
-    // Whether the Session and Active Session tables of a session runner 130450 made for a login of its own after the held
-    // login hold the hub session's row is not measured (assumption `hub-login-later-runners`): every read is refused
-    // there; another session lists its one row (session-system/TestSessionVirtualTable.al:120).
-    #[test]
-    fn an_own_login_session_refuses_the_session_tables() {
-        let p = Providers::new(
-            &engine(),
-            Ident::of(&al_host::Host::default()),
-            Rc::default(),
-            al_builtins::media::MediaStore::default(),
-        );
-        for kind in [Virtual::Session, Virtual::ActiveSession] {
-            assert!(p.session_read_refusal(kind).is_ok(), "{kind:?}");
-            p.events.own_login.set(Some(crate::OwnLogin::new(1, 1)));
-            assert!(p.session_read_refusal(kind).is_err(), "{kind:?}");
-            p.events.own_login.set(None);
-        }
-        p.events.own_login.set(Some(crate::OwnLogin::new(1, 1)));
-        assert!(p.session_read_refusal(Virtual::Field).is_ok());
     }
 
     #[test]

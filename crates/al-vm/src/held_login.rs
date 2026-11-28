@@ -30,17 +30,32 @@ impl Session {
         self.events.event_stats.own_login.set(own);
     }
 
-    /// `what` answers the session's id (`SessionId()`, a started session's id): refused in a session runner 130450 made
-    /// for a login of its own after another such session, since whether those codeunits share one session is not
-    /// measured (assumption `hub-login-later-runners`; corpus PR 1644 compares each with the hub session only,
-    /// LgnHeldLoginRunners.al:664, :705).
-    pub(crate) fn own_login_id_read(&self, what: &str) -> Result<(), Signal> {
-        match self.events.event_stats.own_login.get() {
-            Some(own) if own.nth > 1 => Err(Signal::unsupported(format!(
-                "{what} in a later codeunit that runner 130450 runs after the held login: whether it shares the session of an earlier one is not measured (assumption `hub-login-later-runners`)"
-            ))),
-            _ => Ok(()),
-        }
+    /// The session answered its own id (`SessionId()`, a started session's id, a read of the Session or Active Session
+    /// table): noted in a session runner 130450 made for a login of its own after another such session, since whether
+    /// those codeunits share one session is not measured (assumption `hub-login-later-runners`; corpus PR 1644 compares
+    /// each with the hub session only, LgnHeldLoginRunners.al:664, :705). The id itself is the session's own, as 1644
+    /// measures (:705 not the hub's, :710 one login row with it). A test that combines the id with what an earlier such
+    /// session wrote is refused (al-testrun runtime/held_login.rs `later_own_reads`), not the read.
+    pub(crate) fn note_own_id_read(&self) {
+        self.events.event_stats.note_own_id_read();
+    }
+
+    /// Whether the session answered its own id since it was made ([`Session::note_own_id_read`]; only a later own-login
+    /// session notes it).
+    pub fn own_id_read(&self) -> bool {
+        self.events.event_stats.own_id_read.get()
+    }
+
+    /// The session runner 130450 made for a login of its own after the held login ([`Session::set_own_login`]).
+    pub fn own_login(&self) -> Option<OwnLogin> {
+        self.events.event_stats.own_login.get()
+    }
+
+    /// The SingleInstance codeunits (object index, ascending) the session holds an instance of.
+    pub fn single_instances(&self) -> Vec<usize> {
+        let mut singles: Vec<usize> = self.singletons.keys().copied().collect();
+        singles.sort_unstable();
+        singles
     }
 
     /// `what` asks about session `n`: refused in a session runner 130450 made for a login of its own when `n` is the
@@ -63,11 +78,9 @@ impl Session {
         if self.login_held.is_some() {
             return;
         }
-        let mut singles: Vec<usize> = self.singletons.keys().copied().collect();
-        singles.sort_unstable();
         self.login_held = Some(Arc::new(HeldLogin {
             image,
-            singles,
+            singles: self.single_instances(),
             opened,
             own_logins: Default::default(),
         }));
@@ -137,6 +150,12 @@ pub struct OwnLogin {
 }
 
 impl OwnLogin {
+    /// The session comes after another one runner 130450 made for a login of its own: whether the two share one session is
+    /// not measured ([`Session::note_own_id_read`]).
+    pub fn after_another(&self) -> bool {
+        self.nth > 1
+    }
+
     /// The `nth` session that runs a login of its own after the hub session `hub_id`.
     pub(crate) fn new(hub_id: i32, nth: i32) -> Self {
         OwnLogin {
@@ -186,6 +205,16 @@ codeunit 50100 Probe
         routine: &str,
         args: Vec<al_builtins::value::Value>,
     ) -> Result<al_builtins::value::Value, Signal> {
+        in_own_then(nth, routine, args, |_| ())
+    }
+
+    /// [`in_own`], then `after` on the session.
+    fn in_own_then(
+        nth: Option<i32>,
+        routine: &str,
+        args: Vec<al_builtins::value::Value>,
+        after: impl FnOnce(&Session),
+    ) -> Result<al_builtins::value::Value, Signal> {
         let l = al_testkit::compile(OWN_SRC);
         let mut s = Session::new(Engine::new(l.program.clone(), al_testkit::blocked(&l)));
         s.set_own_login(nth.map(|n| OwnLogin::new(1, n)));
@@ -193,20 +222,33 @@ codeunit 50100 Probe
             .position(|r| r.name == routine)
             .expect("routine");
         let inst = s.codeunit_instance(0);
-        s.call(0, ri, inst, args).map(|(v, _)| v)
+        let r = s.call(0, ri, inst, args).map(|(v, _)| v);
+        after(&s);
+        r
     }
 
     fn refused(r: &Result<al_builtins::value::Value, Signal>) -> bool {
         matches!(r, Err(Signal::Unsupported(_)))
     }
 
+    /// [`in_own`], also answering whether the session noted that it answered its own id.
+    fn noted(nth: Option<i32>, routine: &str) -> (Result<al_builtins::value::Value, Signal>, bool) {
+        let mut read = false;
+        let r = in_own_then(nth, routine, vec![], |s| read = s.own_id_read());
+        (r, read)
+    }
+
     // Whether the codeunits runner 130450 runs after the held login share one session is not measured (assumption
-    // `hub-login-later-runners`, corpus PR 1644): the first such session answers its id, a later one's read is refused.
+    // `hub-login-later-runners`, corpus PR 1644): every such session answers its own id (LgnHeldLoginRunners.al:705,
+    // :710); a later one notes the read, for al-testrun `later_own_reads` to refuse a test that combines it with what an
+    // earlier one wrote.
     #[test]
-    fn a_later_own_login_session_refuses_its_session_id() {
-        assert!(!refused(&in_own(None, "Id", vec![])));
-        assert!(!refused(&in_own(Some(1), "Id", vec![])));
-        assert!(refused(&in_own(Some(2), "Id", vec![])));
+    fn a_later_own_login_session_answers_its_id_and_notes_the_read() {
+        for (nth, notes) in [(None, false), (Some(1), false), (Some(2), true)] {
+            let (r, read) = noted(nth, "Id");
+            assert!(r.is_ok(), "{nth:?}");
+            assert_eq!(read, notes, "{nth:?}");
+        }
     }
 
     // From a session runner 130450 made after the held login, whether the hub session (or an earlier such session) is

@@ -140,8 +140,50 @@ pub(super) fn held_reads(
         singles_why: "an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's \
                       one login wrote, and the session state that login set could not be kept for this codeunit: what \
                       its SingleInstance codeunits hold is not pinned",
+        ..Default::default()
     };
     (!reads.tables.is_empty() || !reads.singles.is_empty()).then_some(reads)
+}
+
+/// What a test of a session that runner 130450 made for a login of its own after another such session (al-vm
+/// `OwnLogin::after_another`) may not combine with the session's own id. Whether the two codeunits share one session is
+/// not measured (assumption `hub-login-later-runners`; corpus PR 1644 compares each with the hub session only,
+/// LgnHeldLoginRunners.al:664, :705), so an id answered in one is not known to relate to what the other wrote: the
+/// login tables, where every such session's login wrote a row with its id (`written`, of the held login and of this
+/// one, `wrote`; :710), and the tables the carry this codeunit starts from left rows in (`leak`, `Scratch::leak`).
+/// When this session's login answered its id (`login_read_id`), a test whose static reach touches one of those tables or
+/// reads a global of a SingleInstance codeunit that login left an instance of (`singles`), with its reach unknown, or
+/// that touched one of the tables while it ran, is not run (`HeldReads::tables`, `singles`). Otherwise a test that
+/// touched one of the tables while it ran is not run when the session answered its id by then, in its OnRun or a test
+/// (`HeldReads::id_tables`, `CompanyOpenWrites::watch_hit`). The id itself is the session's own (:705, :710), and a
+/// test that reads only other tables runs.
+pub(super) fn later_own_reads(
+    held: &al_vm::HeldLogin,
+    wrote: &crate::install::CompanyOpenWrites,
+    leak: Option<&std::collections::BTreeSet<u32>>,
+    login_read_id: bool,
+    singles: Vec<usize>,
+) -> crate::install::HeldReads {
+    let mut tables = written(wrote);
+    tables.extend(held_opened(held).map(|opened| written(&opened.wrote)).unwrap_or_default());
+    tables.extend(leak.into_iter().flatten().copied());
+    const WHY: &str = "a codeunit that runner 130450 runs after another one after the held login answered its own \
+                       session id, and whether the two share one session is not measured (assumption \
+                       `hub-login-later-runners`)";
+    crate::install::HeldReads {
+        tables: match login_read_id {
+            true => tables.clone(),
+            false => Default::default(),
+        },
+        tables_why: WHY,
+        singles: match login_read_id {
+            true => singles.into_iter().collect(),
+            false => Default::default(),
+        },
+        singles_why: WHY,
+        id_tables: tables,
+        id_why: WHY,
+    }
 }
 
 /// How what the session wrote when it opened the company meets what a Disabled codeunit carries: `Ok(true)` when the

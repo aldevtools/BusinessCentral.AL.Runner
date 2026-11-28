@@ -160,9 +160,10 @@ impl Session {
             },
             ids::DATABASE_USERID_1 => Ok(Value::Text(self.host.identity.user_id().into())),
             ids::DATABASE_USERSECURITYID_1 => Ok(Value::Guid(self.host.identity.user_security_id())),
-            ids::DATABASE_SESSIONID_1 => self
-                .own_login_id_read("SessionId()")
-                .map(|()| Value::Integer(self.session_id())),
+            ids::DATABASE_SESSIONID_1 => {
+                self.note_own_id_read();
+                Ok(Value::Integer(self.session_id()))
+            }
             // An id no session has is not active (session-system/TestSessionComplete.al:45-52: 99999; metadata/platform-tables/
             // PlTSession.al:295-296: 0 and 2147483647); the running session is (PlTSession.al:294 SessionId_Relations).
             ids::SESSION_ISSESSIONACTIVE_1 => match args.first() {

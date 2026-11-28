@@ -1,9 +1,10 @@
 //! The refusals around the run's one login a Disabled codeunit on the hub holds (held_login.rs `login_once_on_hub`,
 //! assumption `hub-disabled-login-once`): which later codeunits are not measured, the carry refusal a session that
-//! starts from what another codeunit left keeps, and what a test of a held session may not read (`held_reads`). The
+//! starts from what another codeunit left keeps, and what a test of a held session may not read (`held_reads`, `later_own_reads`). The
 //! neighbor apps `tests/neighbors/disabled-login-writes*` run the same shapes end to end.
 use super::held_login::{
-    HeldOpened, carried_company_open, first_login, held_reads, login_rows_as_held, own_session_id, runs_own_login,
+    HeldOpened, carried_company_open, first_login, held_reads, later_own_reads, login_rows_as_held, own_session_id,
+    runs_own_login,
 };
 use super::*;
 use crate::install::CompanyOpenWrites;
@@ -206,5 +207,35 @@ fn a_hub_codeunit_after_a_disabled_codeunit_changed_the_login_rows_refuses_their
         assert!(login_row.ends_with("this test can read table Login Row"), "{r:?}");
         assert_eq!(r[1], None);
         assert_eq!(r[2].is_some(), !thawed, "{r:?}");
+    }
+}
+
+// A runner 130450 codeunit after another one (corpus PR 1644 does not measure whether they share one session): when its
+// login answered its id, the readers of the login tables, of the tables the carry left rows in and of the SingleInstance
+// codeunits its login left are not run before they start; otherwise only a test that answered the id and touched one of
+// those tables while it ran (`watch_hit`, `touched`). A reader of another table runs (LgnHeldLoginRunners.al:705, :710).
+#[test]
+fn a_later_runner_130450_codeunit_refuses_only_tests_that_combine_its_id_with_earlier_rows() {
+    let (l, engine) = super::tests::engine_for(SRC);
+    let held = held(&l);
+    let (login_row, other) = (object(&l, "Login Row") as u32, object(&l, "Other") as u32);
+    let wrote = CompanyOpenWrites {
+        held: Some(later_own_reads(&held, &login_wrote(&l), None, true, vec![object(&l, "Memo")])),
+        ..Default::default()
+    };
+    let r = refusals(&l, &engine, &wrote);
+    assert!(r[0].as_ref().is_some_and(|w| w.contains("answered its own session id")), "{r:?}");
+    assert_eq!(r[1], None);
+    assert!(r[2].is_some(), "{r:?}");
+    let leak = [other].into();
+    let wrote = CompanyOpenWrites {
+        held: Some(later_own_reads(&held, &login_wrote(&l), Some(&leak), false, vec![object(&l, "Memo")])),
+        ..Default::default()
+    };
+    let r = refusals(&l, &engine, &wrote);
+    assert_eq!((&r[0], &r[1], &r[2]), (&None, &None, &None), "{r:?}");
+    for (t, id_read, refused) in [(login_row, true, true), (login_row, false, false), (other, true, true), (other, false, false)] {
+        let hit = wrote.watch_hit(&[t].into(), true, id_read);
+        assert_eq!(hit.and_then(|t| wrote.touched(t, &l, id_read)).is_some(), refused, "{t} {id_read}");
     }
 }
