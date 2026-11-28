@@ -301,6 +301,9 @@ impl al_builtins::native::Ctx for Session {
     fn collect_error(&mut self, info: &Value) -> bool {
         Session::collect_error(self, info)
     }
+    fn error_scopes_open_and_held(&self) -> (usize, usize) {
+        Session::error_scopes_open_and_held(self)
+    }
     fn fs_exists(&mut self, path: &str) -> Result<bool, Signal> {
         // Whether a file of carried content exists is no look at it (owner decision 2026-10-23 "Carry bytes unread"), nor
         // whether a placeholder report output does (ADR-040 amendment 2026-11-11).

@@ -1,0 +1,14 @@
+{
+  "id": "4b8e2f6a-9c3d-4e21-8a7f-940900000001",
+  "name": "Neighbors serve-internal-errortext-9409",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [
+    { "from": 69160, "to": 69160 },
+    { "from": 77400, "to": 77401 },
+    { "from": 77410, "to": 77419 }
+  ],
+  "dependencies": []
+}

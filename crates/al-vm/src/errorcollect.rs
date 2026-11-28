@@ -87,6 +87,11 @@ impl Session {
         !self.error_scopes.starts.is_empty()
     }
 
+    /// How many scopes are open and how many errors they hold, `(open, held)`.
+    pub(crate) fn error_scopes_open_and_held(&self) -> (usize, usize) {
+        (self.error_scopes.starts.len(), self.error_scopes.held.len())
+    }
+
     /// `Error(ErrorInfo)` of a collectible error: kept when a scope is open.
     pub(crate) fn collect_error(&mut self, info: &Value) -> bool {
         self.bg_note_worker_collection();
@@ -117,9 +122,9 @@ impl Session {
         }
         let held = std::mem::take(&mut sc.held);
         let mut first = al_builtins::errorinfo::message_of(&held[0]).unwrap_or_default();
-        // An Internal error raises the generic text with a backslash before its correlation id, where its collected Message
-        // has a line break (errors/PnBErrorsCollections.al:360-375 RO_CollectedErrorInfo_Internal_NotCleared_
-        // ScopeExit). As the first of several, the summary is not measured.
+        let mut exception_message = None;
+        // An Internal error raises its own texts (al-builtins `errorinfo::internal_scope_end_texts`). As the first of several,
+        // the summary is not measured.
         if al_builtins::errorinfo::is_internal(&held[0]) {
             if held.len() > 1 {
                 return Err(Signal::Unsupported(
@@ -127,7 +132,7 @@ impl Session {
                         .into(),
                 ));
             }
-            first = first.replace("\r\n", "\\");
+            (first, exception_message) = al_builtins::errorinfo::internal_scope_end_texts(&held[0], &first);
         }
         let message = if held.len() == 1 { first } else { summary(&first) };
         // session-system/TestProbeSessionMiscContracts.al:ErrorCollection_ScopeExitText, ErrorCollection_SingleError: code Dialog.
@@ -135,6 +140,7 @@ impl Session {
             message,
             code: "Dialog".into(),
             call_stack: String::new(),
+            exception_message,
             ..Default::default()
         })))
     }

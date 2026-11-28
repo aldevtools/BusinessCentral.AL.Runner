@@ -445,6 +445,11 @@ pub trait Ctx: FormatCtx {
     fn collect_error(&mut self, _info: &Value) -> bool {
         false
     }
+    /// How many `[ErrorBehavior(Collect)]` scopes are open and how many errors they hold, `(open, held)`; `(0, 0)` in a
+    /// context without collecting scopes.
+    fn error_scopes_open_and_held(&self) -> (usize, usize) {
+        (0, 0)
+    }
     /// The session's media objects and media sets (`Media` and `MediaSet` fields).
     fn media_store(&mut self) -> Option<&mut crate::media::MediaStore> {
         None

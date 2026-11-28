@@ -1773,8 +1773,21 @@ pub struct ErrorInfoState {
     pub page_no: i32,
     /// The dictionary the test assigned, held by reference.
     pub custom_dimensions: Option<Value>,
+    /// How many actions `AddAction` and `AddNavigationAction` added; they are never run.
+    pub actions: u32,
     /// How the ErrorInfo was built, for `GetLastErrorText(true)` after `FieldError(Field, ErrorInfo)`.
     pub built: ErrorInfoBuilt,
+    /// Set only on the copy `Error` collects for an Internal ErrorInfo of a measured shape (al-builtins
+    /// `errorinfo::raise`); every copy keeps it.
+    pub collected_internal: Option<CollectedInternal>,
+}
+
+/// What `Error` collected for an Internal ErrorInfo of a measured shape: the collected Message, and the Message of the
+/// exception `GetLastErrorObject` answers when a collecting scope ends holding an error whose Message is still that one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectedInternal {
+    pub message: String,
+    pub exception_message: String,
 }
 
 /// How an `ErrorInfo` was built: `Create()` and nothing set after it, `Create('literal')` with one string literal and

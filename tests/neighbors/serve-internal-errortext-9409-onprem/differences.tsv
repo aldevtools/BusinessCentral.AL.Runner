@@ -1,0 +1,5 @@
+# key	entry
+NB EIT Last Error Object::Measured_ObjectMessage_Braced	ASSUMED errorinfo-internal-text (corpus PR 1666; GetLastErrorText bare, GetLastErrorObject keeps the braced id)
+NB EIT Last Error Object::CollectedLeave_ObjectMessage_Braced	ASSUMED errorinfo-internal-text (corpus PR 1666; GetLastErrorText bare, GetLastErrorObject keeps the braced id)
+NB EIT TestField::CollectedErrorInfo_TextBare_ObjectBraced	ASSUMED errorinfo-internal-text (corpus PR 1666; TestField collects the returned ErrorInfo's own Message, measured bare, and the scope end passes it through; the object Message keeps the braced id)
+NB EIT TestField::CollectedErrorInfo_MessageSet_ObjectIsText	ASSUMED errorinfo-internal-text (corpus PR 1666; the first collection is the measured one; the Message the test set gets main's answer at the scope end)

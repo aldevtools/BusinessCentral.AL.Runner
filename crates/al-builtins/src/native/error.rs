@@ -10,6 +10,8 @@ pub struct AlError {
     pub origin: ErrorOrigin,
     /// The .NET exception BC holds for the error, which `GetLastErrorObject` needs.
     pub exception: ExceptionKind,
+    /// The Message of the exception `GetLastErrorObject` answers, where it is not `message`; `None`: it is `message`.
+    pub exception_message: Option<String>,
 }
 
 /// The .NET exception type behind an error, for `GetLastErrorObject`. Only the kinds the corpus pins are named
