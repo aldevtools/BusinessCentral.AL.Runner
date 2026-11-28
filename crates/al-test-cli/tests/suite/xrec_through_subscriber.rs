@@ -835,8 +835,12 @@ codeunit 50207 "XS Tests"
     [Test] procedure Nested_TwoProcedures() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested', 'I x=0/NEW/I1;T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
     [Test] procedure Nested_ThreeProcedures() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested3', 'I x=0/NEW/I1;T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
     [Test] procedure Nested_AfterGet() var L: Record "XS Line"; begin AfterGet(L); ValidateItem(L, 'nested', 'I x=0/NEW/I1;T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
-    [Test] procedure RefusedAssign_Nested() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-assign', 'I x=0/NEW/I1;T x=0/NEW/I1;XS x=0/NEW/I1;T after x=0/SET/I1;I after x=0/SET/I1;'); end;
-    [Test] procedure RefusedAssign_Nested_ErrorCaughtAfterAssign() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-assign-err', ''); end;
+    // One xRec for both Validates (records/nested_validate.rs `nested_validate_xrec`, record/validate/XRecTableProcThroughSubscriber.al:750).
+    [Test] procedure Nested_SubscriberAssigns() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-assign', 'I x=0/NEW/I1;T x=0/NEW/I1;XS x=0/NEW/I1;T after x=0/SET/I1;I after x=0/SET/I1;'); end;
+    [Test] procedure Nested_ErrorCaughtAfterAssign() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-assign-err', 'I x=0/NEW/I1;T x=0/NEW/I1;'); end;
+    // Where the inner Validate keeps its own copy (a buffer from Get, a temporary record), a change to xRec still refuses.
+    [Test] procedure RefusedAssign_Nested_AfterGet() var L: Record "XS Line"; begin AfterGet(L); ValidateItem(L, 'nested-assign', ''); end;
+    [Test] procedure RefusedAssign_Nested_Temporary() var L: Record "XS Line" temporary; begin AfterInsert(L); ValidateItem(L, 'nested-assign', ''); end;
     // The value assigned back: neither trigger can tell (the record was assigned before, so `AreFieldsLoaded` reads the same).
     [Test] procedure Nested_AssignedAndRestored() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-assign-restore', 'I x=0/NEW/I1;T x=0/NEW/I1;'); end;
     [Test] procedure Refused_Codeunit_ThroughInterfaceFromTrigger() var L: Record "XS Line"; begin AfterInsert(L); ValidateViaCodeunit(L, 'cu-iface', ''); end;
@@ -882,13 +886,11 @@ codeunit 50207 "XS Tests"
     [Test] procedure Nested_FreshRecord() var L: Record "XS Line"; begin Log.Set(''); L.DeleteAll(); L."Line No." := 1; L.Series := 'NEW'; L."Item No." := 'I1'; ValidateItem(L, 'nested', 'I x=0/NEW/I1;T x=0/NEW/I1;X x=0/NEW/I1;P x=0/NEW/I1;'); end;
     [Test] procedure Sub_ProcedureValidatesOtherField() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-proc-val', 'T x=0/NEW/I1;O x=0/NEW/I1;'); end;
     [Test] procedure Codeunit_TryFunction() var L: Record "XS Line"; begin AfterInsert(L); ValidateViaCodeunit(L, 'cu-try', 'V x=0/NEW/I1;CT x=0/NEW/I1;try ok;'); end;
-    // BC keeps one xRec for both Validates (I x=0/NEW/I1;T x=0/OUT/I1;X x=0/OUT/I1;...); the runner keeps two.
-    [Test] procedure Refused_Nested_OuterAssignsXRecFirst() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-outer-assign', ''); end;
-    // BC: the procedures and the outer trigger read the inner trigger's assignment (X x=0/INN/I1;...;I after x=0/INN/I1).
-    [Test] procedure Refused_Nested_InnerAssignsXRecFirst() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-inner-assign', ''); end;
-    // BC: the filter shows in both triggers (T filters=Series: F;I filters=Series: F).
-    // Not measured: any other change of the shared xRec's view refuses the same way.
-    [Test] procedure RefusedAssign_Nested_ProcedureMarksXRec() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-marked', ''); end;
+    // BC keeps one xRec for both Validates (XRecTableProcThroughSubscriber.al:1050, :1064); so does the runner in this shape.
+    [Test] procedure Nested_OuterAssignsXRecFirst() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-outer-assign', 'I x=0/NEW/I1;T x=0/OUT/I1;X x=0/OUT/I1;P x=0/OUT/I1;I after x=0/OUT/I1;'); end;
+    [Test] procedure Nested_InnerAssignsXRecFirst() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-inner-assign', 'I x=0/NEW/I1;T x=0/NEW/I1;X x=0/INN/I1;P x=0/INN/I1;I after x=0/INN/I1;'); end;
+    // The one xRec: MarkedOnly on it is a change of the record both triggers hold.
+    [Test] procedure Nested_ProcedureMarksXRec() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-marked', 'I x=0/NEW/I1;T x=0/NEW/I1;'); end;
     // Shapes no cell measured (review of PR 8304, 2026-11-20): each refuses a read of xRec.
     [Test] procedure Refused_Sub_SingleInstanceSubscriber() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-single', ''); end;
     [Test] procedure Refused_Codeunit_SingleInstanceHelper() var L: Record "XS Line"; begin AfterInsert(L); ValidateViaCodeunit(L, 'cu-single', ''); end;
@@ -899,7 +901,8 @@ codeunit 50207 "XS Tests"
     // Rec.OtherProc() inside the procedure that shares the trigger's xRec: not measured; the unqualified call shares it.
     [Test] procedure Refused_Sub_RecDotProcInSharedProc() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-rec-proc', ''); end;
     [Test] procedure Sub_UnqualifiedProcInSharedProc() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-own-proc', 'T x=0/NEW/I1;U x=0/NEW/I1;'); end;
-    [Test] procedure RefusedAssign_Nested_ProcedureFiltersXRec() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-filter', ''); end;
+    // BC: the filter shows in both triggers (XRecTableProcThroughSubscriber.al:1078).
+    [Test] procedure Nested_ProcedureFiltersXRec() var L: Record "XS Line"; begin AfterInsert(L); ValidateItem(L, 'nested-filter', 'I x=0/NEW/I1;T x=0/NEW/I1;XF filters=Series: F;T filters=Series: F;I filters=Series: F;'); end;
     // Assumption xrec-table-proc-callers-subscribers (record/validate/XRecTableProcCallers.al, corpus PR 1482): the Validate
     // called by other code than the test procedure, and an event with two subscribers.
     [Test] procedure Assumed_Sub_TwoSubscribers() var L: Record "XS Line"; begin AfterInsert(L); ValidateMode(L, 'sub-two-subs', 'T x=0/NEW/I1;X x=0/NEW/I1;'); end;
@@ -950,6 +953,6 @@ fn measured_chains_share_the_trigger_xrec_and_their_neighbors_refuse() {
             wrong.push(format!("{name}: {outcome} {hits:?}"));
         }
     }
-    assert_eq!(o.len(), 69);
+    assert_eq!(o.len(), 71);
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

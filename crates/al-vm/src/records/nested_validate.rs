@@ -31,6 +31,10 @@ use std::rc::Rc;
 /// here a read of it refuses.
 pub(crate) const XREC_OF_RUNNING_CALL: &str = "xRec in a table procedure called through other code on a record whose trigger or procedure runs: real BC hands it the running call's xRec in the shapes XRecTableProcThroughCodeunit.al and XRecTableProcThroughSubscriber.al pin, this shape is not run";
 
+/// The procedures of the table between the trigger of a Validate and the Validate it nests in the cells that assign or filter the
+/// one xRec of both (record/validate/XRecTableProcThroughSubscriber.al:116-118 `CopyFromItem`, :190-198 `UpdateMode`).
+const NESTING_PROCEDURES_ASSIGNED: usize = 2;
+
 /// The before-image a Validate hands its triggers as xRec: the field values, and the `RecordState::unpinned_buffer` reason
 /// the xRec gets (the procedure xRec's mark when `records.rs` `unmeasured_xrec_mark` holds for it, `validate_before_image`).
 pub(crate) type BeforeImage = (Vec<Value>, Option<&'static str>);
@@ -419,6 +423,50 @@ impl Session {
             .last()
             .is_some_and(|&o| self.table_or_its_extension(o, table_object));
         (own || self.stamp_validating.contains(&handle)).then(|| before.clone())
+    }
+
+    /// The xRec handle a Validate of `rec` (at `handle`, called from `site`, of the field at `pos`, `with_value` whether it hands
+    /// a new value) hands its triggers when the table's own code nests it in the one running Validate of the record: that
+    /// Validate's, shared. Real BC keeps one xRec for both: what the outer trigger assigns before it nests is what the inner
+    /// trigger reads, what the inner trigger assigns is what the outer trigger reads after, and a filter set on it shows in both
+    /// (record/validate/XRecTableProcThroughSubscriber.al:1050, :1064, :1078, :758). Only in the shape those cells measured,
+    /// each fact by equality: the outer Validate a `Record.Validate` from a procedure of a test codeunit that has no attribute
+    /// (`ValidateItemAndObserve`, :518-525), called by the `[Test]` procedure of that codeunit (:1042-1050), whose trigger is a
+    /// field OnValidate of the table (:104); the inner one a `Record.Validate` from AL code with a value, of another field
+    /// (:197); between the two exactly [`NESTING_PROCEDURES_ASSIGNED`] procedures of the table that are no triggers and have no
+    /// attribute, called on the trigger's record (`CopyFromItem`, `UpdateMode`, :116-118, :190-198); the buffer `AfterInsert`
+    /// (:498-507); the record and the outer xRec with the view no filter, mark, key or sort changed. Any other shape keeps its own copy of the before-image (`None`).
+    pub(crate) fn nested_validate_xrec(
+        &self,
+        handle: usize,
+        site: Option<ValidateSite>,
+        pos: usize,
+        with_value: bool,
+        rec: &Rec,
+    ) -> Option<Rec> {
+        let from_al = Some(ValidateSite::AlRecordValidate);
+        if site != from_al || !with_value || self.stamp_validating.contains(&handle) {
+            return None;
+        }
+        let mut running = self.validate_sites.iter().filter(|v| v.handle == handle);
+        let (Some(outer), None) = (running.next(), running.next()) else {
+            return None;
+        };
+        let table = rec.borrow().table as usize;
+        let (o, i) = (outer.depth, self.call_stack.len());
+        let outer_field = self.routine_at(o).1.field;
+        let measured = outer.site == from_al
+            && o == self.test_frame_base() + 2
+            && o + 1 + NESTING_PROCEDURES_ASSIGNED == i
+            && self.only_test_codeunit_frames(0, i - o)
+            && self.field_on_validate_at(table, o)
+            && outer_field != Some(pos)
+            && self.own_procedures_between(table, o, i)
+            && ((o + 1)..i).all(|d| self.routine_at(d).1.attributes.is_empty())
+            && Self::buffer_of_own_insert(&rec.borrow())
+            && super::XrecView::of(&rec.borrow()).untouched()
+            && super::XrecView::of(&outer.xrec.borrow()).untouched();
+        measured.then(|| outer.xrec.clone())
     }
 
     /// The before-image a Validate of `rec` (at `handle`) hands its triggers as xRec, `outer` being `outer_validate_before` and
