@@ -253,8 +253,12 @@ pub(super) fn logo_media_row(p: &Providers, t: &TableDef, media_id: [u8; 16]) ->
         .apps
         .iter()
         .filter(|a| al_builtins::ops::parse_guid(&a.id).is_some_and(|id| ids::logo_media_id(id) == media_id))
-        .find_map(
-            |a| match served_logo(a, route(a, engine.dependencies_published_global).1, engine.target.as_ref()) {
+        .find_map(|a| {
+            match served_logo(
+                a,
+                route(a, engine.dependencies_published_global).1,
+                engine.target.as_ref(),
+            ) {
                 Logo::Picture {
                     bytes,
                     size,
@@ -262,8 +266,8 @@ pub(super) fn logo_media_row(p: &Providers, t: &TableDef, media_id: [u8; 16]) ->
                     assumed,
                 } => Some((bytes, size, mime, assumed)),
                 Logo::None | Logo::Unknown(_) => None,
-            },
-        )?;
+            }
+        })?;
     let field = |name: &str| t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
     let mut r = blank(t);
     r[pos(t, 1)] = Value::Guid(media_id);
@@ -515,14 +519,24 @@ mod tests {
         let global = Some(Assumption::DependencyPublishedAsGlobal);
         assert!(matches!(served_logo(&g, global, target(29).as_ref()), Logo::Unknown(_)));
         let other_size = app(sized(300, 300, measured_header));
-        assert!(matches!(served_logo(&other_size, None, target(29).as_ref()), Logo::Unknown(_)));
+        assert!(matches!(
+            served_logo(&other_size, None, target(29).as_ref()),
+            Logo::Unknown(_)
+        ));
         let dpi96 = app(sized(535, 534, [1, 1, 1, 0, 0x60, 0, 0x60, 0, 0]));
-        assert!(matches!(served_logo(&dpi96, None, target(29).as_ref()), Logo::Unknown(_)));
+        assert!(matches!(
+            served_logo(&dpi96, None, target(29).as_ref()),
+            Logo::Unknown(_)
+        ));
         // The pinned 8 x 8 logo with the probe's header stays pinned: image/png on 27, no assumption.
         let e = app(sized(8, 8, measured_header));
         assert!(matches!(
             served_logo(&e, None, target(27).as_ref()),
-            Logo::Picture { mime: "image/png", assumed: None, .. }
+            Logo::Picture {
+                mime: "image/png",
+                assumed: None,
+                ..
+            }
         ));
     }
 

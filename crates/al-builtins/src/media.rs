@@ -164,7 +164,11 @@ fn coded_data_then_end(rest: &[u8]) -> bool {
 /// -k/logo.jpg), each byte by equality: length 16, "JFIF\0", version 1.01, density units 0, density 1 x 1, no thumbnail.
 pub fn jfif_header_of_measured_logos(b: &[u8]) -> bool {
     b.get(2..20)
-        == Some(&[0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0][..])
+        == Some(
+            &[
+                0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0,
+            ][..],
+        )
 }
 
 /// Whether a JPEG starts with a JFIF header of units 1 (dots per inch) and density 300 x 300: SOI, APP0, "JFIF\0", version,

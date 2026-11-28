@@ -1988,16 +1988,41 @@ codeunit 50000 T {{ Subtype = Test;
     for (bytes, w, h) in logos {
         let code = main(w, h, bytes.len());
         for target in ["27.5", "29.0"] {
-            let o = run_over_system_as(Some(target), MAIN_ID, Some(al_ir::AppLogo::File(bytes.to_vec())), None, &code);
+            let o = run_over_system_as(
+                Some(target),
+                MAIN_ID,
+                Some(al_ir::AppLogo::File(bytes.to_vec())),
+                None,
+                &code,
+            );
             assert_eq!(o[0].1, Outcome::Pass, "{target} {w} x {h}: {o:?}");
-            assert_eq!(o[0].2, [al_builtins::assumptions::Assumption::AppLogoJpegSizes], "{target}");
+            assert_eq!(
+                o[0].2,
+                [al_builtins::assumptions::Assumption::AppLogoJpegSizes],
+                "{target}"
+            );
         }
-        let o = run_over_system_as(Some("28.5"), MAIN_ID, Some(al_ir::AppLogo::File(bytes.to_vec())), None, &code);
-        assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "28.5 {w} x {h}: {o:?}");
+        let o = run_over_system_as(
+            Some("28.5"),
+            MAIN_ID,
+            Some(al_ir::AppLogo::File(bytes.to_vec())),
+            None,
+            &code,
+        );
+        assert!(
+            matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")),
+            "28.5 {w} x {h}: {o:?}"
+        );
     }
     let mut dpi96 = include_bytes!("../fixtures/jpeg/base535x534.jpg").to_vec();
     dpi96[13..18].copy_from_slice(&[1, 0, 0x60, 0, 0x60]);
-    let o = run_over_system_as(Some("29.0"), MAIN_ID, Some(al_ir::AppLogo::File(dpi96)), None, &main(535, 534, 14191));
+    let o = run_over_system_as(
+        Some("29.0"),
+        MAIN_ID,
+        Some(al_ir::AppLogo::File(dpi96)),
+        None,
+        &main(535, 534, 14191),
+    );
     assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
 }
 

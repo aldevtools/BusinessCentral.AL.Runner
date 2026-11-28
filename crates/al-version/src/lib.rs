@@ -12,8 +12,8 @@ mod choose;
 mod gates;
 mod symbols;
 pub use awaited::{
-    BulkWrite, app_logo_jpeg_sizes_measured, bulk_commit_ends_cached_row, http_probe_1424_measured, journal_temp_part_reads_after_refresh,
-    visible_names_row_field_reads_yes, web_service_session_measured,
+    BulkWrite, app_logo_jpeg_sizes_measured, bulk_commit_ends_cached_row, http_probe_1424_measured,
+    journal_temp_part_reads_after_refresh, visible_names_row_field_reads_yes, web_service_session_measured,
 };
 pub use choose::{AppVersions, Chosen, TargetError, choose_target};
 pub use gates::{
