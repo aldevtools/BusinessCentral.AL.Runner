@@ -71,6 +71,7 @@ mod list_caption_expression;
 mod list_caption_filter;
 mod list_caption_relation_where;
 mod list_mode_reopen;
+mod relation_text_entry;
 mod secondary_key_marked_refill;
 mod selection_new_line;
 

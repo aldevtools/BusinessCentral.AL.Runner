@@ -1,46 +1,355 @@
-//! SetValue into a Text page variable with its own TableRelation (al-runner issue 8339). The reporter measured on BC 29.1 that
-//! the control then holds the related row's stored key value: `CRONUS USA, INC.` typed into a page variable and a request page
-//! variable with `TableRelation = Company` gives `CRONUS USA, Inc.`. The runner kept the typed text. Which value BC takes for
-//! other values is not pinned either, so SetValue of any value but a blank text into such a control, bound to a variable of
-//! the page or to a variable of the base page from an extension, is refused before anything runs. A control bound to a field
-//! of Rec keeps its path (not measured by the reporter; this refusal does not cover it), and so does a Code variable: its value and the
-//! stored key read the same in upper case. So does a relation, without a condition, to one table of the workspace with
-//! `TableType = Temporary` (`relates_to_temporary_table`): such a table stores no row a value could be taken from.
+//! A TestPage SetValue of a text into a control with a TableRelation: which row's key the control takes, or the error it
+//! raises (al-runner issues 8339 and 9336).
 //!
-//! refuses SetValue of any value but a blank text into a Text page variable (or a base page variable
-//! an extension binds) with its own TableRelation (al-runner issue 8339; which stored value BC takes
-//! is not pinned); a relation without a condition to one table with `TableType = Temporary` keeps its
-//! path. Entry points: `refuse_text_entry_with_relation` (by `control_set_value`).
+//! Corpus PR 1646 (tests/al-language/testpage/SetValueTableRelation.al, open: assumption
+//! `test-page-set-value-table-relation`) measures related tables whose primary key is one Code field:
+//! - a Text or Code variable of a Card without a source table, or a Text variable of a report's request page, related to
+//!   the table (or to its key field, KeyFieldVar_LowerPrefix), takes the stored key of the row whose key is the text
+//!   upper-cased ('ABC' and 'abc' give ABC: TextVar_Exact, TextVar_LowerCase, CodeVar_Exact, CodeVar_LowerCase,
+//!   RequestPage_LowerCase), else the first key in key order that starts with it ('MN' and 'mn' give MNO, 'AB' gives ABC
+//!   also when ABD was written first: TextVar_PrefixOneKey, TextVar_LowerPrefix, CodeVar_PrefixOneKey,
+//!   TextVar_PrefixTwoKeys, CodeVar_PrefixTwoKeys, TextVar_PrefixTwoKeysAbdFirst, RequestPage_Prefix), else fails with the
+//!   does-not-exist error naming the captions and the text upper-cased (TextVar_NoRow, TextVar_NoRowLower, CodeVar_NoRow,
+//!   TextVar_InsideKey 'BC', TextVar_NameStart 'Unique', CapVar_NoRow, RequestPage_NoRow); the control keeps the value it
+//!   held and OnValidate does not run (TextVar_ValueThenNoRow);
+//! - with `where(Active = const(true))` on a Text variable, an exact key outside the filter is taken as typed ('XYZ',
+//!   'xyz': Filtered_Outside, Filtered_OutsideLowerCase), a prefix completes to the first key inside the filter
+//!   (Filtered_Inside, Filtered_PrefixFirstOutside) and fails without one (Filtered_PrefixOutside);
+//! - a Text variable related to a field in no key fails every entry, the blank one too, with the primary-key error
+//!   (NameVar_*, NameVar_Blank);
+//! - a Code table field related to the bare table completes an upper-case prefix the same way (HostField_PrefixOneKey,
+//!   HostField_PrefixTwoKeys); its exact key, its no-row error, its blank entry and a filtered relation's errors were
+//!   main's answer already (HostField_Exact, HostField_NoRow, HostField_Blank, HostActive_OutsideExact,
+//!   HostActive_OutsidePrefix, CapHost_NoRow).
+//!
+//! Every other shape of a variable control on such a page is refused, and so is a Text variable control with a
+//! TableRelation elsewhere (al-runner issue 8339: which value BC takes there is not measured). A relation, without a
+//! condition, to one table with `TableType = Temporary` keeps its path: such a table stores no row a value could be taken
+//! from. A Code variable elsewhere and a table field outside the measured shape keep their paths too.
+//!
+//! Entry point: `relation_text_entry` (by `control_set_value`).
 
 use super::relation_lookup::{simple_relation, tables_named};
 use super::*;
+use al_builtins::assumptions::{Assumption, assume};
+use al_builtins::filter::FieldFilter;
+use al_data::{CodeStorage, TableDef};
+
+/// The refusal of a variable control's entry outside the cells corpus PR 1646 measures.
+const UNMEASURED: &str =
+    "SetValue of a text into a page variable with a TableRelation, in a shape corpus PR 1646 does not measure";
+
+/// A variable control's relation in a measured shape (`measured_relation`).
+enum Relation {
+    /// To the primary key, optionally under one `const` condition on a field outside it.
+    Key(Option<FieldFilter>),
+    /// To the field at this position, which is in no key.
+    NonKey(usize),
+}
 
 impl Session {
-    pub(super) fn refuse_text_entry_with_relation(&self, st: &St, idx: usize, value: &Value) -> Result<(), Signal> {
-        let blank = matches!(value, Value::Text(t) | Value::Code(t) if t.trim().is_empty());
-        let (variable_with_relation, temporary_target) = {
-            let engine = self.engine();
-            let c = &page_of(&engine, st).controls[idx];
-            let relation = match c.prop("tablerelation") {
-                Some(ir::PropVal::Lit(t)) => Some(relates_to_temporary_table(&engine, t)),
-                Some(_) => Some(false),
-                None => None,
-            };
-            (
-                matches!(c.binding, ir::Binding::Var(_) | ir::Binding::BaseVar(_)) && relation.is_some(),
-                relation == Some(true),
-            )
+    /// Before a SetValue writes control `idx`: replaces the text in `args` by the related row's key, raises the related
+    /// table's error, refuses, or leaves the entry as it is (module doc).
+    pub(super) fn relation_text_entry(&mut self, st: &St, idx: usize, args: &mut [Value]) -> Result<(), Signal> {
+        let Some(value) = args.first() else {
+            return Ok(());
         };
-        if !blank
-            && variable_with_relation
-            && !temporary_target
-            && matches!(self.control_type(st, idx, value), Some(RtType::Text(_)))
+        let typed = match value {
+            Value::Text(t) | Value::Code(t) => Some(t.to_string()),
+            _ => None,
+        };
+        let blank = typed.as_ref().is_some_and(|t| t.trim().is_empty());
+        let engine = self.engine();
+        let c = &page_of(&engine, st).controls[idx];
+        let own = match c.prop("tablerelation") {
+            Some(ir::PropVal::Lit(t)) => Some(Some(t.clone())),
+            Some(_) => Some(None),
+            None => None,
+        };
+        match (&c.binding, own) {
+            (ir::Binding::Var(_) | ir::Binding::BaseVar(_), Some(text)) => {
+                if text.as_deref().is_some_and(|t| relates_to_temporary_table(&engine, t)) {
+                    return Ok(());
+                }
+                let ty = self.control_type(st, idx, value);
+                if let Some(ty) = ty.clone().filter(|ty| self.measured_variable(st, idx, ty)) {
+                    let (Some(typed), Some(text)) = (typed, text) else {
+                        return unsupported(UNMEASURED);
+                    };
+                    return self.variable_entry(st, idx, &typed, &ty, &text, args);
+                }
+                if matches!(ty, Some(RtType::Text(_))) && !blank {
+                    return unsupported(
+                        "SetValue of a text into a Text page variable with a TableRelation (whether BC takes the related row's stored value is not pinned)",
+                    );
+                }
+                Ok(())
+            }
+            (ir::Binding::Field(pos), None) => match typed {
+                Some(typed) if !blank => self.field_prefix_entry(st, idx, *pos, &typed, args),
+                _ => Ok(()),
+            },
+            _ => Ok(()),
+        }
+    }
+
+    /// The measured variable controls: a Text or Code variable of a Card without a source table, opened on its own (not as a
+    /// part), or a Text variable of a report's request page; the control the object's own, bound to its own variable, which no
+    /// extension modifies.
+    fn measured_variable(&self, st: &St, idx: usize, ty: &RtType) -> bool {
+        let engine = self.engine();
+        let c = &page_of(&engine, st).controls[idx];
+        let own = matches!(c.binding, ir::Binding::Var(_))
+            && c.owner.is_none()
+            && c.ext_triggers.is_empty()
+            && c.ext_replaced.is_empty()
+            && st.borrow().host.is_none();
+        let card = self.is_card(st) && !self.has_source(st) && !self.is_request_page(st);
+        let request = self.is_request_page(st) && matches!(ty, RtType::Text(_));
+        own && matches!(ty, RtType::Text(_) | RtType::Code(_)) && (card || request)
+    }
+
+    /// The entry `typed` into a measured variable control of type `ty` related by `text` (module doc).
+    fn variable_entry(
+        &mut self,
+        st: &St,
+        idx: usize,
+        typed: &str,
+        ty: &RtType,
+        text: &str,
+        args: &mut [Value],
+    ) -> Result<(), Signal> {
+        let text_variable = matches!(ty, RtType::Text(_));
+        let Some((related, relation)) = self.measured_relation(text, text_variable)? else {
+            return unsupported(UNMEASURED);
+        };
+        let key = related.keys[0][0];
+        let fits = |len: &Option<u32>| len.is_none_or(|n| Value::text_len(typed) <= n as usize);
+        let var_fits = matches!(ty, RtType::Text(n) | RtType::Code(n) if fits(n));
+        let english = al_builtins::format::FormatCtx::language(self) == 1033;
+        if !(var_fits && english) {
+            return unsupported(UNMEASURED);
+        }
+        let filter = match relation {
+            Relation::NonKey(field) => {
+                // Measured from an empty control (NameVar_*); what a control that held a value then shows is not.
+                if !matches!(self.control_value(st, idx)?, Value::Text(t) | Value::Code(t) if t.is_empty()) {
+                    return unsupported(UNMEASURED);
+                }
+                assume(Assumption::TestPageSetValueTableRelation);
+                let msg = format!(
+                    "The following field must be included into the table's primary key: Field: {} Table: {}",
+                    related.fields[field].name, related.name
+                );
+                return Err(self.relation_entry_error(st, idx, msg)?);
+            }
+            Relation::Key(filter) => filter,
+        };
+        // The blank entry is taken and OnValidate runs (TextVar_Blank), as main did.
+        if typed.trim().is_empty() {
+            return Ok(());
+        }
+        if !matches!(&related.fields[key].ty, RtType::Code(n) if fits(n)) {
+            return unsupported(UNMEASURED);
+        }
+        let upper = typed.to_uppercase();
+        let rows = self.related_rows(None, &related, &[])?;
+        let inside = match &filter {
+            Some(f) => self.related_rows(None, &related, std::slice::from_ref(f))?,
+            None => rows.clone(),
+        };
+        if let Some(row) = rows.iter().find(|r| key_text(&r[key]) == upper) {
+            let in_filter = inside.iter().any(|r| key_text(&r[key]) == upper);
+            // A Code variable held the upper-cased text before this rule: the same value.
+            if text_variable {
+                assume(Assumption::TestPageSetValueTableRelation);
+            }
+            // An exact key outside the filter is taken as typed (Filtered_Outside, Filtered_OutsideLowerCase).
+            let taken = if in_filter {
+                key_text(&row[key])
+            } else {
+                typed.to_string()
+            };
+            args[0] = Value::Text(taken.into());
+            return Ok(());
+        }
+        self.unseeded_read(&related, false, "the TableRelation completion of a TestPage entry")?;
+        assume(Assumption::TestPageSetValueTableRelation);
+        if let Some(row) = inside.iter().find(|r| key_text(&r[key]).starts_with(&upper)) {
+            args[0] = Value::Text(key_text(&row[key]).into());
+            return Ok(());
+        }
+        let msg = format!(
+            "The {} does not exist. Identification fields and values: {}='{upper}'",
+            self.caption(&related),
+            self.field_caption(&related, key)
+        );
+        Err(self.relation_entry_error(st, idx, msg)?)
+    }
+
+    /// The related table of a variable control's relation `text` and its measured shape, if it is one: the bare table or
+    /// `Table.Field`, the table one of the workspace whose primary key is one Code field stored as text and that declares no
+    /// CaptionML. `Table.Field` of the key field is the bare table (KeyFieldVar_LowerPrefix); of a field in no key it is measured on a Text
+    /// variable (`text_variable`), the captions of the table and the field their names. A `where()` of one
+    /// `Field = const(x)` on a stored field outside the primary key is measured on a Text variable related to the bare table.
+    fn measured_relation(&self, text: &str, text_variable: bool) -> Result<Option<(Arc<TableDef>, Relation)>, Signal> {
+        let head = before_where(text);
+        let Some((table_name, field_name)) = simple_relation(head) else {
+            return Ok(None);
+        };
+        let engine = self.engine();
+        let tables = tables_named(&engine, &table_name);
+        let [table] = tables.as_slice() else {
+            return Ok(None);
+        };
+        let Some(related) = engine.tables[*table].clone() else {
+            return Ok(None);
+        };
+        let object = &engine.program.objects[*table];
+        let key = match related.keys.first().map(Vec::as_slice) {
+            Some([k]) if matches!(related.fields[*k].ty, RtType::Code(_)) => *k,
+            _ => return Ok(None),
+        };
+        let caption_ml = object
+            .properties
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("CaptionML"));
+        if caption_ml || related.fields[key].code_storage != CodeStorage::Text {
+            return Ok(None);
+        }
+        let named = |pos: usize| self.field_caption(&related, pos) == related.fields[pos].name;
+        let position = |n: &str| related.fields.iter().position(|f| f.name.eq_ignore_ascii_case(n));
+        let wheres = text[head.len()..].trim();
+        let relation = match (field_name.map(|n| position(&n)), wheres.is_empty()) {
+            (Some(Some(p)), true) if p == key => Relation::Key(None),
+            (Some(Some(p)), true)
+                if text_variable
+                    && named(p)
+                    && self.caption(&related) == related.name
+                    && related.keys.iter().all(|k| !k.contains(&p)) =>
+            {
+                Relation::NonKey(p)
+            }
+            (None, true) => Relation::Key(None),
+            (None, false) if text_variable => {
+                let Some((name, constant)) = one_const_where(wheres) else {
+                    return Ok(None);
+                };
+                let Some(p) = position(&name) else {
+                    return Ok(None);
+                };
+                let class = engine.field_facts[related.object as usize][p].class;
+                if p == key || class != ir::FieldClass::Normal || !related.fields[p].stored {
+                    return Ok(None);
+                }
+                let expr = self
+                    .parse_filter_text(&constant, &related.fields[p].ty)
+                    .map_err(|e| Signal::unsupported(format!("where() of a page control's TableRelation: {e}")))?;
+                Relation::Key(Some(FieldFilter {
+                    lang: al_builtins::filter::filter_language(),
+                    field: p,
+                    expr,
+                    group: 0,
+                }))
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some((related, relation)))
+    }
+
+    /// The error of a variable control's refused entry: `msg` in the frame of a validation error, no Refresh hint, code
+    /// TestValidation (SetValueTableRelation.al TextVar_NoRow, NameVar_Exact).
+    fn relation_entry_error(&mut self, st: &St, idx: usize, msg: String) -> Result<Signal, Signal> {
+        let caption = self.control_caption(st, idx)?;
+        let frame = self.validation_frame(st, idx, &caption);
+        Ok(super::validation_text::validation_signal(
+            &self.engine(),
+            st,
+            idx,
+            msg,
+            "",
+            "TestValidation",
+            frame,
+        ))
+    }
+
+    /// The entry `typed` into a Code table field (position `pos` of the page's record) related to a table: an upper-case
+    /// prefix of a key, where no key is the text, takes the first such key in key order (HostField_PrefixOneKey,
+    /// HostField_PrefixTwoKeys). Measured on a Card over its source table, on a row, with the field empty, related to the bare
+    /// table whose primary key is one Code field. Elsewhere, and for an exact key or no key that starts with the text, the
+    /// entry keeps its path.
+    fn field_prefix_entry(
+        &mut self,
+        st: &St,
+        idx: usize,
+        pos: usize,
+        typed: &str,
+        args: &mut [Value],
+    ) -> Result<(), Signal> {
+        let engine = self.engine();
+        let own_control = page_of(&engine, st).controls[idx].owner.is_none();
+        let page = self.is_card(st)
+            && self.has_source(st)
+            && !self.is_list(st)
+            && !self.is_request_page(st)
+            && st.borrow().host.is_none()
+            && !self.shows_no_row(st, idx);
+        let Some(field) = self.control_field(st, idx) else {
+            return Ok(());
+        };
+        let fits = matches!(field.ty, RtType::Code(Some(n)) if Value::text_len(typed) <= n as usize);
+        let arm = match field.relation_arms.as_slice() {
+            [arm] if arm.conditions.is_empty() && arm.wheres.as_deref() == Some(&[]) => arm.clone(),
+            _ => return Ok(()),
+        };
+        if !(own_control && page && fits && field.relation_runtime.is_empty()) {
+            return Ok(());
+        }
+        let rec = self.page_rec(st);
+        let table = self.table(&rec)?;
+        let empty = matches!(&rec.borrow().fields[pos], Value::Code(t) if t.is_empty());
+        let Some(related) = arm.table.and_then(|t| engine.tables[t].clone()) else {
+            return Ok(());
+        };
+        let key = match related.keys.first().map(Vec::as_slice) {
+            Some([k]) if matches!(related.fields[*k].ty, RtType::Code(_)) => *k,
+            _ => return Ok(()),
+        };
+        let checked = engine.field_facts[table.object as usize][pos].validate_relation;
+        let temporary = engine.object_facts[related.object as usize].temporary();
+        if !empty
+            || !checked
+            || temporary
+            || arm.field.is_some_and(|f| f != key)
+            || related.fields[key].code_storage != CodeStorage::Text
         {
+            return Ok(());
+        }
+        let rows = self.related_rows(Some(&rec), &related, &[])?;
+        let upper = typed.to_uppercase();
+        if rows.iter().any(|r| key_text(&r[key]) == upper) {
+            return Ok(());
+        }
+        let Some(row) = rows.iter().find(|r| key_text(&r[key]).starts_with(&upper)) else {
+            return Ok(());
+        };
+        self.unseeded_read(&related, false, "the TableRelation completion of a TestPage entry")?;
+        if typed != upper {
             return unsupported(
-                "SetValue of a text into a Text page variable with a TableRelation (whether BC takes the related row's stored value is not pinned)",
+                "SetValue of a lower-case prefix of a related key into a table field (corpus PR 1646 measures upper case only)",
             );
         }
+        assume(Assumption::TestPageSetValueTableRelation);
+        args[0] = Value::Code(key_text(&row[key]).into());
         Ok(())
+    }
+}
+
+/// The text of a key value.
+fn key_text(v: &Value) -> String {
+    match v {
+        Value::Text(t) | Value::Code(t) => t.to_string(),
+        _ => String::new(),
     }
 }
 
@@ -68,4 +377,46 @@ fn before_where(text: &str) -> &str {
         }
     }
     text
+}
+
+/// The field name and the constant of a `where(Field = const(x))` clause with one condition (`Field` bare or in double
+/// quotes, `x` without quotes, parentheses or commas), if `wheres` is one.
+fn one_const_where(wheres: &str) -> Option<(String, String)> {
+    let word = |s: &str, w: &str| s.get(..w.len()).is_some_and(|h| h.eq_ignore_ascii_case(w));
+    if !word(wheres, "where") {
+        return None;
+    }
+    let inner = wheres[5..].trim().strip_prefix('(')?.strip_suffix(')')?.trim();
+    let (name, rest) = match inner.strip_prefix('"') {
+        Some(r) => r.split_once('"')?,
+        None => inner.split_at(inner.find(|c: char| !(c.is_alphanumeric() || c == '_'))?),
+    };
+    let rest = rest.trim_start().strip_prefix('=')?.trim_start();
+    if !word(rest, "const") {
+        return None;
+    }
+    let constant = rest[5..].trim_start().strip_prefix('(')?.strip_suffix(')')?.trim();
+    let plain = !constant.is_empty() && !constant.contains(['(', ')', '\'', '"', ',']);
+    (!name.is_empty() && plain).then(|| (name.to_string(), constant.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_const_where_reads_one_condition_only() {
+        assert_eq!(
+            one_const_where("where(Active = const(true))"),
+            Some(("Active".into(), "true".into()))
+        );
+        assert_eq!(
+            one_const_where("WHERE (\"Is Active\"=CONST(Yes))"),
+            Some(("Is Active".into(), "Yes".into()))
+        );
+        assert_eq!(one_const_where("where(Active = filter(true))"), None);
+        assert_eq!(one_const_where("where(Active = const(true), Name = const(A))"), None);
+        assert_eq!(one_const_where("where(Name = const('A B'))"), None);
+        assert_eq!(one_const_where("where(Code = field(Other))"), None);
+    }
 }
