@@ -10,6 +10,7 @@ table 52600 "DLW Login Row"
     {
         field(1; "Entry No."; Integer) { AutoIncrement = true; }
         field(2; "User Logins"; Integer) { }
+        field(3; "Session Id"; Integer) { }
     }
 
     keys
@@ -46,6 +47,7 @@ codeunit 52600 "DLW Login Subs"
             exit;
         Row.Init();
         Row."User Logins" := UserLogin.Count();
+        Row."Session Id" := SessionId();
         Row.Insert();
         Memo.Fill();
     end;

@@ -737,6 +737,7 @@ mod tests {
             image: Err("none".into()),
             singles: vec![3],
             opened: Box::new(()),
+            own_logins: Default::default(),
         }));
         assert!(
             b.freeze()

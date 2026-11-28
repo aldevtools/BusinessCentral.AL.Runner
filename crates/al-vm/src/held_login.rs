@@ -18,6 +18,8 @@ pub struct HeldLogin {
     /// What the runner noted of the opening and the assumption marks it relied on (al-testrun `CompanyOpenWrites`,
     /// `HitBits`): a session that thaws the image takes them in place of its own login's.
     pub opened: Box<dyn std::any::Any + Send + Sync>,
+    /// How many later sessions ran a login of their own on it so far ([`HeldLogin::next_own_login`]).
+    pub own_logins: std::sync::atomic::AtomicI32,
 }
 
 impl Session {
@@ -29,7 +31,12 @@ impl Session {
         }
         let mut singles: Vec<usize> = self.singletons.keys().copied().collect();
         singles.sort_unstable();
-        self.login_held = Some(Arc::new(HeldLogin { image, singles, opened }));
+        self.login_held = Some(Arc::new(HeldLogin {
+            image,
+            singles,
+            opened,
+            own_logins: Default::default(),
+        }));
     }
 
     /// The session's data is what a test codeunit left, not the suite's install baseline (`Baseline::codeunit_left`).
@@ -61,6 +68,15 @@ impl Session {
         let marks = std::mem::take(&mut self.unmeasured);
         self.restore_baseline(before);
         self.unmeasured = marks;
+    }
+}
+
+impl HeldLogin {
+    /// A later session runs a login of its own on the held one's rows (al-testrun runtime/held_login.rs
+    /// `own_session_id`): its number among those sessions, from 1. The baselines captured from the session share the
+    /// held login (`Baseline::login_held`), so a codeunit after another one takes the next number.
+    pub fn next_own_login(&self) -> i32 {
+        (self.own_logins).fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
     }
 }
 

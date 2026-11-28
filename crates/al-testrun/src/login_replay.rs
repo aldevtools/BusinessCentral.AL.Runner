@@ -101,6 +101,9 @@ pub(crate) struct Key {
     clock: i64,
     /// `UserId()`.
     user: String,
+    /// `SessionId()`: a login may write it into a row or a SingleInstance global (a runner 130450 session after the held
+    /// login answers its own, `runtime/held_login.rs` `own_session_id`).
+    session_id: i32,
     /// The test codeunit the session opens for: `login::decide` reads it, and a replay may not cross codeunits until a
     /// repeat across test codeunits is measured on a real app (the maintainer's second condition, al-runner issue 8211).
     test_codeunit: Option<usize>,
@@ -219,6 +222,7 @@ impl Key {
             seed: session.run_seed(),
             clock: session.clock_now_millis(),
             user: session.user_id(),
+            session_id: session.session_id(),
             test_codeunit: session.test_object,
             client: (
                 session.has_interactive_client(),
@@ -327,6 +331,7 @@ impl Key {
             seed,
             clock,
             user,
+            session_id,
             test_codeunit,
             client,
             flags,
@@ -348,6 +353,7 @@ impl Key {
             (*seed != other.seed, "seed"),
             (*clock != other.clock, "clock"),
             (*user != other.user, "user"),
+            (*session_id != other.session_id, "session_id"),
             (*test_codeunit != other.test_codeunit, "test_codeunit"),
             (*client != other.client, "client"),
             (*flags != other.flags, "flags"),
@@ -1054,6 +1060,7 @@ mod tests {
             seed: 0,
             clock: 0,
             user: "U".into(),
+            session_id: 1,
             test_codeunit: Some(test_codeunit),
             client: (true, false, false),
             flags: Default::default(),
@@ -1089,6 +1096,7 @@ mod tests {
             seed,
             clock,
             user,
+            session_id,
             test_codeunit,
             client,
             flags,
@@ -1103,7 +1111,8 @@ mod tests {
         let digests: [&LinesDigest; 3] = [database, session, refused_reads];
         let _: &Option<LinesDigest> = uncommitted;
         let _: &BackingKey = backing;
-        let _: (&String, &i32, &i64, &String, &Option<usize>) = (company, seed, clock, user, test_codeunit);
+        let _: (&String, &i32, &i64, &String, &i32, &Option<usize>) =
+            (company, seed, clock, user, session_id, test_codeunit);
         let _: &(bool, bool, bool) = client;
         let _: &crate::runtime::session_flags::SessionFlags = flags;
         let _: &Option<std::sync::Arc<al_host::license::License>> = license;

@@ -4,8 +4,8 @@
 //! `run_codeunit_core`.
 use super::al_runner::run_unit;
 use super::held_login::{
-    self, carried_company_open, first_login, held_reads, later_runner_marks, login_once_on_hub, login_rows_as_held,
-    runs_own_login, thaw_held,
+    self, carried_company_open, first_login, held_reads, in_own_session, later_runner_marks, login_once_on_hub,
+    login_rows_as_held, own_session_id, thaw_held,
 };
 use super::written::{
     self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,
@@ -222,9 +222,10 @@ fn open_company(
         return Ok(Default::default());
     }
     // The run's one login a Disabled codeunit on the hub held (`login_once_on_hub`): a later hub codeunit takes its
-    // session state in place of a second login; one runner 130450 runs runs its own login on the held rows.
+    // session state in place of a second login; one runner 130450 runs runs its own login on the held rows, in a session
+    // of its own (`own_session_id`, set when the session was made).
     let held = session.login_held();
-    let own_login = held.is_some() && runs_own_login(scratch.hub_leg, isolation);
+    let own_login = steps.own_session.is_some();
     let thawed = held
         .as_deref()
         .filter(|_| !own_login)
@@ -568,7 +569,10 @@ fn run_codeunit_inner(
     let obj = &lowered.program.objects[object];
     let perturb = scratch.perturb.clone();
     let run_seed = scratch.run_seed;
-    let (mut session, moved) = new_session(engine, session_host(scratch), baseline, execute);
+    let host = session_host(scratch);
+    let held = baseline.and_then(|b| b.login_held.as_deref());
+    let own_session = own_session_id(held, scratch.hub_leg, isolation, execute, host.identity.session_id());
+    let (mut session, moved) = new_session(engine, in_own_session(host, own_session), baseline, execute);
     set_up_session(&mut session, scratch, observe.is_some());
     let covering = crate::coverage::enabled();
     let is_on_run = |r: usize| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun");
@@ -644,6 +648,7 @@ fn run_codeunit_inner(
             execute,
             observed: observe.is_some(),
             moved_in: moved.is_some(),
+            own_session,
         },
         baseline,
     };
@@ -1767,6 +1772,9 @@ struct Steps<'a> {
     observed: bool,
     /// Single instances of an earlier codeunit moved in (`new_session`).
     moved_in: bool,
+    /// The session runs a login of its own on the run's one login, with this `SessionId()` (`own_session_id`); a new
+    /// session of the codeunit and the check's twin take the same.
+    own_session: Option<i32>,
 }
 
 type Opened = (
@@ -1814,7 +1822,8 @@ impl Steps<'_> {
         baseline: Option<&al_vm::Baseline>,
         moved: Option<&al_vm::single_track::MovedSingles>,
     ) -> Session {
-        let mut session = session_from(self.engine, session_host(scratch), baseline, moved);
+        let host = in_own_session(session_host(scratch), self.own_session);
+        let mut session = session_from(self.engine, host, baseline, moved);
         set_up_session(&mut session, scratch, self.observed);
         session
     }

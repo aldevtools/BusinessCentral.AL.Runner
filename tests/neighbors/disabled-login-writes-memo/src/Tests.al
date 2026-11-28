@@ -99,5 +99,8 @@ codeunit 52621 "R5 G Login Rows 130450"
         Assert: Codeunit "DLW Assert";
     begin
         Assert.Equal(3, Row.Count(), 'login rows');
+        // One of them is of this session, as after a delete (LgnHeldLoginRunners.al:669, :710).
+        Row.SetRange("Session Id", SessionId());
+        Assert.Equal(1, Row.Count(), 'login rows of this session');
     end;
 }

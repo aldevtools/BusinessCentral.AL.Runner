@@ -3,7 +3,7 @@
 //! starts from what another codeunit left keeps, and what a test of a held session may not read (`held_reads`). The
 //! neighbor apps `tests/neighbors/disabled-login-writes*` run the same shapes end to end.
 use super::held_login::{
-    HeldOpened, carried_company_open, first_login, held_reads, login_rows_as_held, runs_own_login,
+    HeldOpened, carried_company_open, first_login, held_reads, login_rows_as_held, own_session_id, runs_own_login,
 };
 use super::*;
 use crate::install::CompanyOpenWrites;
@@ -42,6 +42,7 @@ fn held_in(l: &al_sema::lower::Lowered, session: &mut Session) -> al_vm::HeldLog
         image: Err("none".into()),
         singles: vec![object(l, "Memo")],
         opened: Box::new(opened),
+        own_logins: Default::default(),
     }
 }
 
@@ -110,6 +111,33 @@ fn only_a_session_from_the_install_baseline_starts_the_runs_login() {
     let mut later = Session::new(session.engine.clone());
     later.restore_baseline(&left);
     assert!(!first_login(true, TestIsolation::Disabled, &later));
+}
+
+// Runner 130450 runs each codeunit after the held login in a session of its own (corpus PR 1644, LgnHeldLoginRunners.al
+// :617, :664, :705: "same session as the snapshot" No; :622, :669, :710: one LOGIN row of that session): each answers a
+// SessionId of its own, not the hub session's and not an earlier one's. A hub codeunit, a session without a held login
+// and a scratch run keep the host's.
+#[test]
+fn each_runner_130450_session_after_the_held_login_answers_a_session_id_of_its_own() {
+    let (l, _) = super::tests::engine_for(SRC);
+    let held = held(&l);
+    let hub = 1;
+    let first = own_session_id(Some(&held), false, TestIsolation::Codeunit, false, hub);
+    let second = own_session_id(Some(&held), false, TestIsolation::Function, false, hub);
+    assert!(first.is_some_and(|id| id != hub), "{first:?}");
+    assert!(
+        second.is_some_and(|id| id != hub && Some(id) != first),
+        "{first:?} {second:?}"
+    );
+    assert_eq!(
+        own_session_id(Some(&held), true, TestIsolation::Codeunit, false, hub),
+        None
+    );
+    assert_eq!(own_session_id(None, false, TestIsolation::Codeunit, false, hub), None);
+    assert_eq!(
+        own_session_id(Some(&held), false, TestIsolation::Codeunit, true, hub),
+        None
+    );
 }
 
 // Under runner 130450 nothing is refused: the session runs its own login on the rows the hub codeunits committed and

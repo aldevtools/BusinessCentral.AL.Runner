@@ -2011,7 +2011,7 @@ impl Session {
     }
 
     /// The `SessionId()` this session answers: an install session's own id, else the host's.
-    pub(crate) fn session_id(&self) -> i32 {
+    pub fn session_id(&self) -> i32 {
         self.session_id_override
             .unwrap_or_else(|| self.host.identity.session_id())
     }
