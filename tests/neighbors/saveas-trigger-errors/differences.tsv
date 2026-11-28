@@ -10,3 +10,4 @@ NBS Tests::ProcessingOnly_OnPreReportError_WordBoolean_FalseWithProcessingOnly	P
 NBS Tests::ProcessingOnly_OnPreReportError_WordStatement_RaisesProcessingOnly	ASSUMED saveas-platform-error-before-triggers (corpus PR 1579, SaveAsTriggerErrors.al:700)
 NBS Tests::NoLayout_VariableXml_OnPreReportError_LastErrorHoldsIt	PINNED tests/al-language/text/PnBReportSaveAs.al:698
 NBS Tests::ProcessingOnly_OnPreReportError_ExcelBoolean_FalseWithProcessingOnly	PINNED tests/al-language/streams/PnH6SaveAs.al:217
+NBS Tests::Rdlc_OnPreReportError_PdfBoolean_MainsRule	ASSUMED saveas-trigger-error-reaches-caller (corpus PR 1579, SaveAsTriggerErrors.al:535; main's answer, now flagged)

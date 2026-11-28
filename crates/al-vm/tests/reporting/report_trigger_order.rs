@@ -400,17 +400,14 @@ fn the_getter_after_an_execute_of_a_set_variable_is_refused() {
     );
 }
 
-/// text/PnBReportSaveAs.al:698 (PW_TriggerError_InPreReport_LastError): after a used variable SaveAs as Xml of a report
-/// without a layout that failed with Error('literal') in OnPreReport, the last error holds that error.
+/// text/PnBReportSaveAs.al:698 (PW_TriggerError_InPreReport_LastError) pins the last error after a used variable SaveAs as
+/// Xml for the data items of "LT PnB Rep" (two top-level, one inside the first); this report has one data item, so what
+/// GetLastErrorText then holds stays refused.
 #[test]
-fn the_last_error_after_a_failed_used_saveas_without_layout_holds_the_error() {
-    assert_eq!(
-        text(al_testkit::run_in(
-            FIXTURE,
-            "RTO Tests",
-            "SaveAsPreReportErrorLastError"
-        )),
-        "pre failed"
+fn the_last_error_after_a_failed_used_saveas_without_layout_of_another_shape_is_refused() {
+    assert_refused(
+        al_testkit::run_in(FIXTURE, "RTO Tests", "SaveAsPreReportErrorLastError"),
+        "GetLastErrorText",
     );
 }
 

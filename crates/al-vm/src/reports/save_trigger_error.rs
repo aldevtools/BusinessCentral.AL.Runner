@@ -2,9 +2,11 @@
 //! answers false, and what the last error holds then. One rule (corpus pull request 1579, issue 8486): SaveAs never swallows
 //! the error. The statement form raises it; the Boolean form answers false and holds it as the last error. Each shape it
 //! runs for is pinned or under the assumption `saveas-trigger-error-reaches-caller`; [`Session::trigger_error_cover`] is the
-//! one place that names them.
+//! one place that names them. Every other shape keeps main's answer or main's refusal.
 
 use super::*;
+use crate::report_placeholder::SaveOutput;
+use crate::report_save::{self as save, DataItems, Extensions, Kind, ReportFacts, Selection, Stored};
 use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::{AlError, ExceptionKind};
 
@@ -16,6 +18,38 @@ pub(super) struct FailedSave<'a> {
     /// The target is a stream, the parameters string is empty and no RecordRef is given.
     pub plain_stream: bool,
     pub result_used: bool,
+    /// What the save table planned before the run (`static_or_variable_save`): for Pdf and Word its fact vector.
+    pub output: &'a SaveOutput,
+    /// The store's change counter when the run started ([`Session::start_save_run`]).
+    pub changes: u64,
+}
+
+impl<'a> FailedSave<'a> {
+    /// The call: `at` 0 is a report variable; the target, the parameters string and the RecordRef.
+    pub(super) fn of(
+        format: &'a str,
+        at: usize,
+        (target, parameters, record_ref): (&SaveTarget, &al_builtins::text::Txt, Option<&Value>),
+        result_used: bool,
+    ) -> Self {
+        FailedSave {
+            format,
+            by_variable: at == 0,
+            plain_stream: matches!(target, SaveTarget::Stream(_)) && parameters.is_empty() && record_ref.is_none(),
+            result_used,
+            output: &SaveOutput::Dataset,
+            changes: 0,
+        }
+    }
+
+    /// With what the save table planned and the change counter at the start of the run.
+    pub(super) fn after(self, output: &'a SaveOutput, changes: u64) -> Self {
+        FailedSave {
+            output,
+            changes,
+            ..self
+        }
+    }
 }
 
 /// What measures the error of a SaveAs.
@@ -29,6 +63,13 @@ enum Cover {
 }
 
 impl Session {
+    /// Called before the run of a SaveAs: no report trigger has failed yet. Returns the store's change counter, which
+    /// [`FailedSave::changes`] carries.
+    pub(super) fn start_save_run(&mut self) -> u64 {
+        self.report.failed_trigger = None;
+        self.store.change_counter()
+    }
+
     pub(super) fn save_trigger_error(
         &mut self,
         e: Box<AlError>,
@@ -61,11 +102,16 @@ impl Session {
             // (streams/TestReportCurrReportLanguage.al:TestReport_SettingCurrReportLanguageToZero_IsRejectedAsInvalid:
             // `asserterror Probe.SaveAs(..)` on a report with an RDLC layout). With the result used SaveAs answers false
             // and leaves the stream alone
-            // (streams/TestReportSaveAsRecordRefFilter.al:TestReport_SaveAs_NoRecordRef_LeavesDataItemUnfiltered); that
-            // the last error then holds the error is measured by corpus pull request 1579
-            // (reports/layouts-saveas/SaveAsTriggerErrors.al, the SaveAs_Rdlc_* tests), not pinned yet.
-            (ir::ReportLayout::Rdlc, false) if !call.result_used => Err(Signal::Error(e)),
+            // (streams/TestReportSaveAsRecordRefFilter.al:TestReport_SaveAs_NoRecordRef_LeavesDataItemUnfiltered). That
+            // the last error then holds the error is measured by corpus pull request 1579 (the SaveAs_Rdlc_* tests): the
+            // shapes of those cells mark the assumption, every other shape keeps this answer unmarked.
             (ir::ReportLayout::Rdlc, false) => {
+                if cover == Cover::Assumed {
+                    assumptions::assume(Assumption::SaveasTriggerErrorReachesCaller);
+                }
+                if !call.result_used {
+                    return Err(Signal::Error(e));
+                }
                 self.hold_error(*e)?;
                 Ok(Value::Boolean(false))
             }
@@ -87,20 +133,29 @@ impl Session {
     }
 
     /// Which measurement covers an error that left a SaveAs from the report trigger `site` (`failed_trigger`). Each fact is
-    /// read by equality with the cells; anything else is `Cover::Not`. Two facts are read as kinds: a TestField by its code
-    /// (the cells raise the empty-field form), and the trigger that raised (other triggers the report declares are not read).
+    /// read by equality with the cells; anything else is `Cover::Not`. The report's facts come from the save table's owner
+    /// (`report_save::report_facts_of`); for Pdf and Word the session's facts (selection, custom layout, allow-list, company
+    /// build, the call) come from the fact vector the save table computed before the run. An Xml save makes no layout
+    /// selection.
     ///
-    /// Assumed (corpus pull request 1579, reports/layouts-saveas/SaveAsTriggerErrors.al, issue 8486): the error is
-    /// `Error('literal')` (E1, E2, E3) or a TestField of an empty field (`Mode.Fire` :113-130), raised by the report's own
-    /// OnPreReport, OnPreDataItem, OnAfterGetRecord or OnPostReport; the call is the static `Report.SaveAs(Id, '', Format,
-    /// OutStream)` as Pdf, Word or Xml, as a statement or in the Boolean form ("SAE Cells" :377-424); the report is not
-    /// processing-only, has one data item and one layout in its rendering section named by DefaultRenderingLayout: Word
-    /// ("SAE Word Rpt" :132, codeunit 77388 SaveAs_Word_*), or Word or RDLC with one report extension that only adds a
-    /// column ("SAE Word Col Ext", "SAE Rdlc Col Ext", codeunit 77395); or, as Xml, one Excel layout and no extension
-    /// ("SAE Excel Rpt", SaveAs_Excel_*: as Pdf and Word the platform's error comes first, `cells_platform_first`).
+    /// Assumed (corpus pull request 1579, reports/layouts-saveas/SaveAsTriggerErrors.al, issue 8486):
+    /// - the error and its trigger as the cells pair them (`Mode.Fire` :113-130, called from each trigger): `Error('literal')`
+    ///   (E1, E2, E3) in OnPreReport, OnAfterGetRecord or OnPostReport, and the TestField of an empty field in OnPreDataItem;
+    ///   the same error raised in the trigger body itself, not through a procedure, is not measured and taken as the same;
+    /// - the run wrote no row to the database before the error;
+    /// - the static `Report.SaveAs(Id, '', Format, OutStream)` as Pdf, Word or Xml, as a statement or in the Boolean form
+    ///   ("SAE Cells" :377-424), with no layout selection row, no custom or stored layout, not the company build and not
+    ///   an allow-listed report;
+    /// - the report: not processing-only, one data item, no OnInitReport and no request page with triggers, exactly one
+    ///   layout, in its rendering section and named by DefaultRenderingLayout, and no extension layout. Word ("SAE Word Rpt"
+    ///   :132, codeunit 77388 SaveAs_Word_*); RDLC ("SAE Rdlc Rpt", SaveAs_Rdlc_*: that arm keeps main's answer and only
+    ///   marks it); Word or RDLC with one report extension that only adds a column ("SAE Word Col Ext", "SAE Rdlc Col Ext",
+    ///   codeunit 77395); or, as Xml only, Excel with no extension ("SAE Excel Rpt", SaveAs_Excel_*: as Pdf and Word the
+    ///   platform's error comes first, `cells_platform_first`).
     ///
-    /// Pinned: text/PnBReportSaveAs.al:698 PW_TriggerError_InPreReport_LastError, `Error('literal')` in OnPreReport of a
-    /// report without a layout or an extension, `Rep.SaveAs('', Xml, OutStream)` on a variable, the answer used.
+    /// Pinned: text/PnBReportSaveAs.al:698 PW_TriggerError_InPreReport_LastError, `Error('literal')` in OnPreReport of "LT PnB
+    /// Rep" (errors/PnBObjects.al): no layout and no extension, two top-level data items and one inside the first, the used
+    /// `Rep.SaveAs('', Xml, OutStream)` on a variable, no row written.
     fn trigger_error_cover(
         &self,
         e: &AlError,
@@ -108,50 +163,65 @@ impl Session {
         schema: &Schema,
         call: &FailedSave,
     ) -> Cover {
-        let report = schema.report();
-        let literal = e.code == "Dialog" && e.exception == ExceptionKind::Dialog;
-        let measured_error = literal || e.code == "TestField";
         let Some((_, kind)) = site.filter(|(object, _)| *object == schema.object) else {
             return Cover::Not;
         };
-        let measured_trigger = matches!(
-            kind,
-            TrigKind::Pre | TrigKind::PreItem | TrigKind::Row | TrigKind::PostReport
-        );
-        if !measured_error || !measured_trigger || report.processing_only || !call.plain_stream {
+        let literal = e.code == "Dialog" && e.exception == ExceptionKind::Dialog;
+        let measured_pair = match kind {
+            TrigKind::Pre | TrigKind::Row | TrigKind::PostReport => literal,
+            TrigKind::PreItem => crate::recmeta::is_empty_field_error(e),
+            _ => false,
+        };
+        let wrote = self.store.change_counter() != call.changes;
+        if !measured_pair || wrote || !call.plain_stream {
             return Cover::Not;
         }
-        let extension_layout = report
-            .output
-            .iter()
-            .any(|r| r.starts_with("reportextension") && r.contains("(a layout)"));
-        let own_layout = |kind: &str| {
-            report.layout_properties.is_empty()
-                && !extension_layout
-                && matches!(report.rendering_layouts.as_slice(), [l] if l.kind == kind
-                    && report.default_rendering_layout.as_deref().is_some_and(|d| d.eq_ignore_ascii_case(&l.name)))
-        };
-        let program = &self.engine.program;
-        let column_extension =
-            matches!(report.extensions.as_slice(), [x] if crate::report_save::adds_columns_only(program, *x));
-        let assumed = !call.by_variable
-            && report.items.len() == 1
-            && matches!(call.format, "Pdf" | "Word" | "Xml")
-            && ((own_layout("word") && (report.extensions.is_empty() || column_extension))
-                || (own_layout("rdlc") && column_extension)
-                || (own_layout("excel") && report.extensions.is_empty() && call.format == "Xml"));
-        if assumed {
+        let r = save::report_facts_of(&self.engine.program, schema);
+        if self.measured_trigger_error_save(&r, schema, call) {
             return Cover::Assumed;
         }
+        let report = schema.report();
+        let pin_items = matches!(report.items.as_slice(), [a, b, c]
+            if a.parent.is_none() && b.parent == Some(0) && c.parent.is_none());
         let pinned = call.by_variable
             && call.format == "Xml"
-            && literal
             && kind == TrigKind::Pre
+            && pin_items
             && report.extensions.is_empty()
             && report.layout == ir::ReportLayout::None
             && report.rendering_layouts.is_empty()
             && report.layout_properties.is_empty()
-            && !extension_layout;
+            && report.extension_layouts.is_empty();
         if pinned { Cover::Pinned } else { Cover::Not }
+    }
+
+    /// The call, session and report facts of the assumed cells (see [`Session::trigger_error_cover`]).
+    fn measured_trigger_error_save(&self, r: &ReportFacts, schema: &Schema, call: &FailedSave) -> bool {
+        let session = match call.output {
+            SaveOutput::Rendered(plan) if matches!(call.format, "Pdf" | "Word") => {
+                let f = plan.facts();
+                f.call == save::Call::StaticPlain
+                    && f.target == save::Target::Stream
+                    && !f.custom
+                    && !f.company_build
+                    && !f.listed
+                    && f.selection == Selection::None
+                    && f.stored == Stored::None
+            }
+            SaveOutput::Dataset if call.format == "Xml" => !self.company_build && !self.output_is_ignored(schema),
+            _ => false,
+        };
+        let report = !call.by_variable
+            && !r.processing_only
+            && r.data_items == DataItems::One
+            && !r.init_triggers
+            && r.sole_layout
+            && r.decl == save::Decl::Rendering;
+        let shape = match (r.kind, r.extensions) {
+            (Kind::Word | Kind::Rdlc, Extensions::None | Extensions::OneAddingColumns) => true,
+            (Kind::Excel, Extensions::None) => call.format == "Xml",
+            _ => false,
+        };
+        session && report && shape
     }
 }

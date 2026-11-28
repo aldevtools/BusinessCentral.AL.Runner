@@ -1,10 +1,11 @@
 //! The rows of the save table where the platform's own check of a `Report.SaveAs` comes before any trigger (corpus pull
-//! request 1579, merged, not yet pinned; assumption `saveas-platform-error-before-triggers`, issue 8486; the processing-only
-//! answers with the answer used are pinned by streams/PnH6SaveAs.al). The probe's reports
-//! (reports/layouts-saveas/SaveAsTriggerErrors.al) have one data item over Integer and no report extension, and are saved by
-//! `Report.SaveAs(Id, '', Format, OutStream)` with no layout selection row, as a statement inside `Codeunit.Run` and in the
-//! Boolean form; each test runs the control and an error in OnPreReport, OnAfterGetRecord, OnPreDataItem and OnPostReport,
-//! and no error site is reached. Measured the same on every supported major.
+//! request 1579, merged, not yet pinned; assumption `saveas-platform-error-before-triggers`, issue 8486; the
+//! processing-only answers with the answer used are pinned by streams/PnH6SaveAs.al). The probe's reports
+//! (reports/layouts-saveas/SaveAsTriggerErrors.al) have one data item over Integer, no report extension, one layout at
+//! most, no OnInitReport and no request page, and are saved by `Report.SaveAs(Id, '', Format, OutStream)` with no
+//! layout selection row, as a statement inside `Codeunit.Run` and in the Boolean form; each test runs the control and
+//! an error in OnPreReport, OnAfterGetRecord, OnPreDataItem and OnPostReport, and no error site is reached. Measured
+//! the same on every supported major.
 
 use super::Format;
 use super::cell::K::Is;
@@ -49,6 +50,7 @@ fn base(answer: AnswerForm, format: Format) -> Key {
         custom: Is(false),
         company_build: Is(false),
         listed: Is(false),
+        init_triggers: Is(false),
         selection: Is(Selection::None),
         stored: Is(Stored::None),
         ..Key::ANY
@@ -70,6 +72,7 @@ pub(super) fn platform_first_rows(t: &mut Vec<Cell>) {
             decl: Is(Decl::Rendering),
             declares: Is(Declares::Other),
             processing_only: Is(false),
+            sole_layout: Is(true),
             ..base(AnswerForm::Statement, format)
         };
         t.push(cell(

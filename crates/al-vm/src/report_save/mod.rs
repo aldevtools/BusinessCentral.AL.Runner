@@ -11,12 +11,14 @@
 //! `report_placeholder`.
 //!
 //! `facts.rs` the fact vector and its words; one owner per group: `fact_report.rs` (default layout,
-//! declaration, data items, triggers, extensions), `fact_selection.rs` (layout selection, the stored
+//! declaration, data items, triggers, extensions, a sole layout, init triggers), `fact_selection.rs` (layout selection, the stored
 //! row, rows naming the report and the temporary selection of A7, from the answers of
 //! SelectReportLayoutCode and SelectedBuiltinLayoutType raised to Base Application's
 //! ReportManagement; no read of table 9651), `fact_run.rs` (rows, `rgba(` in the dataset); `cell.rs`
 //! the row shape; `cells.rs` the rows with their corpus lines; `cells_decl.rs` the rows of a report
-//! whose `WordLayout` and `RDLCLayout` properties declare its layouts (corpus pull request 1381);
+//! whose `WordLayout` and `RDLCLayout` properties declare its layouts (corpus pull request 1381); `cells_items.rs` the
+//! rows of two or three top-level data items with no row; `cells_platform_first.rs` the rows where the platform's check
+//! comes before any trigger (corpus pull request 1579);
 //! `lookup.rs` the exact lookup (overlapping rows nest, the most specific answers), the miss reason
 //! (facts never measured, nearest rows) and the rgba reason; `events.rs` the layout-event subscribers
 //! that refuse; `errors.rs` the error texts; `mod.rs` `save_before_run` (called by `reports.rs`
@@ -50,9 +52,8 @@ use crate::{Session, Signal};
 use al_builtins::native::AlError;
 pub(crate) use cell::Renders;
 use cell::{Answer, Cell, Events};
-pub(crate) use fact_report::adds_columns_only;
-pub(crate) use facts::{AnswerForm, Call};
-use facts::{Facts, Selection, Target};
+pub(crate) use fact_report::{ReportFacts, report_facts as report_facts_of};
+pub(crate) use facts::{AnswerForm, Call, DataItems, Decl, Extensions, Facts, Kind, Selection, Stored, Target};
 
 /// A save that runs: its facts, to look up again after the run.
 #[derive(Clone, Debug)]
@@ -63,6 +64,11 @@ pub(crate) struct Plan {
 }
 
 impl Plan {
+    /// The fact vector of the save before the run.
+    pub(crate) fn facts(&self) -> &Facts {
+        &self.facts
+    }
+
     pub(crate) fn format(&self) -> Format {
         self.facts.format
     }
@@ -157,6 +163,8 @@ impl Session {
             data_items: r.data_items,
             extensions: r.extensions,
             triggers: r.triggers,
+            sole_layout: r.sole_layout,
+            init_triggers: r.init_triggers,
             custom,
             company_build: self.company_build,
             listed: self.output_is_ignored(schema),

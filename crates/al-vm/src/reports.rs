@@ -2643,7 +2643,7 @@ impl Session {
         let outer_language = self.report.curr_report_language.take();
         let outer_run_language = std::mem::replace(&mut self.report.run_language, variable_language);
         let outer_variable_region = std::mem::replace(&mut self.report.variable_region, variable_region.is_some());
-        self.report.failed_trigger = None;
+        let changes = self.start_save_run();
         let ran = self.report_in_world(enters, |s| {
             s.report_body(&inst, &schema, false, Some(&parameters), deferred)
         });
@@ -2681,15 +2681,9 @@ impl Session {
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),
             Err(Signal::Error(e)) => {
-                let plain_stream =
-                    matches!(target, SaveTarget::Stream(_)) && parameters.is_empty() && record_ref.is_none();
-                let call = save_trigger_error::FailedSave {
-                    format: &format,
-                    by_variable: at == 0,
-                    plain_stream,
-                    result_used,
-                };
-                self.save_trigger_error(e, &schema, call)
+                let call =
+                    save_trigger_error::FailedSave::of(&format, at, (&target, &parameters, record_ref), result_used);
+                self.save_trigger_error(e, &schema, call.after(&output, changes))
             }
             Err(other) => Err(other),
         }

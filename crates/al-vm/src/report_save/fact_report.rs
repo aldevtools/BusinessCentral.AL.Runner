@@ -5,7 +5,7 @@ use super::Schema;
 use super::facts::{DataItems, Decl, Declares, Extensions, Kind, Layout, LayoutFile, Triggers};
 
 /// What the report declares, as the cells tell it apart.
-pub(super) struct ReportFacts {
+pub(crate) struct ReportFacts {
     pub kind: Kind,
     pub layout: Layout,
     pub decl: Decl,
@@ -15,9 +15,11 @@ pub(super) struct ReportFacts {
     pub data_items: DataItems,
     pub extensions: Extensions,
     pub triggers: Triggers,
+    pub sole_layout: bool,
+    pub init_triggers: bool,
 }
 
-pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportFacts {
+pub(crate) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportFacts {
     let report = schema.report();
     let kind = match report.default_layout_kind.as_str() {
         "rdlc" => Kind::Rdlc,
@@ -44,6 +46,16 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     } else {
         Triggers::None
     };
+    // corpus pull request 1579 (reports/layouts-saveas/SaveAsTriggerErrors.al): its reports declare one layout, no OnInitReport
+    // and no request page; so do the processing-only report of streams/PnH6SaveAs.al:32 and the Html hash cells (`html_cell`).
+    let sole_layout = report.layout_properties.is_empty()
+        && report.rendering_layouts.len() == 1
+        && report.extension_layouts.is_empty();
+    let init_triggers = report.on_init.is_some()
+        || program.objects[schema.object]
+            .page
+            .as_ref()
+            .is_some_and(|p| !p.triggers.is_empty());
     ReportFacts {
         kind,
         layout: if report.layout == al_ir::ReportLayout::Rdlc {
@@ -71,12 +83,14 @@ pub(super) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
         data_items,
         extensions,
         triggers,
+        sole_layout,
+        init_triggers,
     }
 }
 
 /// Whether the reportextension (object index) only adds columns to the report's data items: no trigger, data item, label or
 /// `modify`.
-pub(crate) fn adds_columns_only(program: &al_ir::Program, ext: usize) -> bool {
+fn adds_columns_only(program: &al_ir::Program, ext: usize) -> bool {
     program.objects[ext].report_ext.as_ref().is_some_and(|x| {
         x.on_pre.is_none()
             && x.on_post.is_none()

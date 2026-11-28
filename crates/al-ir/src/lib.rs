@@ -738,6 +738,10 @@ pub struct Report {
     /// The kinds the `RDLCLayout`, `WordLayout` and `ExcelLayout` properties declare (`rdlc`, `word`, `excel`), in that order.
     #[serde(default)]
     pub layout_properties: Vec<String>,
+    /// The layouts the reportextensions of the run add: the `Type` of each layout of a `rendering` section, lower-case, and
+    /// the section name of any other layout section. Empty: no extension adds a layout.
+    #[serde(default)]
+    pub extension_layouts: Vec<String>,
 }
 
 impl Report {

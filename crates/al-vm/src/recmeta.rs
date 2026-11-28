@@ -34,6 +34,25 @@ fn error_redacted(message: String, code: &str, redacted: String) -> Signal {
     }))
 }
 
+const EMPTY_FIELD_MID: &str = " must have a value in ";
+const EMPTY_FIELD_END: &str = ". It cannot be zero or empty.";
+
+/// The TestField error of a field that holds no value, code TestField: "<field> must have a value in <table>: <key>. It
+/// cannot be zero or empty." The flag hides the key (P86LastError.al:233, :236, P70_02LastErrFlag.al:123, :141).
+fn empty_field_error(caption: &str, table: &str, key: &str) -> Signal {
+    error_redacted(
+        format!("{caption}{EMPTY_FIELD_MID}{table}: {key}{EMPTY_FIELD_END}"),
+        "TestField",
+        format!("{caption}{EMPTY_FIELD_MID}{table}: <redacted>{EMPTY_FIELD_END}"),
+    )
+}
+
+/// Whether `e` is the error [`empty_field_error`] makes (`reports/save_trigger_error.rs` tells it from the other TestField
+/// errors).
+pub(crate) fn is_empty_field_error(e: &AlError) -> bool {
+    e.code == "TestField" && e.message.contains(EMPTY_FIELD_MID) && e.message.ends_with(EMPTY_FIELD_END)
+}
+
 fn error(message: String, code: &str) -> Signal {
     Signal::Error(Box::new(AlError {
         message,
@@ -469,11 +488,7 @@ impl Session {
             );
         }
         let (caption, table, key) = (self.field_caption(t, pos), self.caption(t), self.key_text(t, &row)?);
-        Err(error_redacted(
-            format!("{caption} must have a value in {table}: {key}. It cannot be zero or empty."),
-            "TestField",
-            format!("{caption} must have a value in {table}: <redacted>. It cannot be zero or empty."),
-        ))
+        Err(empty_field_error(&caption, &table, &key))
     }
 
     fn key_text(&self, t: &TableDef, fields: &[Value]) -> Result<String, Signal> {
@@ -1271,11 +1286,7 @@ impl Session {
                     }
                     let key = self.key_text(t, &row)?;
                     // The flag hides the key: P86LastError.al:233, :236, P70_02LastErrFlag.al:123, :141.
-                    return Err(error_redacted(
-                        format!("{caption} must have a value in {table}: {key}. It cannot be zero or empty."),
-                        "TestField",
-                        format!("{caption} must have a value in {table}: <redacted>. It cannot be zero or empty."),
-                    ));
+                    return Err(empty_field_error(&caption, &table, &key));
                 }
             }
             Some(want) => {

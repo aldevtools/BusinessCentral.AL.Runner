@@ -590,6 +590,7 @@ pub(crate) fn build_shared<'a>(
         // The layouts a reportextension adds refuse a run that renders output, as the report's own do.
         for &e in changing.get(&oi).into_iter().flatten() {
             if let Some(el) = ext_layouts[e].as_ref() {
+                l.extension_layouts.extend(el.layouts.iter().cloned());
                 l.output.extend(
                     el.output
                         .iter()

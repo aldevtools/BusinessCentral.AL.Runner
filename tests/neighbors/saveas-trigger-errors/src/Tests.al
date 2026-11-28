@@ -99,6 +99,22 @@ codeunit 97120 "NBS Tests"
     procedure NoLayout_VariableXml_OnPreReportError_LastErrorHoldsIt()
     var
         S: Codeunit "NBS Site";
+        Rep: Report "NBS No Layout Pin Rpt";
+        TempRow: Record "NBS Row" temporary;
+        OutS: OutStream;
+    begin
+        S.Set(Report::"NBS No Layout Pin Rpt", 1, ReportFormat::Xml);
+        ClearLastError();
+        TempRow.Data.CreateOutStream(OutS);
+        if Rep.SaveAs('', ReportFormat::Xml, OutS) then
+            Error('SaveAs answered true');
+        Check(GetLastErrorCode() + '/' + GetLastErrorText(), 'Dialog/N1');
+    end;
+
+    [Test]
+    procedure NoLayout_VariableXml_OneDataItem_LastError_NotMeasured()
+    var
+        S: Codeunit "NBS Site";
         Rep: Report "NBS No Layout Rpt";
         TempRow: Record "NBS Row" temporary;
         OutS: OutStream;
@@ -181,6 +197,62 @@ codeunit 97120 "NBS Tests"
     procedure NoLayout_StaticXml_OnAfterGetRecordError_LastError_NotMeasured()
     begin
         BooleanForm(Report::"NBS No Layout Rpt", 2, ReportFormat::Xml, 'false Dialog/N2');
+    end;
+
+    // The gate conditions of review round 1: each keeps main's refusal.
+
+    [Test]
+    procedure Word_ErrorLiteralInOnPreDataItem_PdfBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBS Word Rpt", 8, ReportFormat::Pdf, 'false Dialog/N8');
+    end;
+
+    [Test]
+    procedure Word_TestFieldInOnPreReport_WordBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBS Word Rpt", 9, ReportFormat::Word, 'false TestField/Tag must have a value in NBS Row: Code=. It cannot be zero or empty.');
+    end;
+
+    [Test]
+    procedure Word_TestFieldWithValueInOnPreDataItem_XmlBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBS Word Rpt", 10, ReportFormat::Xml, 'false TestField/Tag must be equal to ''X''  in NBS Row: Code=. Current value is ''''.');
+    end;
+
+    [Test]
+    procedure Word_ReportInsertsThenErrors_PdfBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBS Word Rpt", 11, ReportFormat::Pdf, 'false Dialog/N11');
+    end;
+
+    [Test]
+    procedure ProcessingOnly_WithOnInitReport_WordBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBS Processing Init Rpt", 1, ReportFormat::Word, 'false ReportProcessingOnly/Report 97113 is a processing-only report. Output cannot be rendered and saved to a file.');
+    end;
+
+    [Test]
+    procedure ProcessingOnly_WithOnInitReport_WordStatement_NotMeasured()
+    begin
+        Statement(Report::"NBS Processing Init Rpt", 1, ReportFormat::Word, 'raised ReportProcessingOnly/Report 97113 is a processing-only report. Output cannot be rendered and saved to a file.');
+    end;
+
+    [Test]
+    procedure ProcessingOnly_WithRequestPageOnInit_ExcelBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBS Processing Page Rpt", 1, ReportFormat::Excel, 'false ReportProcessingOnly/Report 97114 is a processing-only report. Output cannot be rendered and saved to a file.');
+    end;
+
+    [Test]
+    procedure Excel_WithOnInitReport_PdfStatement_NotMeasured()
+    begin
+        Statement(Report::"NBS Excel Init Rpt", 1, ReportFormat::Pdf, 'raised ReportUnsupportedFormat/The Pdf output format is not supported by the current report layout format.');
+    end;
+
+    [Test]
+    procedure ExcelPlusWord_OnPreReportError_PdfStatement_NotMeasured()
+    begin
+        Statement(Report::"NBS Excel Word Rpt", 1, ReportFormat::Pdf, 'raised ReportUnsupportedFormat/The Pdf output format is not supported by the current report layout format.');
     end;
 
     [Test]

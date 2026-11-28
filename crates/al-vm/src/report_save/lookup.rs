@@ -25,6 +25,8 @@ macro_rules! each_fact {
             data_items: DataItems,
             extensions: Extensions,
             triggers: Triggers,
+            sole_layout: SoleLayout,
+            init_triggers: InitTriggers,
             custom: Custom,
             company_build: CompanyBuild,
             listed: Listed,

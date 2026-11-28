@@ -70,6 +70,8 @@ fn base() -> Facts {
         data_items: DataItems::One,
         extensions: Extensions::None,
         triggers: Triggers::None,
+        sole_layout: true,
+        init_triggers: false,
         custom: false,
         company_build: false,
         listed: false,
@@ -270,6 +272,8 @@ fn report_save_every_fact_of_the_vector_is_in_fact_all() {
         data_items: _,
         extensions: _,
         triggers: _,
+        sole_layout: _,
+        init_triggers: _,
         custom: _,
         company_build: _,
         listed: _,
@@ -293,6 +297,8 @@ fn report_save_every_fact_of_the_vector_is_in_fact_all() {
         Fact::DataItems,
         Fact::Extensions,
         Fact::Triggers,
+        Fact::SoleLayout,
+        Fact::InitTriggers,
         Fact::Custom,
         Fact::CompanyBuild,
         Fact::Listed,
@@ -434,5 +440,56 @@ fn report_save_top_level_items_with_no_row_answer_as_the_probe_measured() {
         after(Format::Pdf, Kind::Rdlc, DataItems::TwoTopLevel, AnswerForm::Statement),
     ] {
         assert!(answer(&f).map_or(true, |(_, m)| m != marks), "{f:?}");
+    }
+}
+
+/// An allow-listed report with an Excel layout saved as Pdf or Word in the statement form keeps main's refusal, whatever else
+/// it declares: the table's measured statement row reads `listed` false (corpus pull request 1579), and a miss of a save the
+/// table knows nothing about would be discarded (`save_before_run`).
+#[test]
+fn report_save_an_allow_listed_excel_statement_keeps_the_refusal() {
+    for format in [Format::Pdf, Format::Word] {
+        for (sole_layout, init_triggers) in [(true, false), (false, false), (true, true)] {
+            let f = Facts {
+                format,
+                answer: AnswerForm::Statement,
+                kind: Kind::Excel,
+                listed: true,
+                sole_layout,
+                init_triggers,
+                ..base()
+            };
+            let Before::Answer(row) = lookup::before_run(&CELLS, &f) else {
+                panic!("a row for {f:?}")
+            };
+            assert!(matches!(row.answer, Answer::Refuse(_)), "{row:?}");
+        }
+    }
+}
+
+/// The measured Excel statement row needs one layout and no init triggers; each other value misses (a refusal).
+#[test]
+fn report_save_the_excel_statement_row_reads_one_layout_and_no_init_triggers() {
+    let measured = Facts {
+        format: Format::Pdf,
+        answer: AnswerForm::Statement,
+        kind: Kind::Excel,
+        ..base()
+    };
+    let Before::Answer(row) = lookup::before_run(&CELLS, &measured) else {
+        panic!("the measured row")
+    };
+    assert_eq!(row.answer, Answer::False(super::cell::ErrorId::UnsupportedFormat));
+    for f in [
+        Facts {
+            sole_layout: false,
+            ..measured
+        },
+        Facts {
+            init_triggers: true,
+            ..measured
+        },
+    ] {
+        assert!(matches!(lookup::before_run(&CELLS, &f), Before::Miss(_)), "{f:?}");
     }
 }

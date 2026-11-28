@@ -19,7 +19,8 @@ table 97100 "NBS Row"
 
 // Site: 0 none, 1 OnPreReport Error('literal'), 2 OnAfterGetRecord Error('literal'), 3 OnPreDataItem TestField of an empty
 // field, 4 OnPostReport Error('literal'), 5 OnPreReport Error(Label), 6 OnPreReport Get of a missing row, 7 OnPostDataItem
-// Error('literal').
+// Error('literal'), 8 OnPreDataItem Error('literal'), 9 OnPreReport TestField of an empty field, 10 OnPreDataItem TestField
+// with a value, 11 OnPreReport inserts a row and then Error('literal'), 12 never raises (a trigger that only calls Fire).
 codeunit 97101 "NBS Site"
 {
     SingleInstance = true;
@@ -68,6 +69,18 @@ codeunit 97101 "NBS Site"
                 Row.Get('MISSING');
             7:
                 Error('N7');
+            8:
+                Error('N8');
+            9:
+                Row.TestField(Tag);
+            10:
+                Row.TestField(Tag, 'X');
+            11:
+                begin
+                    Row.Code := 'INSERTED';
+                    Row.Insert();
+                    Error('N11');
+                end;
         end;
     end;
 }
@@ -87,6 +100,8 @@ report 97102 "NBS Word Rpt"
             begin
                 SetRange(Number, 1, 1);
                 Site.Fire(3);
+                Site.Fire(8);
+                Site.Fire(10);
             end;
 
             trigger OnAfterGetRecord()
@@ -115,6 +130,8 @@ report 97102 "NBS Word Rpt"
         Site.Fire(1);
         Site.Fire(5);
         Site.Fire(6);
+        Site.Fire(9);
+        Site.Fire(11);
     end;
 
     trigger OnPostReport()
@@ -382,6 +399,197 @@ report 97110 "NBS Word Ext Rpt"
 // An extension with a trigger of its own: the error comes from the extension, not from the report.
 reportextension 97111 "NBS Word Trigger Ext" extends "NBS Word Ext Rpt"
 {
+    trigger OnPreReport()
+    begin
+        Site.Fire(1);
+    end;
+
+    var
+        Site: Codeunit "NBS Site";
+}
+
+report 97113 "NBS Processing Init Rpt"
+{
+    UsageCategory = None;
+    ProcessingOnly = true;
+
+    dataset
+    {
+        dataitem(Int; Integer)
+        {
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+        }
+    }
+
+    trigger OnInitReport()
+    begin
+        Site.Fire(12);
+    end;
+
+    trigger OnPreReport()
+    begin
+        Site.Fire(1);
+    end;
+
+    var
+        Site: Codeunit "NBS Site";
+}
+
+report 97114 "NBS Processing Page Rpt"
+{
+    UsageCategory = None;
+    ProcessingOnly = true;
+
+    dataset
+    {
+        dataitem(Int; Integer)
+        {
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+        }
+    }
+
+    requestpage
+    {
+        trigger OnInit()
+        begin
+            Site.Fire(12);
+        end;
+    }
+
+    trigger OnPreReport()
+    begin
+        Site.Fire(1);
+    end;
+
+    var
+        Site: Codeunit "NBS Site";
+}
+
+report 97115 "NBS Excel Init Rpt"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = L;
+
+    dataset
+    {
+        dataitem(Int; Integer)
+        {
+            column(N; Number) { }
+
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+        }
+    }
+
+    rendering
+    {
+        layout(L)
+        {
+            Type = Excel;
+            LayoutFile = './src/NbsExcelInit.xlsx';
+        }
+    }
+
+    trigger OnInitReport()
+    begin
+        Site.Fire(12);
+    end;
+
+    trigger OnPreReport()
+    begin
+        Site.Fire(1);
+    end;
+
+    var
+        Site: Codeunit "NBS Site";
+}
+
+report 97116 "NBS Excel Word Rpt"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = L;
+
+    dataset
+    {
+        dataitem(Int; Integer)
+        {
+            column(N; Number) { }
+
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+        }
+    }
+
+    rendering
+    {
+        layout(L)
+        {
+            Type = Excel;
+            LayoutFile = './src/NbsExcelWordX.xlsx';
+        }
+        layout(W)
+        {
+            Type = Word;
+            LayoutFile = './src/NbsExcelWordW.docx';
+        }
+    }
+
+    trigger OnPreReport()
+    begin
+        Site.Fire(1);
+    end;
+
+    var
+        Site: Codeunit "NBS Site";
+}
+
+// No layout, and the data items of the pinned report (text/PnBReportSaveAs.al:698): two top-level, one inside the first.
+report 97117 "NBS No Layout Pin Rpt"
+{
+    UsageCategory = None;
+
+    dataset
+    {
+        dataitem(First; Integer)
+        {
+            column(A; Number) { }
+
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+
+            dataitem(Inner; Integer)
+            {
+                column(B; Number) { }
+
+                trigger OnPreDataItem()
+                begin
+                    SetRange(Number, 1, 1);
+                end;
+            }
+        }
+        dataitem(Second; Integer)
+        {
+            column(C; Number) { }
+
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+        }
+    }
+
     trigger OnPreReport()
     begin
         Site.Fire(1);
