@@ -470,6 +470,7 @@ impl Session {
                 if id == ids::NUMBERSEQUENCE_RANGE_2 {
                     args[2] = Value::BigInteger(s.increment);
                 }
+                self.note_numbers_taken(&key);
                 Ok(Value::BigInteger(first))
             }
             "Restart" => {

@@ -27,13 +27,17 @@ pub struct Args {
     /// `--list-new-cases REV` (ADR-065, corpus bumps): add lines for the cases that do not pass and that the oracle
     /// at REV (the base branch) does not have.
     pub list_new_cases: Option<String>,
-    /// `--list-changes REV`: print how the not-passing lists changed against REV, then stop (the CI job summary).
+    /// `--list-changes REV`: print how the not-passing lists changed against REV, then stop (the CI job summary); a line
+    /// added to a strict list (`strict_not_run.rs`) exits 3.
     pub list_changes: Option<String>,
     /// `--update-work`: rewrite `metrics/<major>/work.json` from this run's counts (the work ratchet, `work.rs`).
     pub update_work: bool,
     /// `--no-ratchet`: report only; do not check the not-passing lists (for running the corpus
     /// without the dependency apps the lists assume).
     pub no_ratchet: bool,
+    /// Every pass runs in BC's order, and the lists are checked by `strict_not_run.rs` (ADR-070 decision 5). Set by
+    /// `main.rs` from the internal environment switch `AL_STRICT_ORDER_ALL`, never by a flag.
+    pub strict_order_all: bool,
     /// Extra directories of `.app` packages, searched after the project's `.alpackages`.
     pub deps: Vec<PathBuf>,
     /// Run without dependency apps (the corpus alone).
@@ -477,7 +481,9 @@ NOT-PASSING LISTS (ADR-065) AND REPORTS
   Each version and test app has a list of the oracle cases real BC passes and the runtime does not pass
   yet (metrics/<major>/not-passing*.txt, `baseline` in oracle.toml). A run fails (exit 1) when a case
   that is not listed does not pass, when a listed case passes or left the oracle (a stale line), and
-  when an oracle case got no outcome.
+  when an oracle case got no outcome. With AL_STRICT_ORDER_ALL=1 (the nightly run of the whole corpus in
+  BC's order) a case may also be on metrics/<major>/strict-order-not-run.txt when it is not run (never when
+  it fails); only that list has stale lines then, and only it is pruned.
   --baseline FILE             check against this list instead of metrics/<major>/not-passing.txt
   --suite-baseline NAME=FILE  the list of an extra test app (repeatable)
   --prune-not-passing         delete the stale lines from the lists; never adds a line
@@ -486,7 +492,8 @@ NOT-PASSING LISTS (ADR-065) AND REPORTS
                               case REV's oracle has (that line would hide a regression)
   --list-changes REV          print, as Markdown, the lines each list gained and lost against REV, the
                               gained ones split into new cases and accepted regressions (cases REV's oracle
-                              had), then stop; exit 1 when a regression was accepted
+                              had), then stop; exit 1 when a regression was accepted, exit 3 when a line was
+                              added to a strict list (metrics/<major>/strict-order-not-run.txt, which only shrinks)
   --update-work               rewrite metrics/<major>/work.json, the expected work counts, from this run
                               (refused unless the run is the full corpus without the compile cache)
   --no-ratchet                report only; do not check the not-passing lists

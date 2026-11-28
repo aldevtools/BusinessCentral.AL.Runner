@@ -236,11 +236,28 @@ pub struct LaneReport {
     pub dependent: usize,
     /// The failed tests that got an order hint.
     pub hinted: usize,
+    /// ADR-070 decision 4: the passing tests that read SingleInstance state an earlier codeunit would have left
+    /// differently on BC.
+    pub passing_read_carried: usize,
     /// ADR-058 amendment 1: the dependent codeunits, with what they read.
     pub carried: Vec<super::CarriedCodeunit>,
+    /// ADR-070 decision 7: `CorpusRuntime::numbers_taken_after` (`order_hint::hint_numbers`).
+    pub numbers_taken_after: Vec<super::TakenAfter>,
 }
 
 impl LaneReport {
+    /// ADR-070 decision 4: the summary line of a default run, printed with or without `--timings`, when
+    /// [`passing_read_carried`](Self::passing_read_carried) is above 0.
+    pub fn passing_line(&self) -> Option<String> {
+        (self.passing_read_carried > 0).then(|| {
+            format!(
+                "{} passing tests read SingleInstance state that an earlier codeunit would have left differently on BC. \
+                 {STRICT_FLAG} runs BC's order.",
+                self.passing_read_carried
+            )
+        })
+    }
+
     pub fn lines(&self) -> Vec<String> {
         if self.watched == 0 {
             return Vec::new();
@@ -273,6 +290,7 @@ impl Lane<'_> {
         // Amendment 6: a codeunit listed in two suites is in two sessions but runs and is reported once. The first
         // session (in the file's order) where it is dependent decides.
         let mut counted: BTreeSet<usize> = BTreeSet::new();
+        let mut numbered: BTreeSet<usize> = BTreeSet::new();
         for ks in streams(self.units, self.place, &has, self.suites) {
             let found = session_found(&ks, slots);
             let fresh: Vec<usize> = found
@@ -289,30 +307,38 @@ impl Lane<'_> {
                     self.dependent_why(&ks, &found, p)
                 ));
                 self.note_carried(&ks, &found, p, report);
-                report.hinted += self.hint(&ks, &found, p, slots);
+                let (failed, passing) = self.hint(&ks, &found, p, slots);
+                report.hinted += failed;
+                report.passing_read_carried += passing;
             }
+            // ADR-070 decision 3, after the SingleInstance hints: a test with both gets one hint.
+            let after = &mut report.numbers_taken_after;
+            report.hinted +=
+                super::order_hint::hint_numbers(self.lowered, self.units, &ks, &mut numbered, slots, after);
         }
     }
 
-    /// ADR-066 amendment 12, decision 2: the hint of each failed test of dependent codeunit `p` of session `ks` that
-    /// read first, in it or in a test before it, a global the earlier codeunits left otherwise. Returns how many tests
-    /// got one.
-    fn hint(&self, ks: &[usize], found: &Found, p: usize, slots: &mut [Option<UnitResult>]) -> usize {
+    /// The hint of each failed test of dependent codeunit `p` of session `ks` that read first, in it or in a test
+    /// before it, a global the earlier codeunits left otherwise; the same reads on each passing test (ADR-070 decision
+    /// 4). Returns how many failed and how many passing tests got one.
+    fn hint(&self, ks: &[usize], found: &Found, p: usize, slots: &mut [Option<UnitResult>]) -> (usize, usize) {
         let Some(Ok(done)) = slots[ks[p]].as_mut().map(|r| &mut r.result) else {
-            return 0;
+            return (0, 0);
         };
+        let number = |t: &String, at: &[(u32, String)]| at.iter().find(|(_, name)| name == t).map(|(n, _)| *n);
         let failed: Vec<(String, Option<u32>)> = done
             .0
             .iter()
             .filter(|(_, o)| matches!(o, Outcome::Fail(_)))
-            .map(|(t, _)| {
-                let n = done.5.unfinished_at.iter().find(|(_, name)| name == t).map(|(n, _)| *n);
-                (t.clone(), n)
-            })
+            .map(|(t, _)| (t.clone(), number(t, &done.5.unfinished_at)))
             .collect();
-        if failed.is_empty() {
-            return 0;
-        }
+        // A passing test without a number (not watched) counts as the last test, as a failed one does.
+        let passing: Vec<(String, Option<u32>)> = done
+            .0
+            .iter()
+            .filter(|(_, o)| matches!(o, Outcome::Pass))
+            .map(|(t, _)| (t.clone(), number(t, &done.5.test_numbers)))
+            .collect();
         let empty = BTreeSet::new();
         let changed = found.changed.get(&p).unwrap_or(&empty);
         let writers: Vec<(GlobalKey, usize)> = found
@@ -324,8 +350,10 @@ impl Lane<'_> {
             .collect();
         let read_in = done.5.singles_out.as_ref().map(|o| &o.read_in);
         let hints = super::order_hint::hints_for(self.lowered, self.units, changed, &writers, read_in, &failed);
-        let n = hints.len();
+        let reads = super::order_hint::hints_for(self.lowered, self.units, changed, &writers, read_in, &passing);
+        let n = (hints.len(), reads.len());
         done.5.order_hints.extend(hints);
+        done.5.order_hints.extend(reads);
         n
     }
 

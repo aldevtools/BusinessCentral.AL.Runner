@@ -1,0 +1,26 @@
+# Corpus cases the default run passes and the whole corpus in BC's order (AL_STRICT_ORDER_ALL=1, ADR-070 decision 5)
+# does not run yet. That run fails when a case that is on no list does not pass, and when a line here passes or left
+# the oracle. A line here excuses a case that is not run, never one that fails.
+# This list only shrinks: a line may be deleted (`AL_STRICT_ORDER_ALL=1 al-test-cli --root . --bc-version 29
+# --prune-not-passing`), never added (`al-test-cli --list-changes` exits 3). Seeded 2026-11-23 with the 13 cases of the
+# first whole-corpus run in BC's order.
+
+# not run: "LT RQ Disabled A", a codeunit on the TestRunnerHub, wrote a table this test reads, and whether BC runs this
+# codeunit, which has handlers, before or after it is not pinned (runner issue 8917, corpus issue 1559).
+88512 RQ_WF01_InsertNoCommit
+88512 RQ_WF02_InsertCommit
+88512 RQ_WF03_NextTestSees
+88512 RQ_WF04_StartSession
+88513 RQ_WF11_NextCodeunitSees
+88514 RQ_WD01_InsertNoCommit
+88514 RQ_WD02_InsertCommit
+88514 RQ_WD03_NextTestSees
+88514 RQ_WD04_StartSession
+88515 RQ_WD11_NextCodeunitSees
+
+# not run: Clear of a TestPage that is open, trapping or a part (not pinned). The SingleInstance "LT HS Shape Subs"
+# still holds the open host page of the test before it, which was refused mid-run (an action on a new row whose key was
+# typed, on a page with parts; runner issue 8942).
+99630 HS08_ShapeHiddenTry_OpenEditThenClose
+99631 HS10_ShapeVisibleRaw_OpenEditThenClose
+99632 HS12_ShapeVisibleTry_OpenEditThenClose

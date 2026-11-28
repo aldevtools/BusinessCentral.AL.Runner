@@ -1,0 +1,10 @@
+# key	entry
+# Main refused RelationFieldNo of a TableRelation without a field onto these keys. Head answers 0 for the shapes corpus PR 1546
+# measured (FieldRelationFieldNo.al:382-447), through the assumption. The other lengths, types, keys and source keys stay refused on both.
+NB RFN Tests::Measured_CodeToIntCode	ASSUMED relation-field-no-key-shapes (corpus PR 1546, FieldRelationFieldNo.al:415)
+NB RFN Tests::Measured_CodeToCodeInt	ASSUMED relation-field-no-key-shapes (corpus PR 1546, FieldRelationFieldNo.al:426)
+NB RFN Tests::Measured_IntToIntCode	ASSUMED relation-field-no-key-shapes (corpus PR 1546, FieldRelationFieldNo.al:404)
+NB RFN Tests::Measured_IntToCodeInt	ASSUMED relation-field-no-key-shapes (corpus PR 1546, FieldRelationFieldNo.al:437)
+NB RFN Tests::Measured_CodeToCodeText	ASSUMED relation-field-no-key-shapes (corpus PR 1546, FieldRelationFieldNo.al:393)
+NB RFN Tests::Measured_InsideOwnIntCodeKey	ASSUMED relation-field-no-key-shapes (corpus PR 1546, FieldRelationFieldNo.al:382)
+NB RFN Tests::Measured_CodeToIntCode_FindFirst	ASSUMED relation-field-no-key-shapes (corpus PR 1546, FieldRelationFieldNo.al:415)

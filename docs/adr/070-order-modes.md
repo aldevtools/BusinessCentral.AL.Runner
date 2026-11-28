@@ -82,7 +82,12 @@ Two modes. No speculation in either.
    visible without a flag on each result. `--stability` still lists them.
 5. **`metrics/strict-order-files.txt` stays honest.** Keep the list. Add a nightly job that runs the whole corpus with
    `--strict-order`: every case must pass there, and a case that passes in both modes may not be on the list. The corpus
-   is the oracle for BC, and BC is strict order, so the full strict run must stay green somewhere.
+   is the oracle for BC, and BC is strict order, so the full strict run must stay green somewhere. Exception
+   (orchestrator call, 2026-11-23, for the owner to confirm): the strict run, on the latest major only, keeps the
+   default not-passing lists, failures included. It adds `metrics/<major>/strict-order-not-run.txt` for cases the
+   default run passes and the strict run does not run yet. A case only on that list that fails still fails the job. A
+   line on it that passes is stale. `--list-changes` refuses a line added against a base revision that has the file; a
+   new file is not checked (issue 8948). Each line names its cause by convention; no check reads it (migration step 4).
 6. **Memory.** Amendments 9 and 10 stay as they are until ADR-069 is built. Then re-measure and reduce to: a budget, a
    learned cost per codeunit, admission before a codeunit starts, and a hard stop with exit code 2. The hard limit
    (`--max-memory`) and exit code 2 stay in every case. This goes into its own ADR (step 5), not here.
@@ -120,7 +125,10 @@ Small PRs, each red/green. Outcomes do not change in steps 1 to 3 except where t
 4. **Reports.** The run-time numbers hint (decision 3), the summary line and JUnit property (decision 4), `orderMode`
    in the header, JUnit and JSON, the flagged pass after a refused or time-stopped test of a strict session, two plain
    runs for stability (decision 7), the nightly full-corpus `--strict-order` job (decision 5), and manual and `--help`
-   text (`--test-suites` only changes hints in the default mode).
+   text (`--test-suites` only changes hints in the default mode). (Done, 2026-11-23. The nightly run fails on a case on
+   no list that does not pass there; `metrics/<major>/strict-order-not-run.txt` lists the cases it does not run yet
+   and only shrinks. Decision 5's second rule, a file on `metrics/strict-order-files.txt` whose cases pass in both
+   modes, has no check yet: runner issue 8943.)
 5. **Memory ADR** after the ADR-069 re-measure (decision 6).
 
 ## Consequences
