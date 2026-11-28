@@ -180,8 +180,9 @@ fn shared_login(session: &Session, own_login: bool) -> Option<std::sync::Arc<al_
 /// login (`own_login`) nothing: a later codeunit sees the committed rows as the codeunits before it left them, with no
 /// second login row (corpus PR 1657, LgnRunnerSessions.al:429-:434, :792-:794; what an earlier codeunit's OnRun inserted
 /// there is gone, [`RunnerLoginRows::onrun_rolled_back`]), and without the image the SingleInstance codeunits as the
-/// login, run again on the data the session's one login ran on, filled them ([`runner_login_data`], :789-:791).
-/// `None`: nothing.
+/// login, run again on the data the session's one login ran on, filled them ([`runner_login_data`], :789-:791); where
+/// that data was not kept (a row with no bytes form), main's answer: the login runs again on the current data, undone
+/// (not measured). `None`: nothing.
 pub(super) fn held_reads(
     held: &al_vm::HeldLogin,
     own_login: bool,
@@ -189,7 +190,7 @@ pub(super) fn held_reads(
     rows_as_held: bool,
 ) -> Option<crate::install::HeldReads> {
     if own_login {
-        return runner_held_reads(held, thawed);
+        return None;
     }
     let reads = crate::install::HeldReads {
         tables: match rows_as_held {
@@ -272,24 +273,6 @@ fn only_inserted(before: &RowDigests, after: &RowDigests) -> bool {
         let mut now = after.get(entry).into_iter().flatten();
         rows.iter().all(|row| now.any(|r| r == row))
     })
-}
-
-/// What a later codeunit of the session runner 130450 runs its codeunits in after the held login may not read: without
-/// the image (`thawed` false) and without the data that session's one login ran on ([`runner_login_data`]: a row with no
-/// bytes form), the SingleInstance codeunits that login left, whose state a login on the current data would set
-/// otherwise than the one login did (corpus PR 1657, LgnRunnerSessions.al:790). `None`: nothing.
-fn runner_held_reads(held: &al_vm::HeldLogin, thawed: bool) -> Option<crate::install::HeldReads> {
-    match thawed || held.ran_on.is_some() || held.singles.is_empty() {
-        true => None,
-        false => Some(crate::install::HeldReads {
-            tables: Default::default(),
-            tables_why: "",
-            singles: held.singles.iter().copied().collect(),
-            singles_why: "the login of the session runner 130450 runs its codeunits in after the held login left no \
-                          image, and the data it ran on has no bytes form to run it again on: what its SingleInstance \
-                          codeunits hold for this codeunit is not pinned",
-        }),
-    }
 }
 
 /// How what the session wrote when it opened the company meets what a Disabled codeunit carries: `Ok(true)` when the

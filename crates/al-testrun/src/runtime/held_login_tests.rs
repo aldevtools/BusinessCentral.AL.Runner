@@ -139,12 +139,13 @@ fn every_runner_130450_codeunit_after_the_held_login_answers_one_session_id() {
 }
 
 // A later codeunit of the session runner 130450 runs its codeunits in after the held login, whose login an earlier one
-// ran (corpus PR 1657, LgnRunnerSessions.al:424, :433), refuses no reader of the login rows: with the image thawed or not,
-// and with the login rows as that login left them or changed by an earlier codeunit of the session (main ran these
-// shapes too). Without the image, the SingleInstance codeunits that login left are refused only when the data it ran on
-// was not kept to run it again on (:790: a login on the current data counts other rows).
+// ran (corpus PR 1657, LgnRunnerSessions.al:424, :433), refuses no reader of the login rows or of the SingleInstance
+// codeunits: with the image thawed or not, with the login rows as that login left them or changed by an earlier codeunit
+// of the session, and with or without the data that login ran on kept to run it again on (`ran_on`). Without the image
+// and without that data (a row with no bytes form) the login runs again on the current data, main's answer (main ran
+// these shapes too; not measured, :790 measures the kept shape).
 #[test]
-fn a_later_runner_130450_codeunit_refuses_only_singles_it_cannot_set_again() {
+fn a_later_runner_130450_codeunit_refuses_no_reader_of_its_login() {
     let (l, engine) = super::tests::engine_for(SRC);
     let mut session = with_login_row(&l, &engine);
     let data = session.capture_baseline();
@@ -157,8 +158,11 @@ fn a_later_runner_130450_codeunit_refuses_only_singles_it_cannot_set_again() {
                 ..Default::default()
             };
             let r = refusals(&l, &engine, &wrote);
-            assert_eq!((&r[0], &r[1]), (&None, &None), "{r:?}");
-            assert_eq!(r[2].is_some(), !thawed && !kept, "thawed {thawed}, kept {kept}: {r:?}");
+            assert_eq!(
+                (&r[0], &r[1], &r[2]),
+                (&None, &None, &None),
+                "thawed {thawed}, kept {kept}: {r:?}"
+            );
         }
     }
 }
