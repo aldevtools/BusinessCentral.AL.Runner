@@ -51,12 +51,7 @@ impl TempBlobImplFields {
     }
 
     pub(crate) fn holds(&self, b: &BlobRef) -> bool {
-        self.0.iter().any(|(w, pos)| {
-            w.upgrade().is_some_and(|r| {
-                r.borrow().temporary
-                    && matches!(r.borrow().fields.get(*pos), Some(Value::Blob(f)) if std::sync::Arc::ptr_eq(f, b))
-            })
-        })
+        self.0.iter().any(|(w, pos)| holds_field(w, *pos, b))
     }
 }
 
@@ -105,14 +100,16 @@ impl TestLocalBlobFields {
             out_stream: true,
             in_stream: true,
         };
-        self.0.iter().any(|(w, pos, opened)| {
-            *opened == both
-                && w.upgrade().is_some_and(|r| {
-                    r.borrow().temporary
-                        && matches!(r.borrow().fields.get(*pos), Some(Value::Blob(f)) if std::sync::Arc::ptr_eq(f, b))
-                })
-        })
+        (self.0.iter()).any(|(w, pos, opened)| *opened == both && holds_field(w, *pos, b))
     }
+}
+
+/// Whether the record `w` still lives, is temporary and its field `pos` is now the buffer `b`.
+fn holds_field(w: &Weak<RefCell<RecordState>>, pos: usize, b: &BlobRef) -> bool {
+    w.upgrade().is_some_and(|r| {
+        r.borrow().temporary
+            && matches!(r.borrow().fields.get(pos), Some(Value::Blob(f)) if std::sync::Arc::ptr_eq(f, b))
+    })
 }
 
 impl Session {
