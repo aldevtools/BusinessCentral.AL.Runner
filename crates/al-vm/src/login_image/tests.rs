@@ -544,6 +544,7 @@ fn media_object() -> al_builtins::media::MediaObject {
         height: 0,
         pending: None,
         stream_call: None,
+        logo_icon: None,
     }
 }
 
