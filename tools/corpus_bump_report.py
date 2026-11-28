@@ -12,7 +12,7 @@ JUnit files of the old pin (before/) and the new pin (after/).
 The body lists what is left for a person and decides none of it: a regression (ADR-065: a case not in the
 not-passing lists that does not pass), a case that fails on the
 new pin and did not on the old one, an assumption whose corpus pin landed, a corpus guard without a gate, a
-harness count, a stale golden file. Each list is cut to stay under GitHub's limit of 65536 characters, with the full count.
+harness count, a stale golden file, a rename-map error (ADR-065 amendment 1). Each list is cut to stay under GitHub's limit of 65536 characters, with the full count.
 """
 import json
 import os
@@ -130,6 +130,12 @@ def main(d):
         left.append(("Golden files compiled into the runtime are stale (`crates/al-builtins/src/pinned_columns.rs`): "
                      "regenerate with `UPDATE_GOLDEN=1 cargo test --release -p al-test-cli --test corpus_resolve_deps "
                      "-- --ignored` and review the diff", [quote(read(d, "golden.txt"))]))
+    renames = [l.strip() for l in read(d, "diff.txt").splitlines()
+               if l.startswith("error: ") and "(ADR-065 amendment 1)" in l]
+    if renames:
+        left.append(("Rename-map errors (ADR-065 amendment 1): a renamed or moved case that lost its pass, or a "
+                     "passing case the corpus rename map sends to no oracle. Fix the code or the corpus map line",
+                     capped(renames)))
     warnings = [l.strip() for l in read(d, "bump.log").splitlines() if "WARNING" in l]
     if warnings:
         left.append(("Warnings of the bump script", capped(warnings)))

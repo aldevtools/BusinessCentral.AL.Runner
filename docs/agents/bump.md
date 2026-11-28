@@ -41,7 +41,8 @@ a green corpus push or nightly (schedule) run on master newer than the pin
 (the newest created one that passes the checks below) and opens a pull request on a branch
 `corpus-bump/<commit>` with the pin, `oracle/`, the harness counts and the
 not-passing lists (lines for new cases that do not pass, `--list-new-cases
-HEAD`; stale lines deleted). It never adds a line for a case the old oracle had
+HEAD`; stale lines deleted). `--list-new-cases` follows the corpus rename map (ADR-065 amendment 1): a renamed or
+app-moved case that passed must pass under its new key or the bump is red, and a listed one moves its line. It never adds a line for a case the old oracle had
 and does not merge. Its pull request body lists what is left for a person
 (regressions, new failures, landed awaiting
 assumptions, guards without a gate, harness counts, stale golden files). Fix
