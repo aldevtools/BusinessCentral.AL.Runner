@@ -47,8 +47,10 @@ pub(crate) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     } else {
         Triggers::None
     };
-    // corpus pull request 1579 (reports/layouts-saveas/SaveAsTriggerErrors.al): its reports declare one layout, no OnInitReport
-    // and no request page; so do the processing-only report of streams/PnH6SaveAs.al:32 and the Html hash cells (`html_cell`).
+    // corpus pull request 1579 (reports/layouts-saveas/SaveAsTriggerErrors.al): its reports have no OnInitReport and no request
+    // page; the Word, RDLC and Excel ones declare one layout, "SAE Processing Rpt" declares none. The processing-only report of
+    // streams/PnH6SaveAs.al:32 declares no layout, no OnInitReport and no request page; the Html hash cells (`html_cell`) one
+    // layout.
     // `ReportLayout::None`: no DefaultRenderingLayout, no DefaultLayout, no layout property and no layout section (al-sema
     // `reports::default_layout`), so a lone WordLayout property or a rendering section without DefaultRenderingLayout is a
     // layout of its own.
