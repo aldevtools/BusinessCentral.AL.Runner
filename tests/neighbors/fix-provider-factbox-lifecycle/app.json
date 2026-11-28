@@ -1,0 +1,11 @@
+{
+  "id": "9357f42e-94aa-4613-b9a3-4f21082e2106",
+  "name": "Provider FactBox lifecycle neighbors",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [{ "from": 69970, "to": 69979 }],
+  "dependencies": []
+}

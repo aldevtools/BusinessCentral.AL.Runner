@@ -126,6 +126,7 @@ mod part_visible_new_host_insert_fails;
 mod parts;
 mod procedure_bound_action;
 mod property_view_quoted_filter;
+mod provider_factbox_lifecycle;
 mod qh_new_host_part_access;
 mod qi_host_save_parts;
 mod qi_row_page_var;

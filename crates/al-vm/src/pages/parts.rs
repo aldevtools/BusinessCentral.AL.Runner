@@ -1318,6 +1318,7 @@ impl Session {
             let mut fresh: Vec<FieldFilter> = Vec::new();
             let mut fields = Vec::new();
             let mut no_row_chain = false;
+            let mut empty_provider = false;
             // Pinned by testpage/UjSubPageLink.al (was assumption `subpagelink-const-qualified-enum-value`).
             for (at, entry) in link.entries.iter().enumerate() {
                 match entry {
@@ -1339,18 +1340,21 @@ impl Session {
                         };
                         // A Provider that shows no row: on BC the linked part shows no row, also where a row holds the blank
                         // link value (ProviderPartOutsideFactBoxes.al:419 `h2`, :421 `next-host`: `detail=` with a `Line Ref` 0
-                        // row stored at :273). The runner links to the blank value instead, so on the chains that probe admits
-                        // beyond the pinned ones the link is refused here, before any value is built, except in the cells
-                        // `provider_no_row.rs` admits (their stored rows are checked once the link is built, below).
+                        // row stored at :273). Preserve the narrow landing contract of `provider_no_row.rs`; otherwise
+                        // use an empty predicate rather than matching the Provider's blank field values.
                         if !no_row_chain
+                            && !empty_provider
                             && link.provider.is_some()
-                            && src_page.borrow().cursor == Cursor::None
+                            && src_page.borrow().cursor != Cursor::Row
                             && self.chain_outside_pinned_areas(host)
                         {
-                            if !self.provider_no_row_shape(host, control, child, src_page)? {
-                                return unsupported(super::provider_no_row::NO_ROW_CHAIN_REFUSAL);
+                            if self.provider_no_row_shape(host, control, child, src_page)? {
+                                no_row_chain = true;
+                            } else {
+                                // ProviderPartOutsideFactBoxes.al:419-421, :482-486: an empty Provider must not
+                                // select a detail whose key happens to match the blank link values.
+                                empty_provider = true;
                             }
-                            no_row_chain = true;
                         }
                         let value = if src_page.borrow().cursor == Cursor::None || unsaved_host {
                             let host_ty = engine.program.objects[*src_table]
@@ -1366,7 +1370,11 @@ impl Session {
                         fresh.push(FieldFilter {
                             lang: al_builtins::filter::filter_language(),
                             field: *pf,
-                            expr: FilterExpr::Range(Some(value.clone()), Some(value)),
+                            expr: if empty_provider {
+                                FilterExpr::Or(Vec::new())
+                            } else {
+                                FilterExpr::Range(Some(value.clone()), Some(value))
+                            },
                             group: LINK_GROUP,
                         });
                     }
@@ -1420,7 +1428,9 @@ impl Session {
                 }
             }
             if no_row_chain && !self.provider_no_row_rows(host, child, &fresh)? {
-                return unsupported(super::provider_no_row::NO_ROW_CHAIN_REFUSAL);
+                for filter in &mut fresh {
+                    filter.expr = FilterExpr::Or(Vec::new());
+                }
             }
             let keeps_link = self.part_sync_keeps_same_link.take();
             if keeps_link.is_some() && !child.borrow().dirty {
@@ -2298,7 +2308,12 @@ impl Session {
             h.open && h.host.is_none() && h.draft && !h.draft_stored && h.cursor != Cursor::None
         };
         // After a swallowed insert nothing tries again (`part_insert_swallowed.rs`; PartLineBeforeHostKey.al R7031_* `editable_log = []`).
-        if !new_host || !self.has_source(host) || host.borrow().part_insert_swallowed {
+        // ProviderPartOutsideFactBoxes.al:500-506: reading a base FactBox chain does not insert a blank-key host.
+        if !new_host
+            || !self.has_source(host)
+            || host.borrow().part_insert_swallowed
+            || (self.chain_part_in_factbox(child) && self.chain_outside_pinned_areas(host))
+        {
             return Ok(false);
         }
         let shows_rows = host.borrow().new_host_part_rows;

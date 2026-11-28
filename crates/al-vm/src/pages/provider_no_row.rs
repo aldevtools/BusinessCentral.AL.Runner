@@ -1,9 +1,8 @@
 //! A Provider chain whose Provider part shows no row, with the linked part added by a page extension outside FactBoxes
 //! (al-runner issue 7392). BC shows no row in the linked part (ProviderPartOutsideFactBoxes.al:419 `h2`, with a detail row
 //! of `Line Ref` 0 stored at :273);
-//! the runner links it to the blank values instead, which shows the same only while no row holds them. Only the cells of
-//! tests/al-language/testpage/parts/ProviderNoRowFirst.al:192, :240, :259, :278, :301 take this path; every other shape keeps
-//! the refusal in `sync_part` (`NO_ROW_CHAIN_REFUSAL`).
+//! only the cells of tests/al-language/testpage/parts/ProviderNoRowFirst.al:192, :240, :259, :278, :301 take this
+//! narrow landing path when no row matches the blank link. Other shapes use an empty link predicate in `sync_part`.
 //!
 //! A Provider chain whose Provider part shows no row, the linked part added by a page extension
 //! outside FactBoxes (al-runner issue 7392) (testpage/parts/ProviderNoRowFirst.al): the entry
@@ -15,9 +14,6 @@ use super::pinned_shape::{NextEnd, PLAIN_PROPERTIES, PinnedEnd, Reads, TestCall}
 use super::*;
 use al_builtins::filter::FieldFilter;
 use al_builtins::page_op::PageMethod;
-
-/// The refusal of a part linked through a Provider part that shows no row, outside the cells this module admits.
-pub(super) const NO_ROW_CHAIN_REFUSAL: &str = "a part linked through a Provider part that shows no row, on a Provider chain declared in the base page's FactBoxes or added by a page extension outside FactBoxes (BC shows no row; not modelled)";
 
 /// What the Card lets through after the landing: the calls ProviderNoRowFirst.al makes after it, value reads of a part's
 /// control (:204-205) and the moves of a part (:202-203, :250, :288-291), while the test writes nothing to the store.

@@ -1,7 +1,6 @@
 //! A Provider chain whose Provider is declared in the FactBoxes area of the host page itself (crates/al-vm/src/pages/
 //! provider_hidden.rs `chain_outside_pinned_areas`, al-runner issue 7748). On a stored host whose Provider shows a row it runs;
-//! a new host and a Provider that shows no row stay refused (corpus pull request 1324 measured them; the runner does not model
-//! them).
+//! a new base FactBox host and an empty Provider follow corpus pull request 1324 too.
 
 use al_testrun::Outcome;
 
@@ -64,13 +63,14 @@ codeunit 69976 C
         P.Close();
     end;
 
-    // A stored host whose Provider shows no row, while a row holds the blank link value: refused.
+    // ProviderPartOutsideFactBoxes.al:482-486: an empty Provider excludes the blank-key detail.
     [Test]
     procedure StoredHost_ProviderNoRow()
     var P: TestPage "PC Host";
     begin
         Seed(); P.OpenView(); P.GoToKey('H2');
-        Error('detail=%1', P.Detail.Note.Value);
+        if P.Detail.Note.Value <> '' then Error('detail=%1', P.Detail.Note.Value);
+        P.Close();
     end;
 }
 
@@ -78,13 +78,15 @@ codeunit 69977 D
 {
     Subtype = Test;
 
-    // A new host: refused as the page opens.
+    // ProviderPartOutsideFactBoxes.al:500-506: a new base FactBox host opens and saves its typed key.
     [Test]
     procedure NewHost()
-    var P: TestPage "PC Host";
+    var P: TestPage "PC Host"; Head: Record "PC Head";
     begin
         P.OpenNew();
-        Error('opened');
+        P."No.".SetValue('NEW');
+        P.Close();
+        if not Head.Get('NEW') then Error('The host was not inserted.');
     end;
 }
 "#;
@@ -103,17 +105,11 @@ fn a_stored_host_whose_provider_shows_a_row_runs() {
 }
 
 #[test]
-fn a_provider_that_shows_no_row_is_refused() {
-    match outcome("C", "StoredHost_ProviderNoRow") {
-        Outcome::NotRun(why) => assert!(why.contains("Provider part that shows no row"), "{why}"),
-        other => panic!("{other:?}"),
-    }
+fn a_provider_that_shows_no_row_excludes_the_blank_key_detail() {
+    assert_eq!(outcome("C", "StoredHost_ProviderNoRow"), Outcome::Pass);
 }
 
 #[test]
-fn a_new_host_with_such_a_chain_is_refused() {
-    match outcome("D", "NewHost") {
-        Outcome::NotRun(why) => assert!(why.contains("a new host with a Provider-chain part"), "{why}"),
-        other => panic!("{other:?}"),
-    }
+fn a_new_host_with_a_base_factbox_chain_saves_its_typed_key() {
+    assert_eq!(outcome("D", "NewHost"), Outcome::Pass);
 }

@@ -103,11 +103,20 @@ impl Session {
     /// ProviderPartOutsideFactBoxes.al ExtContent_*, BaseFactBoxes_*, BothExt_* `open`, `h1`, `h2`, `next`, `first`, `next-host`,
     /// BC 27.5, 28.5 and 29.0; corpus pull request 1324, al-runner issue 7748). On OpenNew the blank line reads follow the FactBoxes
     /// area and a Content chain does not insert on the typed key (`new`, `keyed`, `inserted`), which the runner does not model for
-    /// these shapes, so a new host is refused as the page opens.
+    /// Content chains, so those new hosts remain refused. Base FactBox chains use the existing single blank read
+    /// (ProviderPartOutsideFactBoxes.al:500-506).
     pub(super) fn refuse_factbox_vs_extension_chain(&self, st: &St) -> Result<(), Signal> {
-        if st.borrow().draft && self.chain_outside_pinned_areas(st) {
+        let extension_content_chain =
+            {
+                let engine = self.engine();
+                let object = st.borrow().object as usize;
+                page_of(&engine, st).controls.iter().enumerate().any(|(i, c)| {
+                    c.owner.is_some_and(|o| o != object) && !c.factbox && self.part_in_provider_chain(st, i)
+                })
+            };
+        if st.borrow().draft && extension_content_chain {
             return unsupported(
-                "a new host with a Provider-chain part that is a Provider declared in the base page's FactBoxes, or added by a page extension outside FactBoxes (its blank line reads on OpenNew are not modelled)",
+                "a new host with a Provider-chain part added by a page extension outside FactBoxes (its blank line reads on OpenNew are not modelled)",
             );
         }
         Ok(())
