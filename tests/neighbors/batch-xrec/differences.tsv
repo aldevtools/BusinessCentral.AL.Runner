@@ -23,8 +23,8 @@ NBX T61 InnerTry_TwoProcs::InnerTry_TwoProcs	ASSUMED xrec-one-across-nested-vali
 NBX T62 TwoLevel_DeepAssign::TwoLevel_DeepAssign	ASSUMED xrec-one-across-nested-validate (probe Validate_TwoLevelInnerAssigns_OneXRec)
 NBX T63 TwoLevel_OuterAssign::TwoLevel_OuterAssign	ASSUMED xrec-one-across-nested-validate (probe Validate_TwoLevelOuterAssigns_OneXRec)
 NBX T64 FromTryFunction::FromTryFunction	ASSUMED xrec-one-across-nested-validate (probe Validate_FromTestTryFunction_OneXRec)
-NBX T65 FromTryFunctionStateme::FromTryFunctionStatement	ASSUMED xrec-one-across-nested-validate (the runner does not tell a TryFunction statement from a used result; XRecTableProcCallers.al, corpus PR 1482, measured both the same)
-NBX T66 FromMessageHandler::FromMessageHandler	ASSUMED xrec-one-across-nested-validate (probe Validate_FromMessageHandler_OneXRec)
+NBX T65 FromTryFunctionStateme::FromTryFunctionStatement	ASSUMED xrec-one-across-nested-validate (the runner does not tell a TryFunction statement from a used result; XRecTableProcCallers.al, corpus PR 1482, measured both the same; probe cell Validate_FromTestTryFunctionStatement_OneXRec in observe mode at 8c6aa430)
+NBX T66 FromMessageHandler::FromMessageHandler	ASSUMED xrec-one-across-nested-validate (probe Validate_FromMessageHandler_OneXRec, the handler validates a variable assigned from the one that inserted)
 # The fourth Validate is not measured: it keeps main's copy of the outer before-image; the three around it share.
 NBX T68 FourLevels::FourLevels	ASSUMED xrec-one-across-nested-validate (the three outer Validates; the fourth keeps main's copy)
 # A test procedure that also carries [Scope('OnPrem')] (issue 8974): corpus PR 1583, Caller_ScopeOnPremTest_IntegrationEvent and
@@ -37,3 +37,6 @@ NBX T27 ScopeOnPremWithHandler::ScopeOnPremWithHandler_Nested	ASSUMED xrec-table
 # procedure between the triggers (T33), the outer Validate in a [ConfirmHandler] (T67), the nested Validate in a table
 # extension procedure (T69), with its value in a Variant (T70); Validate on another record variable gets its own xRec on both
 # (T71). [Scope('Cloud')] and [Scope('OnPrem')] with another attribute refuse on both (T28, T29).
+# Fix round 1 of the redesign, main's copy on both (no row): the outer Validate without a value (T72), a Rename after the Insert
+# (T73), a buffer assigned from the variable that inserted, validated from the test (T74), Rec := Other in the outer trigger, from a
+# [MessageHandler] on an assigned buffer (T75) and from the test on the variable that inserted (T76).

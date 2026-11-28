@@ -48,6 +48,10 @@ table 50150 "NBX Shape Line"
                 Series := 'MID';
                 if Cfg.Get().EndsWith('outer-assign') then
                     xRec.Series := 'OUT';
+                if Cfg.Get().Contains('self-assign') then begin
+                    Other := Rec;
+                    Rec := Other;
+                end;
                 case true of
                     Cfg.Get().StartsWith('two'), Cfg.Get().StartsWith('four-level'):
                         CopyFromItem();
