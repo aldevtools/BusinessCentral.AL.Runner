@@ -49,7 +49,7 @@ impl Session {
         let held = self.login_held.clone().ok_or("no login held")?;
         let image = held.image.as_ref().map_err(Clone::clone)?;
         let before = self.capture_baseline();
-        self.thaw_login_image(image).map_err(|e| format!("{e:?}"))?;
+        self.thaw_login_image(image).map_err(|not| not.reason())?;
         self.undo_login_writes(&before);
         Ok(())
     }
