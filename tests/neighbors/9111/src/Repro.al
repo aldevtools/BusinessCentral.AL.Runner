@@ -14,6 +14,6 @@ codeunit 50154 "JL Setup Sub"
         AssistedSetupGroup: Enum "Assisted Setup Group";
         VideoCategory: Enum "Video Category";
     begin
-        GuidedExperience.InsertAssistedSetup('Set up Repro', 'Set up Repro', 'Repro setup guide', 0, ObjectType::Page, Page::"JL Setup Guide", AssistedSetupGroup::Extensions, '', VideoCategory::Extensions, '');
+        GuidedExperience.InsertAssistedSetup('Set up Repro', 'Set up Repro', 'Repro setup guide', 0, ObjectType::Page, Page::"JL Setup Guide", AssistedSetupGroup::Uncategorized, '', VideoCategory::Uncategorized, '');
     end;
 }
