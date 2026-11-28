@@ -53,45 +53,59 @@ pub fn corpus_at_rev(corpus: &Path, rev: &str) -> Result<Corpus, String> {
         .filter(|p| p.ends_with(".al") && !p.starts_with(&format!("tests/{NOT_AN_APP}/")))
         .map(str::to_string)
         .collect();
+    let request: Vec<String> = paths.iter().map(|p| format!("{rev}:{p}")).collect();
+    let texts = cat_files(corpus, &request)?;
+    let sources = paths
+        .iter()
+        .zip(texts)
+        .map(|(p, text)| {
+            let app = p
+                .strip_prefix("tests/")
+                .and_then(|r| r.split('/').next())
+                .unwrap_or_default();
+            (app.to_string(), text)
+        })
+        .collect::<Vec<_>>();
+    Corpus::from_sources(sources)
+}
+
+/// The texts of the blobs `<rev>:<path>` of `requests` in the repository `repo`, in order, read with one
+/// `git cat-file --batch`. A request that names no blob is an error.
+pub(crate) fn cat_files(repo: &Path, requests: &[String]) -> Result<Vec<String>, String> {
     let mut child = Command::new("git")
         .arg("-C")
-        .arg(corpus)
+        .arg(repo)
         .args(["cat-file", "--batch"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
         .map_err(|e| format!("git cat-file: {e}"))?;
     let mut stdin = child.stdin.take().ok_or("git cat-file: no stdin")?;
-    let request: String = paths.iter().map(|p| format!("{rev}:{p}\n")).collect();
+    let request: String = requests.iter().map(|r| format!("{r}\n")).collect();
     let writer = std::thread::spawn(move || stdin.write_all(request.as_bytes()));
     let out = child.wait_with_output().map_err(|e| format!("git cat-file: {e}"))?;
     writer
         .join()
         .map_err(|_| "git cat-file: writer panicked")?
         .map_err(|e| format!("git cat-file: {e}"))?;
-    // Each object: `<sha> blob <size>\n<bytes>\n`.
-    let (mut sources, mut at, b) = (Vec::with_capacity(paths.len()), 0, &out.stdout);
-    for p in &paths {
+    // Each object: `<sha> blob <size>\n<bytes>\n`; a missing one: `<request> missing\n`.
+    let (mut texts, mut at, b) = (Vec::with_capacity(requests.len()), 0, &out.stdout);
+    for r in requests {
         let nl = b[at..]
             .iter()
             .position(|&c| c == b'\n')
             .ok_or("git cat-file: short output")?
             + at;
         let head = String::from_utf8_lossy(&b[at..nl]);
-        let size: usize = head
-            .rsplit(' ')
-            .next()
-            .and_then(|s| s.parse().ok())
-            .ok_or(format!("git cat-file: {head}"))?;
-        let text = String::from_utf8_lossy(&b[nl + 1..nl + 1 + size]).into_owned();
+        let size: usize = match head.rsplit_once(' ') {
+            Some((kind, size)) if kind.ends_with(" blob") => size.parse().ok(),
+            _ => None,
+        }
+        .ok_or(format!("git cat-file {r}: {head}"))?;
+        texts.push(String::from_utf8_lossy(&b[nl + 1..nl + 1 + size]).into_owned());
         at = nl + 1 + size + 1;
-        let app = p
-            .strip_prefix("tests/")
-            .and_then(|r| r.split('/').next())
-            .unwrap_or_default();
-        sources.push((app.to_string(), text));
     }
-    Corpus::from_sources(sources)
+    Ok(texts)
 }
 
 /// The corpus pull requests the assumption registry names (`PR 1516`, `PR #1516` in any of its texts): a pending
@@ -174,7 +188,7 @@ fn citing_texts(root: &Path) -> Result<Vec<(PathBuf, String)>, String> {
 }
 
 /// Every file under `dir`, sorted; `target` and hidden folders skipped.
-fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+pub(crate) fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     let mut entries: Vec<_> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
         .filter_map(Result::ok)

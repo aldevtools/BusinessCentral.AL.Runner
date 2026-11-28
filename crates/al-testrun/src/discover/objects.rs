@@ -43,6 +43,8 @@ pub struct ObjectDecl {
     pub test_codeunit: bool,
     /// Its `procedure` and `trigger` declarations, in order.
     pub members: Vec<MemberDecl>,
+    /// From its kind word to its closing brace (included), in bytes of the source text.
+    pub span: Range<usize>,
 }
 
 /// One `procedure` or `trigger` of an object.
@@ -54,6 +56,12 @@ pub struct MemberDecl {
     pub test: bool,
     /// From its keyword to the next member's keyword or the end of the object, in bytes of the source text.
     pub span: Range<usize>,
+}
+
+/// `src` with comments, directives and the text of string literals blanked, every byte at its offset (a literal keeps
+/// its quotes): the code of a source line.
+pub fn code_text(src: &str) -> String {
+    strip_comments(src)
 }
 
 /// Every object `src` declares, in order (comments and directives are no code).
@@ -94,6 +102,7 @@ pub fn objects(src: &str) -> Vec<ObjectDecl> {
                     name: name.to_string(),
                     test_codeunit: false,
                     members: Vec::new(),
+                    span: at..at,
                 });
                 test_attr = false;
             }
@@ -122,6 +131,7 @@ pub fn objects(src: &str) -> Vec<ObjectDecl> {
     braces(code, pos..code.len(), &mut depth, &mut ends, out.len());
     ends.resize(out.len(), src.len());
     for (o, end) in out.iter_mut().zip(ends) {
+        o.span.end = end;
         let starts: Vec<usize> = o.members.iter().map(|m| m.span.start).skip(1).chain([end]).collect();
         for (m, next) in o.members.iter_mut().zip(starts) {
             m.span.end = next;
@@ -210,6 +220,16 @@ mod tests {
         assert!(SRC[test.span.clone()].starts_with("procedure \"First Test\""));
         assert!(SRC[test.span.clone()].ends_with("    local "));
         assert!(SRC[o[0].members[1].span.clone()].ends_with("end;\n}"));
+        // An object's span runs from its kind word to its closing brace.
+        assert!(SRC[o[0].span.clone()].starts_with("codeunit 50100"));
+        assert!(SRC[o[0].span.clone()].ends_with("end;\n}"));
+        assert!(SRC[o[2].span.clone()].starts_with("interface") && SRC[o[2].span.clone()].ends_with("Do();\n}"));
+    }
+
+    #[test]
+    fn code_text_blanks_comments_and_string_texts_at_their_offsets() {
+        let src = "x := 'a // b'; // c\n";
+        assert_eq!(code_text(src), "x := '      ';     \n");
     }
 
     #[test]

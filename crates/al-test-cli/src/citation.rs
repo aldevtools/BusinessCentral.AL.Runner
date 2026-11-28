@@ -195,7 +195,7 @@ fn identifier(s: &str) -> Option<(&str, usize)> {
 }
 
 /// The length of the AL string literal at the start of `s` (`''` inside it is a quote), on one line.
-fn literal(s: &str) -> Option<usize> {
+pub(crate) fn literal(s: &str) -> Option<usize> {
     let b = s.as_bytes();
     (b.first() == Some(&b'\'')).then_some(())?;
     let mut i = 1;
@@ -387,6 +387,12 @@ fn moved(c: &Citation, old: &Corpus, new: &Corpus, map: &RenameMap) -> Result<Op
         return Ok(None);
     }
     let r = resolve(c, old, &BTreeSet::new()).map_err(|e| format!("does not resolve at the old pin: {e}"))?;
+    carry(c, r, new, map)
+}
+
+/// `c`, which names `r` at an old pin, at the pin of `new`: a test through `map`, any other member and an object by
+/// its kind and id. `None` when it stays as it is (pending, a kind without an id, nothing moved).
+pub fn carry(c: &Citation, r: Resolved, new: &Corpus, map: &RenameMap) -> Result<Option<Citation>, String> {
     let mut to = c.clone();
     match r {
         Resolved::Case(key) => {
