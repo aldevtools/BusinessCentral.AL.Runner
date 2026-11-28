@@ -1,0 +1,8 @@
+# key	entry
+NB DQ Measured Tests::DotVariants_LabelsAndColumns	ASSUMED report-column-dotted-item-qualifier (corpus PR 1652, merged, not yet pinned)
+NB DQ U50952 T::Part2_CodeField_IncludeCaption	ASSUMED report-column-dotted-item-qualifier (part 2, Code :349)
+NB DQ U50953 T::Part2_IntegerField_IncludeCaption	ASSUMED report-column-dotted-item-qualifier (part 2, Integer :350)
+NB DQ U50954 T::Part2_EnumField_IncludeCaption	ASSUMED report-column-dotted-item-qualifier (part 2, Enum :348)
+NB DQ U50955 T::Part2_DateField_IncludeCaption	ASSUMED report-column-dotted-item-qualifier (part 2, Date :352)
+NB DQ U50956 T::Part2_AutoFormatExpression_IncludeCaption	ASSUMED report-column-dotted-item-qualifier (part 2, AutoFormatType 1 + '' :355)
+NB DQ U50962 T::Part2_UnitAmountType	ASSUMED report-column-dotted-item-qualifier,report-column-field-unit-amount-format (part 2, AutoFormatType 2 :34)
