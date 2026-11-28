@@ -293,11 +293,18 @@ fn onrun_writes(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> Op
         .routines
         .iter()
         .position(|r| r.is_trigger && r.name.eq_ignore_ascii_case("OnRun"))?;
-    if !crate::baseline::tables_written(lowered, oi, r).is_empty() {
-        return Some(ChainWhy::OnRunWritesTable);
-    }
     let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
     let f = reach_facts(&engine.events, lowered, &index, oi, r);
+    // An Insert, Modify, ModifyAll or Rename through a record not declared temporary, or through a RecordRef local the
+    // writing routine opens by `Open(<constant id>)` (alone or with the constant `false`, the id naming a table whose
+    // `TableType` is unstated or `Normal`) or by `GetTable` of a local record not declared temporary, in the OnRun, the
+    // codeunits it calls or the subscribers it raises (al-runner issue 7622). A temporary record leaves no rows, a page
+    // variable writes nothing by itself, a delete-only OnRun is not measured yet, and any other RecordRef (opened
+    // temporary, on a `TableType = Temporary` table or by a run-time id, a parameter, a global) is not known to write
+    // rows: those stay outside the chain, as on main.
+    if !f.persistent_writes.is_empty() || f.recordref_writes {
+        return Some(ChainWhy::OnRunWritesTable);
+    }
     (f.state_writes & (state::ISOLATED_STORAGE | state::NUMBER_SEQUENCE) != 0).then_some(ChainWhy::OnRunWritesState)
 }
 
@@ -397,6 +404,73 @@ mod tests {
                 "serial re-runs by reason: 1 read a table a chain codeunit wrote (0.25 s)",
             ]
         );
+    }
+
+    /// Which OnRun triggers join the chain by what they write (al-runner issue 7622). An insert, a modify or a rename
+    /// through a record not declared temporary leaves rows for the later codeunits (codeunits/run-onrun/
+    /// RqIsolationModes.al:357-369 pins inserted rows), also in a subscriber the OnRun raises, or through a RecordRef
+    /// local opened by `Open(<constant id>)` (alone or with `false`, on a table whose `TableType` is unstated or
+    /// `Normal`) or `GetTable` of a local record not declared temporary. A write to a temporary record leaves nothing, a
+    /// page variable is not a write, a delete-only OnRun is not measured, and a RecordRef opened temporary, on a
+    /// `TableType = Temporary` table, by a run-time id or passed as a parameter is not known to write
+    /// rows: those keep main's choice (no carry). An OnRun whose only effect is a run by an id known at run time stays
+    /// out of the chain too, as on main.
+    #[test]
+    fn an_onrun_joins_the_chain_by_its_persistent_writes() {
+        let src = "
+            table 50100 T { fields { field(1; K; Integer) { } } }
+            table 50130 TT { TableType = Temporary; fields { field(1; K; Integer) { } } }
+            page 50120 P { SourceTable = T; }
+            codeunit 50101 Deletes { Subtype = Test; trigger OnRun() var R: Record T; begin R.DeleteAll(); end; }
+            codeunit 50102 OneDelete { Subtype = Test; trigger OnRun() var R: Record T; begin if R.FindFirst() then R.Delete(); end; }
+            codeunit 50103 ByRef { Subtype = Test; trigger OnRun() var RR: RecordRef; begin RR.Open(50100); RR.Init(); RR.Insert(); end; }
+            codeunit 50104 Inserts { Subtype = Test; trigger OnRun() var R: Record T; begin R.K := 1; R.Insert(); end; }
+            codeunit 50105 Reads { Subtype = Test; trigger OnRun() var R: Record T; begin if R.FindFirst() then; end; }
+            codeunit 50106 TempOnly { Subtype = Test; trigger OnRun() var R: Record T temporary; begin R.K := 1; R.Insert(); R.Modify(); R.DeleteAll(); end; }
+            codeunit 50107 PageVar { Subtype = Test; trigger OnRun() var Pg: Page P; begin end; }
+            codeunit 50108 Raises { Subtype = Test; trigger OnRun() begin OnHook(); end; [IntegrationEvent(false, false)] procedure OnHook() begin end; }
+            codeunit 50109 Sub { [EventSubscriber(ObjectType::Codeunit, Codeunit::Raises, 'OnHook', '', false, false)] local procedure H() var R: Record T; begin R.K := 2; R.Insert(); end; }
+            codeunit 50110 ById { Subtype = Test; trigger OnRun() var Id: Integer; begin Id := 50104; Codeunit.Run(Id); end; }
+            codeunit 50111 RefTemp { Subtype = Test; trigger OnRun() var RR: RecordRef; begin RR.Open(50100, true); RR.Init(); RR.Insert(); end; }
+            codeunit 50112 RefFromTemp { Subtype = Test; trigger OnRun() var R: Record T temporary; RR: RecordRef; begin RR.GetTable(R); RR.Modify(); end; }
+            codeunit 50113 RefFromRec { Subtype = Test; trigger OnRun() var R: Record T; RR: RecordRef; begin RR.GetTable(R); RR.Modify(); end; }
+            codeunit 50114 RefOpenFalse { Subtype = Test; trigger OnRun() var RR: RecordRef; begin RR.Open(50100, false); RR.Init(); RR.Insert(); end; }
+            codeunit 50115 RefById { Subtype = Test; trigger OnRun() var RR: RecordRef; Id: Integer; begin Id := 50100; RR.Open(Id); RR.Init(); RR.Insert(); end; }
+            codeunit 50116 RefParam { Subtype = Test; trigger OnRun() var RR: RecordRef; begin RR.Open(50100, true); Ins(RR); end; local procedure Ins(RR: RecordRef) begin RR.Insert(); end; }
+            codeunit 50117 RefTempTable { Subtype = Test; trigger OnRun() var RR: RecordRef; begin RR.Open(50130); RR.Init(); RR.Insert(); end; }";
+        let l = al_sema::lower::compile(
+            vec![al_sema::workspace::AppSource {
+                id: "a".into(),
+                name: "a".into(),
+                dependencies: vec![],
+                files: vec![("f.al".into(), src.into())],
+            }],
+            &Default::default(),
+        )
+        .1;
+        let engine = al_vm::Engine::new(l.program.clone(), Vec::new());
+        let why = |name: &str| {
+            let oi = l.program.objects.heads().iter().position(|o| o.name == name).unwrap();
+            onrun_writes(&engine, &l, oi)
+        };
+        for name in ["ByRef", "Inserts", "Raises", "RefFromRec", "RefOpenFalse"] {
+            assert_eq!(why(name), Some(ChainWhy::OnRunWritesTable), "{name}");
+        }
+        for name in [
+            "Reads",
+            "TempOnly",
+            "PageVar",
+            "Deletes",
+            "OneDelete",
+            "ById",
+            "RefTemp",
+            "RefFromTemp",
+            "RefById",
+            "RefParam",
+            "RefTempTable",
+        ] {
+            assert_eq!(why(name), None, "{name}");
+        }
     }
 
     #[test]
