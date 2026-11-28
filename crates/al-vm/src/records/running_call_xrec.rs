@@ -500,9 +500,12 @@ impl Session {
 
     /// Whether frame `i` (from the outside in) runs the field OnValidate trigger of table `table`, not as an event.
     pub(super) fn field_on_validate_at(&self, table: usize, i: usize) -> bool {
-        let (o, cf) = (self.frames[i], self.call_stack[i]);
-        let r = &self.engine.program.objects[o].routines[cf.routine];
-        o == table && !cf.event && r.is_trigger && r.field.is_some() && r.name.eq_ignore_ascii_case("OnValidate")
+        let r = self.routine_at(i).1;
+        self.frames[i] == table
+            && !self.call_stack[i].event
+            && r.is_trigger
+            && r.field.is_some()
+            && r.name.eq_ignore_ascii_case("OnValidate")
     }
 
     /// The outer and the inner Validate when the Validate of the record at `handle` whose trigger runs in frame
@@ -533,12 +536,10 @@ impl Session {
     /// Whether every frame between frame `o` and frame `i` runs a procedure of `table` that is no trigger, called directly (not
     /// through an event) on the record of the frame below (`plain_proc_xrec` notes a call on another record).
     pub(super) fn own_procedures_between(&self, table: usize, o: usize, i: usize) -> bool {
-        let objects = &self.engine.program.objects;
         ((o + 1)..i).all(|d| {
-            let (ob, cf) = (self.frames[d], self.call_stack[d]);
-            ob == table
-                && !cf.event
-                && !objects[ob].routines[cf.routine].is_trigger
+            self.frames[d] == table
+                && !self.call_stack[d].event
+                && !self.routine_at(d).1.is_trigger
                 && !self.plain_proc_xrec.iter().any(|(_, depth, _)| *depth == d + 1)
         })
     }
@@ -565,7 +566,7 @@ impl Session {
     fn measured_buffer(&self, r: &RecordState) -> bool {
         let get_of_own_insert =
             |o: &al_builtins::value::RowOrigin| o.read_in_write_tx && o.by_get && self.inserted_unwritten_in_tx(r);
-        Self::buffer_of_own_write(r, |o| (!o.read_in_write_tx && !o.by_get) || get_of_own_insert(o))
+        Self::buffer_of_own_insert(r) || Self::buffer_of_own_write(r, get_of_own_insert)
     }
 
     /// The buffer `AfterInsert` (record/validate/XRecTableProcThroughCodeunit.al:337-344, XRecTableProcThroughSubscriber.al:498-507):

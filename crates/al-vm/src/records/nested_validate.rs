@@ -32,7 +32,7 @@ use std::rc::Rc;
 pub(crate) const XREC_OF_RUNNING_CALL: &str = "xRec in a table procedure called through other code on a record whose trigger or procedure runs: real BC hands it the running call's xRec in the shapes XRecTableProcThroughCodeunit.al and XRecTableProcThroughSubscriber.al pin, this shape is not run";
 
 /// How many Validates of one record record/validate/XRecNestedValidateShapes.al ran in one another (the two-level cells
-/// `Validate_TwoLevel*_Observed`: "Item No." nests Mode, which nests Grade); the nested one is the third at most.
+/// `Validate_TwoLevel*_OneXRec`, :1283-1378: "Item No." nests Mode, which nests Grade); the nested one is the third at most.
 const NESTED_VALIDATES_MEASURED: usize = 3;
 
 /// The before-image a Validate hands its triggers as xRec: the field values, and the `RecordState::unpinned_buffer` reason
