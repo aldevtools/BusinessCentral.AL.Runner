@@ -320,7 +320,7 @@ describe!(DataItems {
 describe!(Extensions {
     Extensions::None => "none",
     Extensions::OneAddingColumns => "one adding columns",
-    Extensions::OneAddingWordLayout => "one adding a Word layout",
+    Extensions::OneAddingWordLayout => "one adding a Word layout to a report with no layout of its own",
     Extensions::Other => "another set",
 });
 describe!(Triggers { Triggers::None => "none", Triggers::WithoutOnPost => "without OnPostReport", Triggers::OnPost => "with OnPostReport" });

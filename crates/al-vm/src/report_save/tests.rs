@@ -507,6 +507,7 @@ fn report_save_an_extensions_word_layout_is_not_the_default() {
         kind: Kind::Other,
         decl: Decl::Legacy,
         extensions: Extensions::OneAddingWordLayout,
+        own_layout: false,
         sole_layout: false,
         triggers: Triggers::OnPost,
         ..base()
@@ -527,6 +528,10 @@ fn report_save_an_extensions_word_layout_is_not_the_default() {
         },
         Facts {
             init_triggers: true,
+            ..measured(Format::Pdf, AnswerForm::Used)
+        },
+        Facts {
+            own_layout: true,
             ..measured(Format::Pdf, AnswerForm::Used)
         },
     ] {

@@ -124,6 +124,7 @@ pub(super) fn platform_first_rows(t: &mut Vec<Cell>) {
                 declares: Is(Declares::Other),
                 processing_only: Is(false),
                 extensions: Is(Extensions::OneAddingWordLayout),
+                own_layout: Is(false),
                 ..base(answer, format)
             };
             t.push(cell(

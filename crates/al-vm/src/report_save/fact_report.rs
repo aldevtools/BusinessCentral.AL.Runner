@@ -35,17 +35,15 @@ pub(crate) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
         [a, b, c] if a.parent.is_none() && b.parent.is_none() && c.parent.is_none() => DataItems::ThreeTopLevel,
         _ => DataItems::Other,
     };
+    // `ReportLayout::None`: no DefaultRenderingLayout, no DefaultLayout, no layout property and no layout section (al-sema
+    // `reports::default_layout`), so a lone WordLayout property or a rendering section without DefaultRenderingLayout is a
+    // layout of its own.
+    let own_layout = report.layout != al_ir::ReportLayout::None;
     let extensions = match report.extensions.as_slice() {
         [] => Extensions::None,
         [e] if adds_columns_only(program, *e) => Extensions::OneAddingColumns,
-        // The report has no layout of its own: no rendering section, no layout property, no DefaultLayout naming a kind
-        // (SaveAsTriggerErrors.al "SAE No Layout Rpt").
-        [e] if adds_nothing_to_the_run(program, *e)
-            && report.extension_layouts == ["word"]
-            && report.layout == al_ir::ReportLayout::None
-            && report.rendering_layouts.is_empty()
-            && report.layout_properties.is_empty() =>
-        {
+        // To a report with no layout of its own (SaveAsTriggerErrors.al "SAE No Layout Rpt").
+        [e] if adds_nothing_to_the_run(program, *e) && report.extension_layouts == ["word"] && !own_layout => {
             Extensions::OneAddingWordLayout
         }
         _ => Extensions::Other,
@@ -59,10 +57,6 @@ pub(crate) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     };
     // corpus pull request 1579 (reports/layouts-saveas/SaveAsTriggerErrors.al): its reports declare one layout, no OnInitReport
     // and no request page; so do the processing-only report of streams/PnH6SaveAs.al:32 and the Html hash cells (`html_cell`).
-    // `ReportLayout::None`: no DefaultRenderingLayout, no DefaultLayout, no layout property and no layout section (al-sema
-    // `reports::default_layout`), so a lone WordLayout property or a rendering section without DefaultRenderingLayout is a
-    // layout of its own.
-    let own_layout = report.layout != al_ir::ReportLayout::None;
     let sole_layout = report.layout_properties.is_empty()
         && report.rendering_layouts.len() == 1
         && report.extension_layouts.is_empty();
