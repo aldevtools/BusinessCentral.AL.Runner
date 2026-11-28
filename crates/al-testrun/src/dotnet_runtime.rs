@@ -27,7 +27,8 @@
 //! run's service tier names (`ServiceRuntime`: a fetched tier or an extracted service folder; an
 //! unreadable one refuses every DotNet call), else the BC major's table (8 for BC 27-28, 10 for BC 29),
 //! and the newest installed patch of it, or a newer major with `--dotnet-allow-roll-forward`.
-//! Entry points: `ServiceRuntime`, `need`, `runtime_major_for_bc`, `pick_runtime`.
+//! Entry points: `ServiceRuntime`, `need`, `start_note` (asked once at the start of a run), `runtime_major_for_bc`,
+//! `pick_runtime`.
 
 use al_deps::artifact::Cdn;
 use al_deps::service_tier::ServiceTier;
@@ -115,6 +116,15 @@ pub fn of_extracted(dir: PathBuf, own_dir: Option<&Path>, run_tier: Option<Servi
         })),
         None => folder,
     }
+}
+
+/// Run start (issue 8977): asks the run's service tier once which runtime it runs on, before any test. A fetched tier
+/// whose runtime configuration the cache lacks fetches it now when downloading is on, so that a run with any selection
+/// caches it; offline, the answer names the build and the missing file here, once, instead of first at a DotNet call.
+/// `Some`: the line to print, when every DotNet call of the run will be refused with that reason.
+pub fn start_note(service: Option<&ServiceRuntime>) -> Option<String> {
+    let why = (service?.0)().err()?;
+    Some(format!("warning: every DotNet call of this run will be refused: {why}"))
 }
 
 /// What the sidecar needs: the service tier's own answer when the run has one, else the BC major's table.
@@ -286,6 +296,35 @@ mod tests {
         assert_eq!(need(Some(&own), Some(27)).map(|n| n.major), Ok(10));
         let no_build = of_extracted(dir, None, None);
         assert_eq!(need(Some(&no_build), Some(27)).map(|n| n.major), Ok(10));
+    }
+
+    /// Issue 8977: offline, a fetched tier whose runtime configuration the cache lacks is named once at the start of the
+    /// run, with the build and the file's place in the cache, not first at a DotNet call.
+    #[test]
+    fn the_start_note_names_the_build_and_the_missing_file_of_an_offline_tier() {
+        let cache = tempfile::tempdir().unwrap();
+        let build = al_deps::build::BuildId::parse("29.0.54011.55816").unwrap();
+        let tier = Arc::new(ServiceTier::new(
+            al_deps::artifact::HttpCdn::new("http://127.0.0.1:9"),
+            cache.path(),
+            build.clone(),
+            false,
+        ));
+        let file = al_deps::service_tier::service_dir(cache.path(), &build)
+            .join(al_deps::service_runtime::SERVER_RUNTIME_CONFIG);
+        let note = start_note(Some(&ServiceRuntime::of_tier(tier))).unwrap();
+        assert!(
+            note.starts_with("warning: every DotNet call of this run will be refused: ")
+                && note.contains("BC build 29.0.54011.55816")
+                && note.contains(&file.display().to_string())
+                && note.contains("downloading is off"),
+            "{note}"
+        );
+        // A tier that answers, and a run without one, have no note.
+        let t = tempfile::tempdir().unwrap();
+        let dir = folder(t.path(), "29.0.54011.55816", "10.0.0");
+        assert_eq!(start_note(Some(&ServiceRuntime::of_dir(dir))), None);
+        assert_eq!(start_note(None), None);
     }
 
     #[test]

@@ -192,8 +192,11 @@ impl Store {
         &self.artifacts
     }
 
-    /// Builds that have a saved central directory. Directories that are not named like a build, and
-    /// builds whose directory has nothing saved yet, are not listed.
+    /// The cached builds the Microsoft apps of a run are taken from first: builds with a saved central directory and at
+    /// least one recorded app in `apps/`. Directories that are not named like a build, and builds whose directory has
+    /// nothing saved yet, are not listed. Nor is a build whose directory holds only what the service tier
+    /// (`service_tier`) or a listing of test apps read from its artifact (the central directory, `service/`,
+    /// `packages/`): no app of it was ever used, and offline it has none to give (issue 8977).
     pub fn list_builds(&self) -> Vec<BuildId> {
         let Ok(rd) = std::fs::read_dir(&self.artifacts) else {
             return Vec::new();
@@ -202,6 +205,7 @@ impl Store {
             .filter_map(|e| e.ok())
             .filter(|e| e.path().join("platform.tail").is_file())
             .filter_map(|e| BuildId::parse(&e.file_name().to_string_lossy()).ok())
+            .filter(|b| self.build(b).records_an_app())
             .collect();
         out.sort();
         out
@@ -281,6 +285,16 @@ impl BuildDir {
         self.dir.join("apps")
     }
 
+    /// Whether `apps/` holds a file with its record (what [`BuildDir::put_entry`] writes). Whether the file is intact is
+    /// checked when the apps are read ([`BuildDir::verify`]).
+    fn records_an_app(&self) -> bool {
+        std::fs::read_dir(self.apps_dir()).is_ok_and(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .any(|p| is_entry_file(&p) && sidecar(&p).is_file())
+        })
+    }
+
     fn tail_path(&self) -> PathBuf {
         self.dir.join("platform.tail")
     }
@@ -351,7 +365,7 @@ impl BuildDir {
         };
         let mut files: Vec<PathBuf> = rd
             .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().is_some_and(|x| x != "json") && !is_temp(p))
+            .filter(|p| is_entry_file(p))
             .collect();
         files.sort();
         for f in files {
@@ -416,6 +430,11 @@ fn stamp_of(file: &Path) -> Option<serde_json::Value> {
 /// The size in a record's stamp.
 fn stamp_size(meta: &serde_json::Value) -> Option<u64> {
     meta["checked"]["len"].as_u64()
+}
+
+/// A file of an entry folder that may be an entry: neither a record (`.json`) nor a file still being written.
+fn is_entry_file(p: &Path) -> bool {
+    p.extension().is_some_and(|x| x != "json") && !is_temp(p)
 }
 
 fn is_temp(p: &Path) -> bool {
@@ -489,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn only_builds_with_a_saved_directory_are_listed_and_the_layout_is_stable() {
+    fn only_builds_with_a_saved_directory_and_a_recorded_app_are_listed_and_the_layout_is_stable() {
         let root = tempfile::tempdir().unwrap();
         let store = Store::new(root.path());
         assert!(store.list_builds().is_empty());
@@ -498,6 +517,24 @@ mod tests {
             .unwrap();
         std::fs::create_dir_all(store.dir().join("not-a-build")).unwrap();
         std::fs::create_dir_all(store.dir().join("28.1.1.1")).unwrap(); // nothing saved in it
+        // Issue 8977: a central directory without an app (what the service tier keeps) is no cached build.
+        assert!(store.list_builds().is_empty());
+        bd.put_entry_in("service", "ServiceTier/x/Service/a.json", "u", b"{}")
+            .unwrap();
+        bd.put_entry_in("packages", "ConfigurationPackages/p.rapidstart", "u", b"p")
+            .unwrap();
+        assert!(store.list_builds().is_empty());
+        // A file without its record is no app either.
+        std::fs::create_dir_all(bd.apps_dir()).unwrap();
+        std::fs::write(bd.apps_dir().join("Loose.Source.zip"), b"x").unwrap();
+        assert!(store.list_builds().is_empty());
+        bd.put_entry("Applications/A/Any.Source.zip", "u", b"app").unwrap();
+        assert_eq!(store.list_builds(), [b("27.5.46862.56249")]);
+        // An app without the central directory is no cached build.
+        store
+            .build(&b("28.1.1.1"))
+            .put_entry("Applications/A/Any.Source.zip", "u", b"app")
+            .unwrap();
         assert_eq!(store.list_builds(), [b("27.5.46862.56249")]);
         assert!(root.path().join("artifacts/27.5.46862.56249/platform.tail").is_file());
         assert!(

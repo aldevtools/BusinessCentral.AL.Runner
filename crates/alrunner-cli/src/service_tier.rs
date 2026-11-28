@@ -18,7 +18,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// The sidecar configuration of a run and its report renderer (ADR-040 amendment 2026-11-15): BC's Word merger and Html
+/// The sidecar configuration of a run and its report renderer (ADR-040 amendment 2026-11-15), and the start note of a
+/// service tier whose runtime is not known (`al_testrun::dotnet_runtime::start_note`). The renderer: BC's Word merger and Html
 /// converter of the build in use, started on the first measured Html save. The renderer loads them from the user's folders,
 /// the extracted artifact of that build itself, or else the sets it fetches of that build; never from another extracted build
 /// of the major, which the sidecar's assemblies may come from (`al_testrun::dotnet::renderer_probe_dirs`).
@@ -38,6 +39,10 @@ pub fn sidecar_and_renderer(
         // ADR-014 section 3, step 2 and issue 6924: the user's folders, an extracted artifact, then fetched assemblies.
         ..dotnet_dirs(a, build, major)
     };
+    // Issue 8977: the service tier's runtime is asked once here, before any test (fetched now when downloading is on).
+    if let Some(note) = al_testrun::dotnet_runtime::start_note(cfg.service_runtime.as_ref()) {
+        eprintln!("{note}");
+    }
     let name = build.map(|u| u.build.to_string());
     let sandbox = al_deps::cache::bcartifacts_sandbox_from_env();
     let (assembly_dirs, fetch) =

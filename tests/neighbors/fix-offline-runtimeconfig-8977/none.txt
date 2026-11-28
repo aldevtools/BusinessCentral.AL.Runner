@@ -1,0 +1,1 @@
+Tooling only, no AL code sees it: which cached build the dependency lookup takes first, and a start-of-run note for the service tier's runtime configuration; Rust tests in al-deps and al-testrun cover each case.

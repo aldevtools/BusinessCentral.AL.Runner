@@ -1701,6 +1701,40 @@ mod tests {
         );
     }
 
+    /// Issue 8977: the service tier of the build of the tests read the platform artifact's central directory into the
+    /// cache (online, for a DotNet call's runtime configuration). That build has no Microsoft app cached, so it is not a
+    /// cached build for the dependencies: offline, and online with the build on disk, the apps still come from the local
+    /// artifacts as before that fetch.
+    #[test]
+    fn a_service_tier_fetch_does_not_make_its_build_a_cached_build_of_the_dependencies() {
+        let dir = tempfile::tempdir().unwrap();
+        let build = "27.5.46862.48827";
+        let id = BuildId::parse(build).unwrap();
+        let sandbox = dir.path().join("sandbox");
+        extracted_artifact(&sandbox, build);
+        let cache = dir.path().join("cache");
+        let tier =
+            crate::service_tier::ServiceTier::new(FixtureCdn::new(dir.path(), &[build]), &cache, id.clone(), true);
+        tier.service_file(crate::service_runtime::SERVER_RUNTIME_CONFIG)
+            .unwrap();
+        assert!(Store::new(&cache).build(&id).load_tail().is_some());
+        for download in [false, true] {
+            let mut f = fetch(&cache, download, None);
+            f.query = f.query.with_preferred(Some(id.clone()));
+            f.local_artifacts = Some(sandbox.clone());
+            let out = run(
+                &alpackages(dir.path()),
+                &f,
+                &NoNetwork,
+                MissingPolicy::Error,
+                &project(),
+            )
+            .unwrap();
+            let used = out.artifact.unwrap();
+            assert_eq!((used.build.to_string().as_str(), used.origin), (build, Origin::Local));
+        }
+    }
+
     #[test]
     fn local_artifacts_are_the_last_resort_for_a_prefix_the_feed_cannot_answer() {
         let dir = tempfile::tempdir().unwrap();

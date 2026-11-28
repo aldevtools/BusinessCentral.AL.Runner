@@ -184,8 +184,9 @@ impl<C: Cdn> ServiceTier<C> {
         }
         if !self.download {
             return Err(format!(
-                "{file} of build {} is not in the artifact cache and downloading is off; one run without --no-download caches it",
-                self.build
+                "{file} of build {} is not in the artifact cache ({}) and downloading is off; one run without --no-download caches it",
+                self.build,
+                dir.join(file).display()
             ));
         }
         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -289,7 +290,9 @@ impl<C: Cdn> ServiceTier<C> {
             None => {
                 let zip = RemoteZip::open(src).map_err(|e| format!("{url}: {e}"))?;
                 let (total, tail) = zip.tail();
-                // Kept like the dependency loading keeps it, so the next run needs no request for it.
+                // Kept like the dependency loading keeps it, so the next run needs no request for it. Without an app
+                // of the build cached it does not make the build a cached build of the dependencies
+                // (`Store::list_builds`, issue 8977).
                 let _ = bd.save_tail(&url, total, tail);
                 zip
             }
