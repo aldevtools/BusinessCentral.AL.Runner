@@ -35,7 +35,8 @@
 //! open-order install code writes, `var` arguments unchanged, or only state handed to `Sender` (then
 //! its app's code writes nothing until the next app installs). Picked in `dispatch.rs`
 //! `event_targets`, run in `raise_to_subscribers`, writes and reads noted in `records/op_inner.rs`.
-//! The refusal text, with the subscriber and what its trial showed: `order_unknown_refusal`.
+//! The text of every install-order refusal (event and Company Triggers subscribers, table extensions, GetModuleInfo,
+//! guarded writes), with the subscriber and what its trial showed: `order_unknown_refusal`.
 //! Entry points: `trial_start`, `trial_end`, `note_table_op`, `order_unknown_refusal`.
 
 use crate::Session;
@@ -164,15 +165,24 @@ impl Session {
         }
         let read = std::mem::take(&mut self.events.trial.read);
         match &self.events.install_written {
-            None if !read.is_empty() => {
-                return Err("it reads a table and the tables install code writes are not known".into());
-            }
-            Some(written) => {
+            Some(Ok(written)) => {
                 if let Some(t) = read.iter().find(|t| written.contains(t)) {
                     return Err(format!("it reads {}, which install code may write", name(*t)));
                 }
             }
-            None => {}
+            _ if read.is_empty() => {}
+            unknown => {
+                let by = match unknown {
+                    Some(Err((o, r))) => format!(
+                        " ({} holds a RecordRef or a DataTransfer)",
+                        routine_label(&self.engine.program, *o, *r)
+                    ),
+                    _ => String::new(),
+                };
+                return Err(format!(
+                    "it reads a table and the tables install code writes are not known{by}"
+                ));
+            }
         }
         if self.isolated_storage != w.isolated
             || self.sequences != w.sequences
@@ -208,7 +218,10 @@ impl Session {
         let app = objects[object].app;
         let publisher_app = objects.get(publisher).map(|o| o.app);
         let mut handed = false;
-        for &o in &touched.entered {
+        // In object index order: the codeunit the reason names is the same in every run.
+        let mut entered: Vec<usize> = touched.entered.iter().copied().collect();
+        entered.sort_unstable();
+        for o in entered {
             let obj = &objects[o];
             if obj.app == app || obj.globals.is_empty() || obj.is_kind(al_ir::ObjKind::Table) {
                 continue;
@@ -231,27 +244,29 @@ impl Session {
         })
     }
 
-    /// The refusal of subscriber `(object, routine)` to `event` while an app installs that its app has no dependency path
-    /// to (`dispatch.rs` `event_targets`), and, after a trial run, what that run showed (`trial`: the `Err` of
-    /// [`Session::trial_end`], with the refusal or error it stopped on). Names the subscriber so a suite can find it.
-    pub(crate) fn order_unknown_refusal(
-        &self,
-        event: &str,
-        (object, routine): (usize, usize),
-        trial: Option<&str>,
-    ) -> al_builtins::native::Signal {
-        let objects = &self.engine.program.objects;
-        let obj = &objects[object];
-        let app = (self.engine.program.apps.get(obj.app as usize)).map_or("?", |a| a.name.as_str());
-        let routine = obj.routines.get(routine).map_or("?", |r| r.name.as_str());
+    /// The `what` of [`Session::order_unknown_refusal`] for subscriber `(object, routine)` to `event` (`dispatch.rs`
+    /// `event_targets`).
+    pub(crate) fn order_unknown_subscriber(&self, event: &str, object: usize, routine: usize) -> String {
+        format!(
+            "event {event}: subscriber {} in app",
+            routine_label(&self.engine.program, object, routine)
+        )
+    }
+
+    /// The reason of a refusal because the install order of app `app` and the app that installs is not known: `what` names
+    /// what would run and ends with "app" (`event e: subscriber codeunit "X".R in app`), and, after a trial run, what that
+    /// run showed (`trial`: the `Err` of [`Session::trial_end`], with the refusal or error it stopped on). Notes the hit
+    /// (`Session::note_order_unknown_hit`): every such refusal counts once.
+    pub fn order_unknown_refusal(&self, what: &str, app: u32, trial: Option<&str>) -> String {
+        self.note_order_unknown_hit(app);
+        let name = (self.engine.program.apps.get(app as usize)).map_or("?", |a| a.name.as_str());
         let shown = trial
             .map(|why| format!("; running it once showed: {why}"))
             .unwrap_or_default();
-        al_builtins::native::Signal::unsupported(format!(
-            "event {event}: subscriber {}.{routine} in app {app} would run while an app installs that it has no dependency \
-             path to; the install order of the two is not known{shown}",
-            obj.name
-        ))
+        format!(
+            "{what} {name}, which has no dependency path to the app that installs; the install order of the two is not \
+             known{shown}"
+        )
     }
 
     /// A write of a non-temporary row of `table`: noted during a trial; refused while code of an app whose subscriber
@@ -272,17 +287,13 @@ impl Session {
         else {
             return Ok(());
         };
-        self.note_order_unknown_hit(app);
-        Err(al_builtins::native::Signal::unsupported(format!(
-            "a write to {} by code of app {} while an app installs that it has no dependency path to; the install order of \
-             the two is not known",
-            objects.get(table as usize).map_or("?", |o| o.name.as_str()),
-            self.engine
-                .program
-                .apps
-                .get(app as usize)
-                .map_or("?", |a| a.name.as_str())
-        )))
+        let what = format!(
+            "a write to {} by code of app",
+            objects.get(table as usize).map_or("?", |o| o.name.as_str())
+        );
+        Err(al_builtins::native::Signal::unsupported(
+            self.order_unknown_refusal(&what, app, None),
+        ))
     }
 
     /// A record operation on `table` (`record_op_inner`): noted for the impact trace (`Session::note_table`), and when the
@@ -305,6 +316,17 @@ impl Session {
         }
         Ok(())
     }
+}
+
+/// The tables install code may write, or the routine (object, routine) that holds a RecordRef or a DataTransfer and so may
+/// write any table (`Session::set_install_written_tables`; al-testrun `install.rs`, `tables_install_code_of_may_write`).
+pub type InstallWritten = Result<std::collections::BTreeSet<u32>, (usize, usize)>;
+
+/// `codeunit "Name".Routine`: how install refusals and notes name a routine.
+pub fn routine_label(program: &al_ir::Program, object: usize, routine: usize) -> String {
+    let o = &program.objects[object];
+    let r = o.routines.get(routine).map_or("?", |r| r.name.as_str());
+    format!("{} \"{}\".{r}", o.kind, o.name)
 }
 
 #[cfg(test)]

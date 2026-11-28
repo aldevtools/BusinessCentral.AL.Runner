@@ -304,7 +304,7 @@ impl Session {
     /// those only their own app's install code writes, with the rows it may insert.
     pub(crate) fn empty_reads(&self, object: usize, r: usize) -> EmptyReads {
         let mut reads = EmptyReads::none();
-        let Some(written) = self.events.install_written.as_ref() else {
+        let Some(Ok(written)) = self.events.install_written.as_ref() else {
             return reads;
         };
         let engine = &self.engine;

@@ -434,13 +434,14 @@ impl Session {
                         self.events.next_event_args.clear();
                         self.events.next_aliases.clear();
                         self.events.next_var_lens.clear();
-                        self.note_order_unknown_hit(engine.program.objects[s.object].app);
                         let why = match &called {
                             Err(Signal::Unsupported(r)) => format!("{why} ({})", r.reason()),
                             Err(Signal::Error(e)) => format!("{why} ({})", e.message),
                             _ => why,
                         };
-                        return Err(self.order_unknown_refusal(event, (s.object, s.routine), Some(&why)));
+                        let app = engine.program.objects[s.object].app;
+                        let what = self.order_unknown_subscriber(event, s.object, s.routine);
+                        return unsupported(self.order_unknown_refusal(&what, app, Some(&why)));
                     }
                 }
             }
@@ -626,8 +627,8 @@ impl Session {
                     targets.push((s.clone(), self.static_instance(s.object)?));
                     continue;
                 }
-                self.note_order_unknown_hit(app);
-                return Err(self.order_unknown_refusal(event, (s.object, s.routine), None));
+                let what = self.order_unknown_subscriber(event, s.object, s.routine);
+                return unsupported(self.order_unknown_refusal(&what, app, None));
             }
             if self.events.skip_dependency_subscribers
                 && engine

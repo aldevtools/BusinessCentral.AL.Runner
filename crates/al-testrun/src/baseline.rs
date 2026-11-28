@@ -451,7 +451,7 @@ pub fn run_traced_halting(
             let written = crate::install::tables_install_code_of_may_write(lowered, engine, |o| {
                 partner_group.contains(&objs[o].app)
             });
-            session.set_install_written_tables(written);
+            session.set_install_written_tables(Some(written));
             crate::install_orders::install_partner_apps(lowered, &mut session, &group, &mut inst);
             session.set_install_written_tables(None);
             k = early_installs;

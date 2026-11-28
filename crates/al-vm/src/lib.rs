@@ -88,6 +88,7 @@ pub mod emit_version;
 mod empty_reads;
 mod enum_caption_ml;
 mod order_trial;
+pub use order_trial::{InstallWritten, routine_label};
 mod page_held_bindings;
 pub use empty_reads::{InstallRows, KnownValue};
 mod assigned_audit;
@@ -1905,8 +1906,8 @@ impl Session {
 
     /// The tables (object indexes) the install code of the apps under test may write. A subscriber whose install order is
     /// not known and that stops unless it finds a row of an empty table of its own app outside this set does nothing in
-    /// either order (empty_reads.rs). `None`: not known.
-    pub fn set_install_written_tables(&mut self, tables: Option<std::collections::BTreeSet<u32>>) {
+    /// either order (empty_reads.rs). `None`, or `Err` with the routine that holds a RecordRef or a DataTransfer: not known.
+    pub fn set_install_written_tables(&mut self, tables: Option<InstallWritten>) {
         self.events.install_written = tables;
     }
 
