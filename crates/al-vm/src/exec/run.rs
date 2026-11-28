@@ -346,9 +346,9 @@ impl Session {
                     let v = self.convert_op(v, ty)?;
                     set(&mut f.locals[d as usize], v);
                 }
-                Op::ConvertFieldValue { d, a, t, slot, at_exit } => {
+                Op::ConvertFieldValue { d, a, t, slot, site } => {
                     let v = take(f, a, nl);
-                    let v = self.convert_field_value(v, &chunk.types[t as usize], slot, at_exit)?;
+                    let v = self.convert_field_value(v, &chunk.types[t as usize], slot, site)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::DbgHit { p } => self.debug_hit(p, &f.locals[..nl as usize]),
@@ -979,7 +979,11 @@ impl Session {
         if !site.field_reads.is_empty() {
             self.call_field_reads(site, &mut values, f)?;
         }
-        self.call_site(
+        // Taken by the callee's frame (`records::ByValueCall`); cleared here too when the call ends before its frame.
+        if !site.local_values.is_empty() {
+            self.next_own_locals = self.own_local_args(site, f);
+        }
+        let r = self.call_site(
             site.object,
             site.routine,
             instance,
@@ -987,7 +991,9 @@ impl Session {
             values,
             site.try_call,
             f,
-        )
+        );
+        self.next_own_locals.clear();
+        r
     }
 
     /// `Op::BlobFieldRead`: the value in register `r` moves as `Session::field_read_into_variant` says.
@@ -1176,24 +1182,25 @@ impl Session {
     }
 
     /// Whether the run's BC major is one the assumption entries of this file measured (each supported major).
-    fn supported_major(&self) -> bool {
+    pub(crate) fn supported_major(&self) -> bool {
         matches!(self.engine.target.as_ref().map_or(29, |t| t.bc.major), 27..=29)
     }
 
-    /// `FieldRef.Value` into a Text, Code or Blob, into a local Date, Time or DateTime, or into an Integer, BigInteger, Decimal,
-    /// Duration, Option, Boolean, Byte or Char. A number is its Format text and an Enum its caption, checked against the
-    /// variable's or parameter's length (recordref-fieldref/Y13FieldRefValueToText.al:96-153;
-    /// text/text-methods/Y49FieldRefIntoText.al:207-353). A Date, Time or DateTime value into one of those number types is
-    /// refused (`fieldref_value_temporal::temporal_into_number`, issue 9265); any other value converts as an assignment does.
-    /// `at_exit`: the value of an `exit` into a Text or Code return (`convert_field_value_at_exit`).
+    /// `FieldRef.Value` into a Text, Code or Blob, into a local Date, Time or DateTime, or into an Integer, BigInteger,
+    /// Decimal, Duration, Option, Boolean, Byte or Char. A number is its Format text and an Enum its caption, checked
+    /// against the variable's or parameter's length (recordref-fieldref/Y13FieldRefValueToText.al:96-153;
+    /// text/text-methods/Y49FieldRefIntoText.al:207-353). A Date, Time or DateTime value into one of those number types
+    /// takes the cells of `fieldref_value_temporal::temporal_into_number` (issue 9265); any other value converts as an
+    /// assignment does.
+    /// `site`: where the value goes; an `exit` into a Text or Code return takes `convert_field_value_at_exit`.
     fn convert_field_value(
         &self,
         v: Value,
         ty: &al_builtins::value::RtType,
         slot: Option<al_builtins::fieldref_value_temporal::TemporalSlot>,
-        at_exit: bool,
+        site: super::FieldValueSite,
     ) -> Result<Value, Signal> {
-        if at_exit {
+        if site == super::FieldValueSite::TextExit {
             return self.convert_field_value_at_exit(v, ty);
         }
         let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
@@ -1205,8 +1212,12 @@ impl Session {
         }
         match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, self)
             .or_else(|| al_builtins::fieldref_value_text::fieldref_value_into_blob(&v, ty, self, from28))
-            .or_else(|| al_builtins::fieldref_value_temporal::temporal_into_number(&v, ty))
-        {
+            .or_else(|| {
+                let measured = site == super::FieldValueSite::Measured;
+                let unmeasured =
+                    al_builtins::fieldref_value_temporal::unmeasured(measured, self.supported_major(), self);
+                al_builtins::fieldref_value_temporal::temporal_into_number(&v, ty, from28, self, unmeasured)
+            }) {
             Some(r) => r,
             None => ops::convert_plain(v, ty),
         }
@@ -1398,7 +1409,15 @@ impl Session {
             if site.id == al_builtins::builtin_id::ids::REPORT_RUN_1 {
                 if let (Some(Value::Codeunit(old)), Some(ir::Arg::Ref(place))) = (recv.clone(), &site.receiver_arg) {
                     self.report.rebind_after_run = true;
-                    let r = self.vm_class_call(site.id, site.class, recv, values, site.ret_used, f);
+                    let r = self.vm_class_call(
+                        site.id,
+                        site.class,
+                        recv,
+                        site.receiver_arg.as_ref(),
+                        values,
+                        site.ret_used,
+                        f,
+                    );
                     self.report.rebind_after_run = false;
                     self.report.report_executed.retain(|w| w.strong_count() > 0);
                     self.report.report_executed.push(std::rc::Rc::downgrade(&old));
@@ -1407,7 +1426,15 @@ impl Session {
                     return r;
                 }
             }
-            return self.vm_class_call(site.id, site.class, recv, values, site.ret_used, f);
+            return self.vm_class_call(
+                site.id,
+                site.class,
+                recv,
+                site.receiver_arg.as_ref(),
+                values,
+                site.ret_used,
+                f,
+            );
         }
         let Some(native) = site.native else {
             return Err(Signal::unsupported(format!("builtin {}", site.id)));
@@ -1546,7 +1573,8 @@ impl Session {
 }
 
 /// `:=` (`Op::StoreLocal`, `Op::StorePlace`) of an InStream shares the stream with the target; the stream keeps that a
-/// variable assignment shared it (`al_builtins::stream_line_breaks`).
+/// variable assignment shared it (`al_builtins::stream_line_breaks`). An OutStream's copy loses its stamp
+/// (`dotnet::unstamp_out_stream`).
 #[inline]
 fn mark_assigned_stream(v: &Value) {
     if let Value::Library(al_builtins::library_kind::LibraryKind::InStream, h) = v
@@ -1554,6 +1582,7 @@ fn mark_assigned_stream(v: &Value) {
     {
         s.shared_by_assign = true;
     }
+    crate::dotnet::unstamp_out_stream(v);
 }
 
 /// A value [`Session::run_stream_builtin`] runs on: an InStream or OutStream handle.

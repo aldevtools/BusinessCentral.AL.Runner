@@ -287,6 +287,9 @@ macro_rules! session_fields {
                 frames => |s: &Session| s.frames.is_empty(),
                 // Set and cleared around one interface call (`run_iface`): false whenever no call runs.
                 next_interface_call => |s: &Session| !s.next_interface_call,
+                // Set by `run_call` and taken by the callee's frame or cleared after the call: empty whenever no call
+                // runs.
+                next_own_locals => |s: &Session| s.next_own_locals.is_empty(),
                 xp_unlinked_passes => |s: &Session| s.xp_unlinked_passes.is_empty(),
                 xp_link_hidden => |s: &Session| s.xp_link_hidden.is_empty(),
                 call_stack => |s: &Session| s.call_stack.is_empty(),
@@ -312,6 +315,7 @@ macro_rules! session_fields {
                 ext_before_watch => |s: &Session| s.ext_before_watch.borrow().is_empty(),
                 shared_proc_xrec => |s: &Session| s.shared_proc_xrec.is_empty(),
                 iface_frames => |s: &Session| s.iface_frames.is_empty(),
+                run_callers => |s: &Session| s.run_callers.is_empty(),
                 field_error_form => |s: &Session| s.field_error_form.is_none(),
                 error_finals => |s: &Session| s.error_finals.is_none(),
                 var_alias_watch => |s: &Session| s.var_alias_watch.is_empty(),

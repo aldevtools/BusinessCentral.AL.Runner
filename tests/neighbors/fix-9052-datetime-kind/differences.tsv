@@ -1,0 +1,15 @@
+# key	entry
+DtKind Neighbors::Served_AlParamPlusTwoHours_ToString	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Served_EpochAdd_ToLocalTime	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Served_NowToUniversalTimePlusTwoHours_EvaluateToString	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Served_NowToUniversalTimePlusZero_EvaluateToString	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Served_ParseFormat9_ToUniversalTime_R	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Served_ParseOffset_ToUniversalTime	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Served_ToFileTime_AlParam	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Served_ToFileTime_CtorLocal	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Served_ToLocalTime_AlParam	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Served_ToLocalTime_CtorLocal	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Served_ToUniversalTime_AlParam	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Served_ToUniversalTime_CtorUnspecified	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Served_UtcNowToLocalTime	ASSUMED dotnet-datetime-utc-zone-conversions (corpus PR 1653)
+DtKind Neighbors::Neighbor_Kind_OfToUniversalTimeResult	REFUSED DotNet System.DateTime.Kind: 'System.DateTime.Kind' reads the kind of the DateTime

@@ -133,6 +133,7 @@ pub(crate) fn frame_head(program: &ir::Program, object: usize, routine: usize) -
             event: false,
             routine,
             pos,
+            instance: std::ptr::null(),
         },
     )?;
     line.find(" line ").map(|i| line[..i].to_string())

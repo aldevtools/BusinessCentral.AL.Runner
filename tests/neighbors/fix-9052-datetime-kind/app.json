@@ -1,0 +1,11 @@
+{
+  "id": "4b7e2d19-8c63-4a5f-9e21-905200000001",
+  "name": "Neighbors fix-9052-datetime-kind",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [ { "from": 50470, "to": 50479 } ],
+  "dependencies": []
+}
