@@ -25,6 +25,7 @@ mod blob_filter;
 mod boolean_filter_error;
 mod delete_all;
 mod delete_all_flow;
+pub(crate) mod delete_all_order;
 mod empty_find_origin;
 mod filter_error;
 mod flowfield_key;
@@ -687,6 +688,7 @@ impl Session {
     }
 
     pub(crate) fn unseeded_read(&self, t: &TableDef, temporary: bool, what: &str) -> Result<(), Signal> {
+        self.note_row_code_read();
         if !temporary {
             // Every read of a table's rows passes here, the indirect ones too (FlowField, TableRelation, list caption).
             self.note_indirect_read(t.object);
@@ -1988,6 +1990,7 @@ impl Session {
     /// the buffer already holds it (an in-memory write is kept:
     /// streams/TestBlobCalcFieldsUncommittedWrite.al); a temporary record's Blob is always loaded.
     pub(crate) fn load_blobs(&mut self, rec: &Rec, positions: &[usize]) -> Result<(), Signal> {
+        self.note_row_code_read();
         let t = self.table(rec)?;
         let cx = self.cx_for(rec, &t)?;
         let mut stored: Option<Vec<Value>> = None;
