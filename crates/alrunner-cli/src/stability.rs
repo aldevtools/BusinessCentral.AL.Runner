@@ -288,8 +288,8 @@ pub fn replay(a: &TestArgs, cell: &str) -> Result<Option<Variant>, String> {
 }
 
 /// `Codeunit<id>.<test>`: how the report names a test.
-fn name(r: &TestResult) -> String {
-    format!("Codeunit{}.{}", r.codeunit, r.test)
+pub(crate) fn name(r: &TestResult) -> String {
+    crate::run::qualified(r.codeunit, &r.test)
 }
 
 /// What the report compares of each selected result of one variant.
@@ -661,7 +661,8 @@ pub fn junit(plan: &Plan, results: &[Vec<&TestResult>], out: &Outcome) -> String
                 xml(val)
             ));
         }
-        x.push_str("    </properties>\n");
+        let mode = crate::order_mode::OrderMode::of(v.perturb.in_bc_order());
+        x.push_str(&format!("      {}\n    </properties>\n", mode.property()));
         for r in rs {
             x.push_str(&format!(
                 "    <testcase classname=\"{}\" name=\"{}\" time=\"{:.3}\"",

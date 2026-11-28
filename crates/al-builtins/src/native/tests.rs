@@ -39,6 +39,8 @@ pub(crate) struct TestCtx {
     pub(crate) result_ignored: bool,
     /// What `held_by_temp_blob_impl` answers for every buffer.
     pub(crate) temp_blob_impl: bool,
+    /// What `held_by_temporary_table_test_local` answers for every buffer.
+    pub(crate) temporary_table_local: bool,
     /// The run's target: `gate` and `http_probe_1424_measured` read it.
     pub(crate) target: Option<al_version::Target>,
     /// What `format_composite` answers for a Record or a RecordRef: `None` as without a table schema.
@@ -65,6 +67,12 @@ impl Ctx for TestCtx {
     }
     fn held_by_temp_blob_impl(&self, _b: &crate::stream::BlobRef) -> bool {
         self.temp_blob_impl
+    }
+    fn held_by_temporary_table_test_local(&self, _b: &crate::stream::BlobRef) -> bool {
+        self.temporary_table_local
+    }
+    fn temporary_table_blob_line_breaks_measured(&self) -> bool {
+        al_version::temporary_table_blob_line_breaks_measured(self.target.as_ref())
     }
     fn codeunit_shape(&self, _id: u32) -> super::CodeunitShape {
         self.codeunit_shape.unwrap_or(super::CodeunitShape::UNKNOWN)

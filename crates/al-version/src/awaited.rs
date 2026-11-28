@@ -31,12 +31,28 @@ pub fn web_service_session_measured(target: Option<&Target>) -> bool {
     matches!(target.map(|t| t.bc.major), Some(28))
 }
 
+/// Whether `Base64Convert.ToBase64(InStream, true)` of a temporary table's own Blob field is measured on the target's major:
+/// the reporter of al-runner issue 9322 ran the repro on BC 28.4 (a CR LF at position 77, 138 characters, as the Temp Blob
+/// stream of tests/al-language/streams/Base64LineBreaks.al:120-134 gives). `true` on 28 only; the probe that measures 27, 28
+/// and 29 is still to come (assumption `base-convert-line-breaks-temporary-table-blob`, al-builtins `stream_line_breaks`).
+pub fn temporary_table_blob_line_breaks_measured(target: Option<&Target>) -> bool {
+    matches!(target.map(|t| t.bc.major), Some(28))
+}
+
 /// Whether `target` is a minor the HTTP probe of corpus PR 1424 measured: `HttpHeaders.Contains('')`
 /// (tests/al-language/http/HttpHeaders.al:531, :558, :579) and `HttpContent.WriteFrom(InStream)` after the Content-Type
 /// changed (tests/al-language/http/content/HttpContent.al:717-793). The writer ran it on local 27.5, 28.5 and 29.1 hosts
 /// and corpus CI on 29.0; the PR is merged, not yet pinned (runner PR 7870). Other minors and no target are not measured.
 pub fn http_probe_1424_measured(target: Option<&Target>) -> bool {
     target.is_some_and(|t| matches!((t.bc.major, t.bc.minor), (27, 5) | (28, 5) | (29, 0) | (29, 1)))
+}
+
+/// Whether `target` is a major on which open corpus PR 1594 (tests/al-language-onprem/session-system/UsAppLogoJpegSizes.al,
+/// al-runner issue 9111) measured the Published Application logo of a JPEG of another size than 8 x 8 on Windows BC: 27
+/// (27.5) and 29 (29.0), and no target (the newest major, 29). BC 28 is measured only by corpus CI on Linux, whose Mime Type
+/// (image/png) differs from Windows on 27.5, so it is not measured.
+pub fn app_logo_jpeg_sizes_measured(target: Option<&Target>) -> bool {
+    matches!(target.map(|t| t.bc.major), Some(27 | 29) | None)
 }
 
 /// What a TestPage does with a Card's field control bound to no field of the source table whose own Visible names a field of

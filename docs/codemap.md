@@ -264,6 +264,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `report.rs`: The pass-rate report. Entry: `Outcome`.
 - `runner.rs`: The seam between the harness and the runtime. Entry: `Runner`.
 - `select.rs`: Test selection: --codeunit, --test, --area, --file. Entry: `Selection`.
+- `strict_not_run.rs`: The lists of the whole corpus in BC's order (ADR-070 decision 5). Entry: `check`.
 - `strict_order.rs`: The corpus order probes…
 - `workspace_leg.rs`: The workspace layer's outcomes leg. Entry: `say`.
 
@@ -450,6 +451,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `resource_reads.rs`: The app resource files a session read, and whether their texts are unchanged. Entry: `Session::resource_reads`, `TextsRead`.
 - `sqlcount.rs`: The model behind `SqlStatementsExecuted` /… Entry: `SqlCounters::read`.
 - `tasks.rs`: `TaskScheduler.CreateTask`, `TaskExists`, `CancelTask`. Entry: `Session::task_scheduler_op`.
+- `temp_blob_impl_field.rs`: Blob fields a Temp Blob, or a `[Test]` method's local temporary-table record, opened streams on. Entry: `Session::note_temp_blob_impl_field`.
 - `tenant_set_delete.rs`: The Delete or DeleteAll of a stored Tenant… Entry: `tenant_set_delete_one`.
 - `testdata.rs`: Restored company rows. Entry: `TestBacking`.
 - `transaction_type.rs`: `Database.CurrentTransactionType`. Entry: `current_transaction_type`.

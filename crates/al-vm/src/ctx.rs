@@ -152,6 +152,9 @@ impl al_builtins::native::Ctx for Session {
     fn http_probe_1424_measured(&self) -> bool {
         al_version::http_probe_1424_measured(self.engine.target.as_ref())
     }
+    fn measured_jpeg_logo(&self, bytes: &[u8]) -> Option<al_builtins::media::MeasuredJpegLogo> {
+        al_builtins::media::measured_jpeg_logo(bytes, self.engine.target.as_ref())
+    }
     fn error_text_raise(&self) -> Result<(), Signal> {
         // An Error of a CaptionClass run is measured only where `CaptionDialogs` lets it raise (record/captions/
         // CaptionClassStateFreeCalls.al:919-936, al-runner issue 7391).
@@ -339,6 +342,12 @@ impl al_builtins::native::Ctx for Session {
     }
     fn held_by_temp_blob_impl(&self, b: &al_builtins::stream::BlobRef) -> bool {
         self.temp_blob_impl_fields.holds(b)
+    }
+    fn held_by_temporary_table_test_local(&self, b: &al_builtins::stream::BlobRef) -> bool {
+        self.test_local_blob_fields.holds(b)
+    }
+    fn temporary_table_blob_line_breaks_measured(&self) -> bool {
+        al_version::temporary_table_blob_line_breaks_measured(self.engine.target.as_ref())
     }
     fn calling_object(&self) -> Option<(String, String)> {
         let obj = *self.frames.last()?;

@@ -152,6 +152,7 @@ impl Lowerer<'_> {
                 if let Some(slot) = locals.get_mut(before) {
                     slot.security_filtering = declared.clone().and_then(Result::ok);
                     slot.security_filtering_not_kept = security_filtering_not_kept(&attrs, &declared);
+                    slot.declared_temporary = matches!(ty, Ty::Record { temporary: true, .. });
                 }
             }
         }
