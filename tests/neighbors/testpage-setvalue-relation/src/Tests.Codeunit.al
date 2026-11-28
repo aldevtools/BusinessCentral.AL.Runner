@@ -5,6 +5,11 @@ codeunit 70937 "NB TSV Tests"
     Subtype = Test;
     TestPermissions = Disabled;
 
+    var
+        RequestCtl: Integer;
+        RequestTyped: Text;
+        RequestReading: Text;
+
     local procedure Seed()
     var
         Book: Record "NB TSV Book";
@@ -436,6 +441,7 @@ codeunit 70937 "NB TSV Tests"
         TP.OpenEdit();
         TP.GoToRecord(Host);
         Check(SetHost(TP, false, 'mn'), 'ok');
+        Same(TP.BookCtl.Value(), 'MNO');
         TP.Close();
     end;
 
@@ -478,5 +484,85 @@ codeunit 70937 "NB TSV Tests"
         TP.GoToRecord(Host);
         Check(SetHost(TP, true, 'XYZ'), 'E: Validation error for Field: ActiveCtl,  Message = ''The field Active Code of table NB TSV Host contains a value (XYZ) that cannot be found in the related table (NB TSV Book). (Select Refresh to discard errors)''');
         TP.Close();
+    end;
+
+    [RequestPageHandler]
+    procedure RequestHandler(var RP: TestRequestPage "NB TSV Request")
+    begin
+        if RequestCtl = 1 then begin
+            RP.BookCtl.SetValue(RequestTyped);
+            RequestReading := RP.BookCtl.Value();
+        end else begin
+            RP.PairCtl.SetValue(RequestTyped);
+            RequestReading := RP.PairCtl.Value();
+        end;
+        RP.Cancel().Invoke();
+    end;
+
+    // The rule's order and the shapes the merged probe's review settled (prefix inside the filter before an exact key
+    // outside it, a table field over a held value or typed in lower case, a request page's Code variable).
+    [Test]
+    procedure Filtered_PrefixInsideBeforeExactOutside()
+    var
+        TP: TestPage "NB TSV Filtered";
+    begin
+        Seed();
+        AddBook('XYZA', 'Inside', true);
+        TP.OpenEdit();
+        Check(SetFiltered(TP, 'XYZ'), 'ok');
+        Same(TP.BookCtl.Value(), 'XYZA');
+        TP.Close();
+    end;
+
+    [Test]
+    procedure Filtered_LowerExactInside()
+    var
+        TP: TestPage "NB TSV Filtered";
+    begin
+        Seed();
+        TP.OpenEdit();
+        Check(SetFiltered(TP, 'mno'), 'ok');
+        Same(TP.BookCtl.Value(), 'MNO');
+        TP.Close();
+    end;
+
+    [Test]
+    procedure HostField_HeldThenPrefix()
+    var
+        Host: Record "NB TSV Host";
+        TP: TestPage "NB TSV Host Card";
+    begin
+        Seed();
+        Host.Get(1);
+        Host."Book Code" := 'ABC';
+        Host.Modify();
+        TP.OpenEdit();
+        TP.GoToRecord(Host);
+        Check(SetHost(TP, false, 'MN'), 'ok');
+        TP.Close();
+        Host.Get(1);
+        Same(Host."Book Code", 'MNO');
+    end;
+
+    [Test]
+    [HandlerFunctions('RequestHandler')]
+    procedure RequestCodeVar_Prefix()
+    begin
+        Seed();
+        RequestCtl := 1;
+        RequestTyped := 'mn';
+        Report.Run(Report::"NB TSV Request");
+        Same(RequestReading, 'MNO');
+    end;
+
+    [Test]
+    [HandlerFunctions('RequestHandler')]
+    procedure RequestCodeVar_CompoundKeyKeepsMain()
+    begin
+        Seed();
+        RequestCtl := 2;
+        RequestTyped := 'P1';
+        Report.Run(Report::"NB TSV Request");
+        Same(RequestReading, 'P1');
     end;
 }

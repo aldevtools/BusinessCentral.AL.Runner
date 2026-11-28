@@ -21,4 +21,7 @@ NB TSV Tests::CodeVar_CompoundKey	REFUSED SetValue of a text into a page variabl
 NB TSV Tests::CodeVar_IntegerKey	REFUSED SetValue of a text into a page variable with a TableRelation, in a shape corpus PR 1646 does not measure
 NB TSV Tests::CodeVar_LongerThanVariable	REFUSED SetValue of a text into a page variable with a TableRelation, in a shape corpus PR 1646 does not measure
 NB TSV Tests::CodeVar_FilteredRelation	REFUSED SetValue of a text into a page variable with a TableRelation, in a shape corpus PR 1646 does not measure
-NB TSV Tests::HostField_LowerPrefix	REFUSED SetValue of a lower-case prefix of a related key into a table field
+NB TSV Tests::HostField_LowerPrefix	ASSUMED test-page-set-value-table-relation (corpus PR 1646, HostField_PrefixOneKey with the case of CodeVar_PrefixOneKey)
+NB TSV Tests::Filtered_PrefixInsideBeforeExactOutside	ASSUMED test-page-set-value-table-relation (corpus PR 1646, Filtered_PrefixFirstOutside)
+NB TSV Tests::HostField_HeldThenPrefix	ASSUMED test-page-set-value-table-relation (corpus PR 1646, HostField_PrefixOneKey)
+NB TSV Tests::RequestCodeVar_Prefix	ASSUMED test-page-set-value-table-relation (corpus PR 1646, RequestPage_Prefix)

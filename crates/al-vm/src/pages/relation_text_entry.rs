@@ -3,21 +3,20 @@
 //!
 //! Corpus PR 1646 (tests/al-language/testpage/SetValueTableRelation.al, open: assumption
 //! `test-page-set-value-table-relation`) measures related tables whose primary key is one Code field:
-//! - a Text or Code variable of a Card without a source table, or a Text variable of a report's request page, related to
-//!   the table (or to its key field, KeyFieldVar_LowerPrefix), takes the stored key of the row whose key is the text
-//!   upper-cased ('ABC' and 'abc' give ABC: TextVar_Exact, TextVar_LowerCase, CodeVar_Exact, CodeVar_LowerCase,
-//!   RequestPage_LowerCase), else the first key in key order that starts with it ('MN' and 'mn' give MNO, 'AB' gives ABC
-//!   also when ABD was written first: TextVar_PrefixOneKey, TextVar_LowerPrefix, CodeVar_PrefixOneKey,
-//!   TextVar_PrefixTwoKeys, CodeVar_PrefixTwoKeys, TextVar_PrefixTwoKeysAbdFirst, RequestPage_Prefix), else fails with the
-//!   does-not-exist error naming the captions and the text upper-cased (TextVar_NoRow, TextVar_NoRowLower, CodeVar_NoRow,
-//!   TextVar_InsideKey 'BC', TextVar_NameStart 'Unique', CapVar_NoRow, RequestPage_NoRow); the control keeps the value it
-//!   held and OnValidate does not run (TextVar_ValueThenNoRow);
-//! - with `where(Active = const(true))` on a Text variable, an exact key outside the filter is taken as typed ('XYZ',
-//!   'xyz': Filtered_Outside, Filtered_OutsideLowerCase), a prefix completes to the first key inside the filter
-//!   (Filtered_Inside, Filtered_PrefixFirstOutside) and fails without one (Filtered_PrefixOutside);
+//! - a Text or Code variable of a Card without a source table or of a report's request page, related to the table (or to
+//!   its key field, KeyFieldVar_LowerPrefix), takes the stored key of the first key in key order, inside the relation's
+//!   filter, that starts with the text, case ignored ('ABC' and 'abc' give ABC, 'MN' and 'mn' give MNO, 'AB' gives ABC also
+//!   when ABD was written first: TextVar_Exact, TextVar_LowerCase, CodeVar_Exact, CodeVar_LowerCase, TextVar_PrefixOneKey,
+//!   TextVar_LowerPrefix, CodeVar_PrefixOneKey, TextVar_PrefixTwoKeys, CodeVar_PrefixTwoKeys, TextVar_PrefixTwoKeysAbdFirst,
+//!   RequestPage_LowerCase, RequestPage_Prefix, Filtered_Inside, Filtered_PrefixFirstOutside); else an exact key outside
+//!   the filter as typed ('XYZ', 'xyz': Filtered_Outside, Filtered_OutsideLowerCase); else it fails with the does-not-exist
+//!   error naming the captions and the text upper-cased (TextVar_NoRow, TextVar_NoRowLower, CodeVar_NoRow,
+//!   TextVar_InsideKey 'BC', TextVar_NameStart 'Unique', CapVar_NoRow, RequestPage_NoRow, Filtered_PrefixOutside); the
+//!   control keeps the value it held and OnValidate does not run (TextVar_ValueThenNoRow). A lower-case exact key inside a
+//!   filter is not measured and refused. A Code variable of a request page keeps main's path in every unmeasured shape;
 //! - a Text variable related to a field in no key fails every entry, the blank one too, with the primary-key error
 //!   (NameVar_*, NameVar_Blank);
-//! - a Code table field related to the bare table completes an upper-case prefix the same way (HostField_PrefixOneKey,
+//! - a Code table field related to the bare table completes a prefix the same way (HostField_PrefixOneKey,
 //!   HostField_PrefixTwoKeys); its exact key, its no-row error, its blank entry and a filtered relation's errors were
 //!   main's answer already (HostField_Exact, HostField_NoRow, HostField_Blank, HostActive_OutsideExact,
 //!   HostActive_OutsidePrefix, CapHost_NoRow).
@@ -74,7 +73,7 @@ impl Session {
                 let ty = self.control_type(st, idx, value);
                 if let Some(ty) = ty.clone().filter(|ty| self.measured_variable(st, idx, ty)) {
                     let (Some(typed), Some(text)) = (typed, text) else {
-                        return unsupported(UNMEASURED);
+                        return self.unmeasured(st, &ty);
                     };
                     return self.variable_entry(st, idx, &typed, &ty, &text, args);
                 }
@@ -94,8 +93,8 @@ impl Session {
     }
 
     /// The measured variable controls: a Text or Code variable of a Card without a source table, opened on its own (not as a
-    /// part), or a Text variable of a report's request page; the control the object's own, bound to its own variable, which no
-    /// extension modifies.
+    /// part), or of a report's request page; the control the object's own, bound to its own variable, which no extension
+    /// modifies.
     fn measured_variable(&self, st: &St, idx: usize, ty: &RtType) -> bool {
         let engine = self.engine();
         let c = &page_of(&engine, st).controls[idx];
@@ -105,8 +104,17 @@ impl Session {
             && c.ext_replaced.is_empty()
             && st.borrow().host.is_none();
         let card = self.is_card(st) && !self.has_source(st) && !self.is_request_page(st);
-        let request = self.is_request_page(st) && matches!(ty, RtType::Text(_));
+        let request = self.is_request_page(st);
         own && matches!(ty, RtType::Text(_) | RtType::Code(_)) && (card || request)
+    }
+
+    /// The answer for an entry outside the measured cells: refused, except into a Code variable of a request page, which
+    /// keeps main's path (it took the typed text before this rule).
+    fn unmeasured(&self, st: &St, ty: &RtType) -> Result<(), Signal> {
+        if matches!(ty, RtType::Code(_)) && self.is_request_page(st) {
+            return Ok(());
+        }
+        unsupported(UNMEASURED)
     }
 
     /// The entry `typed` into a measured variable control of type `ty` related by `text` (module doc).
@@ -121,20 +129,20 @@ impl Session {
     ) -> Result<(), Signal> {
         let text_variable = matches!(ty, RtType::Text(_));
         let Some((related, relation)) = self.measured_relation(text, text_variable)? else {
-            return unsupported(UNMEASURED);
+            return self.unmeasured(st, ty);
         };
         let key = related.keys[0][0];
         let fits = |len: &Option<u32>| len.is_none_or(|n| Value::text_len(typed) <= n as usize);
         let var_fits = matches!(ty, RtType::Text(n) | RtType::Code(n) if fits(n));
         let english = al_builtins::format::FormatCtx::language(self) == 1033;
         if !(var_fits && english) {
-            return unsupported(UNMEASURED);
+            return self.unmeasured(st, ty);
         }
         let filter = match relation {
             Relation::NonKey(field) => {
                 // Measured from an empty control (NameVar_*); what a control that held a value then shows is not.
                 if !matches!(self.control_value(st, idx)?, Value::Text(t) | Value::Code(t) if t.is_empty()) {
-                    return unsupported(UNMEASURED);
+                    return self.unmeasured(st, ty);
                 }
                 assume(Assumption::TestPageSetValueTableRelation);
                 let msg = format!(
@@ -150,7 +158,7 @@ impl Session {
             return Ok(());
         }
         if !matches!(&related.fields[key].ty, RtType::Code(n) if fits(n)) {
-            return unsupported(UNMEASURED);
+            return self.unmeasured(st, ty);
         }
         let upper = typed.to_uppercase();
         let rows = self.related_rows(None, &related, &[])?;
@@ -158,25 +166,26 @@ impl Session {
             Some(f) => self.related_rows(None, &related, std::slice::from_ref(f))?,
             None => rows.clone(),
         };
-        if let Some(row) = rows.iter().find(|r| key_text(&r[key]) == upper) {
-            let in_filter = inside.iter().any(|r| key_text(&r[key]) == upper);
-            // A Code variable held the upper-cased text before this rule: the same value.
-            if text_variable {
-                assume(Assumption::TestPageSetValueTableRelation);
-            }
-            // An exact key outside the filter is taken as typed (Filtered_Outside, Filtered_OutsideLowerCase).
-            let taken = if in_filter {
-                key_text(&row[key])
-            } else {
-                typed.to_string()
-            };
-            args[0] = Value::Text(taken.into());
+        let exact = rows.iter().any(|r| key_text(&r[key]) == upper);
+        // A Code variable held the upper-cased text before this rule: the same value, read as main read it.
+        if exact && !text_variable && filter.is_none() {
             return Ok(());
         }
         self.unseeded_read(&related, false, "the TableRelation completion of a TestPage entry")?;
-        assume(Assumption::TestPageSetValueTableRelation);
+        // The first key in key order inside the filter that starts with the text, case ignored, gives its stored key (an exact
+        // key sorts before the keys it starts). A lower-case exact key inside a filter is not measured.
         if let Some(row) = inside.iter().find(|r| key_text(&r[key]).starts_with(&upper)) {
+            if filter.is_some() && typed != upper && key_text(&row[key]) == upper {
+                return self.unmeasured(st, ty);
+            }
+            assume(Assumption::TestPageSetValueTableRelation);
             args[0] = Value::Text(key_text(&row[key]).into());
+            return Ok(());
+        }
+        assume(Assumption::TestPageSetValueTableRelation);
+        // Else an exact key outside the filter is taken as typed (Filtered_Outside, Filtered_OutsideLowerCase).
+        if exact {
+            args[0] = Value::Text(typed.into());
             return Ok(());
         }
         let msg = format!(
@@ -273,11 +282,11 @@ impl Session {
         ))
     }
 
-    /// The entry `typed` into a Code table field (position `pos` of the page's record) related to a table: an upper-case
-    /// prefix of a key, where no key is the text, takes the first such key in key order (HostField_PrefixOneKey,
-    /// HostField_PrefixTwoKeys). Measured on a Card over its source table, on a row, with the field empty, related to the bare
-    /// table whose primary key is one Code field. Elsewhere, and for an exact key or no key that starts with the text, the
-    /// entry keeps its path.
+    /// The entry `typed` into a Code table field (position `pos` of the page's record) related to a table: a prefix of a key,
+    /// case ignored, where no key is the text, takes the first such key in key order (HostField_PrefixOneKey,
+    /// HostField_PrefixTwoKeys). Measured on a Card over its source table, on a row, related to the bare table whose primary
+    /// key is one Code field. Elsewhere (a where() relation applies its filter to the exact key too: HostActive_*), and for an
+    /// exact key or no key that starts with the text, the entry keeps its path.
     fn field_prefix_entry(
         &mut self,
         st: &St,
@@ -307,7 +316,6 @@ impl Session {
         }
         let rec = self.page_rec(st);
         let table = self.table(&rec)?;
-        let empty = matches!(&rec.borrow().fields[pos], Value::Code(t) if t.is_empty());
         let Some(related) = arm.table.and_then(|t| engine.tables[t].clone()) else {
             return Ok(());
         };
@@ -317,8 +325,7 @@ impl Session {
         };
         let checked = engine.field_facts[table.object as usize][pos].validate_relation;
         let temporary = engine.object_facts[related.object as usize].temporary();
-        if !empty
-            || !checked
+        if !checked
             || temporary
             || arm.field.is_some_and(|f| f != key)
             || related.fields[key].code_storage != CodeStorage::Text
@@ -334,11 +341,6 @@ impl Session {
             return Ok(());
         };
         self.unseeded_read(&related, false, "the TableRelation completion of a TestPage entry")?;
-        if typed != upper {
-            return unsupported(
-                "SetValue of a lower-case prefix of a related key into a table field (corpus PR 1646 measures upper case only)",
-            );
-        }
         assume(Assumption::TestPageSetValueTableRelation);
         args[0] = Value::Code(key_text(&row[key]).into());
         Ok(())

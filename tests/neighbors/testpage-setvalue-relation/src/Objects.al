@@ -194,3 +194,30 @@ page 70936 "NB TSV Host List"
         }
     }
 }
+
+report 70938 "NB TSV Request"
+{
+    ProcessingOnly = true;
+    UsageCategory = None;
+    dataset
+    {
+        dataitem(Int; Integer)
+        {
+            DataItemTableView = where(Number = const(1));
+        }
+    }
+    requestpage
+    {
+        layout
+        {
+            area(Content)
+            {
+                field(BookCtl; BookCode) { ApplicationArea = All; TableRelation = "NB TSV Book"; }
+                field(PairCtl; PairCode) { ApplicationArea = All; TableRelation = "NB TSV Pair"; }
+            }
+        }
+    }
+    var
+        BookCode: Code[10];
+        PairCode: Code[10];
+}
