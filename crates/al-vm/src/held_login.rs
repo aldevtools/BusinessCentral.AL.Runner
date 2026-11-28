@@ -112,11 +112,7 @@ impl HeldLogin {
     /// another one takes the next place.
     pub fn next_own_login(&self, hub_id: i32) -> OwnLogin {
         let nth = (self.own_logins).fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        OwnLogin {
-            id: own_id(hub_id, nth),
-            hub_id,
-            nth,
-        }
+        OwnLogin::new(hub_id, nth)
     }
 }
 
@@ -140,6 +136,17 @@ pub struct OwnLogin {
     nth: i32,
 }
 
+impl OwnLogin {
+    /// The `nth` session that runs a login of its own after the hub session `hub_id`.
+    pub(crate) fn new(hub_id: i32, nth: i32) -> Self {
+        OwnLogin {
+            id: own_id(hub_id, nth),
+            hub_id,
+            nth,
+        }
+    }
+}
+
 impl std::fmt::Debug for HeldLogin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HeldLogin")
@@ -149,19 +156,9 @@ impl std::fmt::Debug for HeldLogin {
     }
 }
 
-/// For a test: the `nth` session runner 130450 made after the hub session 1.
-#[cfg(test)]
-pub(crate) fn own_login_for_test(nth: i32) -> OwnLogin {
-    OwnLogin {
-        id: own_id(1, nth),
-        hub_id: 1,
-        nth,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{own_id, own_login_for_test};
+    use super::{OwnLogin, own_id};
     use crate::{Engine, Session};
     use al_builtins::native::Signal;
 
@@ -191,7 +188,7 @@ codeunit 50100 Probe
     ) -> Result<al_builtins::value::Value, Signal> {
         let l = al_testkit::compile(OWN_SRC);
         let mut s = Session::new(Engine::new(l.program.clone(), al_testkit::blocked(&l)));
-        s.set_own_login(nth.map(own_login_for_test));
+        s.set_own_login(nth.map(|n| OwnLogin::new(1, n)));
         let ri = (s.engine.program.objects[0].routines.iter())
             .position(|r| r.name == routine)
             .expect("routine");

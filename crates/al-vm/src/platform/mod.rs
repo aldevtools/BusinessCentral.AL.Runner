@@ -1270,11 +1270,11 @@ mod tests {
         );
         for kind in [Virtual::Session, Virtual::ActiveSession] {
             assert!(p.session_read_refusal(kind).is_ok(), "{kind:?}");
-            p.events.own_login.set(Some(crate::held_login::own_login_for_test(1)));
+            p.events.own_login.set(Some(crate::OwnLogin::new(1, 1)));
             assert!(p.session_read_refusal(kind).is_err(), "{kind:?}");
             p.events.own_login.set(None);
         }
-        p.events.own_login.set(Some(crate::held_login::own_login_for_test(1)));
+        p.events.own_login.set(Some(crate::OwnLogin::new(1, 1)));
         assert!(p.session_read_refusal(Virtual::Field).is_ok());
     }
 
