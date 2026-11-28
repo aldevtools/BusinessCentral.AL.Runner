@@ -319,8 +319,8 @@ pub fn json_tdd(results: &[&TestResult], exit_code: u8, wall_s: f64, tdd_stubs: 
         .iter()
         .map(|r| {
             let mut row = test_row(RowOf::from(*r));
-            // ADR-066 amendment 12, decision 2 (additive): why a failed test may pass in BC's order.
-            if let Some(h) = &r.order_hint {
+            // ADR-070 decision 3 (additive): why a failed test may pass in BC's order. A passing test gets no hint.
+            if let Some(h) = r.order_hint.as_ref().filter(|_| !matches!(r.outcome, Outcome::Pass)) {
                 row.insert("orderHint".into(), json!(h.text()));
             }
             Value::Object(row)
@@ -528,8 +528,7 @@ fn not_run_message(why: &str) -> String {
     format!("NotRun: out-of-scope: {}", why.lines().next().unwrap_or(""))
 }
 
-/// [`junit_with`] without further properties (the tests use it; the run adds the re-run property).
-#[cfg(test)]
+/// [`junit_with`] without further properties (an impact run adds its change class).
 pub fn junit(
     results: &[&TestResult],
     bc_build: Option<&str>,
@@ -553,16 +552,6 @@ pub fn failure_tail(r: &TestResult) -> String {
         tail.push_str(&format!("\n          order hint: {}", h.text()));
     }
     tail
-}
-
-/// The JUnit properties of a test that come from BC's order: `numberSequenceOrder` when its codeunit is on the numbers
-/// list of a default run (ADR-066 amendment 12, decision 3).
-pub fn order_properties(chain: &al_testrun::runtime::ChainReport, r: &TestResult) -> Vec<(String, String)> {
-    chain
-        .numbers_text(r.suite, r.codeunit)
-        .map(|t| ("numberSequenceOrder".to_string(), t))
-        .into_iter()
-        .collect()
 }
 
 /// [`junit`], with further properties per test (an impact run's change class, ADR-043 step 3).
@@ -626,9 +615,12 @@ fn suites_of<'a>(
                                 p.push(("stubbed".into(), r.stubs.join(", ")));
                             }
                             p.extend(crate::dev_endpoint_ui::junit_property(r));
-                            // ADR-066 amendment 12, decision 2: why a failed test may pass in BC's order.
-                            if let Some(h) = &r.order_hint {
-                                p.push(("orderHint".into(), h.text()));
+                            // ADR-070: why a failed test may pass in BC's order (decision 3), and the carried state a
+                            // passing test read (decision 4).
+                            match (&r.order_hint, &r.outcome) {
+                                (Some(h), Outcome::Pass) => p.push(("singleInstanceCarried".into(), h.reads_text())),
+                                (Some(h), _) => p.push(("orderHint".into(), h.text())),
+                                (None, _) => {}
                             }
                             p
                         },
