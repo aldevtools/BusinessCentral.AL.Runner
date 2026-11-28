@@ -150,7 +150,10 @@ fn range_at(text: &str, at: usize) -> Option<((u32, u32), usize)> {
             len = n + 1 + m;
         }
     }
-    if b.get(at + len).is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, b':' | b'_')) || last < first {
+    if b.get(at + len)
+        .is_some_and(|c| c.is_ascii_alphanumeric() || matches!(c, b':' | b'_'))
+        || last < first
+    {
         return None;
     }
     Some(((first, last), len))

@@ -6,11 +6,13 @@
 //! can be repeated (a converted line holds no old citation). The module goes once every crate is converted.
 //! Entry points: `convert`, `summary`.
 
+mod history;
 mod old;
 mod place;
 
 use crate::citation::{self, Citation, Corpus, Resolved, Status};
 use crate::rename_map::RenameMap;
+use history::{At, Repo};
 use place::{File, Target};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -92,24 +94,6 @@ pub struct Row {
     pub note: String,
 }
 
-/// The git side of a conversion: who wrote a line, which corpus pin a commit had, and the corpus files at a pin.
-struct Repo<'a> {
-    root: &'a Path,
-    corpus: &'a Path,
-    /// Every corpus pin of the history, oldest first.
-    pins: Vec<String>,
-    /// The checked-out corpus commit.
-    current: String,
-    listings: std::sync::Mutex<BTreeMap<String, std::sync::Arc<Vec<String>>>>,
-}
-
-/// Where one cited file is read: the pin and its path there.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct At {
-    pin: String,
-    path: String,
-}
-
 /// Converts the old citations of the files under `paths` (relative to `root`; files or folders). `corpus` is the
 /// corpus checkout (the pin citations are carried to), `map` its rename map. Writes the files unless `dry_run`.
 pub fn convert(
@@ -122,54 +106,140 @@ pub fn convert(
     let repo = Repo::open(root, corpus)?;
     let new = crate::citation_scan::corpus_at_checkout(corpus)?;
     let files = citing_files(root, paths)?;
-    // Per file: its old citations and the pin of each citing line.
-    let found: Vec<(PathBuf, String, Vec<old::OldCite>, BTreeMap<usize, String>)> = files
+    let found: Vec<Found> = files
         .into_par_iter()
         .map(|(path, text)| {
             let cites = old::find(&text, path.extension().is_some_and(|e| e == "rs"));
-            let lines: BTreeSet<usize> = cites.iter().map(|c| line_of(&text, c.at.start)).collect();
-            let pins = repo.pins_of_lines(&path, &lines)?;
-            Ok((path, text, cites, pins))
+            let pins = cite_pins(&repo, &path, &text, &cites)?;
+            Ok(Found {
+                path,
+                text,
+                cites,
+                pins,
+            })
         })
         .collect::<Result<_, String>>()?;
-    // Where each cited file is read, then those texts in one batch.
-    let mut wanted: BTreeSet<At> = BTreeSet::new();
+    // Where each cited file is read (at both pins of each citation, and at the next pin that changed it), then those
+    // texts in one batch.
     let mut located: BTreeMap<(String, String), Result<At, Class>> = BTreeMap::new();
-    for (path, text, cites, pins) in &found {
-        for c in cites.iter().filter(|c| !c.bare && c.in_comment) {
-            let pin = &pins[&line_of(text, c.at.start)];
-            let key = (pin.clone(), c.path.clone());
-            if !located.contains_key(&key) {
-                let at = repo.locate(pin, &c.path);
-                if let Ok(at) = &at {
-                    wanted.insert(at.clone());
-                }
-                located.insert(key, at);
+    for f in &found {
+        for (c, p) in f.cites.iter().zip(&f.pins) {
+            let Some(cited) = cited_file(c, &f.cites) else { continue };
+            for pin in [&p.first, &p.blame] {
+                located
+                    .entry((pin.clone(), cited.to_string()))
+                    .or_insert_with(|| repo.locate(pin, cited));
             }
         }
-        let _ = path;
     }
+    let mut wanted: BTreeSet<At> = located.values().filter_map(|r| r.as_ref().ok().cloned()).collect();
+    let next: BTreeMap<At, At> = wanted
+        .iter()
+        .filter_map(|a| repo.next_change(a).map(|n| (a.clone(), n)))
+        .collect();
+    wanted.extend(next.values().cloned());
     let wanted: Vec<At> = wanted.into_iter().collect();
     let requests: Vec<String> = wanted.iter().map(|a| format!("{}:{}", a.pin, a.path)).collect();
     let texts = crate::citation_scan::cat_files(corpus, &requests)?;
     let sources: BTreeMap<At, String> = wanted.into_iter().zip(texts).collect();
     let parsed: BTreeMap<&At, File> = sources.iter().map(|(a, t)| (a, File::new(t))).collect();
     let ctx = Ctx {
-        repo: &repo,
         new: &new,
         map,
         located: &located,
+        next: &next,
         parsed: &parsed,
     };
     let mut rows = Vec::new();
-    for (path, text, cites, pins) in &found {
-        let (out, file_rows) = ctx.file(path, text, cites, pins);
-        if !dry_run && out != *text {
-            std::fs::write(root.join(path), &out).map_err(|e| format!("{}: {e}", path.display()))?;
+    for f in &found {
+        let (out, file_rows) = ctx.file(f);
+        if !dry_run && out != f.text {
+            std::fs::write(root.join(&f.path), &out).map_err(|e| format!("{}: {e}", f.path.display()))?;
         }
         rows.extend(file_rows);
     }
     Ok(rows)
+}
+
+/// One citing file: its old citations and the pins each is read at.
+struct Found {
+    path: PathBuf,
+    text: String,
+    cites: Vec<old::OldCite>,
+    pins: Vec<Pins>,
+}
+
+/// The corpus pins one old citation is read at.
+struct Pins {
+    /// The pin of the first commit whose added line holds the citation (`Repo::pickaxe_pins`), else `blame`.
+    first: String,
+    /// The pin of the commit that last changed the citing line.
+    blame: String,
+}
+
+/// The pins of each citation of a file. The text the first commit is looked up by: a file citation's own text, a
+/// bare continuation's whole line (`:12` alone is in too many lines).
+fn cite_pins(repo: &Repo, path: &Path, text: &str, cites: &[old::OldCite]) -> Result<Vec<Pins>, String> {
+    let lines: BTreeSet<usize> = cites.iter().map(|c| line_of(text, c.at.start)).collect();
+    let blame = repo.blame_pins(path, &lines)?;
+    let keys: Vec<String> = cites
+        .iter()
+        .map(|c| {
+            if c.bare {
+                citing_line(text, c).trim().to_string()
+            } else {
+                text[c.at.clone()].to_string()
+            }
+        })
+        .collect();
+    let first = repo.pickaxe_pins(path, &keys.iter().cloned().collect())?;
+    Ok(cites
+        .iter()
+        .zip(keys)
+        .map(|(c, k)| {
+            let blame = blame[&line_of(text, c.at.start)].clone();
+            Pins {
+                first: first.get(&k).cloned().unwrap_or_else(|| blame.clone()),
+                blame,
+            }
+        })
+        .collect())
+}
+
+/// The file a citation in prose names: its own, or for a bare continuation its parent's; `None` in code or orphaned.
+fn cited_file<'c>(c: &old::OldCite, cites: &'c [old::OldCite]) -> Option<&'c str> {
+    let f = if c.bare {
+        &cites[c.parent?]
+    } else {
+        cites.iter().find(|x| x.at == c.at)?
+    };
+    (c.in_comment && f.in_comment).then_some(f.path.as_str())
+}
+
+/// The text line that holds citation `c`.
+fn citing_line<'t>(text: &'t str, c: &old::OldCite) -> &'t str {
+    let start = text[..c.at.start].rfind('\n').map_or(0, |i| i + 1);
+    let end = text[c.at.start..].find('\n').map_or(text.len(), |i| c.at.start + i);
+    &text[start..end]
+}
+
+/// The quoted names of a citing line: AL literals as written (`'cell'`) and the text in backticks without its double
+/// quotes (`` `"First Test"` `` gives `First Test`).
+fn quotes(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for (mark, keep) in [('\'', true), ('`', false)] {
+        // The text between a pair of marks: every odd part, when a mark closes it.
+        let parts: Vec<&str> = line.split(mark).collect();
+        for q in (1..parts.len().saturating_sub(1))
+            .step_by(2)
+            .map(|k| parts[k].trim_matches('"'))
+        {
+            if !q.is_empty() {
+                out.push(if keep { format!("'{q}'") } else { q.to_string() });
+            }
+        }
+    }
+    out
 }
 
 /// The 1-based line of byte `at`.
@@ -194,7 +264,9 @@ fn citing_files(root: &Path, paths: &[PathBuf]) -> Result<Vec<(PathBuf, String)>
     files.dedup();
     let mut out = Vec::new();
     for f in files {
-        let Ok(text) = std::fs::read_to_string(&f) else { continue };
+        let Ok(text) = std::fs::read_to_string(&f) else {
+            continue;
+        };
         let generated = text
             .lines()
             .take(5)
@@ -206,175 +278,46 @@ fn citing_files(root: &Path, paths: &[PathBuf]) -> Result<Vec<(PathBuf, String)>
     Ok(out)
 }
 
-impl<'a> Repo<'a> {
-    fn open(root: &'a Path, corpus: &'a Path) -> Result<Repo<'a>, String> {
-        let commits = git_lines(root, &["rev-list", "--topo-order", "--reverse", "HEAD", "--", "corpus"])?;
-        let mut pins: Vec<String> = Vec::new();
-        for c in commits {
-            if let Some(p) = pin_of(root, &c)?
-                && !pins.contains(&p)
-            {
-                pins.push(p);
-            }
-        }
-        let current = git_lines(corpus, &["rev-parse", "HEAD"])?
-            .pop()
-            .ok_or("the corpus checkout has no HEAD")?;
-        Ok(Repo {
-            root,
-            corpus,
-            pins,
-            current,
-            listings: Default::default(),
-        })
-    }
-
-    /// The corpus pin of the commit that wrote each of `lines` of `path` (`git blame` of the working tree); a line not
-    /// committed yet, or a file git does not track, reads the checked-out pin.
-    fn pins_of_lines(&self, path: &Path, lines: &BTreeSet<usize>) -> Result<BTreeMap<usize, String>, String> {
-        let mut out: BTreeMap<usize, String> = lines.iter().map(|&l| (l, self.current.clone())).collect();
-        if lines.is_empty() {
-            return Ok(out);
-        }
-        let mut args = vec!["blame".to_string(), "--porcelain".to_string()];
-        for l in lines {
-            args.push(format!("-L{l},{l}"));
-        }
-        args.extend(["--".to_string(), path.to_string_lossy().into_owned()]);
-        let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let o = crate::base_oracle::git(self.root, &args)?;
-        if !o.status.success() {
-            return Ok(out); // untracked: the checked-out pin
-        }
-        let mut commit_pins: BTreeMap<String, Option<String>> = BTreeMap::new();
-        for l in String::from_utf8_lossy(&o.stdout).lines() {
-            let mut w = l.split(' ');
-            let (Some(sha), Some(_), Some(fin)) = (w.next(), w.next(), w.next()) else { continue };
-            let Ok(fin) = fin.parse::<usize>() else { continue };
-            if sha.len() != 40 || !sha.bytes().all(|c| c.is_ascii_hexdigit()) || sha.bytes().all(|c| c == b'0') {
-                continue;
-            }
-            if !commit_pins.contains_key(sha) {
-                commit_pins.insert(sha.to_string(), pin_of(self.root, sha)?);
-            }
-            if let Some(Some(pin)) = commit_pins.get(sha) {
-                out.insert(fin, pin.clone());
-            }
-        }
-        Ok(out)
-    }
-
-    /// The corpus files under `tests/` at `pin`.
-    fn listing(&self, pin: &str) -> std::sync::Arc<Vec<String>> {
-        let mut l = self.listings.lock().unwrap_or_else(|e| e.into_inner());
-        l.entry(pin.to_string())
-            .or_insert_with(|| {
-                std::sync::Arc::new(git_lines(self.corpus, &["ls-tree", "-r", "--name-only", pin, "--", "tests"]).unwrap_or_default())
-            })
-            .clone()
-    }
-
-    /// Where the file `cited` (as written) is read for a citation written at `pin`: at `pin` by its path, else by its
-    /// file name when that is unique there (a folder renamed before the line was written); else at the first later pin
-    /// that has it, else the last earlier one.
-    fn locate(&self, pin: &str, cited: &str) -> Result<At, Class> {
-        let rel = cited.trim_start_matches("corpus/").trim_start_matches("tests/");
-        let name = rel.rsplit('/').next().unwrap_or(rel);
-        let at = self.pins.iter().position(|p| p == pin).unwrap_or(self.pins.len());
-        let later = self.pins.iter().skip(at + 1).chain(std::iter::once(&self.current));
-        let order = std::iter::once(pin).chain(later.map(String::as_str)).chain(self.pins[..at.min(self.pins.len())].iter().rev().map(String::as_str));
-        let mut seen = BTreeSet::new();
-        for p in order {
-            if !seen.insert(p) {
-                continue;
-            }
-            let files = self.listing(p);
-            let by_path: Vec<&String> = files.iter().filter(|f| f.as_str() == format!("tests/{rel}") || f.ends_with(&format!("/{rel}"))).collect();
-            let hits = if by_path.is_empty() {
-                files.iter().filter(|f| f.rsplit('/').next() == Some(name)).collect()
-            } else {
-                by_path
-            };
-            match hits.as_slice() {
-                [] => continue,
-                [f] if f.starts_with("tests/must-not-compile/") => return Err(Class::MustNotCompile),
-                [f] => return Ok(At { pin: p.to_string(), path: f.to_string() }),
-                _ => return Err(Class::HandFix),
-            }
-        }
-        Err(Class::NotCorpus)
-    }
-}
-
-/// The corpus pin of runner commit `commit`; `None` before the corpus was a submodule.
-fn pin_of(root: &Path, commit: &str) -> Result<Option<String>, String> {
-    let o = crate::base_oracle::git(root, &["rev-parse", "--verify", "-q", &format!("{commit}:corpus")])?;
-    Ok(o.status
-        .success()
-        .then(|| String::from_utf8_lossy(&o.stdout).trim().to_string()))
-}
-
-/// The output lines of `git -C dir args`; an error when git fails.
-fn git_lines(dir: &Path, args: &[&str]) -> Result<Vec<String>, String> {
-    let o = crate::base_oracle::git(dir, args)?;
-    if !o.status.success() {
-        return Err(format!("git {}: {}", args.join(" "), String::from_utf8_lossy(&o.stderr)));
-    }
-    Ok(String::from_utf8_lossy(&o.stdout).lines().map(str::to_string).collect())
-}
-
 /// What one file's conversion reads.
 struct Ctx<'a> {
-    repo: &'a Repo<'a>,
     new: &'a Corpus,
     map: &'a RenameMap,
     located: &'a BTreeMap<(String, String), Result<At, Class>>,
+    /// Per located file: the next pin that changed it.
+    next: &'a BTreeMap<At, At>,
     parsed: &'a BTreeMap<&'a At, File<'a>>,
 }
 
 impl Ctx<'_> {
     /// The converted text of one file and a row per old citation. A file citation and its bare continuations convert
     /// together or stay together.
-    fn file(
-        &self,
-        path: &Path,
-        text: &str,
-        cites: &[old::OldCite],
-        pins: &BTreeMap<usize, String>,
-    ) -> (String, Vec<Row>) {
+    fn file(&self, f: &Found) -> (String, Vec<Row>) {
+        let (text, cites) = (f.text.as_str(), f.cites.as_slice());
         let line = |c: &old::OldCite| line_of(text, c.at.start);
-        // Each citation's file: its own for a file citation, its parent's for a bare one.
-        let mut results: Vec<Result<(String, Class), (Class, String)>> = Vec::with_capacity(cites.len());
-        for c in cites {
-            let r = if !c.in_comment {
-                Err((Class::InCode, String::new()))
-            } else {
-                let file = if c.bare { c.parent.map(|p| &cites[p]) } else { Some(c) };
-                match file {
-                    None => Err((Class::Orphan, String::new())),
-                    Some(f) if !f.in_comment => Err((Class::Orphan, String::new())),
-                    Some(f) => self.one(&pins[&line(c)], &f.path, &c.lines, c.bare),
-                }
-            };
-            results.push(r);
-        }
+        let results: Vec<Result<(String, Class), (Class, String)>> = cites
+            .iter()
+            .zip(&f.pins)
+            .map(|(c, pins)| match cited_file(c, cites) {
+                _ if !c.in_comment => Err((Class::InCode, String::new())),
+                None => Err((Class::Orphan, String::new())),
+                Some(cited) => self.checked(pins, cited, c, &quotes(citing_line(text, c))),
+            })
+            .collect();
         // A group (a file citation and its continuations) with a hand fix stays whole.
+        let group = |k: usize| if cites[k].bare { cites[k].parent } else { Some(k) };
         let mut group_fails = vec![false; cites.len()];
-        for (k, c) in cites.iter().enumerate() {
-            let g = if c.bare { c.parent } else { Some(k) };
-            if let (Some(g), Err((Class::HandFix, _))) = (g, &results[k]) {
+        for k in 0..cites.len() {
+            if let (Some(g), Err((Class::HandFix, _))) = (group(k), &results[k]) {
                 group_fails[g] = true;
             }
         }
         let (mut out, mut rows, mut last) = (String::with_capacity(text.len()), Vec::new(), 0);
         for (k, c) in cites.iter().enumerate() {
-            let g = if c.bare { c.parent } else { Some(k) };
-            let held = g.is_some_and(|g| group_fails[g]);
-            let old = text[c.at.clone()].to_string();
+            let held = group(k).is_some_and(|g| group_fails[g]);
             let mut row = Row {
-                path: path.to_path_buf(),
+                path: f.path.clone(),
                 line: line(c),
-                old,
+                old: text[c.at.clone()].to_string(),
                 new: None,
                 class: Class::HandFix,
                 note: String::new(),
@@ -399,27 +342,78 @@ impl Ctx<'_> {
         (out, rows)
     }
 
-    /// The tokens for `lines` of the file cited as `cited` in a line written at `pin`.
-    fn one(&self, pin: &str, cited: &str, lines: &[(u32, u32)], bare: bool) -> Result<(String, Class), (Class, String)> {
-        let at = match &self.located[&(pin.to_string(), cited.to_string())] {
-            Ok(at) => at,
-            Err(Class::HandFix) => return Err((Class::HandFix, format!("`{cited}` names several corpus files"))),
-            Err(class) => return Err((*class, String::new())),
-        };
+    /// The located file `cited` at `pin`.
+    fn at(&self, pin: &str, cited: &str) -> Result<&At, (Class, String)> {
+        match &self.located[&(pin.to_string(), cited.to_string())] {
+            Ok(at) => Ok(at),
+            Err(Class::HandFix) => Err((Class::HandFix, format!("`{cited}` names several corpus files"))),
+            Err(class) => Err((*class, String::new())),
+        }
+    }
+
+    /// The tokens of citation `c` read at its first pin, when the same lines name the same at the blame pin and at the
+    /// next pin that changed the file (review r1 of PR 9432, step-3 note 2); a hand fix otherwise.
+    fn checked(
+        &self,
+        pins: &Pins,
+        cited: &str,
+        c: &old::OldCite,
+        quotes: &[String],
+    ) -> Result<(String, Class), (Class, String)> {
+        let at = self.at(&pins.first, cited)?;
+        let (token, class) = self.one(at, &c.lines, c.bare, quotes)?;
+        let blame = (pins.blame != pins.first)
+            .then(|| self.at(&pins.blame, cited).ok())
+            .flatten();
+        let others = [
+            ("the blame pin", blame),
+            ("the next pin that changed the file", self.next.get(at)),
+        ];
+        for (what, other) in others {
+            if let Some(o) = other
+                && let Ok((t, _)) = self.one(o, &c.lines, c.bare, quotes)
+                && t != token
+            {
+                return Err((
+                    Class::HandFix,
+                    format!(
+                        "{what} ({}) reads {t}, the first pin ({}) {token}",
+                        short(&o.pin),
+                        short(&at.pin)
+                    ),
+                ));
+            }
+        }
+        Ok((token, class))
+    }
+
+    /// The tokens for `lines` of the file at `at`; a hand fix when the citing text quotes a name the file has outside
+    /// the lines.
+    fn one(
+        &self,
+        at: &At,
+        lines: &[(u32, u32)],
+        bare: bool,
+        quotes: &[String],
+    ) -> Result<(String, Class), (Class, String)> {
+        let hand = |e: String| (Class::HandFix, format!("{} at {}: {e}", at.path, short(&at.pin)));
         let file = &self.parsed[at];
         let targets = if lines.is_empty() {
-            match file.main_object() {
-                Some(o) => vec![Target::Object(o)],
-                None => return Err((Class::HandFix, format!("{} at {} has no object", at.path, short(&at.pin)))),
-            }
+            vec![Target::Object(
+                file.main_object().ok_or_else(|| hand("no object".into()))?,
+            )]
         } else {
-            file.targets(lines)
-                .map_err(|e| (Class::HandFix, format!("{} at {}: {e}", at.path, short(&at.pin))))?
+            file.targets(lines).map_err(hand)?
         };
+        if let Some(q) = file.quoted_elsewhere(&targets, quotes) {
+            return Err(hand(format!(
+                "the citing text quotes {q}, which the file has outside the cited lines"
+            )));
+        }
         let mut tokens: Vec<String> = Vec::new();
         let mut class = Class::Range;
         for t in &targets {
-            let (token, c) = self.token(file, t).map_err(|e| (Class::HandFix, format!("{} at {}: {e}", at.path, short(&at.pin))))?;
+            let (token, c) = self.token(file, t).map_err(hand)?;
             class = c;
             if !tokens.contains(&token) {
                 tokens.push(token);
@@ -430,7 +424,6 @@ impl Ctx<'_> {
         } else if tokens.len() > 1 {
             class = Class::Range;
         }
-        let _ = self.repo;
         Ok((tokens.join(", "), class))
     }
 
@@ -502,7 +495,10 @@ fn short(sha: &str) -> &str {
 pub fn summary(rows: &[Row]) -> String {
     let mut by: BTreeMap<String, BTreeMap<Class, usize>> = BTreeMap::new();
     for r in rows {
-        let mut parts = r.path.components().map(|c| c.as_os_str().to_string_lossy().into_owned());
+        let mut parts = r
+            .path
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned());
         let area = match (parts.next(), parts.next()) {
             (Some(a), Some(b)) if a == "crates" => format!("{a}/{b}"),
             (Some(a), _) => a,
@@ -510,7 +506,11 @@ pub fn summary(rows: &[Row]) -> String {
         };
         *by.entry(area).or_default().entry(r.class).or_default() += 1;
     }
-    let mut out = format!("| area | {} | total |\n|---|{}---|\n", Class::ALL.map(Class::name).join(" | "), "---|".repeat(Class::ALL.len()));
+    let mut out = format!(
+        "| area | {} | total |\n|---|{}---|\n",
+        Class::ALL.map(Class::name).join(" | "),
+        "---|".repeat(Class::ALL.len())
+    );
     let mut totals: BTreeMap<Class, usize> = BTreeMap::new();
     for counts in by.values() {
         for (c, n) in counts {
@@ -518,9 +518,26 @@ pub fn summary(rows: &[Row]) -> String {
         }
     }
     for (area, counts) in by.iter().chain(std::iter::once((&"total".to_string(), &totals))) {
-        let cells: Vec<String> = Class::ALL.iter().map(|c| counts.get(c).copied().unwrap_or(0).to_string()).collect();
+        let cells: Vec<String> = Class::ALL
+            .iter()
+            .map(|c| counts.get(c).copied().unwrap_or(0).to_string())
+            .collect();
         let sum: usize = counts.values().sum();
         out.push_str(&format!("| {area} | {} | {sum} |\n", cells.join(" | ")));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_citing_line_quotes_cells_and_names() {
+        assert_eq!(
+            quotes("// T.al:9 checks 'one cell' in `\"First Test\"`, not `Helper"),
+            ["'one cell'", "First Test"]
+        );
+        assert!(quotes("// T.al:9, nothing quoted").is_empty());
+    }
 }
