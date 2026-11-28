@@ -1,0 +1,17 @@
+# key	entry
+# Served from corpus pull request 1630 (merged, not in the pinned corpus yet): main refused each of these.
+DOV Decimal Limit Tests::Overflow_SumOfTwoMax18	ASSUMED decimal-overflow-past-limit (corpus PR 1630)
+DOV Decimal Limit Tests::Overflow_DifferenceOfNegativeMax18AndMax18	ASSUMED decimal-overflow-past-limit (corpus PR 1630)
+DOV Decimal Limit Tests::Overflow_PlusAssignKeepsTarget	ASSUMED decimal-overflow-past-limit (corpus PR 1630)
+DOV Decimal Limit Tests::Overflow_AssignmentKeepsOtherTarget	ASSUMED decimal-overflow-past-limit (corpus PR 1630)
+DOV Decimal Limit Tests::Overflow_IntegerTimesMax18	ASSUMED decimal-overflow-past-limit (corpus PR 1630)
+DOV Decimal Limit Tests::Overflow_Max18TimesBigInteger	ASSUMED decimal-overflow-past-limit (corpus PR 1630)
+DOV Decimal Limit Tests::Overflow_Max18DividedByHalf	ASSUMED decimal-overflow-past-limit (corpus PR 1630)
+DOV Decimal Limit Tests::Overflow_NegativeQuotient	ASSUMED decimal-overflow-past-limit (corpus PR 1630; the sign is the issue spec's, no cell)
+DOV Decimal Limit Tests::RoundDown_SumUpToTheDotNetMaximum	ASSUMED decimal-limit-rounds-down (corpus PR 1630)
+DOV Decimal Limit Tests::RoundDown_NegativeDifference	ASSUMED decimal-limit-rounds-down (corpus PR 1630)
+DOV Decimal Limit Tests::RoundDown_LiteralAtLimit	ASSUMED decimal-limit-rounds-down (corpus PR 1630)
+DOV Decimal Limit Tests::RoundDown_LargestLiteral	PINNED tests/al-language/json/JsonValueSetters.al:193
+# Main stored a value outside the field's range with no error.
+DOV Decimal Limit Tests::FieldRange_AssignMax18Raises	ASSUMED decimal-field-assign-range (corpus PR 1630)
+DOV Decimal Limit Tests::FieldRange_AssignOnePastRaises	ASSUMED decimal-field-assign-range (corpus PR 1630)

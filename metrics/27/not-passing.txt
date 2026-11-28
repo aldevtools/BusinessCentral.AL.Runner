@@ -776,7 +776,6 @@
 72502 NumberRanges
 72502 TextGetters
 72504 NullAndUndefined
-72504 SetValueNumbers
 72504 SetValueText
 72504 UndefinedInContainers
 72505 ArrayReadFrom

@@ -1699,6 +1699,26 @@ impl Session {
         }
     }
 
+    /// The range check of `Rec.Field := d` (`ops::field_assignment_range`): a stored field of a record that is not
+    /// temporary, the shape its cells measure. Every other field keeps main's store.
+    fn decimal_field_range(
+        &self,
+        rc: &Rc<RefCell<al_builtins::value::RecordState>>,
+        pos: usize,
+        d: rust_decimal::Decimal,
+    ) -> Result<(), Signal> {
+        let r = rc.borrow();
+        let stored = self.engine.program.objects[r.table as usize]
+            .table
+            .as_ref()
+            .and_then(|s| s.fields.get(pos))
+            .is_some_and(|f| f.stored);
+        if r.temporary || !stored {
+            return Ok(());
+        }
+        ops::field_assignment_range(d)
+    }
+
     pub(crate) fn write(&mut self, p: &ir::Place, v: Value, f: &mut Frame) -> Result<(), Signal> {
         self.write_as(p, v, f, Store::Assign)
     }
@@ -1923,6 +1943,9 @@ impl Session {
             return match self.read(base, f)? {
                 Value::Record(rc) => {
                     self.connection_check(&rc)?;
+                    if let (true, Value::Decimal(d)) = (assign, &v) {
+                        self.decimal_field_range(&rc, *pos, *d)?;
+                    }
                     let mut r = rc.borrow_mut();
                     if let Some(why) = r.unpinned_buffer {
                         crate::records::held_part_field_write(why)?;
@@ -2387,7 +2410,10 @@ impl Session {
             return v.clone();
         }
         let v = constant(c);
-        self.constants.insert(key, v.clone());
+        // A literal at the limit of a Decimal is built on every run, so each run marks its assumption.
+        if !ops::held_at_limit(&v) {
+            self.constants.insert(key, v.clone());
+        }
         v
     }
 }
@@ -2399,11 +2425,12 @@ pub(crate) fn constant(c: &ir::Const) -> Value {
         ir::Const::BigInteger(i) => Value::BigInteger(*i),
         ir::Const::Decimal(s) => {
             // A literal keeps 18 significant digits (types/operators-expressions/ExpressionLiteralsRisky.al:
-            // P195_Literal_DecimalTwentyDigits: `123456789012345.12345 * 2` is `246913578024690.246`).
+            // P195_Literal_DecimalTwentyDigits: `123456789012345.12345 * 2` is `246913578024690.246`); one whose
+            // round-up passes the largest .NET Decimal holds what `ops::literal_at_limit` says.
             let d: rust_decimal::Decimal = s.parse().expect("decimal literal from the lowerer");
             Value::Decimal(if d.abs().mantissa() > 999_999_999_999_999_999 {
                 d.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
-                    .unwrap_or(d)
+                    .unwrap_or_else(|| ops::literal_at_limit(d))
             } else {
                 d
             })

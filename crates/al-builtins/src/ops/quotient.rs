@@ -12,10 +12,17 @@ use rust_decimal::Decimal;
 
 /// A quotient keeps 18 significant digits, rounded at the last one
 /// (types/TestDateRoundFormatStringContracts.al:Decimal_Division_KeepsEighteenSignificantDigits), and carries no
-/// trailing zeros (types/decimal-integer/ScT70056.al:Integer_DivisionResult `value 3.5`).
-fn quotient(a: Decimal, b: Decimal) -> Result<Decimal, Signal> {
-    a.checked_div(b)
-        .and_then(|q| q.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero))
+/// trailing zeros (types/decimal-integer/ScT70056.al:Integer_DivisionResult `value 3.5`). One past the range of a
+/// Decimal is `decimal_overflow::past_decimal_range`'s; one whose round-up passes it refuses.
+fn quotient((l, a): (&Value, Decimal), (r, b): (&Value, Decimal)) -> Result<Decimal, Signal> {
+    let Some(q) = a.checked_div(b) else {
+        return Err(super::decimal_overflow::past_decimal_range(
+            super::Arith::Div,
+            (l, a),
+            (r, b),
+        ));
+    };
+    q.round_sf_with_strategy(18, rust_decimal::RoundingStrategy::MidpointAwayFromZero)
         .map(|q| q.normalize())
         .ok_or_else(|| Signal::Unsupported("decimal overflow".into()))
 }
@@ -28,10 +35,10 @@ pub(super) fn whole_quotient(
     (l, a, keep_l): (&Value, Decimal, bool),
     (r, b, keep_r): (&Value, Decimal, bool),
 ) -> Result<Decimal, Signal> {
-    let q = quotient(a, b)?;
+    let q = quotient((l, a), (r, b))?;
     let kept = |keep: bool, d: Decimal| if keep { keep_18_digits(d) } else { d };
     let (ka, kb) = (kept(keep_l, a), kept(keep_r, b));
-    if (ka, kb) != (a, b) && quotient(ka, kb)? != q {
+    if (ka, kb) != (a, b) && quotient((l, ka), (r, kb))? != q {
         return unsupported(format!(
             "the quotient of {l} and {r}, a number of more than 18 digits (not pinned)",
             l = l.describe(),

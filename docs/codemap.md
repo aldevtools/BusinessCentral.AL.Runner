@@ -114,6 +114,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `moduleinfo.rs`: `NavApp.GetCurrentModuleInfo` and friends. Entry: `native_for`.
 - `native/mod.rs`: Native builtin implementations.
 - `ops.rs`: Value operations: conversion, arithmetic, comparison. Entry: `convert`.
+- `ops/decimal_overflow.rs`: A Decimal at its limit: overflow, round-down. Entry: `past_decimal_range`.
 - `ops/quotient.rs`: The one quotient rule of `/` for a Decimal, an Integer. Entry: `whole_quotient`.
 - `option_members.rs`: Memberless Option lists. Entry: `memberless`.
 - `closing_date_days.rs`: A closing date plus or minus a whole number. Entry: `closing_date_moved`.

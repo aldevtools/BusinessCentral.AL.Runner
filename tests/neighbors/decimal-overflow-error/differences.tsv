@@ -1,6 +1,0 @@
-# key	entry
-# The rule reads the operator and the two values (the largest Decimal, the Integer 10); these tests run that cell.
-DO Decimal Overflow Tests::Pinned_MaxDecimalTimesIntegerTen	PINNED tests/al-language/errors/PnBErrorsCollections.al:565
-DO Decimal Overflow Tests::MaxTimesTenIntoOtherVariable	PINNED tests/al-language/errors/PnBErrorsCollections.al:565
-DO Decimal Overflow Tests::MaxTimesIntegerVariableTen	PINNED tests/al-language/errors/PnBErrorsCollections.al:565
-DO Decimal Overflow Tests::CompoundStarAssign	PINNED tests/al-language/errors/PnBErrorsCollections.al:565

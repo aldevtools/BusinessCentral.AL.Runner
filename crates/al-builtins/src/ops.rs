@@ -16,6 +16,7 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 
 mod decimal_overflow;
+pub use decimal_overflow::{field_assignment_range, held_at_limit, literal_at_limit};
 mod quotient;
 use quotient::whole_quotient;
 
@@ -1225,7 +1226,7 @@ fn arith_general(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
         Arith::IntDiv => (a / b).trunc().into(),
         Arith::Mod => Some(a % b),
     }
-    .ok_or_else(|| Signal::Unsupported("decimal overflow".into()))?;
+    .ok_or_else(|| decimal_overflow::past_decimal_range(op, (l, a), (r, b)))?;
     // A sum, difference or product keeps 18 significant digits, rounded half away from zero, for any sign and with a
     // BigInteger operand: `Power(2, 62) + 1` equals `Power(2, 62)`, and `Power(2, 63) - 1` equals `Power(2, 63) - 5`
     // (types/CqOddLeads.al:419-446 Item40_PowerPrecision, types/decimal-integer/Round.al:
