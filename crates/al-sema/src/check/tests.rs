@@ -1441,3 +1441,29 @@ fn a_compound_assignment_of_a_fieldref_value_in_an_unmeasured_form_compiles() {
          procedure P() var RecRef: RecordRef; FR: FieldRef; begin RecRef.Open(50901); FR := RecRef.Field(2); Qty += FR.Value(); end; }";
     assert_eq!(diags_for("29", &[table]), Vec::<String>::new());
 }
+
+#[test]
+fn a_named_or_var_fieldref_receiver_and_a_named_recordref_record_are_rejected() {
+    // must-not-compile 3874-3876 on corpus pull request 1645: the Value() of a named FieldRef return value and of a var
+    // FieldRef parameter, and a named RecordRef return value as the record of the three pinned calls.
+    let joker = vec!["AL0175 Operator '+=' cannot be applied to operands of type 'Integer' and 'Joker'".to_string()];
+    let named = cu(
+        "procedure FieldOf() FldRef: FieldRef var RecRef: RecordRef; I: Integer; begin RecRef.Open(50900); \
+         FldRef := RecRef.Field(2); I += FldRef.Value(); end;",
+    );
+    assert_eq!(diags_for("29", &[TABLE, &named]), joker);
+    let var_param = cu("procedure P(var FR: FieldRef) var I: Integer; begin I += FR.Value(); end;");
+    assert_eq!(diags_for("29", &[TABLE, &var_param]), joker);
+    let record = cu(
+        "procedure P() RR: RecordRef begin RR.Open(Database::\"RR Row\"); Page.Run(Page::\"RR List\", RR); \
+         Page.RunModal(Page::\"RR List\", RR); Report.Run(Report::\"RR Report\", false, false, RR); end;",
+    );
+    assert_eq!(
+        diags_for("29", &[RECREF_RUN_OBJECTS, &record]),
+        vec![
+            "AL0133 Argument 2: cannot convert from 'RecordRef' to 'Table'",
+            "AL0133 Argument 2: cannot convert from 'RecordRef' to 'Table'",
+            "AL0133 Argument 4: cannot convert from 'RecordRef' to 'var Table'",
+        ]
+    );
+}

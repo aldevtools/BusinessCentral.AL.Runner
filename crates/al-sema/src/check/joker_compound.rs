@@ -3,16 +3,16 @@
 //!
 //! The AL compilers of BC 27, 28 and 29 report AL0175 (`Operator '<op>' cannot be applied to operands of type '<left>'
 //! and 'Joker'`) at the statement; `I := FR.Value()` compiles (tests/al-language/record/PZFindDirections.al:76). No
-//! pinned corpus case has it yet, so it rests on the assumption `compound-assign-fieldref-value` (must-not-compile 3834,
-//! 3835 and 3850-3861 on corpus pull request 1645 are its probe).
+//! pinned corpus case has it yet, so it rests on the assumption `compound-assign-fieldref-value` (must-not-compile
+//! 3834, 3835, 3850-3861 and 3869-3875 on corpus pull request 1645 are its probe).
 //!
 //! Judged in the measured shapes only, each fact measured on its own:
 //! - the left side a variable in scope (a local, a parameter, a `var` parameter, a global or a named return value) of
 //!   type Integer with `+=`, `-=`, `*=` or `/=`, or of type Decimal, BigInteger or Text (no length) with `+=`;
-//! - the right side `<FieldRef>.Value()` without arguments, the FieldRef a variable in scope (a local, a parameter or a
-//!   global), an element of an array of FieldRef, `RecRef.Field(<number>)`, `RecRef.FieldIndex(<n>)`,
-//!   `KeyRef.FieldIndex(<n>)` or a call of a procedure that returns a FieldRef; or `<FieldRef>.Value` without
-//!   parentheses on a FieldRef variable in scope.
+//! - the right side `<FieldRef>.Value()` without arguments, the FieldRef a variable in scope (a local, a parameter, a
+//!   `var` parameter, a global or a named return value), an element of an array of FieldRef,
+//!   `RecRef.Field(<number>)`, `RecRef.FieldIndex(<n>)`, `KeyRef.FieldIndex(<n>)` or a call of a procedure that
+//!   returns a FieldRef; or `<FieldRef>.Value` without parentheses on a FieldRef variable in scope.
 //!
 //! Any other form (another left type or operator, a field on the left, another receiver) compiles as before.
 use super::*;
@@ -92,7 +92,7 @@ impl Checker<'_> {
             return in_scope(&receiver);
         }
         match receiver.kind() {
-            // 3834, 3855, 3872: a local, a parameter or a global FieldRef.
+            // 3834, 3855, 3875, 3872, 3874: a local, a parameter, a `var` parameter, a global or a named return value.
             SyntaxKind::NameRef => in_scope(&receiver),
             // 3854: an element of an array of FieldRef.
             SyntaxKind::IndexExpr => receiver.children().next().is_some_and(|base| in_scope(&base)),

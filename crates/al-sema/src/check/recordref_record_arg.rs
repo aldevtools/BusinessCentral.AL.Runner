@@ -7,12 +7,12 @@
 //! (tests/al-language/pages/lt-ce-page-run/CePageRun.al).
 //!
 //! 1633 and 1634 pin a local RecordRef with those three calls. The other forms rest on the assumption
-//! `recordref-as-run-record` (must-not-compile 3862-3868 on corpus pull request 1645): a parameter, `var` parameter or
-//! global RecordRef; `Page.Run` with a field number, `Report.RunModal`, `Xmlport.Run` and `Codeunit.Run`; and AL0666
-//! at the runtimes from 4.1 to below 17.0 other than 16.1.
+//! `recordref-as-run-record` (must-not-compile 3862-3868 and 3876 on corpus pull request 1645): a parameter, `var`
+//! parameter, global or named return value RecordRef; `Page.Run` with a field number, `Report.RunModal`,
+//! `Xmlport.Run` and `Codeunit.Run`; and AL0666 at the runtimes from 4.1 to below 17.0 other than 16.1.
 //!
 //! Judged only in the measured shapes: the object given by an Integer (`Page::"X"`), the record a RecordRef variable
-//! or parameter in scope (a local, a parameter, a `var` parameter or a global).
+//! or parameter in scope (a local, a parameter, a `var` parameter, a global or a named return value).
 use super::*;
 use al_builtins::assumptions::Assumption;
 

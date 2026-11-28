@@ -194,7 +194,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0133",
-        "reported only for the assignment form `X.M := v` of a builtin method whose one form takes one XML value, given an XML collection (check/infer.rs; case 2372), and from runtime 17.0 for a RecordRef variable or parameter as the record of `Page.Run` and `Page.RunModal` with two arguments, `Page.Run` with a field number, `Report.Run`, `Report.RunModal` and `Xmlport.Run` with four and `Codeunit.Run` with two, the object given by an Integer, and `Xmlport.Run` from the runtime floor (check/recordref_record_arg.rs; case 1634, and beyond it the assumption `recordref-as-run-record`, cases 3862-3868 on corpus pull request 1645); other argument conversions are not judged.",
+        "reported only for the assignment form `X.M := v` of a builtin method whose one form takes one XML value, given an XML collection (check/infer.rs; case 2372), and from runtime 17.0 for a RecordRef variable or parameter as the record of `Page.Run` and `Page.RunModal` with two arguments, `Page.Run` with a field number, `Report.Run`, `Report.RunModal` and `Xmlport.Run` with four and `Codeunit.Run` with two, the object given by an Integer, and `Xmlport.Run` from the runtime floor (check/recordref_record_arg.rs; case 1634, and beyond it the assumption `recordref-as-run-record`, cases 3862-3868 and 3876 on corpus pull request 1645); other argument conversions are not judged.",
     ),
     (
         "AL0196",
