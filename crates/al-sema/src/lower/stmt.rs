@@ -305,6 +305,7 @@ impl Lowerer<'_> {
             expr_tys,
             reads_var_max_len: self.reads_var_max_len,
             local: r.is_local(),
+            internal: r.is_internal(),
         }
     }
 
@@ -849,6 +850,7 @@ impl Lowerer<'_> {
             expr_tys: Vec::new(),
             reads_var_max_len: false,
             local: r.is_local(),
+            internal: r.is_internal(),
         }
     }
 
