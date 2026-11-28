@@ -223,17 +223,14 @@ impl Graph {
                     while let al_ir::Place::Index(b, _) = p {
                         p = b;
                     }
-                    let mut ty = match p {
+                    let ty = match p {
                         al_ir::Place::Local(i) => &r.locals.get(*i)?.ty,
                         al_ir::Place::Global(i) => &o.globals.get(*i)?.ty,
                         al_ir::Place::BaseGlobal(i) => &objs[*base_of.get(&oi)?].globals.get(*i)?.ty,
                         al_ir::Place::ExtGlobal(e, i) => &objs.get(*e)?.globals.get(*i)?.ty,
                         _ => return None,
                     };
-                    while let RtType::Array(_, inner) = ty {
-                        ty = inner;
-                    }
-                    Some(ty)
+                    Some(element_type(ty))
                 };
                 let type_of = |a: &al_ir::Arg| match a {
                     al_ir::Arg::Ref(p) => ty_of(p),
@@ -680,15 +677,20 @@ pub fn key_node(graph: &Graph, program: &Program, key: &str) -> Option<usize> {
     }
 }
 
-/// The object a variable of this type uses: a table, page, test page, enum, query, report or xmlport (report and
-/// xmlport variables are typed `RtType::Codeunit`). A codeunit variable runs nothing by itself: its procedures are
-/// calls (`Lowered::calls_of`) and `Codeunit.Run` on it is handled where it is written.
-fn slot_object(objs: &al_ir::Objects, ty: &RtType) -> Option<usize> {
+/// The type of a slot's values: `ty` itself, or the element type of an array (of arrays) of it.
+pub(crate) fn element_type(ty: &RtType) -> &RtType {
     let mut ty = ty;
     while let RtType::Array(_, inner) = ty {
         ty = inner;
     }
-    match ty {
+    ty
+}
+
+/// The object a variable of this type uses: a table, page, test page, enum, query, report or xmlport (report and
+/// xmlport variables are typed `RtType::Codeunit`). A codeunit variable runs nothing by itself: its procedures are
+/// calls (`Lowered::calls_of`) and `Codeunit.Run` on it is handled where it is written.
+fn slot_object(objs: &al_ir::Objects, ty: &RtType) -> Option<usize> {
+    match element_type(ty) {
         RtType::Record(t, _) | RtType::Page(t) | RtType::TestPage(t) | RtType::Enum(t) | RtType::Query(t) => {
             Some(*t as usize)
         }

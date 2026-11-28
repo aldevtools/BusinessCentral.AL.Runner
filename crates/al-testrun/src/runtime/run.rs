@@ -725,6 +725,9 @@ fn run_codeunit_inner(
         // Under `OnRunRows::TestRunner`, the tests of a codeunit with a declared OnRun that did not raise: their rows rest on
         // the unprobed reporting of OnRun (ADR-055).
         let mut on_run_shape_assumed = false;
+        // What a successful OnRun ran through (al-runner issue 8620): every test starts from what OnRun left, so its marks
+        // count for each test, as the company open's do.
+        let mut on_run_marks = al_builtins::assumptions::HitBits::EMPTY;
         if let Some(on_run) = (0..obj.routines.len())
             .find(|&r| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun"))
             .filter(|_| !execute)
@@ -825,6 +828,7 @@ fn run_codeunit_inner(
                 }
                 Err(_) => {}
             }
+            on_run_marks = al_builtins::assumptions::take_hit_bits();
             on_run_shape_assumed = on_run_rows == OnRunRows::TestRunner;
         }
         let (checkpoint, mut sequences) = start_isolation(session, isolation, (measured_runner, execute), changes_from);
@@ -963,7 +967,7 @@ fn run_codeunit_inner(
                         session.store_mut().watch(watched);
                         session.last_error = Default::default();
                         al_builtins::assumptions::clear_hits();
-                        mark_test_start_assumptions(lowered, on_run_shape_assumed, company_open_marks);
+                        mark_test_start_assumptions(lowered, on_run_shape_assumed, company_open_marks | on_run_marks);
                         assume_kept_bindings(&unfinished, &bound_before);
                         // The runner's steps before the method (runner_reset.rs); what they rely on counts for the test.
                         // Its `LibraryRandom.SetSeed(1)` reseeds the sequence, so draws after it are not inherited.
