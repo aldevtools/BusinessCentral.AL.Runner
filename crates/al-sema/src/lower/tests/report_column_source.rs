@@ -247,23 +247,96 @@ report 50100 R {{ dataset {{ dataitem(\"A. B\"; T) {{
     }
 }
 
-/// A column that names another data item's dotted name keeps main's rule, as an undotted one does (`caption_sources`, probe
-/// :224 and :250 at cf6884b9), and does not stop the own item's admitted dotted columns.
+/// A child column that names its parent's dotted name in the shape the probe measures (part 1 at cf6884b9: :90 `CParentName`, a
+/// Text field with a Caption under exactly IncludeCaption = true, labels :224, values :250) keeps main's rule for another item's
+/// field (`caption_sources`) and leaves the own item's admitted dotted columns on.
 #[test]
-fn a_dotted_parent_qualifier_does_not_stop_the_report() {
+fn a_child_reading_the_dotted_parent_text_leaves_the_report_on() {
     let (ws, l) = lower_src(&format!(
         "{TABLE}
 report 50100 R {{ dataset {{ dataitem(\"A. B\"; T) {{
     column(Admitted; \"A. B\".Qty) {{ IncludeCaption = true; }}
-    dataitem(Child; T) {{ column(ParentDotted; \"A. B\".Qty) {{ IncludeCaption = true; }} }}
+    dataitem(\"C. D\"; T) {{ column(ParentName; \"A. B\".Name) {{ IncludeCaption = true; }} }}
 }} }} }}"
     ));
     let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
     let r = l.program.objects[oi].report.as_ref().unwrap();
     assert_eq!(r.items[0].columns[0].item_field, Some(2));
     let parent = &r.items[1].columns[0];
-    assert_eq!((parent.item_field, parent.caption_field), (None, Some(2)));
+    assert_eq!((parent.item_field, parent.caption_field), (None, Some(1)));
     assert_eq!(r.assumes, [Assumption::ReportColumnDottedItemQualifier]);
+}
+
+/// Every other column with another dotted name keeps the whole report on main's answer (no field, no assumption): a Decimal
+/// field of the parent (probe :91-92, where BC writes `#,##0.###` and `#,##0.####` at :250 and main's rule for another
+/// item's field writes `#,##0.00`), another field type, a field without Caption, another column property, another case, an
+/// item that is not the parent, a global Record variable.
+#[test]
+fn another_dotted_column_outside_the_measured_shape_keeps_the_report_on_mains_answer() {
+    let child = |column: &str| {
+        format!(
+            "dataitem(\"A. B\"; T) {{ column(Admitted; \"A. B\".Qty) {{ IncludeCaption = true; }}
+            dataitem(\"C. D\"; T) {{ {column} }} }}"
+        )
+    };
+    for dataset in [
+        child("column(ParentQty; \"A. B\".Qty) { IncludeCaption = true; }"),
+        child("column(ParentAmt; \"A. B\".Amt) { IncludeCaption = true; }"),
+        child("column(ParentInteger; \"A. B\".K) { IncludeCaption = true; }"),
+        child("column(ParentCode; \"A. B\".Code1) { IncludeCaption = true; }"),
+        child("column(ParentNoCaption; \"A. B\".Bare) { IncludeCaption = true; }"),
+        child("column(ParentCaptionMl; \"A. B\".Ml) { IncludeCaption = true; }"),
+        child("column(ParentNoProperty; \"A. B\".Name) { }"),
+        child("column(ParentPlaces; \"A. B\".Name) { DecimalPlaces = 4 : 4; }"),
+        child("column(ParentOtherCase; \"a. b\".Name) { IncludeCaption = true; }"),
+        child("column(ParentFieldOtherCase; \"A. B\".name) { IncludeCaption = true; }"),
+        child("dataitem(Grand; T) { column(Grandparent; \"A. B\".Name) { IncludeCaption = true; } }"),
+        "dataitem(\"A. B\"; T) { column(Admitted; \"A. B\".Qty) { IncludeCaption = true; } }
+        dataitem(Next; T) { column(Sibling; \"A. B\".Name) { IncludeCaption = true; } }"
+            .to_string(),
+        "dataitem(\"A. B\"; T) { column(Admitted; \"A. B\".Qty) { IncludeCaption = true; }
+            column(FromChild; \"C. D\".Name) { IncludeCaption = true; }
+            dataitem(\"C. D\"; T) { column(K; K) { } } }"
+            .to_string(),
+        "dataitem(\"A. B\"; T) { column(Admitted; \"A. B\".Qty) { IncludeCaption = true; }
+            column(Global; \"G. V\".Name) { } }"
+            .to_string(),
+    ] {
+        let (ws, l) = lower_src(&format!(
+            "{TABLE}
+report 50100 R {{ dataset {{ {dataset} }} var \"G. V\": Record T; }}"
+        ));
+        let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
+        let r = l.program.objects[oi].report.as_ref().unwrap();
+        for c in r.items.iter().flat_map(|i| i.columns.iter()) {
+            assert_eq!(c.item_field, None, "{dataset}: {}", c.name);
+        }
+        assert!(r.assumes.is_empty(), "{dataset}: {:?}", r.assumes);
+    }
+}
+
+/// A method call on a dotted own-item field leaves the report's dotted columns on only in the probe's shape (:84
+/// `"Dq. Row".Name.ToUpper()`, a Text field with a Caption, a column without property; value :236); the call column itself
+/// takes no field. Any other call or field keeps the report on main's answer.
+#[test]
+fn a_dotted_method_call_column_is_measured_only_in_the_probes_shape() {
+    for (column, on) in [
+        ("column(Upper; \"A. B\".Name.ToUpper()) { }", true),
+        ("column(Lower; \"A. B\".Name.ToLower()) { }", false),
+        ("column(UpperCode; \"A. B\".Code1.ToUpper()) { }", false),
+        ("column(UpperNoCaption; \"A. B\".Bare.ToUpper()) { }", false),
+        ("column(UpperCase; \"A. B\".Name.toupper()) { }", false),
+    ] {
+        let (columns, assumes) = lowered(&format!(
+            "report 50100 R {{ dataset {{ dataitem(\"A. B\"; T) {{
+    column(Admitted; \"A. B\".Qty) {{ IncludeCaption = true; }}
+    {column}
+}} }} }}"
+        ));
+        assert_eq!(columns[0].1, on.then_some(2), "{column}");
+        assert_eq!(columns[1].1, None, "{column}");
+        assert_eq!(!assumes.is_empty(), on, "{column}: {assumes:?}");
+    }
 }
 
 /// A dotted column a reportextension adds keeps the report's dotted columns on main's answer too: an extension column never

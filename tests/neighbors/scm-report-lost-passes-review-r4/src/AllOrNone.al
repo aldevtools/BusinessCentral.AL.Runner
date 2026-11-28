@@ -199,8 +199,8 @@ codeunit 51008 "NB DQ2 Ext Dotted T"
     end;
 }
 
-// An admitted column of the dotted parent and a child column that reads the parent's dotted name: the child keeps main's rule
-// for another item's field, as an undotted one does (probe part 1, :224 and :250), and does not stop the parent's column.
+// An admitted column of the dotted parent and a child column that reads the parent's Integer field through its dotted name: not a
+// probe cell (the probe measures a Text field with a Caption, :90), so the report's dotted columns keep main's answer.
 report 51009 "NB DQ2 Child Reads Admitted"
 {
     ProcessingOnly = false;
@@ -235,5 +235,57 @@ codeunit 51009 "NB DQ2 Child Reads Admitted T"
         Lib.Seed();
         Lib.Check('[<Label name="AdmittedCaption">X Id cap</Label>][<Label name="FromParentCaption">X Id cap</Label>]', Lib.Lines(Report::"NB DQ2 Child Reads Admitted", '<Label '));
         Lib.Check('[<Column name="Admitted">1</Column>][<Column name="FromParent">1</Column>]', Lib.Lines(Report::"NB DQ2 Child Reads Admitted", '<Column '));
+    end;
+}
+
+// Probe part 1 at cf6884b9, :86-95: an admitted column of the dotted parent and child columns that read the parent's Decimal
+// fields through its dotted name (:91-92). BC writes the parent field's formatter (:250); main's rule for another item's field
+// writes the default. So the report's dotted columns keep main's answer (not run, as on main).
+report 51010 "NB DQ2 Child Reads Decimal"
+{
+    ProcessingOnly = false;
+    DefaultLayout = RDLC;
+    UseRequestPage = false;
+
+    dataset
+    {
+        dataitem("Dq. Row"; "NB DQ2 Row")
+        {
+            column(DName; "Dq. Row".Name) { IncludeCaption = true; }
+
+            dataitem("Dq. Child"; "NB DQ2 Child")
+            {
+                DataItemLink = RowId = field(Id);
+
+                column(CParentQty; "Dq. Row".Qty) { IncludeCaption = true; }
+                column(CParentAmt; "Dq. Row".Amt) { IncludeCaption = true; }
+            }
+        }
+    }
+}
+
+codeunit 51010 "NB DQ2 Child Reads Decimal T"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure AllOrNone_ChildReadsDottedParentDecimal()
+    var
+        Row: Record "NB DQ2 Row";
+        Child: Record "NB DQ2 Child";
+        Lib: Codeunit "NB DQ2 Lib";
+    begin
+        Row.DeleteAll();
+        Child.DeleteAll();
+        Row.Id := 1;
+        Row.Name := 'Row one';
+        Row.Qty := 2.5;
+        Row.Amt := 1234.5;
+        Row.Insert();
+        Child.Id := 10;
+        Child.RowId := 1;
+        Child.Insert();
+        Lib.Check('[<Column name="CParentQty" decimalformatter="#,##0.###">2.5</Column>][<Column name="CParentAmt" decimalformatter="#,##0.####">1234.5</Column>]', Lib.Lines(Report::"NB DQ2 Child Reads Decimal", '<Column name="CParent'));
     end;
 }

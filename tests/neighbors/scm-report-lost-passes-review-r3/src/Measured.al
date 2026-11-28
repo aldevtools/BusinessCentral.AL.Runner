@@ -1,6 +1,6 @@
 // The cells corpus PR 1652 measures (tests/al-language/reports/dataset/DataItemNamesDottedQualifier.al at 1751a6b0): a
-// column of the own data item written with the item's dotted name. Head serves them through the assumption
-// report-column-dotted-item-qualifier; main splits the name at its dot and finds no field.
+// column of the own data item written with the item's dotted name. Head serves report 50951 through the assumption
+// report-column-dotted-item-qualifier; main splits the name at its dot and finds no field. Report 50950 keeps main's answer.
 enum 50950 "NB DQ Status"
 {
     value(0; Planned) { Caption = 'Planned cap'; }
@@ -59,9 +59,9 @@ table 50952 "NB DQ Buffer"
     }
 }
 
-// DataItemNamesDottedQualifier.al:66-98 (report 75802), without the columns head does not serve: DUnit (AutoFormatType 2)
-// and DAmtPlaces (AutoFormatType 1 with DecimalPlaces), see Unmeasured.al; CParentQty and CParentAmt (main's rule for a field
-// of another data item, unchanged), see Unmeasured.al.
+// DataItemNamesDottedQualifier.al:66-98 (report 75802), without DUnit (AutoFormatType 2) and DAmtPlaces (AutoFormatType 1 with
+// DecimalPlaces), see Unmeasured.al. The child columns equal the probe's (:90-94): CParentQty and CParentAmt read the parent's
+// Decimal fields, a shape the runner does not serve, so the report's dotted columns keep main's answer (not run, as on main).
 report 50950 "NB DQ Dotted"
 {
     ProcessingOnly = false;
@@ -86,6 +86,8 @@ report 50950 "NB DQ Dotted"
                 DataItemLink = RowId = field(Id);
 
                 column(CParentName; "Dq. Row".Name) { IncludeCaption = true; }
+                column(CParentQty; "Dq. Row".Qty) { IncludeCaption = true; }
+                column(CParentAmt; "Dq. Row".Amt) { IncludeCaption = true; }
                 column(CNote; "Dq. Child".Note) { IncludeCaption = true; }
                 column(CPrice; "Dq. Child".Price) { IncludeCaption = true; }
             }
@@ -195,7 +197,7 @@ codeunit 50951 "NB DQ Measured Tests"
     procedure Dotted_Labels_OwnAndChild()
     begin
         Lib.Seed();
-        Lib.Check('[<Label name="DNameCaption">DQ Name cap</Label>][<Label name="DQtyCaption">DQ Qty cap</Label>][<Label name="DAmtCaption">DQ Amt cap</Label>][<Label name="DUnitAmtCaption">Unit Amt.</Label>][<Label name="DPlainCaption">Plain</Label>][<Label name="DBareQtyCaption">DQ Qty cap</Label>][<Label name="CParentNameCaption">DQ Name cap</Label>][<Label name="CNoteCaption">DQ Child Note cap</Label>][<Label name="CPriceCaption">DQ Child Price cap</Label>]',
+        Lib.Check('[<Label name="DNameCaption">DQ Name cap</Label>][<Label name="DQtyCaption">DQ Qty cap</Label>][<Label name="DAmtCaption">DQ Amt cap</Label>][<Label name="DUnitAmtCaption">Unit Amt.</Label>][<Label name="DPlainCaption">Plain</Label>][<Label name="DBareQtyCaption">DQ Qty cap</Label>][<Label name="CParentNameCaption">DQ Name cap</Label>][<Label name="CParentQtyCaption">DQ Qty cap</Label>][<Label name="CParentAmtCaption">DQ Amt cap</Label>][<Label name="CNoteCaption">DQ Child Note cap</Label>][<Label name="CPriceCaption">DQ Child Price cap</Label>]',
             Lib.Lines(Report::"NB DQ Dotted", '<Label '));
     end;
 
@@ -213,7 +215,7 @@ codeunit 50951 "NB DQ Measured Tests"
     procedure Dotted_Columns_ChildItem()
     begin
         Lib.Seed();
-        Lib.Check('[<Column name="CParentName">Row one</Column>][<Column name="CNote">C1</Column>][<Column name="CPrice" decimalformatter="#,##0.####">0.5</Column>]',
+        Lib.Check('[<Column name="CParentName">Row one</Column>][<Column name="CParentQty" decimalformatter="#,##0.###">2.5</Column>][<Column name="CParentAmt" decimalformatter="#,##0.####">1234.5</Column>][<Column name="CNote">C1</Column>][<Column name="CPrice" decimalformatter="#,##0.####">0.5</Column>]',
             Lib.Lines(Report::"NB DQ Dotted", '<Column name="C'));
     end;
 
@@ -222,7 +224,7 @@ codeunit 50951 "NB DQ Measured Tests"
     procedure Dotted_Labels_WhenNoRows()
     begin
         Lib.Clear();
-        Lib.Check('[<Label name="DNameCaption">DQ Name cap</Label>][<Label name="DQtyCaption">DQ Qty cap</Label>][<Label name="DAmtCaption">DQ Amt cap</Label>][<Label name="DUnitAmtCaption">Unit Amt.</Label>][<Label name="DPlainCaption">Plain</Label>][<Label name="DBareQtyCaption">DQ Qty cap</Label>][<Label name="CParentNameCaption">DQ Name cap</Label>][<Label name="CNoteCaption">DQ Child Note cap</Label>][<Label name="CPriceCaption">DQ Child Price cap</Label>]',
+        Lib.Check('[<Label name="DNameCaption">DQ Name cap</Label>][<Label name="DQtyCaption">DQ Qty cap</Label>][<Label name="DAmtCaption">DQ Amt cap</Label>][<Label name="DUnitAmtCaption">Unit Amt.</Label>][<Label name="DPlainCaption">Plain</Label>][<Label name="DBareQtyCaption">DQ Qty cap</Label>][<Label name="CParentNameCaption">DQ Name cap</Label>][<Label name="CParentQtyCaption">DQ Qty cap</Label>][<Label name="CParentAmtCaption">DQ Amt cap</Label>][<Label name="CNoteCaption">DQ Child Note cap</Label>][<Label name="CPriceCaption">DQ Child Price cap</Label>]',
             Lib.Lines(Report::"NB DQ Dotted", '<Label '));
         Lib.Check('', Lib.Lines(Report::"NB DQ Dotted", '<Column '));
     end;

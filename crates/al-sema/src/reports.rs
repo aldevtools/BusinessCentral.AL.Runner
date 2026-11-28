@@ -1010,12 +1010,9 @@ struct Owner<'a> {
     record_globals: HashMap<String, usize>,
     /// The object is a report, not a reportextension: only a report's own columns take a dotted item qualifier.
     report_itself: bool,
-    /// A column resolved through [`dotted_qualifier_measured`]: the report's run is flagged.
-    dotted_served: std::cell::Cell<bool>,
-    /// A column qualified with its own data item's dotted name, in any case, that the gate does not admit.
-    dotted_rejected: std::cell::Cell<bool>,
-    /// Set by [`build`] when a report has a rejected dotted column: no column of it takes a field through the gate.
-    dotted_off: std::cell::Cell<bool>,
+    /// Set by [`build`] from [`dotted_columns_on`]: the report's columns qualified with their own item's dotted name take their
+    /// field, and the run is flagged.
+    dotted_on: bool,
 }
 
 impl<'a> Owner<'a> {
@@ -1068,9 +1065,7 @@ impl<'a> Owner<'a> {
             column_syntax,
             record_globals,
             report_itself: obj.kind().eq_ignore_ascii_case("report"),
-            dotted_served: std::cell::Cell::new(false),
-            dotted_rejected: std::cell::Cell::new(false),
-            dotted_off: std::cell::Cell::new(false),
+            dotted_on: false,
         }
     }
 
@@ -1150,39 +1145,27 @@ impl<'a> Owner<'a> {
                         .position(|f| f.name.eq_ignore_ascii_case(&source))
                 });
                 // `Item.Field` on the item's own table (reports/layouts-saveas/BcXmlBlobObjects.al: `Row.Data`). The split
-                // skips a dot inside a quoted name; a qualifier that holds one takes the field only in the shapes
-                // `dotted_qualifier_measured` admits, else it names no field.
+                // skips a dot inside a quoted name; a qualifier that holds one names its own item's field only when `build`
+                // admits the report's dotted columns (`dotted_columns_on`), else it names no field. Another item's dotted
+                // name takes main's rule, as an undotted one does (`caption_sources`).
                 let item_field = table.and_then(|t| {
                     let item = crate::scan::unquote_double(sec.args().first()?);
-                    let parts = split_outside_quotes(args.get(1)?.trim());
+                    let parts = source_parts(&c);
                     let [qualifier, member] = parts.as_slice() else {
                         return None;
                     };
-                    let (qualifier, member) = (
-                        crate::scan::unquote_double(qualifier),
-                        crate::scan::unquote_double(member),
-                    );
                     let fields = &self.members[t].fields;
                     if qualifier.contains('.') {
-                        let pos = fields.iter().position(|f| f.name == member);
-                        let measured = pos.filter(|&pos| {
-                            !self.dotted_off.get()
-                                && self.report_itself
-                                && qualifier == item
-                                && dotted_qualifier_measured(&fields[pos], t, &c)
-                        });
-                        self.dotted_served.set(self.dotted_served.get() || measured.is_some());
-                        // Another item's dotted name takes main's rule, as an undotted one does (`caption_sources`).
-                        let own = qualifier.eq_ignore_ascii_case(&item);
-                        self.dotted_rejected
-                            .set(self.dotted_rejected.get() || (own && measured.is_none()));
-                        return measured.map(|pos| (pos, true));
+                        let pos = fields.iter().position(|f| &f.name == member);
+                        return pos
+                            .filter(|_| self.dotted_on && *qualifier == item)
+                            .map(|pos| (pos, true));
                     }
                     if !qualifier.eq_ignore_ascii_case(&item) {
                         return None;
                     }
-                    let pos = fields.iter().position(|f| f.name.eq_ignore_ascii_case(&member))?;
-                    Some((pos, qualifier == item && fields[pos].name == member))
+                    let pos = fields.iter().position(|f| f.name.eq_ignore_ascii_case(member))?;
+                    Some((pos, *qualifier == item && fields[pos].name == *member))
                 });
                 // Written with the names as declared, over an AutoFormatType 2 field (`field_unit_amount_measured`).
                 let field_unit_amount_format = self.report_itself
@@ -1317,8 +1300,8 @@ fn plain_own_field(f: &crate::members::FieldInfo, t: usize) -> bool {
 ///   :388, :390, :396, :397); AutoFormatType 2 only where [`field_unit_amount_measured`] holds.
 ///
 /// Every other dotted shape keeps main's answer (no field); an Option field too, since a qualified Option column shows the
-/// member name, not the OptionCaption the probe measures (:616, :678). [`build`] admits a report's dotted columns only when
-/// this holds for each of them.
+/// member name, not the OptionCaption the probe measures (:616, :678). [`dotted_column_measured`] reads it for each own-item
+/// column of the report.
 fn dotted_qualifier_measured(f: &crate::members::FieldInfo, t: usize, column: &ast::Section) -> bool {
     use crate::types::Ty;
     use ColumnShape::*;
@@ -1330,7 +1313,7 @@ fn dotted_qualifier_measured(f: &crate::members::FieldInfo, t: usize, column: &a
     let formats = (p("AutoFormatType"), p("AutoFormatExpression"), p("DecimalPlaces"));
     let no_format = formats == (None, None, None);
     let typed = match &f.ty {
-        Ty::Text(_) => captioned && no_format && shape == IncludeCaption,
+        Ty::Text(_) => return dotted_text_measured(f, t, column, IncludeCaption),
         Ty::Date | Ty::Enum(_) => captioned && no_format && matches!(shape, IncludeCaption | NoProperty),
         Ty::Code(_) | Ty::Integer => no_format && shape == IncludeCaption,
         Ty::Decimal => match (formats.0.as_deref(), formats.1.as_deref(), formats.2.as_deref()) {
@@ -1346,6 +1329,17 @@ fn dotted_qualifier_measured(f: &crate::members::FieldInfo, t: usize, column: &a
         _ => false,
     };
     plain_own_field(f, t) && typed
+}
+
+/// Whether field `f` of table `t` is a Text field with a Caption that [`dotted_qualifier_measured`] admits (:31, :351: no
+/// DecimalPlaces, AutoFormatType or AutoFormatExpression) and `column` states exactly the properties of `shape`.
+fn dotted_text_measured(f: &crate::members::FieldInfo, t: usize, column: &ast::Section, shape: ColumnShape) -> bool {
+    let p = |name: &str| field_prop(f, name);
+    plain_own_field(f, t)
+        && matches!(f.ty, crate::types::Ty::Text(_))
+        && p("Caption").is_some()
+        && (p("AutoFormatType"), p("AutoFormatExpression"), p("DecimalPlaces")) == (None, None, None)
+        && column_shape(column) == Some(shape)
 }
 
 /// Whether column `column` over field `f` of its own data item's table `t`, written `Item.Field` with the item's and the field's
@@ -1607,9 +1601,89 @@ fn request_rec_routines(o: &Owner, obj: &ast::Object) -> Vec<usize> {
         .collect()
 }
 
-/// The data items of report `cx.oi`, lowered with `o`.
-fn report_items(cx: &Context, o: &Owner, reasons: &mut Vec<String>) -> Vec<ir::ReportItem> {
+/// The source of `column` split at each dot outside double quotes, each part unquoted (`"Dq. Row".Name.ToUpper()` is
+/// `Dq. Row`, `Name`, `ToUpper()`).
+fn source_parts(column: &ast::Section) -> Vec<String> {
+    let source = column.args().get(1).cloned().unwrap_or_default();
+    split_outside_quotes(source.trim())
+        .into_iter()
+        .map(crate::scan::unquote_double)
+        .collect()
+}
+
+/// Whether report `cx.oi` takes the field for its columns qualified with their own data item's dotted name (`"Dq. Row".Qty`),
+/// assumption `report-column-dotted-item-qualifier`, all or none: only when a column of the report names its own item's
+/// dotted name, every column whose source has a qualifier with a dot is a shape corpus PR 1652 measures
+/// ([`dotted_column_measured`]), and no reportextension that changes the run declares such a column. Otherwise every dotted
+/// column keeps main's answer and the run is not flagged.
+fn dotted_columns_on(cx: &Context) -> bool {
+    let items = &cx.layout.items;
+    let tables: Vec<Option<usize>> = items.iter().map(|r| table_object(cx.ws, cx.file, &r.table)).collect();
+    let dotted = |c: &ast::Section| {
+        let parts = source_parts(c);
+        parts.len() > 1 && parts[0].contains('.')
+    };
+    let mut own = false;
+    for (i, raw) in items.iter().enumerate() {
+        let columns = raw
+            .section
+            .sections()
+            .filter(|c| c.name().eq_ignore_ascii_case("column"));
+        for c in columns.filter(|c| dotted(c)) {
+            match dotted_column_measured(cx.members, items, &tables, i, &c) {
+                Some(j) => own |= j == i,
+                None => return false,
+            }
+        }
+    }
+    own && !cx
+        .extensions
+        .iter()
+        .flat_map(|&e| crate::pages::column_sections(&cx.ws.object_ast(e)))
+        .any(|c| dotted(&c))
+}
+
+/// The data item that column `column` of item `i` reads through a dotted qualifier, when the column is a shape
+/// DataItemNamesDottedQualifier.al (corpus PR 1652 at cf6884b9) measures. The qualifier and the field are written as declared,
+/// and:
+/// - `Item.Field` of its own item where [`dotted_qualifier_measured`] holds;
+/// - `Item.Field.ToUpper()` of its own item, a Text field with a Caption, a column without property (:84, value :236);
+/// - `Parent.Field` of the item it is nested in directly, a Text field with a Caption under exactly IncludeCaption = true
+///   (`CParentName` :90, labels :224, values :250). This column keeps main's rule for another item's field (`caption_sources`).
+///
+/// Every other column with a dotted qualifier is no measured shape (`None`): a Decimal field of the parent (:91-92, where
+/// main's rule for another item's field does not write BC's formatter, :250), another type or column property, another case,
+/// an item that is not the parent, a global variable.
+fn dotted_column_measured(
+    members: &crate::members::MemberTable,
+    items: &[RawItem],
+    tables: &[Option<usize>],
+    i: usize,
+    column: &ast::Section,
+) -> Option<usize> {
+    let parts = source_parts(column);
+    let (qualifier, member, call) = match parts.as_slice() {
+        [q, m] => (q, m, None),
+        [q, m, call] => (q, m, Some(call.as_str())),
+        _ => return None,
+    };
+    let j = items.iter().position(|r| r.name == *qualifier)?;
+    let t = tables[j]?;
+    let f = members[t].fields.iter().find(|f| f.name == *member)?;
+    let measured = match call {
+        None if j == i => dotted_qualifier_measured(f, t, column),
+        None => items[i].parent == Some(j) && dotted_text_measured(f, t, column, ColumnShape::IncludeCaption),
+        Some("ToUpper()") => j == i && dotted_text_measured(f, t, column, ColumnShape::NoProperty),
+        Some(_) => false,
+    };
+    measured.then_some(j)
+}
+
+/// The IR of report `cx.oi`. `reasons` are what the lowering of the item variables found.
+pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::Report {
     let layout = cx.layout;
+    let mut o = Owner::new(cx.ws, cx.members, cx.file, cx.oi, cx.routine_at, obj);
+    o.dotted_on = dotted_columns_on(cx);
     let mut items: Vec<ir::ReportItem> = Vec::new();
     for raw in &layout.items {
         let slot = cx.slots.get(&raw.name.to_lowercase()).copied();
@@ -1624,39 +1698,8 @@ fn report_items(cx: &Context, o: &Owner, reasons: &mut Vec<String>) -> Vec<ir::R
             }
             None
         };
-        let item = item_ir(o, raw, slot, raw.parent, parent_table, &enclosing, reasons);
+        let item = item_ir(&o, raw, slot, raw.parent, parent_table, &enclosing, &mut reasons);
         items.push(item);
-    }
-    items
-}
-
-/// Whether the source of `column` is `Qualifier.Member...` with a dot inside the quoted qualifier (`"A. B".F`).
-fn dotted_source(column: &ast::Section) -> bool {
-    let source = column.args().get(1).cloned().unwrap_or_default();
-    let parts = split_outside_quotes(source.trim());
-    parts.len() > 1 && crate::scan::unquote_double(parts[0]).contains('.')
-}
-
-/// The IR of report `cx.oi`. `reasons` are what the lowering of the item variables found.
-pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::Report {
-    let layout = cx.layout;
-    let o = Owner::new(cx.ws, cx.members, cx.file, cx.oi, cx.routine_at, obj);
-    let item_reasons = reasons.clone();
-    let mut items = report_items(cx, &o, &mut reasons);
-    // All or none (assumption `report-column-dotted-item-qualifier`): the report's dotted columns take their field only when
-    // the gate admits every column qualified with its own item's dotted name and no reportextension that changes the run
-    // declares a dotted column; else each keeps main's answer.
-    let ext_dotted = || {
-        cx.extensions
-            .iter()
-            .flat_map(|&e| crate::pages::column_sections(&cx.ws.object_ast(e)))
-            .any(|c| dotted_source(&c))
-    };
-    if o.dotted_served.get() && (o.dotted_rejected.get() || ext_dotted()) {
-        o.dotted_off.set(true);
-        o.dotted_served.set(false);
-        reasons = item_reasons;
-        items = report_items(cx, &o, &mut reasons);
     }
     caption_sources(cx.members, &layout.items, &mut items);
     reasons.extend(layout.reasons.iter().cloned());
@@ -1676,8 +1719,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
             .iter()
             .copied()
             .chain(
-                o.dotted_served
-                    .get()
+                o.dotted_on
                     .then_some(al_builtins::assumptions::Assumption::ReportColumnDottedItemQualifier),
             )
             .collect(),
