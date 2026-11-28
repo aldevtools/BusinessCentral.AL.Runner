@@ -1,10 +1,11 @@
-//! `exit(FR.Value())` from a procedure that returns a Code[20], a Text or a Code[3], for a field of another type (issue
-//! 9285): the value converts as `T := FR.Value()` does, its Format text, upper-cased into a Code, StringLengthExceeded
-//! past the length. Assumption `fieldref-value-exit-into-text` (corpus PR 1629, merged at 778b8fc1, recordref-fieldref/
-//! fieldref-value-convert/FvcTimestampField.al:443, :466, :485 ExitValue_* and :214 Field0_InsertedRow). A Variant
-//! variable exited into a Code keeps its TypeConversion error (types/variant/VaTCompare.al:Concat_After_Conversion),
-//! and the exit into a number checks the lowered value, so a parenthesized `exit((FR.Value()))` meets the conversion
-//! error of a Date (issue 9305).
+//! `exit(FR.Value())` from a procedure that returns a Code[20], a Text, a Text[3], a Text[30] or a Code[3], for a field
+//! of another type (issue 9285): the value's Format text, as FieldRef.Validate converts it, upper-cased into a Code,
+//! StringLengthExceeded past the length. Assumption `fieldref-value-exit-into-text` (corpus PR 1629, merged at
+//! 778b8fc1, recordref-fieldref/fieldref-value-convert/FvcTimestampField.al:443, :466, :485 ExitValue_* and :214
+//! Field0_InsertedRow; corpus PR 1641, FvcExitValueMore.al:142-282 ExitValue_*). Outside an en-US session a
+//! number or an Enum refuses. A Variant variable exited into a Code keeps its TypeConversion error
+//! (types/variant/VaTCompare.al:Concat_After_Conversion), and the exit into a number checks the lowered value, so a
+//! parenthesized `exit((FR.Value()))` meets the conversion error of a Date (issue 9305).
 
 const SRC: &str = r#"
 enum 50740 XKind { Extensible = false; value(0; Zero) { } value(1; One) { Caption = 'One Caption'; } }
@@ -87,6 +88,14 @@ codeunit 50742 C
         Seed(RecRef);
         FR := RecRef.Field(8);
         exit(ExitParenInteger(FR));
+    end;
+    procedure CellsGerman(FieldNo: Integer): Text
+    var RecRef: RecordRef; FR: FieldRef;
+    begin
+        Seed(RecRef);
+        FR := RecRef.Field(FieldNo);
+        GlobalLanguage(1031);
+        exit(ExitCode20(FR));
     end;
     procedure VariantVariable(): Text
     var V: Variant;
@@ -173,5 +182,146 @@ fn a_variant_variable_exited_as_a_code_keeps_its_type_conversion_error() {
     assert_eq!(
         al_testkit::error_message(al_testkit::run_in(SRC, "C", "VariantVariable")),
         "The expression Microsoft.Dynamics.Nav.Runtime.NavIndirectValue cannot be type-converted to a Microsoft.Dynamics.Nav.Runtime.NavCode value."
+    );
+}
+
+fn german(field: i32) -> Result<al_builtins::value::Value, al_builtins::native::Signal> {
+    al_testkit::run_with(SRC, "C", "CellsGerman", vec![al_builtins::value::Value::Integer(field)]).map(|r| r.0)
+}
+
+/// Outside an en-US session no cell is measured: a number or an Enum refuses (main raised the Variant error, BC gives a
+/// text), the kinds main already answered as BC does keep that answer.
+#[test]
+fn outside_an_en_us_session_a_number_or_enum_exited_as_a_code_is_refused() {
+    for field in [2, 3, 4, 5] {
+        let r = german(field);
+        assert!(
+            matches!(&r, Err(al_builtins::native::Signal::Unsupported(why)) if why.contains("en-US")),
+            "field {field}: {r:?}"
+        );
+    }
+    assert_eq!(al_testkit::text(german(10)), "AB-1");
+    assert!(
+        !matches!(german(8), Err(al_builtins::native::Signal::Unsupported(_))),
+        "a Date keeps its answer"
+    );
+}
+
+const MORE: &str = r#"
+enum 50743 MKind { Extensible = false; value(0; Plain) { } value(1; Fancy) { Caption = 'Fancy Caption'; } }
+table 50744 MRow
+{
+    fields
+    {
+        field(1; Id; Integer) { }
+        field(2; IntF; Integer) { }
+        field(3; DecF; Decimal) { }
+        field(4; DecNegF; Decimal) { }
+        field(5; DecBigF; Decimal) { }
+        field(6; OptF; Option) { OptionMembers = Alpha,Beta,Gamma; OptionCaption = 'First,Second,Third'; }
+        field(7; EnumPlainF; Enum MKind) { }
+        field(8; EnumFancyF; Enum MKind) { }
+        field(9; BoolF; Boolean) { }
+        field(10; DateF; Date) { }
+    }
+    keys { key(PK; Id) { Clustered = true; } }
+}
+codeunit 50745 M
+{
+    local procedure ExitCode20(var FR: FieldRef): Code[20] begin exit(FR.Value()); end;
+    local procedure ExitText(var FR: FieldRef): Text begin exit(FR.Value()); end;
+    local procedure ExitText3(var FR: FieldRef): Text[3] begin exit(FR.Value()); end;
+    local procedure ExitText30(var FR: FieldRef): Text[30] begin exit(FR.Value()); end;
+    [TryFunction]
+    local procedure TryExit(var FR: FieldRef; Target: Text; var Result: Text)
+    begin
+        case Target of
+            'code20': Result := ExitCode20(FR);
+            'text': Result := ExitText(FR);
+            'text3': Result := ExitText3(FR);
+            'text30': Result := ExitText30(FR);
+        end;
+    end;
+    procedure Cells(FieldNo: Integer): Text
+    var Row: Record MRow; RecRef: RecordRef; FR: FieldRef; Target: Text; Result: Text; Out: Text;
+    begin
+        Row.Id := 1; Row.IntF := 5; Row.DecF := 1234.5; Row.DecNegF := -1234.5; Row.DecBigF := 1234567.89;
+        Row.OptF := Row.OptF::Beta; Row.EnumPlainF := Row.EnumPlainF::Plain; Row.EnumFancyF := Row.EnumFancyF::Fancy;
+        Row.BoolF := true; Row.DateF := 20260115D; Row.Insert();
+        RecRef.Open(Database::MRow); RecRef.FindFirst();
+        FR := RecRef.Field(FieldNo);
+        foreach Target in 'code20,text,text3,text30'.Split(',') do begin
+            ClearLastError(); Result := '';
+            if TryExit(FR, Target, Result) then
+                Out += Target + '=' + Result + ';'
+            else
+                Out += Target + '=E: ' + GetLastErrorText() + ' | ' + GetLastErrorCode() + ';';
+        end;
+        exit(Out);
+    end;
+}
+"#;
+
+fn more(field: i32) -> String {
+    al_testkit::text(
+        al_testkit::run_with(MORE, "M", "Cells", vec![al_builtins::value::Value::Integer(field)]).map(|r| r.0),
+    )
+}
+
+/// Corpus PR 1641 (open), recordref-fieldref/fieldref-value-convert/FvcExitValueMore.al:142-282 ExitValue_*: a Decimal
+/// keeps its thousands separator, an Option gives its OptionCaption, an Enum member without a Caption its name, and a
+/// bounded Text return takes the text when it fits.
+#[test]
+fn more_values_and_bounded_text_returns_follow_the_format_text() {
+    assert_eq!(more(2), "code20=5;text=5;text3=5;text30=5;");
+    assert_eq!(
+        more(3),
+        format!(
+            "code20=1,234.5;text=1,234.5;text3={};text30=1,234.5;",
+            too_long(7, 3, "1,234.5")
+        )
+    );
+    assert_eq!(
+        more(4),
+        format!(
+            "code20=-1,234.5;text=-1,234.5;text3={};text30=-1,234.5;",
+            too_long(8, 3, "-1,234.5")
+        )
+    );
+    assert_eq!(
+        more(5),
+        format!(
+            "code20=1,234,567.89;text=1,234,567.89;text3={};text30=1,234,567.89;",
+            too_long(12, 3, "1,234,567.89")
+        )
+    );
+    assert_eq!(
+        more(6),
+        format!(
+            "code20=SECOND;text=Second;text3={};text30=Second;",
+            too_long(6, 3, "Second")
+        )
+    );
+    assert_eq!(
+        more(7),
+        format!(
+            "code20=PLAIN;text=Plain;text3={};text30=Plain;",
+            too_long(5, 3, "Plain")
+        )
+    );
+    assert_eq!(
+        more(8),
+        format!(
+            "code20=FANCY CAPTION;text=Fancy Caption;text3={};text30=Fancy Caption;",
+            too_long(13, 3, "Fancy Caption")
+        )
+    );
+    assert_eq!(more(9), "code20=YES;text=Yes;text3=Yes;text30=Yes;");
+    assert_eq!(
+        more(10),
+        format!(
+            "code20=01/15/26;text=01/15/26;text3={};text30=01/15/26;",
+            too_long(8, 3, "01/15/26")
+        )
     );
 }

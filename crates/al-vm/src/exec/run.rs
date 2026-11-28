@@ -1213,16 +1213,21 @@ impl Session {
         }
     }
 
-    /// The value of `exit(FR.Value())` into a Text or Code return: the cells corpus PR 1629 measured, in an en-US
-    /// session of a supported major (`fieldref_value_text::fieldref_value_at_exit`); any other value converts as every
-    /// exit value does.
+    /// The value of `exit(FR.Value())` into a Text or Code return: the cells the corpus measured, in an en-US session
+    /// of a supported major (`fieldref_value_text::fieldref_value_at_exit`, which also refuses a number or an Enum
+    /// outside them); any other value converts as every exit value does.
     #[cold]
     #[inline(never)]
     fn convert_field_value_at_exit(&self, v: Value, ty: &RtType) -> Result<Value, Signal> {
-        let cell = (self.supported_major() && al_builtins::format::en_us_session(self))
-            .then(|| al_builtins::fieldref_value_text::fieldref_value_at_exit(&v, ty, self))
-            .flatten();
-        cell.unwrap_or_else(|| ops::convert_plain(v, ty))
+        let unmeasured = if !self.supported_major() {
+            Some("on a major the corpus does not cover")
+        } else if !al_builtins::format::en_us_session(self) {
+            Some("outside an en-US session")
+        } else {
+            None
+        };
+        al_builtins::fieldref_value_text::fieldref_value_at_exit(&v, ty, self, unmeasured)
+            .unwrap_or_else(|| ops::convert_plain(v, ty))
     }
 
     /// A refusal about a text argument names the builtin that refused it.

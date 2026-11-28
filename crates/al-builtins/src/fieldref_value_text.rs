@@ -26,17 +26,38 @@ pub fn fieldref_value_into_text(
 }
 
 /// `exit(FR.Value())` from a procedure that returns a Text or Code (al-vm `Op::ConvertFieldValue` at an exit): an
-/// Integer, BigInteger (the timestamp too), Decimal, Enum, Option, Boolean, Date or Duration is its Format text,
-/// upper-cased into a Code, and StringLengthExceeded past the length, as [`variant_into_text_field`] converts it
-/// (corpus PR 1629, merged at 778b8fc1, not yet pinned:
-/// recordref-fieldref/fieldref-value-convert/FvcTimestampField.al:443 ExitValue_NumberFields, :466
-/// ExitValue_EnumOptionFields, :485 ExitValue_OtherFields, :214 Field0_InsertedRow; issue 9285). `None`: another value
-/// or target, which converts as every exit value does.
+/// Integer, BigInteger (the timestamp too), Decimal, Enum, Option, Boolean, Date or Duration is the value's Format
+/// text, as FieldRef.Validate converts it ([`variant_into_text_field`]): upper-cased into a Code, an Option's
+/// OptionCaption, an Enum member's Caption or else its name, a Decimal with its thousands separator, and
+/// StringLengthExceeded past the length of a Code or a bounded Text (issues 9285 and 9305). Corpus PR 1629, merged at
+/// 778b8fc1, not yet pinned: recordref-fieldref/fieldref-value-convert/FvcTimestampField.al:443 ExitValue_NumberFields,
+/// :466 ExitValue_EnumOptionFields, :485 ExitValue_OtherFields, :214 Field0_InsertedRow; and corpus PR 1641 (open),
+/// FvcExitValueMore.al:142-282 ExitValue_* (Decimals of 1000 or more, an OptionCaption, an Enum member without a
+/// Caption, Text[3] and Text[30]). `unmeasured`: the fact of the session no cell covers (another language, a major the
+/// corpus does not cover); there a number or an Enum refuses, since BC gives a text where the Variant conversion
+/// raises. `None`: another value or target, which converts as every exit value does.
 pub fn fieldref_value_at_exit(
     v: &Value,
     t: &RtType,
     ctx: &dyn crate::format::FormatCtx,
+    unmeasured: Option<&str>,
 ) -> Option<Result<Value, Signal>> {
+    if !matches!(t, RtType::Text(_) | RtType::Code(_)) {
+        return None;
+    }
+    if let Some(fact) = unmeasured {
+        let number = matches!(
+            v,
+            Value::Integer(_) | Value::BigInteger(_) | Value::Decimal(_) | Value::Enum(..)
+        );
+        return number.then(|| {
+            Err(Signal::unsupported(format!(
+                "exit(FieldRef.Value()) of {} into a {} {fact} (not measured, issue 9285)",
+                crate::describe::Describe::describe(v),
+                crate::describe::Describe::describe(t)
+            )))
+        });
+    }
     let measured = matches!(
         v,
         Value::Integer(_)
@@ -48,7 +69,7 @@ pub fn fieldref_value_at_exit(
             | Value::Date(..)
             | Value::Duration(_)
     );
-    if !measured || !matches!(t, RtType::Text(_) | RtType::Code(_)) {
+    if !measured {
         return None;
     }
     crate::assumptions::assume(crate::assumptions::Assumption::FieldRefValueExitIntoText);
