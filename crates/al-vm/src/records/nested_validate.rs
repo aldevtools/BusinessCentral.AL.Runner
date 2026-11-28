@@ -497,9 +497,9 @@ impl Session {
     /// reads each giving it a new version source (every cell but one inserts with the variable it validates, :775); or that
     /// version taken by `:=` straight from that variable, validated from a `[MessageHandler]`
     /// (Validate_FromMessageHandler_OneXRec, :1876), with no guarded Insert of that variable that answered false before
-    /// the `:=` either (`HeldVersion::failed_insert_before_copy`; :1876 has none). In both, the buffer holds when the nested Validate starts the version
-    /// source it held when the outermost one started (`ValidateRun::version_at_start`), and no running Validate of the nest
-    /// saw another record's fields written into the record (`ValidateRun::whole_write`).
+    /// the `:=` either (`HeldVersion::failed_insert_before_copy`; :1876 has none). In both, the buffer holds when the
+    /// nested Validate starts the version source it held when the outermost one started (`ValidateRun::version_at_start`),
+    /// and no running Validate of the nest saw another record's fields written into the record (`ValidateRun::whole_write`).
     fn buffer_version_measured(&self, r: &RecordState, o: usize, runs: &[&ValidateRun]) -> bool {
         let Some(h) = r.version_entry.0.as_ref() else {
             return false;
