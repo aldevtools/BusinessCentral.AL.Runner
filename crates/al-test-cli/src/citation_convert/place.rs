@@ -110,12 +110,16 @@ impl<'a> File<'a> {
         Ok(out)
     }
 
+    /// The 1-based line of byte `at`.
+    fn line_of(&self, at: usize) -> usize {
+        self.starts.partition_point(|&s| s <= at)
+    }
+
     /// The object whose declaration is on line `first` and that holds line `last`: a range over it names the object.
     fn declared_over(&self, first: usize, last: usize) -> Option<usize> {
-        let line_of = |at: usize| self.starts.partition_point(|&s| s <= at);
         self.objects
             .iter()
-            .position(|o| line_of(o.span.start) == first && last <= line_of(o.span.end.saturating_sub(1)))
+            .position(|o| self.line_of(o.span.start) == first && last <= self.line_of(o.span.end.saturating_sub(1)))
     }
 
     /// A single cited line that names nothing by itself (blank, a lone brace, or `end;` as the last line of a member's
@@ -125,7 +129,6 @@ impl<'a> File<'a> {
             return Ok(());
         };
         let end = self.starts.get(line).copied().unwrap_or(self.text.len());
-        let line_of = |at: usize| self.starts.partition_point(|&s| s <= at);
         match self.text[start..end].trim() {
             "" => Err(format!("line {line} is blank")),
             "{" | "}" => Err(format!("line {line} is a lone brace")),
@@ -133,7 +136,7 @@ impl<'a> File<'a> {
                 .objects
                 .iter()
                 .flat_map(|o| &o.members)
-                .find(|m| line_of(m.span.end.saturating_sub(1)) == line)
+                .find(|m| self.line_of(m.span.end.saturating_sub(1)) == line)
             {
                 Some(m) => Err(format!("line {line} is the end of {}", m.name)),
                 None => Ok(()),
@@ -219,14 +222,13 @@ impl<'a> File<'a> {
                 self.starts.len()
             ));
         }
-        let line_of = |at: usize| self.starts.partition_point(|&s| s <= at);
         let Some(o) = self
             .objects
             .iter()
-            .position(|o| line_of(o.span.start) <= line && line <= line_of(o.span.end.saturating_sub(1)))
+            .position(|o| self.line_of(o.span.start) <= line && line <= self.line_of(o.span.end.saturating_sub(1)))
         else {
             return match self.objects.first() {
-                Some(first) if line < line_of(first.span.start) => self
+                Some(first) if line < self.line_of(first.span.start) => self
                     .main_object()
                     .map(Target::Header)
                     .ok_or_else(|| "the file has no object".into()),
@@ -238,7 +240,7 @@ impl<'a> File<'a> {
         let member = self.objects[o]
             .members
             .iter()
-            .position(|m| line_of(m.span.start) <= line && line <= line_of(m.span.end.saturating_sub(1)));
+            .position(|m| self.line_of(m.span.start) <= line && line <= self.line_of(m.span.end.saturating_sub(1)));
         if let Some(member) = member {
             return Ok(Target::Member {
                 object: o,

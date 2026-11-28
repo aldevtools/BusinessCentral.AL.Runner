@@ -438,10 +438,10 @@ impl Ctx<'_> {
         if c.member.is_some() {
             return Ok((token, class, format!("read at {} at {}", at.path, short(&at.pin))));
         }
-        let mut read: Vec<(String, &At)> = Vec::new();
+        let mut read: Vec<(&str, &At)> = Vec::new();
         for &(what, pin) in others {
             match self.at(pin, cited) {
-                Ok(o) => read.push((what.to_string(), o)),
+                Ok(o) => read.push((what, o)),
                 Err((_, why)) => {
                     let why = if why.is_empty() {
                         format!("it has no `{cited}`")
@@ -454,7 +454,7 @@ impl Ctx<'_> {
         }
         match &self.next[at] {
             Next::Same => {}
-            Next::Changed(n) => read.push(("the next pin that changed the file".into(), n)),
+            Next::Changed(n) => read.push(("the next pin that changed the file", n)),
             Next::Lost(last) => {
                 return Err((
                     Class::HandFix,
