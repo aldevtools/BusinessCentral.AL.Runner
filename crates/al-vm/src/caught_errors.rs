@@ -30,6 +30,8 @@ impl Session {
     /// holds then is not measured (record/filters/SqlDateFloor1753.al:2468-2600 reads only the stored row), so that is refused.
     pub(crate) fn catch_error(&mut self, e: AlError) -> Result<(), Signal> {
         self.refuse_live_failed_rename()?;
+        // The caught error unwinds no further: the report trigger it left is not the origin of a later one.
+        self.report.failed_trigger = None;
         if self.bg_catch_keeps_last_error() {
             self.caught_errors += 1;
             return Ok(());
@@ -42,6 +44,7 @@ impl Session {
     /// it (the count stays). The record of a failed Rename is refused there as in [`Self::catch_error`].
     pub(crate) fn hold_error(&mut self, e: AlError) -> Result<(), Signal> {
         self.refuse_live_failed_rename()?;
+        self.report.failed_trigger = None;
         self.error_finals = None;
         self.last_error = e;
         Ok(())
@@ -57,6 +60,7 @@ impl Session {
     }
 
     fn note_caught(&mut self, e: AlError) {
+        self.report.failed_trigger = None;
         self.error_finals = None;
         self.last_error = e;
         self.caught_errors += 1;

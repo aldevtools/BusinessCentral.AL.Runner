@@ -108,6 +108,7 @@ fn cells() -> Vec<Cell> {
     no_row_rows(&mut t);
     super::cells_decl::decl_rows(&mut t);
     super::cells_items::top_level_items_rows(&mut t);
+    super::cells_platform_first::platform_first_rows(&mut t);
     t
 }
 
@@ -335,7 +336,17 @@ fn unsupported_rows(t: &mut Vec<Cell>) {
             },
             ..base
         };
-        t.push(refuse_statement(cell_key));
+        // The statement of an Excel layout as Pdf or Word has its measured row (`cells_platform_first`); any other statement
+        // shape of those cells finds no row and is refused as not measured. An allow-listed report keeps main's refusal: a
+        // miss of a save the table knows nothing about would discard it (`save_before_run`).
+        if kind == Kind::Excel && matches!(format, Format::Pdf | Format::Word) {
+            t.push(refuse_statement(Key {
+                listed: Is(true),
+                ..cell_key
+            }));
+        } else {
+            t.push(refuse_statement(cell_key));
+        }
         let file = Key {
             answer: Is(AnswerForm::Used),
             target: Is(Target::File),
