@@ -9,7 +9,7 @@
 //! action invoke).
 
 use super::page_args::PageArgShape;
-use super::{ArgFilter, MarkState, RunArg, RunEnd, RunStart};
+use super::{ArgFacts, ArgFilter, ArgTable, MarkState, RunArg, RunEnd, RunStart};
 use crate::Session;
 use crate::pages::{PageState, page_of};
 use crate::records::Rec;
@@ -62,6 +62,7 @@ impl Session {
     pub(super) fn page_view_run_end(
         &mut self,
         start: &RunStart,
+        facts: &ArgFacts,
         end: RunEnd,
         after: &[(u32, MarkState)],
         top_level: bool,
@@ -71,20 +72,15 @@ impl Session {
             table,
             temporary: false,
             filter: ArgFilter::Page(PageArgShape::PageView),
-        } = start.arg
+        } = facts.arg
         else {
             return None;
         };
         let arg = start.arg_record?;
-        let run_shape = top_level && no_commit && start.marks.is_empty() && !start.runs_inside && arg.filters_kept();
+        let run_shape = top_level && no_commit && start.marks.is_empty() && !start.runs_inside && facts.kept;
         // One mark on another table (GPC M), held by the database variable that set it, which is not the argument.
-        let one_mark = match (after, self.tx.open.inconsistent.as_slice()) {
-            ([(t, MarkState::Marked)], [m]) => {
-                let by_arg = m.by.upgrade().is_some_and(|b| Rc::ptr_eq(&b, &arg.rec));
-                *t == m.table && *t != table && m.by_database && !by_arg
-            }
-            _ => false,
-        };
+        let one_mark =
+            matches!(after, [(_, MarkState::Marked)]) && facts.table == ArgTable::Unmarked && facts.database_set;
         let mark = arg.rec.borrow().page_view.0.clone()?;
         // The argument is the page's Rec itself, which the action method got as its parameter (`OrderDirect` :484). A
         // `Record.Copy` of it (:475, :486) is measured only as a local of that method made in that method, which this gate

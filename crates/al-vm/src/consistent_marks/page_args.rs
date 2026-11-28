@@ -211,21 +211,21 @@ pub(super) fn page_shape(r: &RecordState, fields: &ArgFields) -> Option<PageArgS
 ///   RecZ_Three_ReleasedThenHeld :2639, RecZ_Three_AgainThenHeld :2655, RecZ_Key_ReleasedThenHeld :2671,
 ///   RecZ_Key_AgainThenHeld :2687, and the RecX_ twins (to RecX_Key_AgainThenHeld :2799).
 pub(super) fn page_probe_end(
-    arg: RunArg,
+    arg: &super::ArgFacts,
     work_date: impl FnOnce() -> i32,
     after: &[(u32, MarkState)],
     end: RunEnd,
 ) -> Option<Assumption> {
     use MarkState::{Marked as M, MarkedAgainByAnother as A, ReleasedByAnother as R};
     let RunArg::Record {
-        table,
         temporary: false,
         filter,
-    } = arg
+        ..
+    } = arg.arg
     else {
         return None;
     };
-    if end != RunEnd::Failed("Dialog") || !super::unmarked_or_first(table, after) {
+    if end != RunEnd::Failed("Dialog") || !arg.unmarked_or_first() {
         return None;
     }
     let (entry, date_end) = match (after, filter) {
