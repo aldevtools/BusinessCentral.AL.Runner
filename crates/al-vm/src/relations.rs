@@ -332,15 +332,7 @@ impl Session {
                 },
             });
         }
-        self.crm_source_refused(&related, "the TableRelation check")?;
-        let company = rec.borrow().company.clone();
-        self.note_indirect_read_of_queue(
-            related.object as usize,
-            company.as_deref(),
-            false,
-            "the TableRelation check",
-        )?;
-        let cx = self.cx_for(rec, &related)?;
+        let cx = self.relation_read_cx(Some(rec), &related)?;
         let found = if flow_field_filters.is_empty() {
             self.store
                 .exists(&cx, &related, &filters)
@@ -369,6 +361,41 @@ impl Session {
             call_stack: String::new(),
             ..Default::default()
         })))
+    }
+
+    /// The access context of a TableRelation check's read of `related`, for the company of `rec` (`None`: the session's):
+    /// a CRM source is refused and the rows an insert queue holds for that table are sent first.
+    fn relation_read_cx(&mut self, rec: Option<&Rec>, related: &TableDef) -> Result<al_data::AccessContext, Signal> {
+        self.crm_source_refused(related, "the TableRelation check")?;
+        let company = rec.and_then(|r| r.borrow().company.clone());
+        self.note_indirect_read_of_queue(
+            related.object as usize,
+            company.as_deref(),
+            false,
+            "the TableRelation check",
+        )?;
+        match rec {
+            Some(rec) => self.cx_for(rec, related),
+            None => Ok(self.cx.clone()),
+        }
+    }
+
+    /// The rows of `related` that pass `filters`, in primary key order, read as a TableRelation check reads them
+    /// (`relation_read_cx`). A TestPage entry into a control related to a table completes the typed key from them
+    /// (`pages/relation_text_entry.rs`).
+    pub(crate) fn related_rows(
+        &mut self,
+        rec: Option<&Rec>,
+        related: &TableDef,
+        filters: &[FieldFilter],
+    ) -> Result<Vec<Vec<Value>>, Signal> {
+        let cx = self.relation_read_cx(rec, related)?;
+        let mut rows = Vec::new();
+        self.each_row_of(None, &cx, related, filters, |row| {
+            rows.push(row.to_vec());
+            Ok(())
+        })?;
+        Ok(rows)
     }
 
     /// A source FlowFilter with a default buffer contributes no condition when unset
