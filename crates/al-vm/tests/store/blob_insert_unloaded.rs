@@ -269,6 +269,82 @@ codeunit 50131 C
         exit(Format(R.Body.HasValue()));
     end;
 
+    // Codeunit 73783 of BlobInsertUnloadedOrigin.al (corpus pull request 1654): a failed Insert leaves no mark (F1, F2), and
+    // the scope of I4 (S2, S4, S5, S6).
+    procedure GuardedInsertThenModify(): Text
+    var L: Record "Bi Row"; C: Record "Bi Row";
+    begin
+        Seed('FA', 'hello');
+        Seed('FB', 'other');
+        L.Get('FA');
+        C := L;
+        C.K := 'FB';
+        if not C.Insert() then
+            C.Modify();
+        C.CalcFields(Body);
+        exit(Show(C));
+    end;
+
+    procedure GuardedInsertOwnKey(): Text
+    var L: Record "Bi Row";
+    begin
+        Seed('FC', 'hello');
+        L.Get('FC');
+        if not L.Insert() then;
+        L.CalcFields(Body);
+        exit(Show(L));
+    end;
+
+    local procedure CopyInsert(var C: Record "Bi Row"; From: Code[20]; Into: Code[20])
+    var L: Record "Bi Row";
+    begin
+        Seed(From, 'hello');
+        L.Get(From);
+        C := L;
+        C.K := Into;
+        C.Insert();
+    end;
+
+    procedure OtherWriteThenCalcFields(): Text
+    var C: Record "Bi Row"; X: Record "Bi Row"; OutS: OutStream;
+    begin
+        CopyInsert(C, 'SA', 'SA2');
+        X.Get('SA2');
+        X.Body.CreateOutStream(OutS);
+        OutS.WriteText('x');
+        X.Modify();
+        C.CalcFields(Body);
+        exit(Show(C));
+    end;
+
+    procedure DeleteThenCalcFields(): Text
+    var C: Record "Bi Row";
+    begin
+        CopyInsert(C, 'SB', 'SB2');
+        C.Delete();
+        C.CalcFields(Body);
+        exit(Show(C));
+    end;
+
+    procedure GetThenCalcFields(): Text
+    var C: Record "Bi Row";
+    begin
+        CopyInsert(C, 'SC', 'SC2');
+        C.Get('SC2');
+        C.CalcFields(Body);
+        exit(Show(C));
+    end;
+
+    procedure SecondInsertThenCalcFields(): Text
+    var C: Record "Bi Row";
+    begin
+        CopyInsert(C, 'SD', 'SD2');
+        C.K := 'SD3';
+        C.Insert();
+        C.CalcFields(Body);
+        exit(Show(C) + ' ' + Stored('SD3'));
+    end;
+
     procedure OwnCalcFields(): Text
     var L: Record "Bi Row"; C: Record "Bi Row";
     begin
@@ -410,4 +486,97 @@ fn a_modify_over_a_row_another_variable_cleared_leaves_it_cleared() {
 fn a_blob_field_assignment_into_another_table_stores_no_blob() {
     // R2 (and BlobCalcFieldsLength.al:404: a field assignment of an unloaded Blob gives an empty one, as on main).
     assert_eq!(text(run_in(SRC, "C", "FieldAssignOtherTable")), "No");
+}
+
+#[test]
+fn a_guarded_insert_onto_an_existing_key_leaves_no_mark() {
+    // F1: the Insert fails, the Modify keeps the other row's Blob, and CalcFields reads it.
+    assert_eq!(text(run_in(SRC, "C", "GuardedInsertThenModify")), "Yes[other]");
+}
+
+#[test]
+fn a_guarded_insert_on_its_own_key_leaves_no_mark() {
+    // F2.
+    assert_eq!(text(run_in(SRC, "C", "GuardedInsertOwnKey")), "Yes[hello]");
+}
+
+#[test]
+fn another_variables_write_ends_the_unloaded_view_of_that_blob() {
+    // S2.
+    assert_eq!(text(run_in(SRC, "C", "OtherWriteThenCalcFields")), "Yes[x]");
+}
+
+#[test]
+fn a_delete_ends_the_unloaded_view() {
+    // S4.
+    assert_eq!(text(run_in(SRC, "C", "DeleteThenCalcFields")), "No[]");
+}
+
+#[test]
+fn a_get_ends_the_unloaded_view() {
+    // S5.
+    assert_eq!(text(run_in(SRC, "C", "GetThenCalcFields")), "No[]");
+}
+
+#[test]
+fn a_second_insert_stores_no_blob_and_keeps_the_unloaded_view() {
+    // S6.
+    assert_eq!(text(run_in(SRC, "C", "SecondInsertThenCalcFields")), "Yes[] No No[]");
+}
+
+const TWO_TESTS: &str = r#"
+table 50133 "Bi Flag Row"
+{
+    fields { field(1; K; Code[20]) { } field(2; Body; Blob) { } }
+    keys { key(PK; K) { } }
+}
+codeunit 50134 "Bi Flag Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure InsertCopy()
+    var L: Record "Bi Flag Row"; C: Record "Bi Flag Row"; OutS: OutStream;
+    begin
+        L.K := 'A';
+        L.Body.CreateOutStream(OutS);
+        OutS.WriteText('hello');
+        L.Insert();
+        L.Get('A');
+        C := L;
+        C.K := 'B';
+        C.Insert();
+    end;
+
+    [Test]
+    procedure ReadTheRow()
+    var R: Record "Bi Flag Row";
+    begin
+        R.Get('B');
+        if R.Body.HasValue() then Error('the row holds a Blob');
+    end;
+
+    [Test]
+    procedure ReadAnotherRow()
+    var R: Record "Bi Flag Row";
+    begin
+        R.Get('A');
+        R.CalcFields(Body);
+        if not R.Body.HasValue() then Error('the source row lost its Blob');
+    end;
+}
+"#;
+
+#[test]
+fn a_read_of_a_row_the_assumption_stored_without_a_blob_is_flagged_in_a_later_test() {
+    use al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored as A;
+    let outcomes = al_testkit::outcomes_and_marks_in(TWO_TESTS, "Bi Flag Tests");
+    let marks = |name: &str| {
+        let (_, outcome, marks) = outcomes.iter().find(|(n, _, _)| n == name).expect("the test ran");
+        assert!(matches!(outcome, al_testrun::Outcome::Pass), "{name}: {outcome:?}");
+        marks.contains(&A)
+    };
+    assert!(marks("InsertCopy"));
+    assert!(marks("ReadTheRow"));
+    assert!(!marks("ReadAnotherRow"));
 }

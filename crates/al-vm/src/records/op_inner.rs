@@ -619,7 +619,7 @@ impl Session {
                     return self.insert_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
                 let empty_blob = Self::temp_insert_blobs(rec, &stored);
-                Self::blobs_to_insert(rec, &mut stored);
+                let never_loaded = Self::blobs_to_insert(rec, &mut stored);
                 let before = self.store.change_counter();
                 // The SQL counters' buffer before their first read (sqlcount.rs, `SqlCounters::pre_insert`).
                 let pre_ops = (!self.sql.active && !rec.borrow().temporary).then(al_data::memory::store_ops);
@@ -636,7 +636,7 @@ impl Session {
                         }
                         self.note_insert(rec, &t, before);
                         self.queue_stored_row(rec, &t);
-                        Self::blobs_after_insert(rec, &t, empty_blob);
+                        Self::blobs_after_insert(rec, &t, empty_blob, &never_loaded);
                         rec.borrow_mut().inserted = true;
                         if !rec.borrow().temporary {
                             let company = rec.borrow().company.clone();
@@ -2141,7 +2141,15 @@ impl Session {
                                 .iter()
                                 .enumerate()
                                 .filter(|(_, v)| matches!(v, Value::Blob(_)))
-                                .map(|(i, _)| (i, self.default_value(&t.fields[i].ty)))
+                                .map(|(i, _)| {
+                                    (
+                                        i,
+                                        Self::blob_after_temp_rename(
+                                            &old_fields[i],
+                                            self.default_value(&t.fields[i].ty),
+                                        ),
+                                    )
+                                })
                                 .collect();
                             let mut r = rec.borrow_mut();
                             for (i, empty) in own {

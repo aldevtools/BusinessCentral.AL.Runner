@@ -1861,6 +1861,12 @@ impl Session {
         if rec.borrow().temp_id.is_none() {
             for (pos, v) in row.iter_mut().enumerate() {
                 if let Value::Blob(b) = v {
+                    // A row an Insert stored with no Blob through the assumption (`records/blob_saves.rs`): its read is flagged.
+                    if b.borrow().never_loaded_insert {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored,
+                        );
+                    }
                     *b = self.copy_blob_db_row(&t, pos, b);
                 }
             }
@@ -2012,12 +2018,6 @@ impl Session {
             // with `Get` and written in memory is read back from the row too (record/flowfields/
             // BlobCalcFieldsLength.al:BlobCalcFields_UnsavedContent_Result, 17 bytes in memory, 6 after CalcFields): see `BlobBuf::fetched`.
             let temporary = rec.borrow().temporary;
-            // A database record whose Insert did not store its Blob never loaded keeps answering HasValue Yes and reading
-            // empty (`blobs_to_insert`, BlobInsertUnloaded.al I4 of corpus pull request 1631).
-            if !temporary && buf.borrow().never_loaded_insert {
-                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored);
-                continue;
-            }
             // A record assignment's copy (`refetch`) of a buffer that holds an unsaved stream write keeps the write when the
             // row is stored, as the buffer it was copied from does (al-runner issue 7360). A copy of a row that is not stored
             // reads empty (types/ProbeTypeFormsAndFilters.al:228-250 FormatRecord_AssignmentCopiesBlobBytes): see `copied_write`.
@@ -2031,6 +2031,15 @@ impl Session {
                     .store_for(rec)?
                     .get(&cx, &t, &pk)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?;
+            }
+            // A database record whose Insert did not store its Blob never loaded keeps answering HasValue Yes and reading
+            // empty while the row's Blob is (`records/blob_saves.rs`, I4 of corpus pull request 1631, S1 to S6 of 1654).
+            if !temporary
+                && buf.borrow().never_loaded_insert
+                && self.unloaded_view_kept(rec, stored.as_ref().map(|r| &r[pos]))
+            {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored);
+                continue;
             }
             // A row this variable inserted and that is gone (an error inside ASSERTERROR rolled the Insert back) leaves the Blob empty, whatever a
             // stream wrote since (recordref-fieldref/PnE08RecordMisc.al:TestField_Blob `af219`).
@@ -2085,8 +2094,12 @@ impl Session {
             // showed `*` after `Copy1 := Row`, and CalcFields reads nothing back
             // (types/ProbeTypeFormsAndFilters.al:FormatRecord_AssignmentCopiesBlobBytes, BC 27.5).
             let (bytes, pending, inserted) = match stored.as_ref().map(|row| row[pos].clone()) {
-                // A temporary row an Insert stored from a Blob never loaded (`blobs_to_insert`) loads empty (T12, T13, I1).
-                Some(Value::Blob(src)) if src.borrow().never_loaded_insert => (Vec::new(), None, false),
+                // A row an Insert stored from a Blob never loaded (`blobs_to_insert`) loads empty: a temporary row keeps the
+                // buffer (T12, T13, I1), a database row holds an empty Blob with the mark; each read of it is flagged.
+                Some(Value::Blob(src)) if src.borrow().never_loaded_insert => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored);
+                    (Vec::new(), None, false)
+                }
                 Some(Value::Blob(src)) => {
                     let src = src.borrow();
                     (src.bytes.clone(), src.render_pending.clone(), src.inserted)
