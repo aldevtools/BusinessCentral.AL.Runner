@@ -1,0 +1,3 @@
+# RequiredTestIsolation on the test codeunits: BC's TestRunnerHub (BC 28 and later).
+--isolation
+required

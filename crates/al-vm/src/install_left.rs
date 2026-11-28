@@ -102,6 +102,10 @@ impl Session {
             install_without_client: _,
             // Carried: `Baseline::company_built`.
             company_built: _,
+            // Carried: `Baseline::login_held`.
+            login_held: _,
+            // Carried: `Baseline::codeunit_left`.
+            codeunit_left: _,
             demo_written: _,
             gl_setup_written: _,
             setup_caption_read_early: _,
@@ -387,6 +391,7 @@ impl Session {
             [
                 (self.variant_refs.as_new(), "variant_refs"),
                 (self.temp_blob_impl_fields.as_new(), "temp_blob_impl_fields"),
+                (self.global_group1.is_empty(), "global_group1"),
             ]
             .into_iter()
             .find_map(|(holds, field)| (!holds).then_some(field))

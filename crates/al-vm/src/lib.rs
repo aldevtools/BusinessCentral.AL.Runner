@@ -37,6 +37,8 @@ mod single_unmeasured;
 mod state;
 pub(crate) use state::*;
 mod baseline;
+mod held_login;
+pub use held_login::{HeldLogin, OwnLogin};
 mod hub_sequences;
 mod sequence_start;
 pub use sequence_start::{CommitBy, DataAccess, Interval, Reached, RefLoads, SequenceStart, TxPoint, TxPointKind};
@@ -920,6 +922,10 @@ pub struct Session {
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
+    /// The session's data holds what the run's one login wrote (`Baseline::login_held`).
+    pub(crate) login_held: Option<std::sync::Arc<HeldLogin>>,
+    /// The session's data is what a test codeunit left (`Baseline::codeunit_left`).
+    pub(crate) codeunit_left: bool,
     /// The `Engine::demo_tables` the running test's own code (not install code) wrote to (`records/op_inner.rs`): a read of
     /// one of the others is refused before the session's own code wrote it.
     demo_written: std::collections::HashSet<u32>,
@@ -1526,6 +1532,8 @@ impl Session {
             sessions_started: 0,
             install_without_client: false,
             company_built: false,
+            login_held: None,
+            codeunit_left: false,
             demo_written: Default::default(),
             gl_setup_written: false,
             setup_caption_read_early: false,
@@ -2010,7 +2018,7 @@ impl Session {
     }
 
     /// The `SessionId()` this session answers: an install session's own id, else the host's.
-    pub(crate) fn session_id(&self) -> i32 {
+    pub fn session_id(&self) -> i32 {
         self.session_id_override
             .unwrap_or_else(|| self.host.identity.session_id())
     }
