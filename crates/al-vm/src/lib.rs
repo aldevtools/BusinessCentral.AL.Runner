@@ -88,6 +88,7 @@ pub mod emit_version;
 mod empty_reads;
 mod enum_caption_ml;
 mod order_trial;
+pub use order_trial::{InstallWritten, routine_label};
 mod page_held_bindings;
 pub use empty_reads::{InstallRows, KnownValue};
 mod assigned_audit;
@@ -1901,13 +1902,6 @@ impl Session {
         self.events.order_unknown_apps = apps;
         // What a subscriber handed to its publisher lives in the install session of the app that installed (order_trial.rs).
         self.events.trial.guarded.clear();
-    }
-
-    /// The tables (object indexes) the install code of the apps under test may write. A subscriber whose install order is
-    /// not known and that stops unless it finds a row of an empty table of its own app outside this set does nothing in
-    /// either order (empty_reads.rs). `None`: not known.
-    pub fn set_install_written_tables(&mut self, tables: Option<std::collections::BTreeSet<u32>>) {
-        self.events.install_written = tables;
     }
 
     /// The company data codeunit runs (al-testrun baseline.rs): the rules that hold only while the company is built apply

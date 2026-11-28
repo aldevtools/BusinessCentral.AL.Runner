@@ -818,18 +818,12 @@ impl Session {
                 .iter()
                 .find(|&&e| self.object_app_order_unknown(e) && self.ext_trigger_matters(e, name))
         {
-            self.note_order_unknown_hit(self.engine.program.objects[e].app);
-            return unsupported(format!(
-                "{name} of table {}: a table extension in app {} while an app installs that it has no dependency path to; the \
-                 install order of the two is not known",
-                self.engine.program.objects[t.object as usize].name,
-                self.engine
-                    .program
-                    .apps
-                    .get(self.engine.program.objects[e].app as usize)
-                    .map(|a| a.name.as_str())
-                    .unwrap_or("?")
-            ));
+            let objects = &self.engine.program.objects;
+            let what = format!(
+                "{name} of table {}: {} \"{}\" in app",
+                objects[t.object as usize].name, objects[e].kind, objects[e].name
+            );
+            return unsupported(self.order_unknown_refusal(&what, objects[e].app, None));
         }
         for (o, r) in self.ext_triggers(t, name) {
             self.run_trigger(o, r, rec, xrec)?;
