@@ -37,9 +37,10 @@ mod single_unmeasured;
 mod state;
 pub(crate) use state::*;
 mod baseline;
+mod hub_sequences;
 mod sequence_start;
 pub use globaltriggers::RaiseChanges;
-pub use sequence_start::{DataAccess, SequenceStart};
+pub use sequence_start::{CommitBy, DataAccess, Interval, Reached, RefLoads, SequenceStart, TxPoint, TxPointKind};
 mod storage_checkpoint;
 pub use storage_checkpoint::{StorageCheckpoint, Unkept};
 mod capture;
@@ -154,12 +155,14 @@ mod refs;
 mod relations;
 mod rename;
 mod rename_blank_key;
+mod rename_short_field;
 mod report_handler_unshown;
 mod report_layout_export;
 mod report_layout_streams;
 mod report_no_layout_file;
 pub mod report_placeholder;
 mod report_render;
+pub use report_render::WORD_HTML_NEEDS;
 mod report_save;
 mod reports;
 mod resource_reads;
@@ -199,6 +202,7 @@ mod user_password;
 mod usertable;
 mod var_option;
 mod variant_copy;
+mod version_entry;
 mod view_empty;
 mod view_unknown;
 mod views;
@@ -206,7 +210,7 @@ mod views_cross_enum;
 mod xmlports;
 mod xrec_blobs;
 pub use install_left::InstallLeft;
-pub use resource_reads::{ReadTexts, ResourceReads};
+pub use resource_reads::{ResourceReads, TextsRead};
 pub use transactions::TxModel;
 pub use ui::{UiHandler, UiKind};
 
@@ -1027,6 +1031,11 @@ pub struct Session {
     /// last: the record's handle, the depth of `call_stack` inside the procedure and its blank xRec. A Validate of that
     /// record in the procedure's own body passes this xRec (`RecordOp::Validate`).
     pub(crate) plain_proc_xrec: Vec<(usize, usize, crate::records::Rec)>,
+    /// How many table extension insert or delete triggers run now (`Session::run_ext_trigger_unmeasured_xrec`).
+    pub(crate) ext_xrec_triggers: u32,
+    /// Per record handle, the `touched` flag of an `Insert(true)` or `Delete(true)` of the measured shape whose subscribers
+    /// or extension trigger may still run (`records/ext_trigger_xrec.rs` `AtCall`, which drops its entry when the call ends).
+    pub(crate) ext_before_watch: crate::records::ext_trigger_xrec::ExtBeforeWatch,
     /// The xRecs of the table procedures that run on a record with an xRec they share with their caller or a running call
     /// (`ProcXrec::Shared` and `ProcXrec::SharedReadOnly`), innermost last.
     pub(crate) shared_proc_xrec: Vec<crate::records::Rec>,
@@ -1473,6 +1482,8 @@ impl Session {
             validate_site: None,
             validate_sites: Vec::new(),
             plain_proc_xrec: Vec::new(),
+            ext_xrec_triggers: 0,
+            ext_before_watch: Default::default(),
             shared_proc_xrec: Vec::new(),
             iface_frames: Vec::new(),
             cx: al_data::AccessContext {
@@ -1669,6 +1680,7 @@ impl Session {
         self.note_rollback_for_stale_rule();
         al_data::Store::rollback(&mut self.store);
         self.rollbacks += 1;
+        self.note_tx_end(false);
         self.crm_rolled_back();
         self.sql.rolled_back();
         let runner_tx = self.tx.open.runner_tx;
@@ -1712,52 +1724,8 @@ impl Session {
             RtType::Record(table, temporary) => {
                 // A table declared `TableType = Temporary` is temporary for every variable
                 // (corpus record 60198 TempOnly_IsTemporary_AlwaysTrue).
-                let temporary = &(*temporary || self.engine.object_facts[*table as usize].temporary());
-                let temp_id = temporary.then(|| self.new_temp_id());
-                Value::Record(Rc::new(RefCell::new(RecordState {
-                    table: *table,
-                    temporary: *temporary,
-                    temp_id,
-                    company: None,
-                    change_company_called: false,
-                    crm: self.engine.object_facts[*table as usize].crm(),
-                    fields: self.initial_fields(*table as usize),
-                    filters: Vec::new(),
-                    decimal_cut_filters: Vec::new(),
-                    filter_group: 0,
-                    marks: Vec::new(),
-                    marked_only: false,
-                    read_isolation: 0,
-                    // A record in a test run is Validated (corpus record/TestSecurityFilteringContracts.al:161-175).
-                    security_filtering: 0,
-                    declared_security_filtering: 0,
-                    declared_security_filtering_unpinned: false,
-                    security_filtering_unpinned: false,
-                    security_filtering_array: false,
-                    key: 0,
-                    adhoc: None,
-                    ascending: true,
-                    field_descending: 0,
-                    position: None,
-                    auto_calc: Vec::new(),
-                    load: Default::default(),
-                    touched: false,
-                    assigned: false,
-                    inserted: false,
-                    dirty_base: None,
-                    is_dirty_base: al_builtins::value::DirtyBase::Fresh,
-                    last_modify: None,
-                    failed_insert: None,
-                    row_origin: None,
-                    own_read: Default::default(),
-                    rolled_read: Default::default(),
-                    probed_source: Default::default(),
-                    globals: Default::default(),
-                    unpinned_buffer: None,
-                    view_assumption: None,
-                    auto_calc_dropped: false,
-                    run_page_link: None,
-                })))
+                let temporary = *temporary || self.engine.object_facts[*table as usize].temporary();
+                Value::Record(Rc::new(RefCell::new(self.fresh_record(*table, temporary))))
             }
             // Each element of an array is a variable of its own: an array of records holds records, not
             // nulls (Tests-ERM "Discount Setup Notifications": `A: array[2] of Record "General Posting Setup"`).

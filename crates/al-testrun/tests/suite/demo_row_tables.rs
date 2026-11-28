@@ -1,7 +1,7 @@
 //! Without test data the tests run against the corpus database's company, which holds demo rows of Accounting Period and
 //! Company Information, and its General Ledger Setup row, that the runtime does not have (session-system/company/
 //! CompanyInformationValues.al:45, :89; record/captions/QdCaptionClassAreas.al:804 QF_GLSetup_CorpusRow;
-//! G/L entries, test-framework/RlWorkDateAtStart.al:48 `G/L entries exist` Yes;
+//! G/L entries, test-framework/RlWorkDateAtStart.al:48 `G/L entries exist` Yes (IsEmpty of G/L Entry is answered, not refused);
 //! ADR-047 rejected). A Count or IsEmpty of one of those dependency tables before the test wrote to it is refused, also when
 //! install code wrote a row there; once the test wrote to it, it is answered, and other reads stay answered.
 
@@ -96,7 +96,6 @@ fn a_count_of_an_empty_corpus_demo_table_is_refused() {
         "ScansAccountingPeriods",
         "CountsGeneralLedgerSetup",
         "CountsGeneralLedgerSetupAfterAnEarlierTestWroteIt",
-        "ScansGLEntries",
     ] {
         let o = outcome(&rt, name);
         assert!(matches!(o, Outcome::NotRun(_)), "{name}: {o:?}");
@@ -107,6 +106,8 @@ fn a_count_of_an_empty_corpus_demo_table_is_refused() {
         "ScansAnOtherTable",
         "WritesGeneralLedgerSetup",
         "CountsTheGLEntryItWrote",
+        // The one pinned answer: IsEmpty of G/L Entry in the corpus company is false (RlWorkDateAtStart.al:40, :48).
+        "ScansGLEntries",
     ] {
         let o = outcome(&rt, name);
         assert!(matches!(o, Outcome::Pass), "{name}: {o:?}");

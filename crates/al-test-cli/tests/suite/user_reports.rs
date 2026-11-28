@@ -1888,7 +1888,8 @@ const XAPP_E_JPEG: [u8; 307] = [
 /// al-runner issue 8061: the Published Application Logo of an app whose manifest declares a baseline JPEG logo is a media with a
 /// value and the same id on every read; its Media row holds the file's bytes unchanged, the picture's size, every other column
 /// empty, and Mime Type image/png on BC 27.5 and 28.5, image/jpeg on BC 29.0 (onprem session-system/UsAppLogoJpeg.al:82-120,
-/// pinned). A pass without an assumption. A progressive JPEG, and a JPEG of another size, stay refused.
+/// pinned). A pass without an assumption. A JPEG built otherwise stays refused; a JPEG of another size stays refused on BC 28
+/// (on 27 and 29 the sizes corpus PR 1594 measured run through an assumption: `issue_9111_jpeg_logos_of_the_measured_sizes`).
 #[test]
 fn issue_8061_extension_logo_of_an_app_with_a_jpeg_logo() {
     let main = |mime: &str| {
@@ -1919,23 +1920,24 @@ codeunit 50000 T {{ Subtype = Test;
         )
     };
     let jpeg = || Some(al_ir::AppLogo::File(XAPP_E_JPEG.to_vec()));
-    for (target, mime) in [
-        (Some("27.5"), "image/png"),
-        (Some("28.5"), "image/png"),
-        (Some("29.0"), "image/jpeg"),
-    ] {
+    for (target, mime) in JPEG_LOGO_MIME_8X8 {
         let o = run_over_system_as(target, MAIN_ID, jpeg(), None, &main(mime));
         assert_eq!(o[0].1, Outcome::Pass, "{target:?}: {o:?}");
         assert!(o[0].2.is_empty(), "{target:?}: pinned, no assumption");
     }
-    // A JPEG built otherwise than the measured one, or built so in another size than 8 x 8: not measured, refused as on main.
+    // A JPEG built otherwise than the measured one: not measured, refused as on main. One built so in another size than 8 x 8:
+    // refused on BC 28, which corpus PR 1594 did not measure on Windows.
     let sized = [
         include_bytes!("../fixtures/jpeg/wide16x8.jpg").to_vec(),
         include_bytes!("../fixtures/jpeg/big400x300.jpg").to_vec(),
     ];
-    for other in unmeasured_jpegs().into_iter().chain(sized) {
+    let runs = unmeasured_jpegs()
+        .into_iter()
+        .map(|b| (None, b))
+        .chain(sized.into_iter().map(|b| (Some("28.5"), b)));
+    for (target, other) in runs {
         let o = run_over_system_as(
-            None,
+            target,
             MAIN_ID,
             Some(al_ir::AppLogo::File(other)),
             None,
@@ -1943,6 +1945,219 @@ codeunit 50000 T {{ Subtype = Test;
         );
         assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
     }
+}
+
+/// The Mime Type of the pinned 8 x 8 JPEG logo's Media row per version (UsAppLogoJpeg.al:113-117).
+const JPEG_LOGO_MIME_8X8: [(Option<&str>, &str); 3] = [
+    (Some("27.5"), "image/png"),
+    (Some("28.5"), "image/png"),
+    (Some("29.0"), "image/jpeg"),
+];
+
+/// al-runner issue 9111: the four JPEG logos of open corpus PR 1594 (UsAppLogoJpegSizes.al: baseline 535 x 534, 16 x 8 and
+/// 400 x 300, progressive 535 x 534) on Windows BC 27.5 and 29.0: the Logo has a value, its Media row holds the file's bytes,
+/// Mime Type image/jpeg and the picture's size. A pass through assumption `app-logo-jpeg-sizes`; BC 28 stays refused, and so
+/// does the measured 535 x 534 file with a JFIF header of units 1 and 96 dpi.
+#[test]
+fn issue_9111_jpeg_logos_of_the_measured_sizes() {
+    let main = |w: i32, h: i32, len: usize| {
+        format!(
+            r#"
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure JpegLogo() var App: Record "Published Application"; Media: Record Media; InS: InStream; B: Byte; N: Integer; begin
+    App.SetRange(ID, '{MAIN_ID}');
+    App.SetRange("Tenant Visible", true);
+    if not App.FindFirst() then Error('no row');
+    if not App.Logo.HasValue() then Error('no logo');
+    Media.SetRange(ID, App.Logo.MediaId());
+    if not Media.FindFirst() then Error('no media row');
+    if Media."Mime Type" <> 'image/jpeg' then Error('mime %1', Media."Mime Type");
+    if (Media.Width <> {w}) or (Media.Height <> {h}) then Error('size %1 x %2', Media.Width, Media.Height);
+    Media.CalcFields(Content);
+    Media.Content.CreateInStream(InS);
+    while not InS.EOS() do begin InS.Read(B); N += 1; end;
+    if N <> {len} then Error('length %1', N); end; }}"#
+        )
+    };
+    let logos: [(&[u8], i32, i32); 4] = [
+        (include_bytes!("../fixtures/jpeg/base535x534.jpg"), 535, 534),
+        (include_bytes!("../fixtures/jpeg/wide16x8.jpg"), 16, 8),
+        (include_bytes!("../fixtures/jpeg/big400x300.jpg"), 400, 300),
+        (include_bytes!("../fixtures/jpeg/prog535x534.jpg"), 535, 534),
+    ];
+    for (bytes, w, h) in logos {
+        let code = main(w, h, bytes.len());
+        for target in ["27.5", "29.0"] {
+            let o = run_over_system_as(
+                Some(target),
+                MAIN_ID,
+                Some(al_ir::AppLogo::File(bytes.to_vec())),
+                None,
+                &code,
+            );
+            assert_eq!(o[0].1, Outcome::Pass, "{target} {w} x {h}: {o:?}");
+            assert_eq!(
+                o[0].2,
+                [al_builtins::assumptions::Assumption::AppLogoJpegSizes],
+                "{target}"
+            );
+        }
+        let o = run_over_system_as(
+            Some("28.5"),
+            MAIN_ID,
+            Some(al_ir::AppLogo::File(bytes.to_vec())),
+            None,
+            &code,
+        );
+        assert!(
+            matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")),
+            "28.5 {w} x {h}: {o:?}"
+        );
+    }
+    let mut dpi96 = include_bytes!("../fixtures/jpeg/base535x534.jpg").to_vec();
+    dpi96[13..18].copy_from_slice(&[1, 0, 0x60, 0, 0x60]);
+    let o = run_over_system_as(
+        Some("29.0"),
+        MAIN_ID,
+        Some(al_ir::AppLogo::File(dpi96)),
+        None,
+        &main(535, 534, 14191),
+    );
+    assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
+}
+
+/// al-runner issue 9111: the import the Guided Experience makes of an app's logo (`Icon.ImportStream(InStream, ExtensionId)`: two
+/// arguments, a Guid description, a Media field that holds none). For a logo of open corpus PR 1594 on BC 27 and 29 its Tenant
+/// Media row has the picture's size and Mime Type image/jpeg (UsAppLogoJpegSizes.al UsLogo_GuidedExperienceIcon_*), through
+/// assumption `app-logo-jpeg-sizes`, and its content is the file with bytes 14, 16 and 18 (1-based) set to 1, 0, 0 as Windows BC
+/// stores it (corpus PR 1594 at d030ce03, 'icon vs logo media, differing bytes'), of the file's length. A text description, and
+/// BC 28, keep main's 0 x 0 and the file's bytes. The other columns of the logo's own Media row refuse (the probe does not
+/// observe them).
+#[test]
+fn issue_9111_guided_experience_icon_of_a_measured_logo() {
+    let main = |description: &str, check: &str| {
+        format!(
+            r#"
+table 50001 Holder {{ fields {{ field(1; K; Integer) {{ }} field(2; Pic; Media) {{ }} }} keys {{ key(PK; K) {{ }} }} }}
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure Icon() var App: Record "Published Application"; Media: Record Media; H: Record Holder; TM: Record "Tenant Media";
+    InS: InStream; B: Byte; N: Integer; I: Integer; T: Text; Id: Guid; begin
+    Id := '{MAIN_ID}';
+    App.SetRange(ID, Id);
+    App.SetRange("Tenant Visible", true);
+    App.FindFirst();
+    Media.SetRange(ID, App.Logo.MediaId());
+    Media.FindFirst();
+    Media.CalcFields(Content);
+    Media.Content.CreateInStream(InS);
+    H.K := 1;
+    H.Pic.ImportStream(InS, {description});
+    H.Insert();
+    TM.SetRange(ID, H.Pic.MediaId());
+    TM.FindFirst();
+    {check} end; }}"#
+        )
+    };
+    let size = |w: i32, h: i32, mime: &str| {
+        format!(
+            "if (TM.Width <> {w}) or (TM.Height <> {h}) then Error('size %1 x %2', TM.Width, TM.Height); \
+             if TM.\"Mime Type\" <> '{mime}' then Error('mime %1', TM.\"Mime Type\");"
+        )
+    };
+    let length = |len: usize| {
+        format!(
+            "TM.CalcFields(Content); TM.Content.CreateInStream(InS); \
+             while not InS.EOS() do begin InS.Read(B); N += 1; end; if N <> {len} then Error('length %1', N);"
+        )
+    };
+    let header = |expected: &str| {
+        format!(
+            "TM.CalcFields(Content); TM.Content.CreateInStream(InS); \
+             while (not InS.EOS()) and (N < 18) do begin InS.Read(B); N += 1; I := B; \
+             if N in [14, 16, 18] then T += Format(I); end; \
+             if T <> '{expected}' then Error('header %1', T);"
+        )
+    };
+    let g = || {
+        Some(al_ir::AppLogo::File(
+            include_bytes!("../fixtures/jpeg/base535x534.jpg").to_vec(),
+        ))
+    };
+    let e = || Some(al_ir::AppLogo::File(XAPP_E_JPEG.to_vec()));
+    let assumed = [al_builtins::assumptions::Assumption::AppLogoJpegSizes];
+    for target in ["27.5", "29.0"] {
+        let o = run_over_system_as(
+            Some(target),
+            MAIN_ID,
+            g(),
+            None,
+            &main("Id", &size(535, 534, "image/jpeg")),
+        );
+        assert_eq!(
+            (&o[0].1, &o[0].2[..]),
+            (&Outcome::Pass, &assumed[..]),
+            "{target} G: {o:?}"
+        );
+        for (what, check) in [("length", length(14191)), ("header", header("100"))] {
+            let o = run_over_system_as(Some(target), MAIN_ID, g(), None, &main("Id", &check));
+            assert_eq!(
+                (&o[0].1, &o[0].2[..]),
+                (&Outcome::Pass, &assumed[..]),
+                "{target} G {what}: {o:?}"
+            );
+        }
+        let o = run_over_system_as(Some(target), MAIN_ID, e(), None, &main("Id", &size(8, 8, "image/jpeg")));
+        assert_eq!(
+            (&o[0].1, &o[0].2[..]),
+            (&Outcome::Pass, &assumed[..]),
+            "{target} E: {o:?}"
+        );
+        for (what, check) in [("length", length(307)), ("header", header("100"))] {
+            let o = run_over_system_as(Some(target), MAIN_ID, e(), None, &main("Id", &check));
+            assert_eq!(
+                (&o[0].1, &o[0].2[..]),
+                (&Outcome::Pass, &assumed[..]),
+                "{target} E {what}: {o:?}"
+            );
+        }
+    }
+    // Not the measured call: a text description (main's 0 x 0 stays); BC 28 (main's answer for the pinned 8 x 8 logo).
+    let o = run_over_system_as(
+        Some("29.0"),
+        MAIN_ID,
+        g(),
+        None,
+        &main("'a logo'", &size(0, 0, "application/octet-stream")),
+    );
+    assert_eq!(o[0].1, Outcome::Pass, "text description: {o:?}");
+    let o = run_over_system_as(Some("29.0"), MAIN_ID, g(), None, &main("'a logo'", &header("011")));
+    assert_eq!(o[0].1, Outcome::Pass, "text description, header: {o:?}");
+    let o = run_over_system_as(
+        Some("28.5"),
+        MAIN_ID,
+        e(),
+        None,
+        &main("Id", &size(0, 0, "application/octet-stream")),
+    );
+    assert_eq!((&o[0].1, o[0].2.is_empty()), (&Outcome::Pass, true), "28.5 E: {o:?}");
+    let o = run_over_system_as(Some("28.5"), MAIN_ID, e(), None, &main("Id", &header("011")));
+    assert_eq!(
+        (&o[0].1, o[0].2.is_empty()),
+        (&Outcome::Pass, true),
+        "28.5 E header: {o:?}"
+    );
+    // The logo's own Media row: a column the probe does not observe refuses.
+    let o = run_over_system_as(
+        Some("29.0"),
+        MAIN_ID,
+        g(),
+        None,
+        &main("Id", "if Media.Description <> '' then Error('d');"),
+    );
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Description")),
+        "G Description: {o:?}"
+    );
 }
 
 /// JPEG files built otherwise than the measured logo [`XAPP_E_JPEG`]: progressive (start-of-frame FF C2), cut after the
@@ -2002,6 +2217,31 @@ fn jfif_logo_size_takes_the_measured_structure_only() {
     assert_eq!(al_builtins::media::jfif_logo_size(wide), Some((16, 8)));
     let big = include_bytes!("../fixtures/jpeg/big400x300.jpg");
     assert_eq!(al_builtins::media::jfif_logo_size(big), Some((400, 300)));
+    // The logos of corpus PR 1594: baseline and progressive 535 x 534, each read by its own walk only, all with its JFIF header.
+    let base = include_bytes!("../fixtures/jpeg/base535x534.jpg");
+    let prog = include_bytes!("../fixtures/jpeg/prog535x534.jpg");
+    assert_eq!(al_builtins::media::jfif_logo_size(base), Some((535, 534)));
+    assert_eq!(al_builtins::media::jfif_progressive_logo_size(base), None);
+    assert_eq!(al_builtins::media::jfif_progressive_logo_size(prog), Some((535, 534)));
+    assert_eq!(al_builtins::media::jfif_logo_size(prog), None);
+    let probed = |b: &[u8]| al_builtins::media::measured_jpeg_logo(b, None);
+    use al_builtins::media::MeasuredJpegLogo::{Fixture8x8, Sized};
+    assert_eq!(probed(&base[..]), Some(Sized(535, 534)));
+    assert_eq!(probed(&prog[..]), Some(Sized(535, 534)));
+    assert_eq!(probed(&wide[..]), Some(Sized(16, 8)));
+    assert_eq!(probed(&big[..]), Some(Sized(400, 300)));
+    assert_eq!(probed(&XAPP_E_JPEG[..]), Some(Fixture8x8));
+    // The progressive walk: a restart marker in a scan, bytes after FF D9, a cut file, a scan before the frame.
+    let sos = prog.windows(2).position(|w| w == [0xFF, 0xDA]).unwrap();
+    let mut restart = prog[..sos + 15].to_vec();
+    restart.extend_from_slice(&[0xFF, 0xD0]);
+    restart.extend_from_slice(&prog[sos + 15..]);
+    let mut trailing = prog.to_vec();
+    trailing.extend_from_slice(b"GE");
+    let cut = prog[..prog.len() - 2].to_vec();
+    for other in [restart, trailing, cut] {
+        assert_eq!(al_builtins::media::jfif_progressive_logo_size(&other), None);
+    }
     for other in unmeasured_jpegs() {
         assert_eq!(
             al_builtins::media::jfif_logo_size(&other),

@@ -385,3 +385,26 @@ State the pin's lines (`pinned_body::page_lines`, `table_lines`) and require the
   and refused mid-run, where main answered.
 - Fix: one owner of what a reader gets (`conv/text_constant.rs`), called from every place a Variant's value is read. Rust
   tests that each old reader keeps main's value.
+
+## 30. A shared store reader changes its contract for one caller (al-runner PR 8665, PR 9043)
+
+- PR 9043: `committed_row_changes_from` began to compare a table the base holds no entry for with the backing's rows, for
+  the install footprint's safety net. A merge of main had added a second caller, the login image, which reads such a
+  table as whole. A login that wrote one row of a test-data table left a thawed session with that one row. Fix: an
+  explicit argument per caller (`BeforeRows::Backing` for the safety net, `BeforeRows::Empty` for the login image).
+- PR 8665: `same_unshown_marks` was added for the login reader while the footprint reader also uses it.
+
+## 31. A new store cell admits reference kinds the as-measured walk does not check (al-runner PR 9211 round 1, and the earlier ClearAll register PRs)
+
+- PR 9211: the tree cell (`Store::Tree`) admitted List, Dictionary and RecordRef globals at three levels of nodes, while
+  `register_as_measured` checked only Records and codeunits. A register List another variable shared, a node RecordRef
+  that read a row, and a node RecordRef or FieldRef another variable shared ran flagged through the entry. A first fix
+  counted holders of the RecordRef handle; `X := RR` gives `X` a new handle on the same record buffer
+  (`recordref_variant::own_copy`), so the count stayed 1. Fix: `tree_ref_as_measured` counts holders of the buffer,
+  less the instance's own RecordRef, FieldRef and KeyRef globals, and checks `state_stamp::no_row_io`.
+
+## 32. An assumption serves a probe's first observe round that BC did not answer stably (al-runner PR 9256 round 1)
+
+- PR 9256 served the cells of `SeqNextHubFunction.al` as merged in corpus PR 1580 (no Commit after OnRun). Corpus issue
+  1595 (BC 29.0) and issue 1614 (BC 28.5, even with the commits added later) showed test b reading the sequence as
+  missing now and then. The fix refuses every sequence OnRun inserted until reworked cells are pinned.

@@ -1,8 +1,0 @@
-# key	entry
-RVF N 76645::CommitSendsAfterOtherTable	REFUSED SystemRowVersion of a row of RVF Row that the open transaction inserted before a row version sent ahead of it
-RVF N 76646::ModifySendsAfterOtherTable	REFUSED SystemRowVersion of a row of RVF Row that the open transaction inserted before a row version sent ahead of it
-RVF N 76647::SqlTimestampFieldRead	REFUSED Stamp of a row of RVF Row that the open transaction inserted before a row version sent ahead of it
-RVF N 76648::QueryRowVersionColumn	REFUSED a query on SystemRowVersion of a table (RVF Row)
-RVF N 76651::DeleteInsertedRowBesideCommitted	ASSUMED row-version-write-after-insert (corpus PR 1509, merged, not pinned; a row the transaction inserted and did not write since)
-RVF N 76652::RenameInsertedRowBesideCommitted	ASSUMED row-version-write-after-insert (corpus PR 1509, merged, not pinned; a row the transaction inserted and did not write since)
-RVF N 76653::ModifyAllInsertedRowsBesideCommitted	ASSUMED row-version-write-after-insert (corpus PR 1509, merged, not pinned; a row the transaction inserted and did not write since)

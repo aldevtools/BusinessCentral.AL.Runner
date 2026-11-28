@@ -47,7 +47,33 @@ pub(crate) enum Grow {
 
 /// Whether `AL_FRESH_PASS_COMPILE` asks every pass to compile from source.
 pub fn fresh_pass_compile() -> bool {
-    std::env::var_os("AL_FRESH_PASS_COMPILE").is_some_and(|v| !v.is_empty() && v != "0")
+    crate::switches::on("AL_FRESH_PASS_COMPILE")
+}
+
+impl Grow {
+    /// ADR-063: the order of `apps` in the program of a run that grows a kept compile (the kept compile's apps first, in
+    /// its order, then its own; `KeptCompile::order_for`). When the kept compile cannot be grown, says why, turns the
+    /// growing off and gives `None`, as it does for a run that grows nothing.
+    pub(crate) fn order_or_off(
+        &mut self,
+        apps: &[al_sema::workspace::AppSource],
+        kinds: &[al_sema::AppKind],
+        manifests: &[Manifest],
+        symbols: &BTreeSet<String>,
+        target: Option<&al_version::Target>,
+    ) -> Option<Vec<usize>> {
+        let Grow::From(kept, _) = self else {
+            return None;
+        };
+        match kept.order_for(apps, kinds, manifests, symbols, target) {
+            Ok(order) => Some(order),
+            Err(why) => {
+                eprintln!("note: this pass compiles its apps from source: {why}");
+                *self = Grow::Off;
+                None
+            }
+        }
+    }
 }
 
 impl KeptCompile {

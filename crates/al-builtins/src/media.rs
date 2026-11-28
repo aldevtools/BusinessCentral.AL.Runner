@@ -38,6 +38,9 @@ pub struct MediaObject {
     pub pending: Option<std::sync::Arc<str>>,
     /// The `ImportStream` call that made this media; `None` for a media an ImportFile made.
     pub stream_call: Option<StreamCall>,
+    /// The import stored the Guided Experience icon of a logo of open corpus PR 1594 (`measured_logo_icon`), with the bytes
+    /// Windows BC stores (`windows_stored_icon_bytes`): its Tenant Media row rests on assumption `app-logo-jpeg-sizes`.
+    pub logo_icon: Option<MeasuredJpegLogo>,
 }
 
 /// An `ImportStream` call: the arguments it was given and whether it went into a Media field that held no media (`false` for an
@@ -90,28 +93,61 @@ fn jpeg_size(b: &[u8]) -> Option<(i32, i32)> {
 /// `00`, and then `FF D9` as the last two bytes. The size is read from the frame; width and height are at least 1.
 /// `None` for any other file.
 pub fn jfif_logo_size(b: &[u8]) -> Option<(i32, i32)> {
+    jfif_logo(b, 0xC0)
+}
+
+/// The size (width, height) of a progressive JPEG built as the progressive logo of open corpus PR 1594
+/// (tests/al-language-xapp-k/logo.jpg, 535 x 534, 9857 bytes): as [`jfif_logo_size`], but with a progressive start-of-frame
+/// segment (`FF C2`), then one or more start-of-scan segments of 1 to 3 components, each followed by at least one byte of
+/// coded data without a restart or other marker, Huffman tables between them, and `FF D9` as the last two bytes.
+pub fn jfif_progressive_logo_size(b: &[u8]) -> Option<(i32, i32)> {
+    jfif_logo(b, 0xC2)
+}
+
+/// The walk of [`jfif_logo_size`] (`frame` `FF C0`, one scan) and [`jfif_progressive_logo_size`] (`frame` `FF C2`, scans).
+fn jfif_logo(b: &[u8], frame: u8) -> Option<(i32, i32)> {
     let framed = b.starts_with(&[0xFF, 0xD8, 0xFF, 0xE0]) && b.get(6..11) == Some(&b"JFIF\0"[..]);
     framed.then_some(())?;
+    let progressive = frame == 0xC2;
     let mut size = None;
+    let mut scans = 0;
     let mut i = 2;
     loop {
         (*b.get(i)? == 0xFF).then_some(())?;
         let marker = *b.get(i + 1)?;
+        if progressive && marker == 0xD9 {
+            return size.filter(|_| scans > 0 && i + 2 == b.len());
+        }
         let len = usize::from(u16::from_be_bytes([*b.get(i + 2)?, *b.get(i + 3)?]));
         let segment = b.get(i + 4..i + 2 + len)?;
         match (marker, segment) {
             (0xE0, _) if i == 2 => {}
             (0xDB | 0xC4, _) => {}
-            (0xC0, [8, h1, h2, w1, w2, 3, ..]) if len == 17 && size.is_none() => {
+            (m, [8, h1, h2, w1, w2, 3, ..]) if m == frame && len == 17 && size.is_none() => {
                 let (w, h) = (u16::from_be_bytes([*w1, *w2]), u16::from_be_bytes([*h1, *h2]));
                 (w >= 1 && h >= 1).then_some(())?;
                 size = Some((i32::from(w), i32::from(h)));
             }
-            (0xDA, [3, ..]) if len == 12 => return size.filter(|_| coded_data_then_end(&b[i + 2 + len..])),
+            (0xDA, [3, ..]) if !progressive && len == 12 => {
+                return size.filter(|_| coded_data_then_end(&b[i + 2 + len..]));
+            }
+            (0xDA, [n @ 1..=3, ..]) if progressive && size.is_some() && len == 6 + 2 * usize::from(*n) => {
+                i += 2 + len + coded_data_len(&b[i + 2 + len..])?;
+                scans += 1;
+                continue;
+            }
             _ => return None,
         }
         i += 2 + len;
     }
+}
+
+/// The length of the coded data of one scan of the measured progressive logo: at least one byte, in which every `FF` is
+/// followed by `00`, up to the next marker (`FF` and a byte other than `00` and the restart markers `D0`..`D7`). `None` when
+/// a restart marker comes first, or no marker follows.
+fn coded_data_len(rest: &[u8]) -> Option<usize> {
+    let end = (0..rest.len().saturating_sub(1)).find(|&k| rest[k] == 0xFF && rest[k + 1] != 0)?;
+    (end > 0 && !(0xD0..=0xD7).contains(&rest[end + 1])).then_some(end)
 }
 
 /// Whether the bytes after the measured logo's start-of-scan header are at least one byte of coded data, in which every
@@ -125,6 +161,95 @@ fn coded_data_then_end(rest: &[u8]) -> bool {
             .iter()
             .enumerate()
             .all(|(k, &x)| x != 0xFF || coded.get(k + 1) == Some(&0))
+}
+
+/// A JPEG app logo file of open corpus PR 1594 (tests/al-language-onprem/session-system/UsAppLogoJpegSizes.al; al-runner issue
+/// 9111), which [`measured_jpeg_logo`] recognizes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeasuredJpegLogo {
+    /// Fixture E's 8 x 8 baseline logo (tests/al-language-xapp-e/logo.jpg). Its Published Application logo is pinned
+    /// (UsAppLogoJpeg.al:82-120); its Guided Experience icon is measured by the probe only (UsLogo_GuidedExperienceIcon_Jpeg8x8_AppE).
+    Fixture8x8,
+    /// One of the logos of fixtures G, H, J and K, width by height: measured by the probe only, as a Published Application logo
+    /// and as a Guided Experience icon.
+    Sized(i32, i32),
+}
+
+impl MeasuredJpegLogo {
+    /// Width and height of the picture.
+    pub fn size(self) -> (i32, i32) {
+        match self {
+            MeasuredJpegLogo::Fixture8x8 => (8, 8),
+            MeasuredJpegLogo::Sized(w, h) => (w, h),
+        }
+    }
+}
+
+/// The sizes of the baseline logos of open corpus PR 1594 (UsLogo_Jpeg535x534_AppG, UsLogo_Jpeg16x8_AppH,
+/// UsLogo_Jpeg400x300_AppJ), width by height.
+const PROBED_BASELINE_SIZES: [(i32, i32); 3] = [(535, 534), (16, 8), (400, 300)];
+
+/// The size of the progressive logo of open corpus PR 1594 (UsLogo_JpegProgressive535x534_AppK).
+const PROBED_PROGRESSIVE_SIZE: (i32, i32) = (535, 534);
+
+/// Which logo of open corpus PR 1594 `b` is built as, on a major the probe measured on Windows BC
+/// ([`al_version::app_logo_jpeg_sizes_measured`]: 27 and 29): the probe's JFIF header by equality, then a baseline walk
+/// ([`jfif_logo_size`]) of 8 x 8 (fixture E) or of one of the baseline sizes, or a progressive walk ([`jfif_progressive_logo_size`])
+/// of the progressive size. `None` for every other file and major (BC 28: only BC on Linux ran the probe, whose Mime Type
+/// differs from Windows on 27.5).
+pub fn measured_jpeg_logo(b: &[u8], target: Option<&al_version::Target>) -> Option<MeasuredJpegLogo> {
+    if !al_version::app_logo_jpeg_sizes_measured(target) || !jfif_header_of_measured_logos(b) {
+        return None;
+    }
+    match (jfif_logo_size(b), jfif_progressive_logo_size(b)) {
+        (Some((8, 8)), None) => Some(MeasuredJpegLogo::Fixture8x8),
+        (Some((w, h)), None) if PROBED_BASELINE_SIZES.contains(&(w, h)) => Some(MeasuredJpegLogo::Sized(w, h)),
+        (None, Some((w, h))) if (w, h) == PROBED_PROGRESSIVE_SIZE => Some(MeasuredJpegLogo::Sized(w, h)),
+        _ => None,
+    }
+}
+
+/// The Guided Experience icon of a logo of open corpus PR 1594: what `GuidedExperienceImpl.InsertGuidedExperienceItem` stores
+/// with `Icon.ImportStream(IconInStream, ExtensionId)` (two arguments, the app id as a Guid, into the Icon of a new item) when the
+/// stream holds such a logo (UsAppLogoJpegSizes.al UsLogo_GuidedExperienceIcon_*: Height and Width of the picture on every
+/// host, Mime Type image/jpeg on Windows BC 27.5 and 29.0). `description_is_guid`: the second argument was a Guid.
+fn measured_logo_icon(
+    c: &dyn Ctx,
+    bytes: &[u8],
+    call: StreamCall,
+    description_is_guid: bool,
+) -> Option<MeasuredJpegLogo> {
+    let icon_call = StreamCall {
+        args: 2,
+        into_empty_media: true,
+    };
+    (call == icon_call && description_is_guid)
+        .then(|| c.measured_jpeg_logo(bytes))
+        .flatten()
+}
+
+/// Whether a JPEG's APP0 segment is the JFIF header of the logos of open corpus PR 1594 (tests/al-language-xapp-e, -g, -h, -j,
+/// -k/logo.jpg), each byte by equality: length 16, "JFIF\0", version 1.01, density units 0, density 1 x 1, no thumbnail.
+fn jfif_header_of_measured_logos(b: &[u8]) -> bool {
+    b.get(2..20)
+        == Some(
+            &[
+                0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0,
+            ][..],
+        )
+}
+
+/// The bytes Windows BC stores for the Guided Experience icon of a logo of open corpus PR 1594 ([`measured_logo_icon`]): the file
+/// with 3 bytes of its JFIF header rewritten, density units (index 13) 0 -> 1 and the low bytes of the X and Y density (indexes 15
+/// and 17) 1 -> 0. Windows BC 27.5 and 29.0 stored all 5 icons so (UsAppLogoJpegSizes.al:20-23; local observe of corpus PR 1594
+/// at d030ce03, 'icon equals file' No and 'icon vs logo media, differing bytes' = '14:1/0 16:0/1 18:0/1 count 3' for fixtures E,
+/// G, H, J and K); BC on Linux differs: the corpus CI run of 12c6a982 shows Linux 27 and 28 storing a re-encoded icon of another length and Linux 29 keeping the file; the runner serves the Windows result, the reference. The length does not change on Windows ('icon length' = the file's, asserted at d030ce03). `bytes`
+/// holds the header [`jfif_header_of_measured_logos`] checked.
+fn windows_stored_icon_bytes(mut bytes: Vec<u8>) -> Vec<u8> {
+    bytes[13] = 1;
+    bytes[15] = 0;
+    bytes[17] = 0;
+    bytes
 }
 
 /// Whether a JPEG starts with a JFIF header of units 1 (dots per inch) and density 300 x 300: SOI, APP0, "JFIF\0", version,
@@ -272,7 +397,14 @@ fn import_object(c: &mut dyn Ctx, a: &[Value], empty_media: bool) -> Result<Opti
     } else {
         mime
     };
-    let (width, height) = size.unwrap_or((0, 0));
+    let logo_icon = match &pending {
+        None => measured_logo_icon(c, &bytes, stream_call, matches!(a.get(1), Some(Value::Guid(_)))),
+        _ => None,
+    };
+    let (bytes, mime, (width, height)) = match logo_icon {
+        Some(logo) => (windows_stored_icon_bytes(bytes), "image/jpeg".to_string(), logo.size()),
+        None => (bytes, mime, size.unwrap_or((0, 0))),
+    };
     store(c)?.objects.borrow_mut().insert(
         id,
         MediaObject {
@@ -285,6 +417,7 @@ fn import_object(c: &mut dyn Ctx, a: &[Value], empty_media: bool) -> Result<Opti
             height,
             pending,
             stream_call: Some(stream_call),
+            logo_icon,
         },
     );
     Ok(Some(id))
@@ -606,6 +739,7 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
             height,
             pending,
             stream_call: None,
+            logo_icon: None,
         },
     );
     if let Some(slot) = r {
@@ -678,6 +812,7 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
             height,
             pending: word.map(|_| crate::stream::MEDIA_DOCX_REZIPPED.into()),
             stream_call: None,
+            logo_icon: None,
         },
     );
     media.sets.borrow_mut().entry(set).or_default().push(member);

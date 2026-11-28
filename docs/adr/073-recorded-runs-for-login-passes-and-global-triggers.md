@@ -468,8 +468,9 @@ What is built:
   is kept only from a session that was a thaw target before its login. At most 8 starts and 64 MB per engine.
 - **The key** (`al-testrun` `login_replay.rs` `Key`) holds the inputs of decision 4 as the code shows them: the
   committed rows and the backing, the session state lines (with every field the thaw writes or keeps from its target,
-  `Session::field_lines`), company, user, run seed, test codeunit, the entry's resource texts, the client, the session
-  flags, the license, the skipped installs, the isolation and the hub, and the process settings a serve request sets.
+  `Session::field_lines`), company, user, run seed, test codeunit, the entry's resource texts (changed by the amendment
+  of 2026-11-25), the client, the session flags, the license, the skipped installs, the isolation and the hub, and the
+  process settings a serve request sets.
   *Built (2026-11-24, after acceptance):* the key also holds the engine's emit version (by its reader) and
   `refused_reads`, one digest of the engine's `unseeded` and `demo_tables`, which a kept engine resets per request and
   the login reads. Every Scratch and "Set by a run" engine field is listed under a test in `login_start/outside.rs`.
@@ -496,3 +497,39 @@ What waits until the replay is on by default:
 - the budget measurement of Phase 1 and the lowering of the temporary limit;
 - the counters of recorded runs, replays and runs not recorded in `work.json`, under the work ratchet (today they are in
   the check's report and in serve's `timings.loginReplays` and `timings.loginStarts`).
+
+### Amendment (Accepted, 2026-11-25): the login key holds the resource texts the login read
+
+Status of this section: Accepted (owner, 2026-11-25), on [al-runner issue 8211](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/8211).
+
+The login key holds only the resource texts the login read, each as its SHA-256 digest, as install-once holds them
+(`Session::resource_reads`; `NavApp.ListResources` counts as reading every file of its app), in place of every resource
+text of the run. The reads are the session's up to the end of its login, those of install code included when it ran in
+the session. The first session of a base key records them with its start. A later session takes that start only when
+its texts of those names are the same. A login that read none matches any texts. al-vm `TextsRead` (`resource_reads.rs`)
+owns "the texts of what was read are still the same" for both install-once and the login start, and al-testrun
+`login_replay::StartKey` is the base key with the texts its login read; the check finds a session's first state by the
+same rule and keeps comparing across test codeunits. The test codeunit stays in the key (al-runner issue 8211).
+
+### Amendment (Accepted, 2026-11-26): the limits of the login-start pool are settings of the run
+
+Status of this section: Accepted (owner, 2026-11-26), on [al-runner issue 8211](https://github.com/aldevtools/BusinessCentral.AL.Runner/issues/8211).
+
+The pool's two limits become settings, with the defaults of the 2026-11-24 amendment: `ALRUNNER_LOGIN_REPLAY_MAX_IMAGES`
+(starts kept, default 8) and `ALRUNNER_LOGIN_REPLAY_MAX_MB` (MiB of all kept starts, default 64), read by the front ends
+next to `ALRUNNER_LOGIN_REPLAY` and carried in the run options. A value outside the whole numbers from 1 to
+18446744073709551615 (`ALRUNNER_LOGIN_REPLAY_MAX_IMAGES`) or from 1 to 17592186044415 (`ALRUNNER_LOGIN_REPLAY_MAX_MB`)
+stops the run with an error naming the variable, also when the replay is off. `al-runner serve` reads both once when it
+starts and exits there with that error; its requests use the values read then, since the environment does not change
+while it runs (al-runner issue 9174). The 16 MB limit per start and the 64 refused keys stay fixed. A start larger than
+the smaller of 16 MB and the MB setting is not kept (`too large`). The run sets the caps on every engine it uses, kept
+ones included, and starts beyond the caps go at once, least recently used first. Kept starts are resident memory, and
+they hold at most the smaller of the MB setting and the count at 16 MB a start (al-runner issue 9173). When a memory
+limit is set (`--max-memory`, or serve's `maxMemory` per request) and a run keeps starts, the run stops before it starts
+when that most is not below the limit, with an error that names the limit and the setting that binds; a refused serve
+request leaves the kept engine and its starts as they were. The memory pool counts the room that most still leaves the
+kept starts before it admits a test thread, so a raised setting lowers the test threads of both serve and a one-shot
+run. In a one-shot run it only makes a hard stop less likely: the reserve is part of the admission check, never of the
+hard stop. No start is dropped for memory, so the hit rate never depends on timing.
+Measured on a real suite (al-runner issue 8211): 61% of entries replayed at 8 starts, 87% at 32 and 99% at 128, with 0
+differences in the check and identical answers.

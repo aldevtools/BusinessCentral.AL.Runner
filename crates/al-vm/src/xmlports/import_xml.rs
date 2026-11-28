@@ -105,7 +105,7 @@ impl Session {
             // A guarded import that fails returns false and loses its writes; the error stays
             // readable (xmlports/TestXmlPortImportWriteTx.al:StaticGuardedImport_FailingSecondElement_ReturnsFalse_AndRollsBackTheFirstRow).
             Err(Signal::Error(e)) if guarded => {
-                self.rollback_transaction();
+                self.rollback_failed_run();
                 self.hold_error(*e)?;
                 Ok(Value::Boolean(false))
             }
@@ -907,7 +907,9 @@ impl Session {
         inst.borrow_mut().globals[slot] = if schema.node(node).big_text {
             Value::Library(
                 al_builtins::library_kind::LibraryKind::BigText,
-                std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(text))),
+                std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(
+                    text.into(),
+                ))),
             )
         } else {
             Value::Text(text.into())

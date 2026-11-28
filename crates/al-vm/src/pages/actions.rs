@@ -1158,7 +1158,7 @@ impl Session {
             let r = match r {
                 Err(Signal::Error(mut e)) => {
                     let add_in = e.code == crate::control_add_in::NOT_CREATED;
-                    e.code = action_error_code(&e.code, &e.message);
+                    e.code = self.page_view_action_code(st, idx, &e, action_error_code);
                     if add_in {
                         self.read_row_after_add_in_error(st)?;
                     }
@@ -2085,13 +2085,11 @@ impl Session {
             s.open && !s.dirty && (!s.draft || s.cursor == Cursor::NewLine) && s.host.is_none()
         };
         let shape = shape && self.validate_refresh_offers_line(st, &start);
-        if !shape
-            || !self.has_source(st)
-            || !self.is_list(st)
-            || !self.declares(st, "onaftergetrecord")
-            || !self.declares(st, "onaftergetcurrrecord")
-        {
+        if !shape || !self.has_source(st) || !self.is_list(st) {
             return Ok(false);
+        }
+        if !self.declares(st, "onaftergetrecord") || !self.declares(st, "onaftergetcurrrecord") {
+            return self.empty_new_line_without_get_record(st, &start, without_curr, without_parts);
         }
         let rec = self.page_rec(st);
         let now = rec.borrow().filters.clone();

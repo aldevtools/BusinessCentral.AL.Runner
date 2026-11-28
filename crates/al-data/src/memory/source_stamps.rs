@@ -10,13 +10,9 @@
 //! from `next_stamp`, once in the whole process, and every change of the rows a table reads gives it or its company a
 //! new one, so the later of the two names one state of the table's rows. `source_stamps` follows `copies` through
 //! commit, rollback, a snapshot and a frozen store, so a rollback restores the stamp of the rows it restores.
+//! `table_stamp`, `alt_cache`, the order cache and its carry, and the collation `KeptAt` key on `stamp_of`.
 //!
-//! The source stamp of a company's untouched tables (al-runner issue 8597): they read their source's
-//! backing rows, which change with `copies` and `dropped_backed_companies` (CopyCompany,
-//! Company.Delete, rename, rollback) without a write to the table. Each such change stamps the
-//! company (`source_stamps`), and `stamp_of` (the later of the table's own stamp and its company's)
-//! is what `table_stamp`, `alt_cache`, the order cache and its carry, and the collation `KeptAt` key
-//! on. Entry points: `stamp_of`, `source_changed`. Unit tests: `memory/source_stamps_tests.rs`.
+//! Entry points: `stamp_of`, `source_changed`. Unit tests: `memory/source_stamps_tests.rs`.
 
 use super::{MemStore, Slot, next_stamp};
 use crate::pmap::PMap;

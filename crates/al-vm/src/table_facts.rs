@@ -22,6 +22,9 @@ pub(crate) struct TableFacts {
     pub(crate) insert_unqueued: bool,
     /// The positions of the Blob fields, ascending, each with its kind (`blob_transfer::FieldKind::of`).
     pub(crate) blob_fields: Box<[(usize, FieldKind)]>,
+    /// Some routine of the table or of one of its table extensions names the table's xRec (`records/ext_trigger_xrec.rs`
+    /// `table_code_names_xrec`). Worked out on first use: it reads routine bodies, which the heads do not hold.
+    pub(crate) xrec_named: std::sync::OnceLock<bool>,
 }
 
 /// The facts of each object of `heads`, by object index; an object that is no table has the default ones.
@@ -31,6 +34,7 @@ pub(crate) fn of_heads(heads: &[ir::ObjectHead]) -> Vec<TableFacts> {
         .enumerate()
         .map(|(i, o)| TableFacts {
             blob_fields: blob_fields(heads, i),
+            xrec_named: Default::default(),
             unresolved_init: o
                 .table
                 .as_ref()

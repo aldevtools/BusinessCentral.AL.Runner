@@ -18,6 +18,15 @@ dotnet
     { type("Microsoft.Dynamics.Nav.NavUserAccount.NavTenantSettingsHelper"; "NavTenantSettingsHelper") { } }
     assembly("Microsoft.Dynamics.Nav.Types")
     { type("Microsoft.Dynamics.Nav.Types.ALConfigSettings"; "ALConfigSettings") { } }
+    assembly("Microsoft.Dynamics.Nav.AzureADGraphClient")
+    { type("Microsoft.Dynamics.Nav.AzureADGraphClient.GraphQuery"; "GraphQuery") { } }
+    assembly("Microsoft.Dynamics.Nav.LicensingService.Model")
+    {
+        type("Microsoft.Dynamics.Nav.LicensingService.Model.UserInfo"; "UserInfo") { }
+        type("Microsoft.Dynamics.Nav.LicensingService.Model.ServicePlanInfo"; "ServicePlanInfo") { }
+        type("Microsoft.Dynamics.Nav.LicensingService.Model.RoleInfo"; "RoleInfo") { }
+        type("Microsoft.Dynamics.Nav.LicensingService.Model.GroupInfo"; "GroupInfo") { }
+    }
 }
 codeunit 150 "System Initialization" { procedure Raise() begin OnAfterLogin(); end;
     [IntegrationEvent(false, false, true)] procedure OnAfterLogin() begin end; }
@@ -42,6 +51,7 @@ codeunit 3702 "Environment Information Impl."
     procedure IsSaaS(): Boolean var S: Codeunit "Server Setting";
     begin if not SaaSKnown then begin SaaS := IsSandbox() or S.GetEnableMembershipEntitlement(); SaaSKnown := true; end; exit(SaaS); end;
     procedure IsSandbox(): Boolean begin if not SandboxKnown then begin {env} SandboxKnown := true; end; exit(Sandbox); end;
+    {graph}
 }
 codeunit 6723 "Server Setting"
 {
@@ -89,11 +99,33 @@ fn run(env: &str, srv: &str, tests: &str, isolation: TestIsolation) -> OutcomesA
     run_with(env, srv, "", tests, isolation)
 }
 
+/// [`run`] with `graph`, a procedure of the 3702 stand-in that `env` may call.
+fn run_graph(env: &str, graph: &str) -> OutcomesAndHits {
+    run_graph_with(env, SRV, "", NO_MEMO, TestIsolation::Disabled, graph)
+}
+
 /// [`run`] with `extra`, more statements of the subscriber's procedure `M Seen.Record`.
 fn run_with(env: &str, srv: &str, extra: &str, tests: &str, isolation: TestIsolation) -> OutcomesAndHits {
+    run_graph_with(env, srv, extra, tests, isolation, "")
+}
+
+fn run_graph_with(
+    env: &str,
+    srv: &str,
+    extra: &str,
+    tests: &str,
+    isolation: TestIsolation,
+    graph: &str,
+) -> OutcomesAndHits {
     outcomes_and_hits_with(
         &[
-            ("dep", &[], &DEP.replace("{env}", env).replace("{srv}", srv)),
+            (
+                "dep",
+                &[],
+                &DEP.replace("{env}", env)
+                    .replace("{srv}", srv)
+                    .replace("{graph}", graph),
+            ),
             (
                 "main",
                 &["dep"],
@@ -177,4 +209,111 @@ fn a_known_subscriber_that_only_fills_the_memos_runs_for_a_test_that_reads_sessi
     let (o, hits) = run(ENV, SRV, READS_STATE, TestIsolation::Disabled);
     assert!(o.iter().all(|(_, r)| *r == Outcome::Pass), "{o:?}");
     assert!(hits.iter().all(|(_, h)| h.is_empty()), "{hits:?}");
+}
+
+/// A stand-in of System Application's Azure AD Plan path on a tier without Entra ID: the GraphQuery constructor,
+/// GetCurrentUser (null), and the UserInfo and GraphQuery members behind `not IsNull`, which the walk reaches although
+/// they do not run. `{vars}` adds locals, `{more}` statements in that branch.
+const GRAPH: &str = "local procedure Graph() var G: DotNet GraphQuery; U: DotNet UserInfo; {vars}
+    begin G := G.GraphQuery(); U := G.GetCurrentUser(); if G.GetEnvironmentDirectoryGroup() = '' then;
+    if not IsNull(U) then begin if Format(U.ObjectId()) = '' then; if IsNull(U.Roles()) or IsNull(U.Groups()) then;
+    U := G.GetUserByObjectId(''); U := G.GetUser('u'); if G.IsGroupMember('a', 'b') then; {more} end; end;";
+
+// Corpus PR 1612 (assumption graph-no-directory-members): a login memo that reaches only the Graph members the corpus
+// measures runs like one that reaches only the memo members (the walk marks them answer-only). Nothing that runs marks
+// the entry: GetCurrentUser answers null, so the branch with the UserInfo members is skipped.
+#[test]
+fn a_memo_that_reaches_only_the_measured_graph_members_runs_with_the_subscriber_alone() {
+    let (o, hits) = run_graph(
+        &format!("Graph(); {ENV}"),
+        &GRAPH.replace("{vars}", "").replace("{more}", ""),
+    );
+    assert!(o.iter().all(|(_, r)| *r == Outcome::Pass), "{o:?}");
+    assert!(hits.iter().all(|(_, h)| h.is_empty()), "{hits:?}");
+}
+
+// Corpus PR 1612 cell "ServicePlanInfo/RoleInfo/GroupInfo members: not reachable on this tier" (assumption
+// graph-no-directory-members): the members of the item of a foreach over AssignedPlans, Roles or Groups of a UserInfo
+// are called only in a body that never runs, as reading the collection raises first. The walk counts them answer-only.
+#[test]
+fn members_of_the_item_of_a_foreach_over_a_user_info_collection_run_with_the_subscriber_alone() {
+    for (vars, more) in [
+        (
+            "P: DotNet ServicePlanInfo;",
+            "foreach P in U.AssignedPlans() do if Format(P.ServicePlanId()) + P.CapabilityStatus() = '' then;",
+        ),
+        (
+            "R: DotNet RoleInfo;",
+            "foreach R in U.Roles() do if R.DisplayName() = '' then;",
+        ),
+        (
+            "I: DotNet GroupInfo;",
+            "foreach I in U.Groups() do if I.DisplayName() = '' then;",
+        ),
+        (
+            "I: DotNet GroupInfo;",
+            "foreach I in U.Groups() do if I.DisplayName().ToUpper() = '' then;",
+        ),
+    ] {
+        let graph = GRAPH.replace("{vars}", vars).replace("{more}", more);
+        let (o, hits) = run_graph(&format!("Graph(); {ENV}"), &graph);
+        assert!(o.iter().all(|(_, r)| *r == Outcome::Pass), "{graph}: {o:?}");
+        assert!(hits.iter().all(|(_, h)| h.is_empty()), "{graph}: {hits:?}");
+    }
+}
+
+// Neighbors that keep main's refusal: an item member outside the foreach body, in a body that assigns the item, on an
+// item from `:=` or from GraphQuery.GetGroupInfo, a GraphQuery member corpus PR 1612 does not measure, and another
+// UserInfo member, Format of a DotNet local, and a call on an item member's result after the body.
+#[test]
+fn a_memo_that_reaches_unmeasured_graph_members_keeps_the_refusal() {
+    let plan = "P: DotNet ServicePlanInfo; L: DotNet ServicePlanInfo;";
+    for (vars, more) in [
+        (
+            plan,
+            "foreach P in U.AssignedPlans() do; if Format(P.ServicePlanId()) = '' then;",
+        ),
+        (
+            plan,
+            "foreach P in U.AssignedPlans() do begin P := L; if Format(P.ServicePlanId()) = '' then; end;",
+        ),
+        (plan, "P := L; if Format(P.ServicePlanId()) = '' then;"),
+        (
+            "I: DotNet GroupInfo;",
+            "I := G.GetGroupInfo('x'); if I.DisplayName() = '' then;",
+        ),
+        ("", "if G.GetTenantDetail().InitialDomain() = '' then;"),
+        ("", "if U.DisplayName() = '' then;"),
+        (plan, "if Format(L) = '' then;"),
+        (
+            "I: DotNet GroupInfo;",
+            "foreach I in U.Groups() do; if I.DisplayName().ToUpper() = '' then;",
+        ),
+    ] {
+        let graph = GRAPH.replace("{vars}", vars).replace("{more}", more);
+        kept_not_run(&run_graph(&format!("Graph(); {ENV}"), &graph), &graph);
+    }
+}
+
+// A DotNet local of a class nothing serves, declared and never used, is no state write: a declaration only sets the
+// variable to null (al-builtins `Value::default_for`). The ServicePlanInfo local of Azure AD Plan Impl. alone leaves
+// the walk as it was without it.
+#[test]
+fn a_dotnet_local_that_is_only_declared_does_not_keep_the_refusal() {
+    let graph = GRAPH
+        .replace("{vars}", "P: DotNet ServicePlanInfo;")
+        .replace("{more}", "");
+    let (o, hits) = run_graph(&format!("Graph(); {ENV}"), &graph);
+    assert!(o.iter().all(|(_, r)| *r == Outcome::Pass), "{o:?}");
+    assert!(hits.iter().all(|(_, h)| h.is_empty()), "{hits:?}");
+}
+
+// A foreach over a DotNet variable enumerates it without a member call in the code: the walk keeps it as code it
+// does not follow, as the variable's declaration did before.
+#[test]
+fn a_foreach_over_a_dotnet_variable_keeps_the_refusal() {
+    let graph = GRAPH
+        .replace("{vars}", "P: DotNet ServicePlanInfo; L: DotNet ServicePlanInfo;")
+        .replace("{more}", "foreach P in L do;");
+    kept_not_run(&run_graph(&format!("Graph(); {ENV}"), &graph), &graph);
 }

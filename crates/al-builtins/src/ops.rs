@@ -15,6 +15,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
 
+mod decimal_overflow;
 mod quotient;
 use quotient::whole_quotient;
 
@@ -254,7 +255,7 @@ pub fn convert(v: Value, t: &RtType) -> Result<Value, Signal> {
         // A Text (not a literal) assigns into a SecretText (types/TestSecretText.al).
         (Value::Text(s) | Value::Code(s), T::Library(n)) if n.eq_ignore_ascii_case("SecretText") => Value::Library(
             "SecretText".into(),
-            Rc::new(RefCell::new(LibraryValue::Text(s.to_string()))),
+            Rc::new(RefCell::new(LibraryValue::Text(s.to_string().into()))),
         ),
         (v @ Value::Enum(from, _), T::Enum(to)) if from == *to => v,
         // An enum of another type converts by its ordinal; an ordinal the target lacks is kept (Format shows
@@ -600,13 +601,7 @@ pub fn arith(op: Arith, l: &Value, r: &Value) -> Result<Value, Signal> {
             let (Some(a), Some(b)) = (as_decimal(l), as_decimal(r)) else {
                 unreachable!("Decimal and Integer are numbers")
             };
-            let res = match op {
-                Arith::Add => a.checked_add(b),
-                Arith::Sub => a.checked_sub(b),
-                _ => a.checked_mul(b),
-            }
-            .ok_or_else(|| Signal::Unsupported("decimal overflow".into()))?;
-            return Ok(V::Decimal(keep_18_digits(res)));
+            return decimal_overflow::sum_difference_product(op, (l, a), (r, b));
         }
     }
     // An arithmetic cell of the conversion matrix (`conv`).
@@ -1372,6 +1367,11 @@ pub fn equal_operator(l: &Value, r: &Value) -> Result<bool, Signal> {
 /// `=`, `<>`, `<`, ... on two values in AL code: as [`compare`], except that an undefined date against 0001-01-01 raises
 /// (types/date-time/Arithmetic.al:Date_Comparisons `af72`, `af75`, `af79`).
 pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering, Signal> {
+    // A Text with a lone surrogate half answers only against another Text (`lone_half_operator`); against any other operand
+    // (a Char, a Code) every operator keeps main's refusal: the probe compares Texts only (LtSurrogateHalves.al Op 20-99).
+    if let Some(at) = lone_half_beside_other(l, r) {
+        return Err(Signal::unsupported(crate::text::unaudited_reason(at)));
+    }
     // A comparison cell of the conversion matrix (`conv`).
     if let Some(o) = crate::conv::compare_cell(l, r, ordered) {
         return o;
@@ -1415,7 +1415,67 @@ pub fn compare_operator(l: &Value, r: &Value, ordered: bool) -> Result<Ordering,
             return Ok(if a == b { Ordering::Equal } else { a.cmp(b) });
         }
     }
+    if let (Value::Text(a), Value::Text(b)) = (l, r) {
+        if a.has_lone() || b.has_lone() {
+            return lone_half_operator(a, b, ordered);
+        }
+    }
     if ordered { compare_order(l, r) } else { compare(l, r) }
+}
+
+/// Where a Text with a lone surrogate half meets an operand that is no Text: the caller's site, for the refusal.
+#[track_caller]
+fn lone_half_beside_other(l: &Value, r: &Value) -> Option<&'static std::panic::Location<'static>> {
+    let lone = |v: &Value| matches!(v, Value::Text(t) if t.has_lone());
+    let both_text = matches!((l, r), (Value::Text(_), Value::Text(_)));
+    if (lone(l) || lone(r)) && !both_text {
+        return Some(std::panic::Location::caller());
+    }
+    None
+}
+
+/// `<=` and `>=`: as [`compare_operator`], except that two Texts with a lone surrogate half keep main's refusal: the probe
+/// (LtSurrogateHalves.al Ops_cmp_1..10) measures `=`, `<>`, `<` and `>` only.
+pub fn compare_operator_or_equal(l: &Value, r: &Value) -> Result<Ordering, Signal> {
+    match (l, r) {
+        (Value::Text(a), Value::Text(b)) if a.has_lone() || b.has_lone() => Ok(a.cmp(b)),
+        _ => compare_operator(l, r, true),
+    }
+}
+
+/// The high and the low half of U+1F600, the two lone halves the probe orders (LtSurrogateHalves.al `Hi`, `Lo`).
+const HI: u16 = 0xD83D;
+const LO: u16 = 0xDE00;
+
+/// Whether the probe orders the lone half `h` against `o` (LtSurrogateHalves.al Op 22-99, `<` and `>`): `Hi` against
+/// `'a'`, `'z'`, `''`, `Hi`, `Lo`, U+FFFD, `'abc'` and `'a' + Hi`; `Lo` against `Hi`, `'a'`, U+FFFD, `'abc'` and `'~'`.
+/// The order against a whole pair contradicts the unit order (Ops_cmp_4) and is not in the list.
+fn order_measured(h: &[u16], o: &[u16]) -> bool {
+    const A: u16 = 0x61;
+    match h {
+        [HI] => matches!(
+            o,
+            [A] | [0x7A] | [] | [HI] | [LO] | [0xFFFD] | [A, 0x62, 0x63] | [A, HI]
+        ),
+        [LO] => matches!(o, [HI] | [A] | [0xFFFD] | [A, 0x62, 0x63] | [0x7E]),
+        _ => false,
+    }
+}
+
+/// `=`, `<>`, `<`, `>` of two Texts, one of which holds half of a surrogate pair (LtSurrogateHalves.al Ops_cmp_1..10, the
+/// cells of Op 20-99). `=` and `<>`: equal only to the same units, as the case-sensitive exact equality of plain Text
+/// (types/TestFormatEvaluateTextContracts.al:171). `<` and
+/// `>`: answered by UTF-16 unit only for a pair [`order_measured`] names, in either order; any other order refuses
+/// (`Txt::cmp`).
+fn lone_half_operator(a: &crate::text::Txt, b: &crate::text::Txt, ordered: bool) -> Result<Ordering, Signal> {
+    let (ua, ub) = (a.units(), b.units());
+    let answered = !ordered || order_measured(&ua, &ub) || order_measured(&ub, &ua);
+    if answered {
+        crate::text::half_kept(&[a, b]);
+        Ok(ua.cmp(&ub))
+    } else {
+        Ok(a.cmp(b))
+    }
 }
 
 /// Ordering for `<`, `<=`, `>` and `>=`: as [`compare`], except that text follows the culture order

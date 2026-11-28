@@ -1,0 +1,3 @@
+# Each test in a session of its own: a refusal on main must not stop the tests after it.
+--isolation
+test

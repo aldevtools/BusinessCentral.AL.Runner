@@ -1,4 +1,0 @@
-# key	entry
-# Main cleared the interface and left the shared instance as it was; the corpus measures the interface holder for another store
-# only (corpus PR 1564 ClearSharedCodeunitStoreShapes.al:2001), so head refuses. RecordHolderClearAll: main and head agree.
-RH ClearAll Tests::InterfaceHolderClearAll	REFUSED ClearAll of a global interface variable whose codeunit instance another variable shares

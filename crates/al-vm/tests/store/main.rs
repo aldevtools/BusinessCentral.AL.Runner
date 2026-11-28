@@ -1,5 +1,6 @@
 //! The tests of one area in one binary (ADR-037 item 5): fewer binaries to link. Each module is a file of store/.
 
+mod adhoc_keys_shared_slot;
 mod assigned_audit_fields;
 mod autoinc_non_key;
 mod blob_assign_in_memory_calcfields;
@@ -28,6 +29,7 @@ mod datetime_filter_empty_text;
 mod decimal_store_truncation;
 mod delete_all_cascade;
 mod delete_all_flowfield_filter;
+mod demo_gl_entry_is_empty;
 mod dupkey_after_event;
 mod duplicate_insert_buffer;
 mod fieldref_blob_unloaded;
@@ -180,6 +182,7 @@ mod transferfields_removed_field_neighbors;
 mod transferfields_size;
 mod truncate_database_delete;
 mod unpinned_record_paths;
+mod unseeded_install_delete_all;
 mod user_account_keys;
 mod user_gaps_filters;
 mod userpersonalization;

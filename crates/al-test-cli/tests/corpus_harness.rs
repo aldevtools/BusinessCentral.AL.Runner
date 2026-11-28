@@ -457,6 +457,9 @@ fn commit_oracle(root: &Path) {
     if root.join("not-passing.txt").exists() {
         git(&["add", "not-passing.txt"]);
     }
+    if root.join("metrics").exists() {
+        git(&["add", "metrics"]);
+    }
     git(&["commit", "-q", "-m", "base"]);
 }
 
@@ -533,6 +536,132 @@ fn list_changes_tells_accepted_regressions_from_new_cases() {
     let (code, md) = changes("");
     assert_eq!(code, 0, "{md}");
     assert!(md.contains("No list changed."), "{md}");
+}
+
+/// Runs the CLI on a fixture root in BC's order (`AL_STRICT_ORDER_ALL=1`, ADR-070 decision 5) against the default list
+/// `list` and the strict list `strict` (`metrics/27/strict-order-not-run.txt`), with `extra` flags. Returns the exit
+/// code and standard error.
+fn run_strict(root: &Path, list: &str, strict: &str, extra: &[&str]) -> (i32, String) {
+    let base = root.join("not-passing.txt");
+    std::fs::write(&base, list).unwrap();
+    std::fs::create_dir_all(root.join("metrics/27")).unwrap();
+    std::fs::write(root.join("metrics/27/strict-order-not-run.txt"), strict).unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
+        .env("AL_STRICT_ORDER_ALL", "1")
+        .arg("--root")
+        .arg(root)
+        .args(["--no-deps", "--bc-version", "27", "--baseline"])
+        .arg(&base)
+        .args(extra)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&o.stderr).to_string(),
+    )
+}
+
+// ADR-070 decision 5 (orchestrator decision of 2026-11-23): the whole corpus in BC's order holds the default lists plus
+// the strict list. The strict list excuses a case that is not run, never one that fails.
+#[test]
+fn in_bcs_order_an_unlisted_failure_fails_the_run_and_the_strict_list_does_not_excuse_it() {
+    let root = root_with_a_failing_test();
+    let (code, err) = run_strict(root.path(), "60900 FailsOnPurpose\n", "", &[]);
+    assert_eq!(code, 0, "{err}");
+    let (code, err) = run_strict(root.path(), "", "", &[]);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("60900 FailsOnPurpose  [fail: the harness fixture fails on purpose]"),
+        "{err}"
+    );
+    let (code, err) = run_strict(root.path(), "", "# not run: x\n60900 FailsOnPurpose\n", &[]);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("60900 FailsOnPurpose  [fail: the harness fixture fails on purpose]"),
+        "{err}"
+    );
+}
+
+// A default line whose case passes in BC's order belongs to the default run: printed, never stale, never pruned. A strict
+// line whose case passes is stale; `--prune-not-passing` deletes it from the strict list alone and keeps the comments.
+#[test]
+fn in_bcs_order_only_the_strict_list_has_stale_lines_and_pruning_never_writes_a_default_list() {
+    let root = root_with_a_failing_test();
+    let default = "60900 FailsOnPurpose\n60900 Passes\n";
+    let (code, err) = run_strict(root.path(), default, "", &[]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        err.contains("of the default not-passing list pass in BC's order") && err.contains("60900 Passes"),
+        "{err}"
+    );
+    let strict = "# header\n\n# not run: a reason\n60900 Passes\n";
+    let (code, err) = run_strict(root.path(), "60900 FailsOnPurpose\n", strict, &[]);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("strict-order-not-run.txt") && err.contains("60900 Passes  [passes]"),
+        "{err}"
+    );
+    assert!(err.contains("AL_STRICT_ORDER_ALL=1 al-test-cli"), "{err}");
+    let (code, err) = run_strict(root.path(), default, strict, &["--prune-not-passing"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("not-passing.txt")).unwrap(),
+        default
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("metrics/27/strict-order-not-run.txt")).unwrap(),
+        "# header\n"
+    );
+    let (code, err) = run_strict(root.path(), default, "", &["--list-new-cases", "HEAD"]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("AL_STRICT_ORDER_ALL"), "{err}");
+}
+
+// The strict list only shrinks: `--list-changes` exits 3 on a line added against a base branch that has the file, and
+// takes a base without the file as the change that seeds it.
+#[test]
+fn list_changes_refuses_a_line_added_to_the_strict_list() {
+    let root = root_with_a_failing_test();
+    let toml = root.path().join("oracle/oracle.toml");
+    let t = std::fs::read_to_string(&toml)
+        .unwrap()
+        .replace("metrics/27/not-passing.txt", "not-passing.txt");
+    std::fs::write(&toml, t).unwrap();
+    std::fs::write(root.path().join("not-passing.txt"), "").unwrap();
+    let strict = root.path().join("metrics/27/strict-order-not-run.txt");
+    std::fs::create_dir_all(strict.parent().unwrap()).unwrap();
+    let changes = |text: &str| {
+        std::fs::write(&strict, text).unwrap();
+        let o = Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
+            .arg("--root")
+            .arg(root.path())
+            .args(["--list-changes", "HEAD"])
+            .output()
+            .unwrap();
+        (
+            o.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&o.stdout).to_string(),
+        )
+    };
+    // The base has no strict list yet: seeding it is no addition.
+    let seed = |root: &Path| {
+        let _ = std::fs::remove_dir_all(root.join("metrics"));
+        commit_oracle(root);
+        std::fs::create_dir_all(root.join("metrics/27")).unwrap();
+    };
+    seed(root.path());
+    let (code, md) = changes("60900 FailsOnPurpose\n");
+    assert_eq!(code, 0, "{md}");
+    std::fs::remove_dir_all(root.path().join(".git")).unwrap();
+    commit_oracle(root.path());
+    let (code, md) = changes("60900 FailsOnPurpose\n60900 Passes\n");
+    assert_eq!(code, 3, "{md}");
+    assert!(
+        md.contains("strict-order-not-run.txt") && md.contains("60900 Passes"),
+        "{md}"
+    );
+    let (code, md) = changes("");
+    assert_eq!(code, 0, "{md}");
 }
 
 /// The corpus app depends on corpus apps next to it (corpus `tests/al-language/app.json`: the internals fixture and the
@@ -1038,7 +1167,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // not measured on main alone; CI on the train is the check.
     // Exact runner frames by routing (CallstackRunnerFrames.al, corpus pin c4efa9eb) add the eight
     // CallstackRunnerFrames_Plain_* cases of 69950: a codeunit without handlers has no runner frames from BC 28 on.
-    assert!(out.contains("runtime: 57 case(s) differ between versions"), "{out}");
+    // Branch batch-carried-state makes it 47: the ten RqIsolationModes.al cases of 88512-88515 pass on BC 28 and 29 too.
+    // An OnRun now joins the chain by what its reach inserts (the 130450 codeunits 60161-60194 call ALTFixtureCleanup), so
+    // the last carry before 88512 is a 130450 one; the hub leg runs before the 130450 leg (RqIsolationModes.al:12).
+    assert!(out.contains("runtime: 47 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 
@@ -1197,6 +1329,7 @@ fn a_suite_baseline_ratchets_that_extra_app_and_no_ratchet_ignores_it() {
 /// The JUnit files of a run (the main app's and the extra suites'), with the per-test times
 /// removed: everything else (outcome, reason, flagged assumptions) must be the same between two
 /// runs of one build on one corpus.
+#[cfg(unix)] // its only user, the thread-and-HOME test below, is unix only
 fn outcomes_of(dir: &Path, stem: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for e in std::fs::read_dir(dir).unwrap() {

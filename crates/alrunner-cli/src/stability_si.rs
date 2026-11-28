@@ -4,14 +4,20 @@
 //! reason) and "reads carried state, outcome unchanged" (`readsCarried`: "checked" when the run had a `fresh` variant,
 //! else "not checked").
 //!
+//! ADR-070 decision 7: the `fresh` variant is a plain default (isolated) run and the base variant a plain run in BC's
+//! order, so a flip under the dimension can have any cause. Its reason names the globals read (a codeunit of the list
+//! above), else "took numbers from sequence S after test codeunit X" (what the fresh run noted of the test, whatever its
+//! outcome there: `CorpusRuntime::numbers_taken_after`), else "cause not known" ([`SiReport::with_fresh_runs`]).
+//!
 //! the order dependence part of a stability report (ADR-058 amendment 1, decisions 4 to 6):
 //! `SiReport::new` from the base variant's `CorpusRuntime::single_carried` (dependency apps marked
 //! against the apps under test), the console section "Order dependence (SingleInstance state)"
 //! (`lines`), `flips[].reason` (`reason`), `readsCarried` (`reads_carried`), the JUnit reason line
 //! and the property `singleInstanceCarried`. Wired in by `stability::Outcome::with_single_instance`.
 
-use al_testrun::runtime::CarriedCodeunit;
+use al_testrun::runtime::{CarriedCodeunit, NumbersTaken, TakenAfter};
 use al_testrun::stability::{Change, Kind, Seen};
+use std::collections::BTreeMap;
 
 /// The console part lists at most this many codeunits that read carried state with an unchanged outcome; the JSON
 /// holds all (decision 6).
@@ -34,7 +40,15 @@ pub struct SiReport {
     pub entries: Vec<Entry>,
     /// The run had an `isolation.singleInstance = fresh` variant.
     pub checked: bool,
+    /// ADR-070 decision 7: per `fresh` variant (its index) and test (`Codeunit<id>.<test>`), the numbers the test took
+    /// after an earlier codeunit took some, from the fresh run (`CorpusRuntime::numbers_taken_after`).
+    pub numbers: BTreeMap<(usize, String), String>,
+    /// The outcomes of the first `fresh` variant, for the notes of `readsCarried`.
+    pub fresh: Vec<Seen>,
 }
+
+/// The reason of a flip under the dimension that names no globals read (ADR-070 decision 7).
+const CAUSE_NOT_KNOWN: &str = "cause not known";
 
 /// `Codeunit<id>.<test>` split.
 fn split(test: &str) -> Option<(u32, &str)> {
@@ -90,7 +104,49 @@ impl SiReport {
         SiReport {
             entries,
             checked: plan.variants.iter().any(|v| v.perturb.single_fresh),
+            ..SiReport::default()
         }
+    }
+
+    /// [`SiReport::new`] from the base variant's run `base`, then [`SiReport::with_fresh_runs`] of `base` and the other
+    /// variants' runs `variants`, in the plan's order.
+    pub fn of_runs(
+        base: &al_testrun::runtime::CorpusRuntime,
+        variants: &[al_testrun::runtime::CorpusRuntime],
+        own_apps: &[String],
+        plan: &crate::stability::Plan,
+        seen: &[Vec<Seen>],
+    ) -> SiReport {
+        let taken: Vec<_> = std::iter::once(base)
+            .chain(variants)
+            .map(|r| r.numbers_taken_after())
+            .collect();
+        SiReport::new(base.single_carried(), own_apps, plan).with_fresh_runs(plan, &taken, seen)
+    }
+
+    /// ADR-070 decision 7: what the `fresh` variants' own runs tell: the numbers each of their tests took after an
+    /// earlier codeunit took some, and the outcomes of the first. `taken_after` and `seen` hold every variant's, in the
+    /// plan's order.
+    pub fn with_fresh_runs(
+        mut self,
+        plan: &crate::stability::Plan,
+        taken_after: &[&[TakenAfter]],
+        seen: &[Vec<Seen>],
+    ) -> SiReport {
+        let fresh: Vec<usize> = (0..taken_after.len())
+            .filter(|&v| plan.variants.get(v).is_some_and(|x| x.perturb.single_fresh))
+            .collect();
+        for &v in &fresh {
+            for (codeunit, test, numbers) in taken_after[v] {
+                let text: Vec<String> = numbers.iter().map(NumbersTaken::text).collect();
+                self.numbers
+                    .insert((v, crate::run::qualified(*codeunit, test)), text.join("; "));
+            }
+        }
+        if let Some(s) = fresh.first().and_then(|&v| seen.get(v)) {
+            self.fresh = s.clone();
+        }
+        self
     }
 
     fn entry_of(&self, test: &str) -> Option<&Entry> {
@@ -122,13 +178,22 @@ impl SiReport {
         if !Self::is_si_flip(plan, c) {
             return None;
         }
-        let e = self.entry_of(&c.test)?;
         let kind = if c.base == Kind::Pass {
             "passesOnlyAfterEarlierCodeunits"
         } else {
             "failsOnlyAfterEarlierCodeunits"
         };
-        Some(serde_json::json!({ "kind": kind, "isolation": e.c.isolation, "reads": reads_json(e) }))
+        Some(match self.entry_of(&c.test) {
+            Some(e) => serde_json::json!({ "kind": kind, "isolation": e.c.isolation, "reads": reads_json(e) }),
+            None => serde_json::json!({ "kind": kind, "reads": [], "cause": self.other_cause(c) }),
+        })
+    }
+
+    /// The reason of flip `c` when its codeunit read no carried globals: the numbers it took, or "cause not known".
+    fn other_cause(&self, c: &Change) -> &str {
+        self.numbers
+            .get(&(c.variant, c.test.clone()))
+            .map_or(CAUSE_NOT_KNOWN, String::as_str)
     }
 
     /// The one-line reason a JUnit failure message adds.
@@ -136,8 +201,10 @@ impl SiReport {
         if !Self::is_si_flip(plan, c) {
             return None;
         }
-        let e = self.entry_of(&c.test)?;
-        Some(reads_text(e))
+        Some(match self.entry_of(&c.test) {
+            Some(e) => reads_text(e),
+            None => self.other_cause(c).to_string(),
+        })
     }
 
     /// The JUnit property `singleInstanceCarried` of a test of the base variant: the reads of its codeunit when it is in
@@ -166,7 +233,7 @@ impl SiReport {
                     "isolation": e.c.isolation,
                     "inChain": e.c.in_chain,
                     "outcome": outcome,
-                    "checked": self.checked && e.c.fresh.is_some(),
+                    "checked": self.checked && self.fresh.iter().any(|s| split(&s.test).is_some_and(|(id, _)| id == e.c.codeunit)),
                     "note": note,
                     "reads": reads_json(e),
                 })
@@ -187,18 +254,15 @@ impl SiReport {
             "not run"
         };
         let mut note = None;
-        for (test, o) in e.c.fresh.iter().flatten() {
-            let Some(s) = mine.iter().find(|s| s.test[prefix.len()..].eq_ignore_ascii_case(test)) else {
+        for f in self.fresh.iter().filter(|f| f.test.starts_with(&prefix)) {
+            let Some(s) = mine.iter().find(|s| s.test.eq_ignore_ascii_case(&f.test)) else {
                 continue;
             };
-            let fresh_msg = match o {
-                al_testrun::Outcome::Fail(m) | al_testrun::Outcome::NotRun(m) => m.as_str(),
-                al_testrun::Outcome::Pass => "",
-            };
+            let fresh_msg = f.message.as_str();
             if s.message.starts_with(TIME_LIMIT) || fresh_msg.starts_with(TIME_LIMIT) {
                 return (outcome, Some("not compared (time limit)".into()));
             }
-            if s.kind == Kind::Fail && matches!(o, al_testrun::Outcome::Fail(_)) && s.message != fresh_msg {
+            if s.kind == Kind::Fail && f.kind == Kind::Fail && s.message != fresh_msg {
                 note = Some(format!(
                     "fails either way, with another message: {} (carried) against {} (fresh)",
                     first_line(&s.message),
@@ -210,9 +274,13 @@ impl SiReport {
     }
 
     /// The console section "Order dependence (SingleInstance state)" (decision 6), empty when no codeunit read carried
-    /// state.
+    /// state and no other test flipped under the dimension (ADR-070 decision 7).
     pub fn lines(&self, plan: &crate::stability::Plan, changes: &[Change], base: &[Seen]) -> Vec<String> {
-        if self.entries.is_empty() {
+        let others: Vec<&Change> = changes
+            .iter()
+            .filter(|c| Self::is_si_flip(plan, c) && self.entry_of(&c.test).is_none())
+            .collect();
+        if self.entries.is_empty() && others.is_empty() {
             return Vec::new();
         }
         let mut lines = vec![String::new(), "Order dependence (SingleInstance state):".to_string()];
@@ -275,6 +343,12 @@ impl SiReport {
                     "    and {} more (--output-json lists all)",
                     rest.len() - CONSOLE_LIMIT
                 ));
+            }
+        }
+        if !others.is_empty() {
+            lines.push("  Other flips in the default isolated run:".into());
+            for c in others {
+                lines.push(format!("    {}: {}", c.test, self.other_cause(c)));
             }
         }
         lines

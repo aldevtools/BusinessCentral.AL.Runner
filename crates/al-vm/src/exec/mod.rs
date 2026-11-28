@@ -234,6 +234,10 @@ pub(crate) enum Op {
         d: u16,
         a: u16,
         t: u32,
+        /// The slot of a Date, Time or DateTime variable that takes the value (`fieldref_value_temporal`); None otherwise.
+        slot: Option<al_builtins::fieldref_value_temporal::TemporalSlot>,
+        /// The value of `exit(FR.Value())` into a Text or Code return (`fieldref_value_text::fieldref_value_at_exit`).
+        at_exit: bool,
     },
     Jump {
         t: u32,
@@ -432,6 +436,20 @@ pub(crate) enum Op {
     /// A `break` or `continue` outside every loop of this routine: the signal goes to the caller.
     RaiseBreak,
     RaiseContinue,
+}
+
+impl Op {
+    /// `Op::ConvertFieldValue` of a value that goes into no Date, Time or DateTime variable; `at_exit` for the value of an
+    /// `exit` into a Text or Code return.
+    fn convert_field_value(d: u16, a: u16, t: u32, at_exit: bool) -> Op {
+        Op::ConvertFieldValue {
+            d,
+            a,
+            t,
+            slot: None,
+            at_exit,
+        }
+    }
 }
 
 pub(crate) struct CallSite {

@@ -261,7 +261,7 @@ fn open_company(
         None => {
             // The session before the login, for a start that will be recorded or for the check: it clones the store.
             let records = |key: &&crate::login_replay::Key| {
-                check || (gate.is_none() && !crate::login_start::starts(&engine).knows(key))
+                check || (gate.is_none() && !crate::login_start::starts(&engine).knows(key, &engine))
             };
             let base = key.as_ref().filter(records).map(|_| session.login_base());
             #[cfg(test)]
@@ -375,6 +375,14 @@ fn skipped_install_touching<'a>(
 }
 
 /// The object id and name of the test runner codeunit `object`, for isolation::failed_test_runner_measured.
+/// BC's TestRunnerHub under RequiredTestIsolation = Function: the NumberSequence log of the codeunit begins before
+/// OnRun (isolation::after_test, al-vm `hub_sequences.rs`).
+fn begin_hub_log(session: &mut Session, isolation: TestIsolation, hub: bool, execute: bool) {
+    if isolation == TestIsolation::Function && hub && !execute {
+        session.begin_hub_sequence_log();
+    }
+}
+
 fn runner_key(lowered: &Lowered, object: Option<usize>) -> Option<(u32, &str)> {
     object
         .map(|i| &lowered.program.objects[i])
@@ -655,6 +663,7 @@ fn run_codeunit_inner(
                      runner: &super::al_runner::Steps|
      -> Result<super::al_runner::Outcomes, super::al_runner::Outcomes> {
         let instance = session.codeunit_instance(object);
+        begin_hub_log(session, isolation, scratch.hub, execute);
         let measured_bindings = measured_runner.then_some((lowered, &instance));
         // The ITestHandler callbacks (BC 29): OnBeforeTestCodeunitRun comes before OnRun (BiTestHandlerDefault.al:15, :329).
         let th = super::test_handlers::Handlers::begin(session, lowered, object, execute)
@@ -725,7 +734,7 @@ fn run_codeunit_inner(
                     }
                 }
                 Err(Signal::Unsupported(r)) if r.starts_with(TIME_LIMIT_REASON) => {
-                    return Err(on_run_refused(r.into_reason()));
+                    return Err(on_run_refused(scratch.on_run_cut(obj.id.unwrap_or(0), r.into_reason())));
                 }
                 Err(Signal::Unsupported(r)) => return Err(on_run_refused(format!("OnRun: {r}"))),
                 Err(Signal::Error(e)) => {
@@ -789,9 +798,9 @@ fn run_codeunit_inner(
         let mut panicked = false;
         // The refusals of the keys and sequences an earlier codeunit's tests changed (isolation::after_test) end here: this
         // codeunit runs on what the earlier one left, as main ran it; whether BC leaves the same is not measured.
-        session.clear_unmeasured();
+        session.clear_earlier_unmeasured();
         // Why the later tests of this codeunit are not run: `--skip-after-timeout` (al-runner issue 7517) after the test the
-        // time limit stopped, `RunOptions::stop_after_first_failure` (al-runner issue 8210) after the first failed test.
+        // time limit stopped, a stop of the pass (`stop.rs`) after the first row that triggers it.
         let mut stopped: Option<String> = None;
         let mut queue = data_driven::queue(lowered, object, &tests, &data_driven);
         // The rows of `out` that are results of data-driven procedures: BC reports none of them when it ends the session.
@@ -832,7 +841,7 @@ fn run_codeunit_inner(
             }
             crate::events::starting(obj.id.unwrap_or(0), &obj.routines[r].name);
             // The number of this test for the SingleInstance notes (ADR-066 amendment 7; 0 without notes).
-            let test_no = single_test_begins(session, scratch.watch);
+            let test_no = test_begins(scratch, session);
             let test_started = std::time::Instant::now();
             let draws_before = session.inherited_random_draws();
             let carried_before = session.carried_random_draws();
@@ -1208,22 +1217,12 @@ fn run_codeunit_inner(
                 }
             };
             session.store_mut().watch(Default::default());
+            let hit_time_limit = began && matches!(&outcome, Outcome::NotRun(m) if is_time_limit(m));
             // A test the time limit stopped started from the same state as a failure does, so it is judged alike (al-runner
             // issue 5776): `kind` names it in the reason.
-            if scratch.skip_after_timeout
-                && began
-                && matches!(&outcome, Outcome::NotRun(m) if m.starts_with(TIME_LIMIT_REASON))
-            {
-                stopped.get_or_insert_with(|| {
-                    format!(
-                        "an earlier test of this codeunit ({}) was stopped at the time limit, and --skip-after-timeout does not run the rest of the codeunit",
-                        routine.name
-                    )
-                });
-            }
             let judged = match outcome {
                 Outcome::Fail(m) if !unfinished.is_empty() => Ok(("failure", m)),
-                Outcome::NotRun(m) if !unfinished.is_empty() && m.starts_with(TIME_LIMIT_REASON) => Ok(("timeout", m)),
+                Outcome::NotRun(m) if !unfinished.is_empty() && is_time_limit(&m) => Ok(("timeout", m)),
                 o => Err(o),
             };
             // `untrusted`: this test's failure was judged not trusted just above; it holds the failure's own error.
@@ -1291,10 +1290,11 @@ fn run_codeunit_inner(
                 Err(o) => (o, None),
             };
             let ended = ended_of(&outcome, began, untrusted.is_some());
-            if let (Some(stop), Outcome::Fail(_)) = (&scratch.stop_after_first_failure, &outcome) {
-                stopped.get_or_insert_with(|| stopped_after_failure(stop, obj.id.unwrap_or(0), &name));
+            if stopped.is_none() {
+                let row = (obj.id.unwrap_or(0), name.as_str(), routine.name.as_str());
+                stopped = scratch.stopped_after(&outcome, hit_time_limit, row);
             }
-            note_unfinished(scratch, ended, runner_refused.is_some(), test_no, &name);
+            note_test_ended(scratch, session, ended, runner_refused.is_some(), test_no, &name);
             let ended_from = unfinished.len();
             if let (Some(ended), Outcome::NotRun(why) | Outcome::Fail(why)) = (ended, &outcome) {
                 unfinished.push(Unfinished {
@@ -1422,6 +1422,7 @@ fn run_codeunit_inner(
             not_run_after_panic(obj, &mut queue, &mut out);
         }
         session.clear_unmeasured();
+        session.stop_noting_tx_ends();
         ends.set(ends_of(&unfinished, panicked));
         th.end_codeunit(session, lowered, &mut out);
         Ok(out)
@@ -1814,11 +1815,12 @@ fn start_singles(session: &mut Session, execute: bool, moved: Option<al_vm::sing
     }
 }
 
-/// A test method begins: its number for the SingleInstance notes (ADR-066 amendment 7). Without `watch` the lane uses no
-/// notes: 0.
-fn single_test_begins(session: &mut Session, watch: bool) -> u32 {
+/// A test method begins: its number for the SingleInstance notes (ADR-066 amendment 7). Without `Scratch::watch` the
+/// lane uses no notes: 0. Notes the numbers OnRun and the runner steps before this test took (ADR-070 decision 3).
+fn test_begins(scratch: &mut Scratch, session: &mut Session) -> u32 {
     let n = session.single_test_begins();
-    if watch { n } else { 0 }
+    super::order_hint::note_taken(scratch, session, "");
+    if scratch.watch { n } else { 0 }
 }
 
 /// What the session did with the watched single instances; in the lane, hands the instances to the next codeunit.
@@ -1957,30 +1959,16 @@ fn not_run_reason(r: Refusal) -> String {
     }
 }
 
-/// The scope of `RunOptions::stop_after_first_failure` for one pass (issue 8210); a pass without the stop has none.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum StopAfterFailure {
-    /// The entry has no `stop_group` (or there are no entries): a failure stops every later entry without one (al-runner
-    /// issue 8210).
-    Request,
-    /// The entry's `EntryRun::stop_group`: a failure stops the later entries of this group only.
-    Group(Arc<str>),
-}
-
-/// The reason of a test `RunOptions::stop_after_first_failure` does not run, after test `test` of codeunit `codeunit` failed.
-/// Without a group it is al-runner issue 8210's text, byte for byte; with one it names the group.
-pub(crate) fn stopped_after_failure(stop: &StopAfterFailure, codeunit: u32, test: &str) -> String {
-    let later = match stop {
-        StopAfterFailure::Request => "a later entry".to_string(),
-        StopAfterFailure::Group(g) => format!("a later entry of its stopGroup `{g}`"),
-    };
-    format!(
-        "the test Codeunit{codeunit}.{test} failed before it, and stopAfterFirstFailure (--stop-after-first-failure) runs no test of its codeunit or of {later} after a failure"
-    )
-}
-
 /// How the reason of a test the time limit stopped starts (the outputs turn it into `Test exceeded <N>s timeout.`).
 const TIME_LIMIT_REASON: &str = "the test used more than the time limit of ";
+
+/// Where the reason of an OnRun the time limit stopped says it was stopped.
+const ON_RUN_PLACE: &str = " in the test codeunit's OnRun trigger, before its tests";
+
+/// Whether `reason` is that of a row the time limit stopped (`TIME_LIMIT_REASON`).
+pub(super) fn is_time_limit(reason: &str) -> bool {
+    reason.starts_with(TIME_LIMIT_REASON)
+}
 
 /// How many times the limit the wall clock may run before a test that does not compute is stopped.
 pub(crate) const WALL_BACKSTOP: u32 = 10;
@@ -2086,11 +2074,23 @@ fn type_left_unknown(
     }
 }
 
-/// Notes test `test_no` in `Scratch::unfinished_at` when it started and did not run to its end, or a runner step around
-/// it did not (ADR-066 amendment 7, option 1).
-fn note_unfinished(scratch: &mut Scratch, ended: Option<Ended>, runner_refused: bool, test_no: u32, name: &str) {
+/// Test `test_no` ended. Notes it in `Scratch::unfinished_at` when it started and did not run to its end, or a runner
+/// step around it did not (ADR-066 amendment 7, option 1); notes the numbers it took (ADR-070 decision 3) and, in a
+/// watched codeunit, its number (ADR-070 decision 4).
+fn note_test_ended(
+    scratch: &mut Scratch,
+    session: &mut Session,
+    ended: Option<Ended>,
+    runner_refused: bool,
+    test_no: u32,
+    name: &str,
+) {
     if ended.is_some_and(|e| e != Ended::RefusedBeforeStart) || runner_refused {
         scratch.unfinished_at.push((test_no, name.to_string()));
+    }
+    super::order_hint::note_taken(scratch, session, name);
+    if scratch.watch {
+        scratch.test_numbers.push((test_no, name.to_string()));
     }
 }
 
@@ -2301,14 +2301,12 @@ fn on_run_time_limit<T>(
     session.end_sleep_budget();
     match ran {
         Err(Signal::Unsupported(_)) if slept_out => Err(Signal::unsupported(format!(
-            "the test used more than the time limit of {} s and was stopped (--test-timeout-secs) in the test codeunit's OnRun trigger, before its tests: its Sleep calls asked to wait {slept_ms} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
+            "{TIME_LIMIT_REASON}{} s and was stopped (--test-timeout-secs){ON_RUN_PLACE}: its Sleep calls asked to wait {slept_ms} ms in total (Sleep does not wait here; the time it asks for counts toward the limit)",
             limit.map_or(0, |l| l.as_secs())
         ))),
-        Err(Signal::Unsupported(_)) if timed_out.is_some() => Err(Signal::unsupported(time_limit_reason(
-            timed_out,
-            limit,
-            " in the test codeunit's OnRun trigger, before its tests",
-        ))),
+        Err(Signal::Unsupported(_)) if timed_out.is_some() => {
+            Err(Signal::unsupported(time_limit_reason(timed_out, limit, ON_RUN_PLACE)))
+        }
         r => r,
     }
 }
@@ -2326,6 +2324,8 @@ fn start_isolation(
     onrun_from: u64,
 ) -> (Option<Checkpoint>, Option<crate::isolation::CodeunitSequences>) {
     let checkpoint = (isolation == TestIsolation::Function).then(|| Checkpoint::take(session));
+    // The transaction ends an earlier codeunit noted for its sequences (CodeunitSequences::begin) end here.
+    session.stop_noting_tx_ends();
     let sequences = (isolation == TestIsolation::Codeunit)
         .then(|| crate::isolation::CodeunitSequences::begin(session, measured_runner));
     session.begin_codeunit_row_locks(isolation == TestIsolation::Codeunit && !execute, onrun_from);
@@ -2363,7 +2363,7 @@ fn mark_test_start_assumptions(
 
 #[cfg(test)]
 mod tests {
-    use super::{Ended, LeftBindings, Stopped, Unfinished, WALL_BACKSTOP, WATCHDOG_POLL, Watchdog, ends_of, stop_by};
+    use super::{Ended, LeftBindings, Stopped, Unfinished, WATCHDOG_POLL, Watchdog, ends_of, stop_by};
     use std::sync::Arc;
 
     /// The limit counts the CPU time of the test thread: a thread that waits is not stopped at the
@@ -2408,7 +2408,7 @@ mod tests {
             std::thread::sleep(WATCHDOG_POLL);
         }
         assert!(
-            started.elapsed() >= limit * WALL_BACKSTOP,
+            started.elapsed() >= limit * super::WALL_BACKSTOP,
             "stopped before the backstop"
         );
         assert_eq!(w.finish(), Some(Stopped::Wall));

@@ -183,6 +183,10 @@ pub struct SavedView {
     /// The save ran code that is not a pinned page's under the effect gate of `code_inserted_extra.rs`: between the save and
     /// `CurrPage.Update(false)` the row may change through another record, or Rec's fields, but not both (`extra_code_kept`).
     pub extra: bool,
+    /// On the later SetValue of a page of the page-with-code shape with other code, at its `CurrPage.Update(false)`: the row and
+    /// Rec may both have changed since the save, the Update reads the row as stored
+    /// (ListNewLineExtraCodeCodedRecModify.al, `update_after_code_inserted_save`).
+    pub rec_free: bool,
 }
 
 /// The calls measured on the FactBox host after the page left its new line for the row (`code_inserted_new_line.rs`).
@@ -258,24 +262,22 @@ impl CodedObjects {
 
     /// Whether a SetValue after the landing and `steps` earlier ones is measured: up to two on the probe's page
     /// (ListNewLineFactboxesCode.al:1407 `setvalue`, :1576 `setvalue2`), the one Value on the repro's
-    /// (ListNewLineFactboxesRepro.al:639-647); on a page of their shape the one SetValue of a control without code instead
-    /// (`refuse_off_factbox_row`).
+    /// (ListNewLineFactboxesRepro.al:639-647); on a page of their shape one SetValue of a control with code of its own
+    /// (ListNewLineExtraCodeCodedSecondSetValue.al:746), or of a control without code (`refuse_off_factbox_row`).
     pub fn later_set_value(self, steps: u8) -> bool {
         match self {
             Self::Probe => steps < 2,
-            Self::Repro => steps == 0,
-            Self::Extra => false,
+            Self::Repro | Self::Extra => steps == 0,
         }
     }
 
     /// Whether `OK()` after the landing and `steps` later SetValues is measured: after any of them on the probe's page (:1407
-    /// `ok=`), after the one Value on the repro's (:646); on a page of their shape only after the SetValue of a control without
-    /// code (`FactboxStep::CodedExtraTyped`).
+    /// `ok=`), after the one Value on the repro's (:646); on a page of their shape after the one SetValue of a control with
+    /// code (ListNewLineExtraCodeCodedSecondSetValue.al:746), or of a control without code (`FactboxStep::CodedExtraTyped`).
     pub fn ok_after(self, steps: u8) -> bool {
         match self {
             Self::Probe => true,
-            Self::Repro => steps == 1,
-            Self::Extra => false,
+            Self::Repro | Self::Extra => steps == 1,
         }
     }
 }
@@ -334,17 +336,25 @@ pub enum ClosedBy {
 pub struct ValidateStart {
     /// The filters of the page's record when the OnValidate began.
     pub filters: Vec<al_builtins::filter::FieldFilter>,
+    /// The field values of the page's record when the OnValidate began (`refresh_new_line.rs` `get_record_free_cell`).
+    pub fields: Vec<Value>,
     /// A save in the OnValidate moved a List from its new-row line onto the row page code found, in the cells of
     /// `refresh_new_line.rs` `found_row_cell`: the refresh reads the view as from that line (`validate_refresh_offers_line`).
     pub left_new_line: bool,
+    /// The control's OnValidate as it returned without an error (`run_control_onvalidate`), for the refresh after it
+    /// (`refresh_new_line.rs` `get_record_free_cell`); `None` while it runs and after an error.
+    pub ran: Option<ControlOnValidate>,
 }
 
 impl ValidateStart {
-    /// The start of an OnValidate with the record's `filters`.
-    pub fn new(filters: Vec<al_builtins::filter::FieldFilter>) -> Self {
+    /// The start of an OnValidate on the page's record `rec`: its filters and field values.
+    pub fn new(rec: &crate::records::Rec) -> Self {
+        let r = rec.borrow();
         Self {
-            filters,
+            filters: r.filters.clone(),
+            fields: r.fields.to_vec(),
             left_new_line: false,
+            ran: None,
         }
     }
 }
@@ -359,6 +369,8 @@ pub struct PageState {
     /// raise "The TestPage is not open." (corpus testpage/lifecycle/TestPageTeardown.al:3-24).
     /// The page has been opened at least once (a Page variable that never ran has not).
     pub ran: bool,
+    /// The id of the page's last open, from `PagesState::page_opens` (`consistent_marks/page_view.rs`).
+    pub open_id: u64,
     pub open: bool,
     pub mode: PageMode,
     /// The running page: its globals hold `Rec`, `xRec` and `CurrPage`.
@@ -1064,6 +1076,16 @@ pub struct PageState {
     /// The store's change counter when the page began to open (`open_page`): `coded_open_on_empty_view` tells by it whether
     /// OnOpenPage or a part's trigger wrote at the open.
     pub open_changes: u64,
+    /// Rec as the later SetValue of a page of the page-with-code shape with other code found it (`coded_typed_begins`): its
+    /// save must find Rec's view so (`extra_code_typed_save`).
+    pub coded_typed_view: Option<Box<RecordState>>,
+    /// The store's change counter, write mark and last SystemModifiedAt stamp when that later SetValue began
+    /// (`coded_typed_begins`): before its save, only rows of other tables inserted after this mark are measured.
+    pub coded_typed_begin_at: Option<(u64, (i64, u64), i64)>,
+    /// The store's change counter and the last SystemModifiedAt stamp when the later SetValue's `CurrPage.SaveRecord()` began
+    /// (`extra_code_typed_save`): its Update tells by them which rows of other tables the code wrote since, and whether it
+    /// inserted them (`extra_typed_other_writes_inserted`).
+    pub coded_typed_save_at: Option<(u64, i64)>,
     /// The control's OnValidate that ran last on the page failed with an AL error in a shape the cells of
     /// ListNewLineExtraCodeCodedTableTriggers.al measure (`run_control_onvalidate`, read by `coded_error_measured`): before
     /// any `CurrPage.SaveRecord` or `CurrPage.Update`, after its table field stored the new line (:1269) or skipped its insert
@@ -1131,6 +1153,16 @@ impl std::fmt::Debug for PageState {
 }
 
 impl PageState {
+    /// Whether the page-with-code shape with other code is running its later SetValue's validation
+    /// (`ListNewLineExtraCodeCodedSecondSetValue.al`).
+    pub(crate) fn coded_typed_extra(&self) -> bool {
+        self.coded_objects == CodedObjects::Extra
+            && matches!(
+                self.code_inserted_row.as_ref().map(|r| r.factbox),
+                Some(FactboxStep::CodedTyped { .. })
+            )
+    }
+
     /// Sets `empty_list_row_behind` to `behind`, with Rec's fields as the action left them (`empty_list_rec_left`).
     pub(crate) fn set_row_behind(&mut self, behind: bool, rec_left: Vec<Value>, action_pinned: bool) {
         self.empty_list_row_behind = behind;
@@ -1261,6 +1293,9 @@ impl PageState {
         self.code_inserted_save = CodeInsertedSave::Off;
         self.code_inserted_extra = false;
         self.coded_line = Default::default();
+        self.coded_typed_view = None;
+        self.coded_typed_begin_at = None;
+        self.coded_typed_save_at = None;
     }
 
     /// The page opens: the captions its controls and fields resolved on the last run are gone.

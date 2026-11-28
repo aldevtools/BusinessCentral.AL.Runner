@@ -72,6 +72,8 @@ fn compile_form(
         debug,
         params: r.params,
         by_var: &r.by_var,
+        ret_local: r.ret_local,
+        trigger: r.is_trigger,
         kept_params: if kept {
             (0..r.params)
                 .map(|i| crate::var_option::may_keep_carried(program, kind, r, i))
@@ -117,6 +119,10 @@ struct Compiler<'a> {
     params: usize,
     /// Which parameters are `var`.
     by_var: &'a [bool],
+    /// The local of the named return value.
+    ret_local: Option<usize>,
+    /// The routine is a trigger.
+    trigger: bool,
     /// Per parameter: a `var` Option parameter with members that a call may bind to a value carrying another list or none
     /// (`var_option::may_keep_carried`).
     kept_params: Vec<bool>,
@@ -543,7 +549,7 @@ impl<'a> Compiler<'a> {
                 self.chunk.types.push(t.clone());
                 let t = (self.chunk.types.len() - 1) as u32;
                 if field_value {
-                    self.emit(Op::ConvertFieldValue { d, a, t });
+                    self.emit(Op::convert_field_value(d, a, t, false));
                 } else {
                     self.emit(Op::Convert { d, a, t });
                 }
@@ -1220,6 +1226,11 @@ impl<'a> Compiler<'a> {
             S::Exit(None) => {
                 self.emit(Op::Ret);
             }
+            S::Exit(Some(ir::Expr::Convert(t @ (RtType::Text(_) | RtType::Code(_)), inner)))
+                if is_fieldref_value(inner) =>
+            {
+                self.field_value_exit(t, inner)?;
+            }
             S::Exit(Some(e)) => {
                 let a = self.expr_any(e)?;
                 self.emit(Op::RetVal { a });
@@ -1366,20 +1377,26 @@ impl<'a> Compiler<'a> {
             return Ok(());
         }
         match p {
-            // `FieldRef.Value` into a `var` parameter of type Date, Time or DateTime (al-builtins `fieldref_value_into_temporal`;
-            // the only slot the probe measured, corpus PR 1511). A by-value parameter, the named return value and a plain
-            // declared local are not measured: they convert as `Op::Convert` does, as does any other place.
+            // `FieldRef.Value` into a local, parameter or named return value of type Date, Time or DateTime (al-builtins
+            // `fieldref_value_temporal`, which owns the measured cells and refuses the rest). A global, a field, an array element,
+            // an argument and an exit value convert as `Op::Convert` does.
             ir::Place::Local(i)
-                if self.by_var.get(*i) == Some(&true)
-                    && let ir::Expr::Convert(t @ (RtType::Date | RtType::Time | RtType::DateTime), inner) = e
-                    && is_fieldref_value(inner) =>
+                if let ir::Expr::Convert(t @ (RtType::Date | RtType::Time | RtType::DateTime), inner) = e
+                    && is_fieldref_value(inner)
+                    && let Some(slot) = self.temporal_slot(*i) =>
             {
                 let i = u16::try_from(*i).map_err(|_| ())?;
                 let a = self.expr_any(inner)?;
                 self.chunk.types.push(t.clone());
                 let t = (self.chunk.types.len() - 1) as u32;
                 let d = self.alloc()?;
-                self.emit(Op::ConvertFieldValue { d, a, t });
+                self.emit(Op::ConvertFieldValue {
+                    d,
+                    a,
+                    t,
+                    slot: Some(slot),
+                    at_exit: false,
+                });
                 let pi = self.place(p);
                 self.emit(Op::StoreLocal { i, a: d, p: pi });
             }
@@ -1420,6 +1437,28 @@ impl<'a> Compiler<'a> {
             _ => self.store_place(p, e, single)?,
         }
         Ok(())
+    }
+
+    /// The slot of local `i` for `fieldref_value_temporal`: a parameter (`var` or by value), the named return value, or a local
+    /// declared in a procedure. A trigger's locals are not measured.
+    fn temporal_slot(&self, i: usize) -> Option<al_builtins::fieldref_value_temporal::TemporalSlot> {
+        use al_builtins::fieldref_value_temporal::TemporalSlot as S;
+        // The probes measured procedures only: a trigger's parameters and locals refuse.
+        if self.trigger {
+            return None;
+        }
+        if i < self.params {
+            return Some(if self.by_var.get(i) == Some(&true) {
+                S::VarParam
+            } else {
+                S::ByValueParam
+            });
+        }
+        Some(if self.ret_local == Some(i) {
+            S::NamedReturn
+        } else {
+            S::PlainLocal
+        })
     }
 
     /// `p := e` through `Op::StorePlace`, which writes through `Session::write_as`.
@@ -1519,11 +1558,27 @@ fn arg_pure(a: &ir::Arg) -> bool {
     }
 }
 
-/// A conversion of `FieldRef.Value` into a Text, Code or Blob, which runs `Op::ConvertFieldValue` (as does one into a local
-/// Date, Time or DateTime, `Compiler::assign`).
+impl<'a> Compiler<'a> {
+    /// `exit(FR.Value())` from a procedure that returns a Text or Code: `Op::ConvertFieldValue` marked as an exit
+    /// (al-builtins `fieldref_value_text::fieldref_value_at_exit`, issue 9285).
+    fn field_value_exit(&mut self, t: &RtType, inner: &'a ir::Expr) -> R<()> {
+        let a = self.expr_any(inner)?;
+        self.chunk.types.push(t.clone());
+        let t = (self.chunk.types.len() - 1) as u32;
+        let d = self.alloc()?;
+        self.emit(Op::convert_field_value(d, a, t, true));
+        self.emit(Op::RetVal { a: d });
+        Ok(())
+    }
+}
+
+/// A conversion of `FieldRef.Value` into a Text, Code or Blob, or into a number (which refuses a Date, Time or DateTime,
+/// `Session::convert_field_value`), which runs `Op::ConvertFieldValue` (as does one into a local Date, Time or DateTime,
+/// `Compiler::assign`).
 fn is_field_value_conversion(t: &RtType, inner: &ir::Expr) -> bool {
     (matches!(t, RtType::Text(_) | RtType::Code(_))
-        || matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob")))
+        || matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob"))
+        || al_builtins::fieldref_value_temporal::is_number_target(t))
         && is_fieldref_value(inner)
 }
 

@@ -31,6 +31,22 @@ pub fn web_service_session_measured(target: Option<&Target>) -> bool {
     matches!(target.map(|t| t.bc.major), Some(28))
 }
 
+/// Whether `target` is a minor the HTTP probe of corpus PR 1424 measured: `HttpHeaders.Contains('')`
+/// (tests/al-language/http/HttpHeaders.al:531, :558, :579) and `HttpContent.WriteFrom(InStream)` after the Content-Type
+/// changed (tests/al-language/http/content/HttpContent.al:717-793). The writer ran it on local 27.5, 28.5 and 29.1 hosts
+/// and corpus CI on 29.0; the PR is merged, not yet pinned (runner PR 7870). Other minors and no target are not measured.
+pub fn http_probe_1424_measured(target: Option<&Target>) -> bool {
+    target.is_some_and(|t| matches!((t.bc.major, t.bc.minor), (27, 5) | (28, 5) | (29, 0) | (29, 1)))
+}
+
+/// Whether `target` is a major on which open corpus PR 1594 (tests/al-language-onprem/session-system/UsAppLogoJpegSizes.al,
+/// al-runner issue 9111) measured the Published Application logo of a JPEG of another size than 8 x 8 on Windows BC: 27
+/// (27.5) and 29 (29.0), and no target (the newest major, 29). BC 28 is measured only by corpus CI on Linux, whose Mime Type
+/// (image/png) differs from Windows on 27.5, so it is not measured.
+pub fn app_logo_jpeg_sizes_measured(target: Option<&Target>) -> bool {
+    matches!(target.map(|t| t.bc.major), Some(27 | 29) | None)
+}
+
 /// What a TestPage does with a Card's field control bound to no field of the source table whose own Visible names a field of
 /// the record (`ir::Control::visible_row_field`; open corpus PR 1504, tests/al-language/pages/controls/VisibleExpressionSource.al,
 /// al-runner issue 8660): `Some(true)` on 29, where its Visible reads Yes whatever the row holds; `Some(false)` on 27 and 28,
@@ -118,6 +134,17 @@ mod tests {
         for v in ["27.5", "28.5", "29.0", "29.1"] {
             assert_eq!(bulk_commit_ends_cached_row(Some(&target(v)), Truncate), None, "{v}");
         }
+    }
+
+    #[test]
+    fn the_http_probe_1424_is_measured_on_its_minors_only() {
+        for v in ["27.5", "28.5", "29.0", "29.1"] {
+            assert!(http_probe_1424_measured(Some(&target(v))), "{v}");
+        }
+        for v in ["27.4", "28.0", "28.6", "29.2", "30.0"] {
+            assert!(!http_probe_1424_measured(Some(&target(v))), "{v}");
+        }
+        assert!(!http_probe_1424_measured(None));
     }
 
     #[test]

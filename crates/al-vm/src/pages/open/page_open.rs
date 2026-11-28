@@ -484,6 +484,7 @@ impl Session {
             }
             self.set_view_in(&rec, &table, &view, Some(2), sub_view.is_some(), false, false)?;
             merge_view_filters(&mut rec.borrow_mut(), &enum_consts, kept);
+            self.mark_page_view(st, test_open && record.is_none() && sub_view.is_none(), &rec);
         }
         // A repeater with ShowAsTree over an IndentationColumn that is a field but not an Integer field is not pinned. One over a page
         // variable is refused when the TestPage moves between its rows (`tree_over_variable`). The cut itself is made after

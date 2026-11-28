@@ -1408,6 +1408,13 @@ fn reply_of(v: Value) -> Result<DotNetReply, DotNetFailure> {
         fx.written
             .push((e[0].as_u64().unwrap_or(0), unbase64(e[1].as_str().unwrap_or(""))));
     }
+    for e in s["replaced"].as_array().into_iter().flatten() {
+        fx.replaced.push((
+            e[0].as_u64().unwrap_or(0),
+            e[1].as_u64().unwrap_or(0) as usize,
+            unbase64(e[2].as_str().unwrap_or("")),
+        ));
+    }
     fx.overwritten = s["overwritten"]
         .as_array()
         .into_iter()
@@ -1555,6 +1562,7 @@ pub fn encode(v: &DotNetValue) -> Value {
         DotNetValue::Decimal(s) => json!({"t":"d","v":s}),
         DotNetValue::Str(s) => json!({"t":"s","v":s}),
         DotNetValue::DateTime(t) => json!({"t":"dt","v":t.to_string()}),
+        DotNetValue::DateTimeUtc(t) => json!({"t":"dtu","v":t.to_string()}),
         DotNetValue::TimeSpan(t) => json!({"t":"ts","v":t.to_string()}),
         DotNetValue::Guid(g) => json!({"t":"g","v":guid_text(g)}),
         DotNetValue::Enum { ty, name, ordinal } => json!({"t":"e","type":ty,"v":name,"o":ordinal}),

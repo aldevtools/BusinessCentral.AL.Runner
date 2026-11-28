@@ -8,16 +8,18 @@
 //! `--refusal-detail`); a refusal is `TestResult::is_refusal` (not run, not left out by a stop
 //! option). A serve request keeps the dependency apps it read (`WarmCtx::dependencies`, checked by
 //! `kept_apps::stamps`) and the apps under test (`WarmCtx::apps`, `kept_apps.rs`) and says where its
-//! time went (`RequestTimings`, the summary's `timings`). Entry: `test`.
+//! time went (`request_timings.rs`, the summary's `timings`). Entry: `test`.
 
 use crate::apps::{self, AppInput};
 use crate::args::{DEFAULT_TOP, TestArgs};
 use crate::capture;
 use crate::coverage;
 use crate::output::{self, Counts};
-use crate::setup_timings::{Laps, Part, SetupParts};
+pub use crate::request_timings::RequestTimings;
+use crate::setup_timings::{Laps, Part};
 use crate::style;
 use crate::testdata;
+use crate::workspace_layer::own_report;
 use al_bcdb_std::BackupProvider;
 use al_deps::load::WorkspaceApp;
 use al_host::dotnet::DotNetHost;
@@ -79,7 +81,7 @@ fn fold(s: &str) -> String {
 }
 
 /// `Codeunit<ID>.<Method>`, the name AL Runner v2 reports and accepts.
-fn qualified(codeunit: u32, test: &str) -> String {
+pub(crate) fn qualified(codeunit: u32, test: &str) -> String {
     format!("Codeunit{codeunit}.{test}")
 }
 
@@ -284,8 +286,33 @@ fn print_compile_phases(p: &al_testrun::runtime::Phases) {
     }
 }
 
-/// The `--timings` lines of the compile cache.
-fn print_compile_cache(p: &al_testrun::runtime::Phases) {
+/// The `--timings` lines of the compile cache. `workspace`: the run's own report of the workspace layer
+/// (`workspace_layer::own_report`).
+fn print_compile_cache(
+    p: &al_testrun::runtime::Phases,
+    workspace: Option<&al_testrun::workspace_cache::WorkspaceReport>,
+) {
+    // The workspace layer (ADR-022 amendment 2026-11-15): `workspaceCache` of serve's timings.
+    if let Some(w) = workspace {
+        eprintln!(
+            "compile cache: workspace layer {}, {}, open {}, store {}{}{}",
+            w.state.as_str(),
+            // An entry written after the run (decision 6) has no size yet.
+            if w.bytes == 0 && w.state == al_testrun::workspace_cache::WorkspaceState::Built {
+                "written after the run".to_string()
+            } else {
+                format!("{:.1} MB", w.bytes as f64 / 1e6)
+            },
+            secs(w.open),
+            secs(w.store),
+            w.file.as_ref().map_or(String::new(), |f| format!("; {}", f.display())),
+            if w.notes.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", w.notes.join("; "))
+            }
+        );
+    }
     if let Some(c) = &p.cache {
         eprintln!(
             "compile cache: {}; {} {}",
@@ -419,6 +446,19 @@ fn test_timeout_secs(a: &TestArgs) -> Result<u64, String> {
     Ok(DEFAULT_TEST_TIMEOUT_SECS)
 }
 
+/// The compile cache of a run whose cache is on: under the cache folder of `--cache-dir` or the environment, with the
+/// `--require-compile-cache` and `--rebuild-compile-cache` switches.
+fn compile_cache(a: &TestArgs, country: &str) -> al_testrun::compile_cache::CompileCache {
+    al_testrun::compile_cache::CompileCache {
+        dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
+            a.cache_dir.as_deref(),
+        )),
+        require: a.require_compile_cache,
+        rebuild: a.rebuild_compile_cache,
+        country: country.to_string(),
+    }
+}
+
 /// The time limit of a test from a number of seconds: `0` is no limit.
 fn time_limit(secs: u64) -> Option<std::time::Duration> {
     (secs > 0).then(|| std::time::Duration::from_secs(secs))
@@ -522,7 +562,11 @@ fn with_skipped_dependencies(doc: String, dependencies: &al_testrun::deps::Depen
 /// A run whose selected tests and coverage statements are handed back in `into` (one side of an impact run).
 /// Prints the summary line of the run but no verdict.
 pub fn test_collect(a: &TestArgs, into: &mut Collected) -> Result<u8, String> {
-    test_inner(a, None, Some(into), None, false)
+    let code = test_inner(a, None, Some(into), None, false);
+    // The process makes another run next: this run's workspace layer entry is written now, so the compiled objects it
+    // holds do not live on into that run (ADR-022 amendment 2026-11-15, decision 6).
+    al_testrun::workspace_cache::wait_for_writes();
+    code
 }
 
 /// What the server hears for each test as it finishes: the event, and its capture as JSON.
@@ -556,6 +600,9 @@ pub struct WarmCtx {
     pub license: Option<(String, al_testrun::license::LicenseUse)>,
     /// The emit version of the build a request used, by build (`run_emit_version`).
     pub emit_version: Option<(String, al_vm::emit_version::EmitVersion)>,
+    /// The login replay's settings, read once when the server started ([`LoginReplay::read`], al-runner issue 9174).
+    /// `None`: each run reads them from the environment when it starts (a recipe's lanes).
+    pub login_replay: Option<LoginReplay>,
 }
 
 /// The dependency apps a warm server read for a request ([`WarmCtx::dependencies`]).
@@ -565,52 +612,6 @@ pub struct KeptDependencies {
     /// The files they were chosen from and read from, as they were then (`kept_apps::stamps`).
     stamps: crate::kept_apps::Stamps,
     deps: Arc<deps::Dependencies>,
-}
-
-/// Where a server request spent its time, by phase (al-runner issue 5856).
-#[derive(Debug, Clone, Default)]
-pub struct RequestTimings {
-    /// Before the compile, by part (al-runner issue 8205); `SetupParts::total` is `setupMs`.
-    pub setup: SetupParts,
-    /// Finding the kept compile, updating it, or compiling again.
-    pub compile: std::time::Duration,
-    /// Building the engine the tests run on from the compiled program, or setting up a kept one.
-    pub engine: std::time::Duration,
-    /// The request ran on the engines an earlier request over the same compile kept.
-    pub engine_kept: bool,
-    /// Test sessions that took a login start in place of running the login, and the starts kept (al-runner issue 8211),
-    /// over every request the engine ran.
-    pub login_replays: u64,
-    pub login_starts: usize,
-    /// Setting up the install baseline: running the install code, or reading it.
-    pub baseline: std::time::Duration,
-    /// `ran`, `cache` or `kept` (`Phases::baseline_source`); `None`: no baseline.
-    pub baseline_source: Option<&'static str>,
-    /// Running the test codeunits, every pass.
-    pub tests: std::time::Duration,
-    /// Building the coverage document.
-    pub coverage: std::time::Duration,
-    /// Per pass (one per entry of the request): the threads' baseline copy and the pass's wall time.
-    pub passes: Vec<al_testrun::runtime::PassTime>,
-}
-
-impl RequestTimings {
-    /// A request's timings: its setup parts, the run's phases and the time the coverage document took.
-    fn of(setup: SetupParts, p: &al_testrun::runtime::Phases, coverage: Duration) -> RequestTimings {
-        RequestTimings {
-            setup,
-            compile: p.warm_compile.unwrap_or(p.compile),
-            engine: p.engine,
-            engine_kept: p.engine_kept,
-            login_replays: p.login_replay.replays,
-            login_starts: p.login_replay.starts,
-            baseline: p.baseline,
-            baseline_source: p.baseline_source,
-            tests: p.tests,
-            coverage,
-            passes: p.passes.clone(),
-        }
-    }
 }
 
 /// One entry of a server request (`WarmCtx::entries`).
@@ -678,66 +679,6 @@ impl Report {
     }
 }
 
-/// Everything the compile depends on but the selection and the text of the workspace files: the workspace file names,
-/// the manifests (resources, layout files, `app.json`), the dependency apps, the symbols, the target.
-fn warm_key(
-    inputs: &[AppInput],
-    dependencies: &al_testrun::deps::Dependencies,
-    symbols: &BTreeSet<String>,
-    target: &str,
-) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    for i in inputs {
-        i.source.id.hash(&mut h);
-        i.source.dependencies.hash(&mut h);
-        // The names of the files, not their text: a change of text is the warm compile's to take in.
-        for (path, _) in &i.source.files {
-            path.hash(&mut h);
-        }
-        // What the app's manifest gives the program beside its code: a change to a layout file or `app.json` is a new
-        // key, as the warm compile takes in only source text (issue 5604). The resource files are not: they are
-        // run-time data, which each request hands to the program as they are then (issue 5635).
-        let m = &i.manifest;
-        (
-            &m.publisher,
-            &m.version,
-            m.include_source,
-            &m.target,
-            &m.symbols,
-            &m.layout_files,
-            m.package_data,
-            &m.package_data_files,
-        )
-            .hash(&mut h);
-        i.symbols.hash(&mut h);
-        let j = &i.json;
-        (&j.id, &j.name, &j.publisher, j.version.to_string()).hash(&mut h);
-        (
-            j.platform.as_ref().map(ToString::to_string),
-            j.application.as_ref().map(ToString::to_string),
-        )
-            .hash(&mut h);
-    }
-    for (app, lazy) in dependencies.apps.iter().zip(&dependencies.lazy) {
-        app.id.hash(&mut h);
-        app.files.len().hash(&mut h);
-        match lazy {
-            Some(l) => l.identity.hash(&mut h),
-            None => {
-                for (path, text) in &app.files {
-                    path.hash(&mut h);
-                    text.len().hash(&mut h);
-                }
-            }
-        }
-    }
-    dependencies.summary.hash(&mut h);
-    symbols.hash(&mut h);
-    target.hash(&mut h);
-    format!("{:016x}", h.finish())
-}
-
 pub fn test_with(a: &TestArgs, warm: Option<&mut WarmCtx>) -> Result<u8, String> {
     profiled(a, || test_inner(a, warm, None, None, false))
 }
@@ -791,10 +732,10 @@ fn no_test_selected(a: &TestArgs, selected: bool, started: Instant, warm: Option
     Ok(6)
 }
 
-/// Of a selected codeunit only the selected tests run: `--run-selected-only` (issue 5611), and `--stop-after-first-failure`
-/// (issue 8210), so a test the selection leaves out cannot stop the run.
+/// Of a selected codeunit only the selected tests run: `--run-selected-only` (issue 5611), `--stop-after-first-failure`
+/// (issue 8210) and `--stop-after-timeout` (issue 9213), so a test the selection leaves out cannot stop the run.
 fn selected_only(a: &TestArgs) -> bool {
-    a.run_selected_only || a.stop_after_first_failure
+    a.run_selected_only || a.stop_after_first_failure || a.stop_after_timeout
 }
 
 /// `--run-selected-only` (issue 5611): the selected tests of the selected codeunits (`RunOptions::run_only`); the rest do
@@ -982,6 +923,49 @@ fn entry_runs(
         .collect()
 }
 
+/// The login replay's settings of a run (al-runner issue 8211, internal and opt-in): `ALRUNNER_LOGIN_REPLAY=1`,
+/// `ALRUNNER_LOGIN_REPLAY_CHECK` and the start caps (`ALRUNNER_LOGIN_REPLAY_MAX_IMAGES`, `ALRUNNER_LOGIN_REPLAY_MAX_MB`).
+#[derive(Debug, Clone, Copy)]
+pub struct LoginReplay {
+    check: bool,
+    replay: bool,
+    limits: al_testrun::runtime::LoginReplayLimits,
+}
+
+impl LoginReplay {
+    /// The settings in the environment; a bad cap is an error that names its variable, also with the replay off. A
+    /// one-shot run reads them when it starts ([`LoginReplay::of_run`]); `al-runner serve` reads them once when the
+    /// server starts and exits on a bad cap, since its environment does not change while it runs (al-runner issue
+    /// 9174).
+    pub fn read() -> Result<Self, String> {
+        Ok(LoginReplay {
+            check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(),
+            replay: std::env::var_os("ALRUNNER_LOGIN_REPLAY").is_some_and(|v| v == "1"),
+            limits: al_testrun::runtime::LoginReplayLimits::read(|v| std::env::var_os(v))?,
+        })
+    }
+
+    /// The settings of run `a`, checked when it starts, before any app is read or anything is downloaded: those the
+    /// server read when it started (`WarmCtx::login_replay`), or else the environment's ([`LoginReplay::read`]); and,
+    /// when the run keeps starts, the start check of the starts' most bytes against `a.max_memory` (`--max-memory`, or
+    /// this serve request's `maxMemory`), per run as the limit is.
+    fn of_run(a: &TestArgs, warm: &Option<&mut WarmCtx>) -> Result<Self, String> {
+        let settings = match warm.as_ref().and_then(|w| w.login_replay) {
+            Some(kept) => kept,
+            None => Self::read()?,
+        };
+        if settings.check || settings.replay {
+            settings.limits.check_memory_limit(a.max_memory)?;
+        }
+        Ok(settings)
+    }
+
+    /// Sets the settings on the run's options.
+    fn apply(self, opts: &mut RunOptions) {
+        (opts.login_replay_check, opts.login_replay, opts.login_replay_limits) = (self.check, self.replay, self.limits);
+    }
+}
+
 fn test_inner(
     a: &TestArgs,
     mut warm: Option<&mut WarmCtx>,
@@ -1020,7 +1004,7 @@ fn test_inner(
         // A server request is never colored.
         style::set(warm.is_none() && debug.is_none() && a.color.enabled(terminal, no_color));
     }
-    let test_timeout = test_timeout_secs(a)?;
+    let (test_timeout, login_replay) = (test_timeout_secs(a)?, LoginReplay::of_run(a, &warm)?);
     // The country of the run (ADR-020 amendment): only `--country` selects it. An unknown one stops here, before
     // anything is loaded.
     let country = a.country().to_string();
@@ -1419,6 +1403,10 @@ fn test_inner(
             .has(al_version::Gate::TestRunnerHubRequiredIsolationFrom28);
     // ADR-074: BcContainerHelper runs every test codeunit through the runner codeunit; it has no TestRunnerHub.
     let driver = a.test_driver.unwrap_or_default();
+    // `--stability-replay` (ADR-058): one variant as a normal run, in the order of its stability run (ADR-070 decision 7).
+    let cell = format!("{}.{}-{}", chosen.target.bc.major, chosen.target.bc.minor, country);
+    let replayed = crate::stability::replay(a, &cell)?;
+    let (bc_order, order_mode) = crate::order_mode::OrderMode::of_run(a, driver, replayed.as_ref());
     if a.required_isolation && driver == al_testrun::runtime::TestDriver::BcContainerHelper {
         return Err("--isolation required follows the TestRunnerHub of the bc-linux driver; --test-driver bccontainerhelper has no hub".into());
     }
@@ -1435,6 +1423,7 @@ fn test_inner(
         say!("{}", style::bold(&crate::version::line()));
         // ADR-061 section 3: the seed before the first test, so a run that never ends still shows it.
         say!("{}", crate::seed::line(run_seed));
+        say!("{}", order_mode.line());
     }
     // Setup details: --verbose only (see HELP, "Output").
     if a.verbose {
@@ -1554,8 +1543,7 @@ fn test_inner(
             && std::env::var_os("AL_FORCE_BASELINE").is_none()
             && al_testrun::observe::text_looks_pure(&all_apps, &kinds, &symbols, opts_only.as_deref())
     };
-    let compile_cache_on =
-        !a.no_compile_cache && !std::env::var("ALRUNNER_NO_COMPILE_CACHE").is_ok_and(|v| !v.is_empty() && v != "0");
+    let compile_cache_on = !a.no_compile_cache && !al_testrun::switches::on("ALRUNNER_NO_COMPILE_CACHE");
     if !dependencies.apps.is_empty() && !looks_pure {
         // The Microsoft apps call .NET (Media, images). Without the compile cache the compile takes
         // seconds: start the helper processes now so the starts overlap it. With the cache the
@@ -1678,7 +1666,6 @@ fn test_inner(
         debug_ready: debug.as_ref().map(|d| d.ready.clone()),
         // Code the AL compiler rejects is not run (al-runner issue 5602): exit 3 with the errors.
         stop_on_compile_errors: true,
-        entries: Vec::new(),
         skipped_dependencies: dependencies.skipped.clone(),
         layout_sources: dependencies.layout_sources(),
         process_ends_after,
@@ -1686,6 +1673,7 @@ fn test_inner(
         ignore_permission_mock: a.ignore_permission_mock,
         skip_after_timeout: a.skip_after_timeout,
         stop_after_first_failure: a.stop_after_first_failure, // issue 8210
+        stop_after_timeout: a.stop_after_timeout,             // issue 9213
         // `ALRUNNER_REPORT_UNPINNED_ERRORS=1` (issue 6487, opt-in): an unpinned error text fails the test, marked.
         report_unpinned_errors: crate::unpinned::enabled(),
         permissions_off: a.permissions_off, // `--permissions off` (ADR-062 section 5).
@@ -1693,29 +1681,21 @@ fn test_inner(
         no_client: a.no_client,             // issue 7564
         allow_write_in_try_functions: a.allow_write_in_try_functions, // issue 7143
         dependencies_published_global: a.dependencies_published_global, // issue 7169
-        // `--strict-order` (ADR-070); BcContainerHelper runs in one session (`TestDriver::one_session`).
-        strict_order: a.strict_order || driver.one_session(),
+        strict_order: bc_order,
         test_suites, // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
-        login_replay_check: std::env::var_os("ALRUNNER_LOGIN_REPLAY_CHECK").is_some(), // issue 8211, internal
-        login_replay: std::env::var_os("ALRUNNER_LOGIN_REPLAY").is_some_and(|v| v == "1"), // issue 8211, internal
         test_driver: driver,
         // `--run-selected-only` (issue 5611): the selected tests of the selected codeunits; the rest do not run.
         run_only: run_only_picks(a, &selection, &found),
         test_data: test_data.as_ref().map(|(d, _)| d.clone()),
         company_data: company_data.clone(),
-        compile_cache: compile_cache_on.then(|| al_testrun::compile_cache::CompileCache {
-            dir: al_testrun::compile_cache::CompileCache::under(&al_deps::cache::cache_root_from_env(
-                a.cache_dir.as_deref(),
-            )),
-            require: a.require_compile_cache,
-            rebuild: a.rebuild_compile_cache,
-            country: country.clone(),
-        }),
-        // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1), `perturb`, `check_baseline_rule`.
+        workspace_cache: crate::workspace_layer::options(a, &inputs),
+        compile_cache: compile_cache_on.then(|| compile_cache(a, &country)),
+        // Left at their defaults: `perturb` (set per variant in stability mode), `check_baseline_rule`.
         ..Default::default()
     };
+    login_replay.apply(&mut opts);
     laps.lap(Part::Prepare);
     if let Some(w) = warm.as_deref() {
         opts.entries = entry_runs(a, w, &entry_selections, &found, &inputs, &opts.hooks);
@@ -1739,9 +1719,8 @@ fn test_inner(
     };
     // `--stability` (ADR-058): the variants of the config, run over one compile; `--stability-replay`: one variant as a
     // normal run.
-    let cell = format!("{}.{}-{}", chosen.target.bc.major, chosen.target.bc.minor, country);
     let stability_plan = crate::stability::plan(a, &cell)?;
-    if let Some(v) = crate::stability::replay(a, &cell)? {
+    if let Some(v) = replayed {
         opts.perturb = v.perturb;
     }
     if (stability_plan.is_some() || a.stability_replay.is_some()) && warm.is_some() {
@@ -1791,9 +1770,7 @@ fn test_inner(
             }
         }
         Some(w) => {
-            // The options that change what the compile holds (`run_inputs.rs`) are part of the key.
-            let target_key = crate::run_inputs::RunInputs::of(a).compile_key(&chosen.target);
-            let key = warm_key(&inputs, &dependencies, &symbols, &target_key);
+            let key = crate::workspace_layer::warm_key(a, &inputs, &dependencies, &symbols, &chosen.target);
             let files: Vec<al_testrun::runtime::FileChange> = inputs
                 .iter()
                 .enumerate()
@@ -1861,7 +1838,7 @@ fn test_inner(
         if a.timings {
             eprintln!("{}", setup.line());
             print_compile_phases(p);
-            print_compile_cache(p);
+            print_compile_cache(p, own_report(p, warm.as_deref()));
             eprintln!("time: total {}", secs(total_time));
         }
         say!("{why}");
@@ -1915,7 +1892,7 @@ fn test_inner(
         let mut out = crate::stability::compare(plan, &seen);
         // ADR-058 amendment 1: order dependence through SingleInstance state, from the base variant's tracking.
         let own: Vec<String> = inputs.iter().map(|i| i.json.id.clone()).collect();
-        let si = crate::stability_si::SiReport::new(rt.single_carried(), &own, plan);
+        let si = crate::stability_si::SiReport::of_runs(&rt, &variant_rts, &own, plan, &seen);
         out.with_single_instance(plan, si, &seen[0]);
         (plan, per_variant, seen, out)
     });
@@ -1994,7 +1971,7 @@ fn test_inner(
         if let Some(cost) = test_data.as_ref().and_then(|(d, _)| d.provider.cost()) {
             eprintln!("test data: {cost}");
         }
-        print_compile_cache(p);
+        print_compile_cache(p, own_report(p, warm.as_deref()));
         let slowest: Vec<String> = p
             .slowest
             .iter()
@@ -2024,13 +2001,9 @@ fn test_inner(
             );
         }
     }
-    // ADR-066 amendment 7, option 2: a re-run skipped for the length of its chain is said with or without `--timings`
-    // (`--timings` prints it with the other lane lines).
-    if !a.timings {
-        // ADR-066 amendment 12, decision 3: and the numbers list (`--timings` prints it with the chain lines).
-        for line in p.chain.run_output_lines() {
-            eprintln!("{line}");
-        }
+    // ADR-070 decision 4: the passing tests that read carried state, with or without `--timings`.
+    for line in p.chain.run_output_lines() {
+        eprintln!("{line}");
     }
     if rt.panics > 0 {
         eprintln!(
@@ -2178,6 +2151,7 @@ fn test_inner(
     if let (Some(path), Some((plan, per_variant, _, out))) = (&a.junit, &stability) {
         write_file(
             path,
+            // Each variant's testsuite has the order mode it ran in (`stability::junit`).
             &crate::seed::junit_license(
                 &crate::seed::junit(&crate::stability::junit(plan, per_variant, out), run_seed),
                 &license,
@@ -2189,20 +2163,19 @@ fn test_inner(
         write_file(
             path,
             &crate::unpinned::junit(
-                &crate::seed::junit_license(
+                &order_mode.junit(&crate::seed::junit_license(
                     &crate::seed::junit(
-                        &output::junit_with(
+                        &output::junit(
                             &with_skipped,
                             bc_build.as_deref(),
                             total_time.as_secs_f64(),
                             &|cu, t| disabled.as_ref().is_some_and(|d| d.is_disabled(cu, t)),
                             &rt.phases.baseline_assumptions,
-                            &|r| output::order_properties(&rt.phases.chain, r),
                         ),
                         run_seed,
                     ),
                     &license,
-                ),
+                )),
                 crate::unpinned::enabled(),
             ),
         )?;
@@ -2356,16 +2329,22 @@ fn test_inner(
         })
     );
     if let Some(w) = warm {
-        w.timings = Some(RequestTimings::of(setup, p, coverage_time));
+        w.timings = Some(RequestTimings::of(
+            setup,
+            p,
+            coverage_time,
+            test_data.as_ref(),
+            own_report(p, Some(w)),
+        ));
         w.report = Some(Report {
             doc: serde_json::from_str(&crate::unpinned::json(
-                crate::seed::json(
+                order_mode.json(crate::seed::json(
                     crate::affected::with_selection(
                         output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
                         affected.as_ref(),
                     ),
                     run_seed,
-                ),
+                )),
                 crate::unpinned::enabled(),
                 crate::unpinned::count(results.iter().map(|r| &r.outcome)),
             ))
@@ -2415,7 +2394,7 @@ fn test_inner(
     }
     if let Some(target) = &a.output_json {
         let doc = crate::unpinned::json(
-            crate::seed::json(
+            order_mode.json(crate::seed::json(
                 crate::seed::json_license(
                     crate::affected::with_selection(
                         output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
@@ -2424,7 +2403,7 @@ fn test_inner(
                     &license,
                 ),
                 run_seed,
-            ),
+            )),
             crate::unpinned::enabled(),
             crate::unpinned::count(results.iter().map(|r| &r.outcome)),
         );

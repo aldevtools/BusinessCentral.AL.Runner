@@ -70,10 +70,8 @@ pub(crate) fn manifest_digest(m: &Manifest) -> [u8; 32] {
     } = m;
     let mut h = Sha256::new();
     let mut put = |name: &str, value: &[u8]| {
-        h.update((name.len() as u64).to_le_bytes());
-        h.update(name.as_bytes());
-        h.update((value.len() as u64).to_le_bytes());
-        h.update(value);
+        al_cache::digest::put(&mut h, name.as_bytes());
+        al_cache::digest::put(&mut h, value);
     };
     put("publisher", publisher.as_bytes());
     put("version", version.as_bytes());

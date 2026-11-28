@@ -154,6 +154,13 @@ pub struct MemoryReport {
 }
 
 impl MemoryReport {
+    /// Reads [`after_compile`](MemoryReport::after_compile) once the compile ended: what the process holds now, read by
+    /// the budget's reader; `None` without a budget. The one reading of a run that goes on ([`Plan::after_compile`])
+    /// and of a compile the hard limit stops after its last check (`compile_halt.rs`).
+    pub(crate) fn read_after_compile(&mut self, budget: Option<&MemoryBudget>) {
+        self.after_compile = budget.and_then(|b| (b.rss)());
+    }
+
     /// The `--timings` line; `None` without a budget.
     pub fn line(&self) -> Option<String> {
         let (limit, source) = self.limit.as_ref()?;
@@ -385,12 +392,9 @@ impl Plan {
             ..Default::default()
         };
         let budget = opts.memory.clone();
-        let mut fixed = 0;
-        if let Some(b) = &budget {
-            report.limit = Some((b.limit, b.source.clone()));
-            report.after_compile = (b.rss)();
-            fixed = report.after_compile.unwrap_or(0);
-        }
+        report.limit = budget.as_ref().map(|b| (b.limit, b.source.clone()));
+        report.read_after_compile(budget.as_ref());
+        let fixed = report.after_compile.unwrap_or(0);
         let pool = Pool::new(budget.clone(), fixed, asked);
         if let (Some(b), Some(now)) = (&budget, report.after_compile) {
             pool.stop_when_below(b, now, "once the apps are compiled");
@@ -456,6 +460,8 @@ struct Shared {
     shared: std::sync::OnceLock<(SharedBytes, u64)>,
     /// [`Pool::add_fixed`]: what the run made after the fixed part was read, shared by every thread.
     added: AtomicU64,
+    /// [`Pool::reserve`]: what the run may still take beyond the resident memory, held for it before a thread starts.
+    reserved: std::sync::OnceLock<SharedBytes>,
     /// The most threads the run may use.
     max: usize,
     /// The learned cost of one running codeunit; `learned` once a codeunit ended.
@@ -497,6 +503,7 @@ impl Pool {
                 fixed: AtomicU64::new(fixed),
                 shared: Default::default(),
                 added: AtomicU64::new(0),
+                reserved: Default::default(),
                 max: max.max(1),
                 cost: AtomicU64::new(0),
                 learned: AtomicBool::new(false),
@@ -556,6 +563,19 @@ impl Pool {
         let _ = self.s.shared.set((bytes, at));
     }
 
+    /// Holds what `bytes` reads, bytes the run may still take that are not resident yet, as taken when a thread asks to
+    /// start ([`Pool::try_add`], [`Pool::keep`]): the room the login starts' byte cap leaves them (ADR-073 amendment
+    /// 2026-11-26), so a raised cap lowers the threads before the starts grow. Nothing is dropped for it. Only the
+    /// first call counts.
+    pub fn reserve(&self, bytes: SharedBytes) {
+        let _ = self.s.reserved.set(bytes);
+    }
+
+    /// What [`Pool::reserve`] holds now.
+    fn reserved(&self) -> u64 {
+        self.s.reserved.get().map_or(0, |b| b())
+    }
+
     /// What the threads share and the fixed part counts once beyond what the process held when it was read.
     fn shared(&self) -> u64 {
         self.s.added.load(Ordering::Relaxed) + self.s.shared.get().map_or(0, |(b, at)| b().saturating_sub(*at))
@@ -583,7 +603,9 @@ impl Pool {
         if !self.s.learned.load(Ordering::SeqCst) || self.halted() {
             return false;
         }
-        let (fixed, cost) = (self.fixed(), self.cost());
+        // What the run may still take beyond the resident memory ([`Pool::reserve`]) is held as taken on both sides.
+        let held = self.reserved();
+        let (now, fixed, cost) = (now + held, self.fixed() + held, self.cost());
         let threads = (self.live() + extra) as u64;
         // One codeunit may be a spike (the largest seen, beyond the typical cost the percentile gives): keep room for
         // one beside the typical ones, so a rare large codeunit does not meet a full process and a hard stop.
@@ -1141,6 +1163,23 @@ mod tests {
             !Plan::after_compile(&soft, 12).pool().halted(),
             "serve and debug go on with one thread"
         );
+    }
+
+    /// A run that goes on and a compile the hard limit stops after its last check (`compile_halt.rs`) fill the
+    /// `after_compile` reading the same way: the budget's reader once the compile ended, nothing without a budget.
+    #[test]
+    fn a_run_that_goes_on_takes_the_shared_after_compile_reading() {
+        for memory in [Some(budget(4096 * MB, rss(700), false)), None] {
+            let opts = crate::runtime::RunOptions {
+                memory,
+                ..Default::default()
+            };
+            let mut stopped = MemoryReport::default();
+            stopped.read_after_compile(opts.memory.as_ref());
+            let goes_on = Plan::after_compile(&opts, 2).report().after_compile;
+            assert_eq!(goes_on, stopped.after_compile);
+            assert_eq!(goes_on, opts.memory.as_ref().map(|_| 700 * MB));
+        }
     }
 
     /// A test not reached before the stop keeps the limit as its reason when a later step refuses the whole codeunit

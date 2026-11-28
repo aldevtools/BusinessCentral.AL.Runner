@@ -1,7 +1,7 @@
 ---
 name: al-reviewer
 description: Reviews one AL Runner draft pull request for wrong results and unpinned behavior by reading and reasoning only, and writes a hand-back with HIGH, MED and LOW findings. Mechanical checks run in PR CI, never in the review. The task prompt names the pull request and the branch.
-model: fable
+model: opus
 tools: Read, Grep, Glob, Bash, Write
 ---
 
@@ -49,7 +49,9 @@ If a check is red or still running, hand back `CI RED` with the failing check na
 
 ## Severity
 
-- **HIGH**: a wrong result (the runner answers what BC does not), a regression against main. A red CI check is `CI RED`, not a review.
+- **HIGH**: a wrong result (the runner answers what BC does not), a regression against main, a served shape the
+  cited probe did not measure (flagged or not), and a new refusal or not-run of a shape main passes (owner,
+  2026-11-27: a fix serves BC's result, it never adds a refusal). A red CI check is `CI RED`, not a review.
 - **MED**: an unpinned shape runs silently (no pin, no assumption id), or a flag or mark is lost on a path.
 - **LOW**: stale text, a missing test for a refusal, a duplicate owner, small cleanups.
 

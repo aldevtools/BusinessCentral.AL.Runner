@@ -1,6 +1,8 @@
 //! `--files-dir` gives the `File` type a real directory (`host::set_files_dir`, set once per process, so this test has
 //! a binary of its own). What the install code reads from there is not in the key of the kept install baseline, so a
-//! run with it keeps no baseline: a changed file is read again by the next run.
+//! run with it keeps no baseline: a changed file is read again by the next run. Both tests share one directory
+//! ([`files_dir`]); the second has no dependency app and reads no file: the install code of the apps under test runs in
+//! each codeunit's session, and `--timings` says why.
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
@@ -36,8 +38,16 @@ fn app(id: &str, deps: &[&str], src: &str) -> AppSource {
     }
 }
 
-fn run(cache: &Path) -> String {
-    let manifest = |p: &str| Manifest {
+/// The process's `--files-dir`, the same for both tests (`host::set_files_dir` keeps the first).
+fn files_dir() -> &'static Path {
+    static DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    let dir = DIR.get_or_init(|| tempfile::tempdir().unwrap()).path();
+    al_testrun::host::set_files_dir(dir.to_path_buf());
+    dir
+}
+
+fn manifest(p: &str) -> Manifest {
+    Manifest {
         publisher: p.into(),
         version: "1.0.0.0".into(),
         resources: vec![],
@@ -56,7 +66,10 @@ fn run(cache: &Path) -> String {
         app_json_keys: Vec::new(),
         platform_internals_visible_to: Vec::new(),
         symbols: vec![],
-    };
+    }
+}
+
+fn run(cache: &Path) -> String {
     let rt = CorpusRuntime::try_run_suites_with(
         vec![app("main", &["base"], TESTS), app("base", &[], BASE)],
         vec![al_sema::AppKind::Workspace, al_sema::AppKind::Dependency],
@@ -84,13 +97,12 @@ fn run(cache: &Path) -> String {
 
 #[test]
 fn a_changed_file_the_install_code_reads_is_read_again_by_the_next_run() {
-    let files = tempfile::tempdir().unwrap();
+    let files = files_dir();
     let cache = tempfile::tempdir().unwrap();
-    al_testrun::host::set_files_dir(files.path().to_path_buf());
-    std::fs::write(files.path().join("setting.txt"), "first").unwrap();
+    std::fs::write(files.join("setting.txt"), "first").unwrap();
     let first = run(cache.path());
     assert!(first.contains("row: first"), "{first}");
-    std::fs::write(files.path().join("setting.txt"), "second").unwrap();
+    std::fs::write(files.join("setting.txt"), "second").unwrap();
     let second = run(cache.path());
     assert!(
         second.contains("row: second"),
@@ -106,4 +118,32 @@ fn a_changed_file_the_install_code_reads_is_read_again_by_the_next_run() {
         })
         .collect();
     assert!(kept.is_empty(), "no install baseline is kept with --files-dir");
+}
+
+/// With `--files-dir` the install code of the apps under test does not run in a session of its own: each test codeunit's
+/// session runs it, and `--timings` names the reason (al-testrun `install_once.rs`).
+#[test]
+fn the_install_code_runs_per_codeunit_on_a_real_folder_and_timings_says_why() {
+    files_dir();
+    let src = "codeunit 50201 Inst { Subtype = Install; trigger OnInstallAppPerCompany() begin end; }
+        codeunit 60201 T1 { Subtype = Test; [Test] procedure A() begin end; }
+        codeunit 60202 T2 { Subtype = Test; [Test] procedure B() begin end; }";
+    let rt = CorpusRuntime::try_run_suites_with(
+        vec![app("own", &[], src)],
+        vec![al_sema::AppKind::Workspace],
+        &[manifest("Me")],
+        &Default::default(),
+        None,
+        Default::default(),
+        &[SuiteRun::everything()],
+        &RunOptions::default(),
+    )
+    .expect("the run starts");
+    assert_eq!(rt.phases.install_runs, 2);
+    let lines = rt.phases.baseline_line().unwrap_or_default();
+    assert!(
+        lines.lines().any(|l| l
+            == "install code: ran 2 times for the test codeunits; first reason noted that its run cannot be shared: files on a real folder"),
+        "{lines}"
+    );
 }

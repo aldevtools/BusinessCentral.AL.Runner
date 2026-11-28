@@ -145,7 +145,8 @@ fn scan_all(s: &MemStore, t: &TableDef, key: usize, filters: &[FieldFilter], asc
 /// What the scan has to return, without any seek: every row, in the order of the key, that passes.
 fn reference(s: &MemStore, t: &TableDef, key: usize, filters: &[FieldFilter], ascending: bool) -> Vec<Row> {
     let mut rows: Vec<Row> = s.table(&cx(), t).unwrap().values().cloned().collect();
-    rows.sort_by(|a, b| cmp_rows(t, key, a, b));
+    let by = KeyOrder::sorting(t, key);
+    rows.sort_by(|a, b| by.cmp_rows(a, b));
     if !ascending {
         rows.reverse();
     }
@@ -154,6 +155,7 @@ fn reference(s: &MemStore, t: &TableDef, key: usize, filters: &[FieldFilter], as
 }
 
 mod count_tests;
+mod scan_tests;
 mod seek_tests;
 
 #[test]
@@ -248,6 +250,29 @@ fn copying_a_company_copies_its_rows_as_they_are_and_a_rollback_removes_them() {
     );
     s.rollback();
     assert_eq!(s.count(&cx("C"), &t, &[]).unwrap(), 0);
+}
+
+// Review of al-runner PR 9098: the companies a copy made (`committed_copy_targets`, read by the install-order
+// comparison) are those of committed copies, with a backing or without; a rollback takes a copy back, and a rename moves
+// the mark with the rows.
+#[test]
+fn the_companies_a_copy_made_follow_commit_rollback_and_rename() {
+    let targets = |s: &MemStore| s.committed_copy_targets().map(str::to_string).collect::<Vec<_>>();
+    let mut s = MemStore::default();
+    s.copy_company("A", "C");
+    s.rollback();
+    assert!(targets(&s).is_empty(), "a rolled back copy made no company");
+    s.copy_company("A", "C");
+    assert!(targets(&s).is_empty(), "the copy is not committed yet");
+    s.commit();
+    assert_eq!(targets(&s), ["C"]);
+    s.rename_company("C", "D");
+    s.commit();
+    assert_eq!(
+        targets(&s),
+        ["C", "D"],
+        "the renamed copy keeps the mark; the old name keeps it too"
+    );
 }
 
 #[test]
@@ -531,6 +556,25 @@ fn a_write_starts_from_the_backing_rows() {
         WriteOutcome::Done
     );
     assert_eq!(s.count(&cx, &t, &[]).unwrap(), 3);
+}
+
+// al-runner issue 8954: the first write of a backed table copies the backing's rows in; the safety net of an install
+// footprint compares them with the rows the store read before, so only the written row is a change.
+#[test]
+fn the_footprint_safety_net_takes_the_backing_rows_as_the_rows_before() {
+    use super::footprint::{Resource, RowKey};
+    let (mut before, _) = backed();
+    let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
+    before.commit();
+    let mut after = before.clone();
+    after.insert(&cx, &t, crate::contract::row("D", 4, 3)).unwrap();
+    after.commit();
+    let d = Resource::Row("C".into(), t.object, RowKey::of(&t, vec![Value::Code("D".into())]));
+    assert_eq!(after.unrecorded_writes(&before, &[d].into_iter().collect()), Ok(()));
+    assert!(
+        after.unrecorded_writes(&before, &Default::default()).is_err(),
+        "the new row is a change"
+    );
 }
 
 #[test]
@@ -875,7 +919,7 @@ fn exported_rows_import_into_a_store_that_reads_and_writes_like_the_original() {
         (exported[0].company.as_str(), exported[0].object, exported[0].rows.len()),
         ("C", 9, 70)
     );
-    let mut back = MemStore::from_exported(exported);
+    let mut back = MemStore::from_exported(exported, &[], &[]);
     s.rollback();
     for key in 0..2 {
         assert_eq!(
@@ -931,7 +975,7 @@ fn a_backed_store_exports_the_tables_it_holds_and_not_the_backing() {
     assert_eq!(exported.len(), 1);
     assert_eq!(exported[0].rows.len(), 3, "B, C and D");
     // The way back: the same backing, and the held table now says what it said.
-    let back = MemStore::from_exported(exported).with_backing(b);
+    let back = MemStore::from_exported(exported, &[], &[]).with_backing(b);
     assert_eq!(back.count(&cx, &t, &[]).unwrap(), 3);
     assert!(back.get(&cx, &t, &[Value::Code("A".into())]).unwrap().is_none());
     assert!(back.get(&cx, &t, &[Value::Code("D".into())]).unwrap().is_some());
@@ -944,7 +988,7 @@ fn a_deleted_out_backed_table_stays_empty_after_the_way_back() {
     let (t, cx) = (crate::contract::table(), crate::contract::cx("C"));
     s.delete_all(&cx, &t, &[]).unwrap();
     s.commit();
-    let back = MemStore::from_exported(s.export_committed().unwrap()).with_backing(b);
+    let back = MemStore::from_exported(s.export_committed().unwrap(), &[], &[]).with_backing(b);
     assert_eq!(back.count(&cx, &t, &[]).unwrap(), 0, "not restored again");
 }
 

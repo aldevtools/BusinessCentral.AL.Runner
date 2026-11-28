@@ -193,8 +193,9 @@ fn another_test_codeunit_is_another_key() {
     );
 }
 
-// Two serve entries with other `resources`: the login reads the text, so what it leaves differs. The key holds the two
-// apart; under one key the comparator reports the difference (the planted case).
+// Two serve entries with other `resources`: the login reads the text, so what it leaves differs. The texts the login
+// read (`login_replay::StartKey`) hold the two apart; under one key the comparator reports the difference (the planted
+// case).
 #[test]
 fn an_entrys_resource_text_is_part_of_the_key_and_changes_what_the_login_leaves() {
     let (engine, l) = compiled();
@@ -225,8 +226,8 @@ fn an_entrys_resource_text_is_part_of_the_key_and_changes_what_the_login_leaves(
     };
     assert!(temp_row(0, "Integer(77401)") && temp_row(1, "Integer(77404)"));
     let planted = Check::default();
-    planted.note(firsts[0].0.clone(), firsts[0].1.clone());
-    planted.note(firsts[0].0.clone(), firsts[1].1.clone());
+    planted.note(&engine, firsts[0].0.clone(), firsts[0].1.clone());
+    planted.note(&engine, firsts[0].0.clone(), firsts[1].1.clone());
     assert!(planted.line().is_some_and(|l| l.contains("1 compared, 1 differ")));
 }
 
@@ -519,14 +520,14 @@ fn every_kind_of_value_the_login_leaves_compares_exactly() {
     let state = firsts[0].1.state_lines();
     assert!(state.opaque.is_empty(), "{:?}", state.opaque);
     // The line of the instance of codeunit `id`.
-    fn of(firsts: &[(crate::login_replay::Key, crate::login_replay::LoginState)], k: usize, id: u32) -> String {
+    fn of(firsts: &[(crate::login_replay::StartKey, crate::login_replay::LoginState)], k: usize, id: u32) -> String {
         let lines = &firsts[k].1.state_lines().lines;
         let line =
             (lines.iter()).find(|l| l.starts_with("instance ") && l.contains(&format!(" codeunit {id} globals")));
         line.unwrap_or_else(|| panic!("{id}: {lines:?}")).clone()
     }
     // The instance line of codeunit `id` with the lines of the shared handles it names (`shared <n>`).
-    fn held(firsts: &[(crate::login_replay::Key, crate::login_replay::LoginState)], k: usize, id: u32) -> String {
+    fn held(firsts: &[(crate::login_replay::StartKey, crate::login_replay::LoginState)], k: usize, id: u32) -> String {
         let line = of(firsts, k, id);
         let shared = (firsts[k].1.state_lines().lines.iter()).filter(|l| {
             let n = l.strip_prefix("shared ").and_then(|t| t.split(' ').next());
@@ -747,8 +748,9 @@ fn planted(plant: &str, base: &str, others: &[&str]) -> Vec<Planted> {
     (firsts[1..].iter())
         .map(|(_, state)| {
             let check = Check::default();
-            check.note(firsts[0].0.clone(), firsts[0].1.clone());
-            check.note(firsts[0].0.clone(), state.clone());
+            let missed = || crate::login_replay::StartKey::reading_nothing(firsts[0].0.key.clone());
+            check.note(&engine, missed(), firsts[0].1.clone());
+            check.note(&engine, missed(), state.clone());
             let line = check.line().unwrap();
             let (base, other) = (&firsts[0].1.state_lines().lines, &state.state_lines().lines);
             let first = (base.iter().zip(other)).find(|(a, b)| a != b).map(|(a, _)| a.clone());

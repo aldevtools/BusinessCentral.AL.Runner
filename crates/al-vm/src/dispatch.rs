@@ -469,7 +469,7 @@ impl Session {
                 r => r?,
             };
             if isolate {
-                self.commit_transaction();
+                self.commit_as(crate::CommitBy::IsolatedEvent);
             }
             for (i, m) in map.iter().enumerate() {
                 if let (Some(j), true) = (m, r.by_var[i]) {

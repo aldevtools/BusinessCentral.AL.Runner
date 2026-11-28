@@ -57,7 +57,9 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         crate::evaluate::evaluate_memberless_var_option_element,
     ),
     ("System.EvaluateBounded#1", crate::evaluate::evaluate_bounded),
-    ("System.EvaluateDateVariable#1", crate::evaluate::evaluate_date_variable),
+    ("System.EvaluateDateVariable#1", crate::evaluate::evaluate_variable),
+    ("System.EvaluateEnumField#1", crate::evaluate::evaluate_enum_field),
+    ("System.EvaluateEnumVariable#1", crate::evaluate::evaluate_variable),
     ("System.EvaluateOptionField#1", crate::evaluate::evaluate_option_field),
     ("Blob.LengthSign#1", crate::stream::blob_length_sign),
     ("System.Abs#1", abs),
@@ -396,7 +398,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
         let text = crate::format::format_guid(g);
         Ok(Value::Library(
             crate::library_kind::LibraryKind::Media,
-            std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Text(text))),
+            std::rc::Rc::new(std::cell::RefCell::new(crate::value::LibraryValue::Text(text.into()))),
         ))
     }),
     // The routine that created this InStream on its own local hands it back and ends: it reads as empty

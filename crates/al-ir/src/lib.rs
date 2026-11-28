@@ -1869,6 +1869,13 @@ pub struct Slot {
     /// `shared::comment_label`).
     #[serde(default)]
     pub comment_label: bool,
+    /// A global declared `Label 'text', Locked = true` with a text that is not empty and no other property (al-sema
+    /// `shared::locked_label`).
+    #[serde(default)]
+    pub locked_label: bool,
+    /// A global declared `Label` (with or without properties) or `TextConst`: one al-sema `shared::label_text` gives a text.
+    #[serde(default)]
+    pub label: bool,
 }
 
 impl Slot {
@@ -1881,6 +1888,8 @@ impl Slot {
             security_filtering_not_kept: false,
             plain_label: false,
             comment_label: false,
+            locked_label: false,
+            label: false,
         }
     }
 }
@@ -2327,6 +2336,17 @@ pub enum Expr {
     /// of Options declared without members: the run tells it from the value of another place, which may hold another member
     /// list than its declared one (al-sema `memberless_option_array_assign`, al-vm `var_option::element_store`).
     VarSectionValue(Box<Expr>),
+}
+
+impl Expr {
+    /// The expression without the type conversions the lowering wraps around it (an assigned value, an argument).
+    pub fn unconverted(&self) -> &Expr {
+        let mut e = self;
+        while let Expr::Convert(_, inner) = e {
+            e = inner;
+        }
+        e
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

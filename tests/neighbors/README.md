@@ -12,12 +12,13 @@ scripts, manifests, `Cargo.lock`, and the files crates include, such as `docs/la
 the branch name or the issue. The folder holds exactly one of:
 
 - **A neighbor app**: `app.json`, `src/*.al` and `differences.tsv`, and optionally `flags.txt`: run options both
-  binaries get, one per line (`#` starts a comment), for example `--strict-order`.
+  binaries get, one per line (`#` starts a comment), for example `--strict-order`. Each run starts in a fresh copy of the app
+  folder, so a relative path there (for example `--files-dir files`) names a folder of the app.
 - **`none.txt`**: one line that says why no neighbor app applies, for example "comments only".
   The reviewer checks the reason. A change of comments only, or a tooling change no AL code sees, takes this form.
 
 CI fails when the rule fails, and when a test differs and has no entry. A stale entry (an entry whose test no longer differs) fails for a folder the pull request adds or changes. For a folder given as an argument in a local run that the pull request does not change, it is printed as a note. In CI (`--changed`) every folder that runs is a changed one, so a stale entry always fails there.
-A later pull request may delete old folders.
+A later pull request may delete old folders. Delete the folder once the fix has merged.
 
 ## The app
 
@@ -78,8 +79,8 @@ became flagged), or another failure message. Another refusal text is not a diffe
 ## Run it
 
 ```
-tools/neighbor-diff.sh --changed                     # what CI runs: the folders your branch changes
-tools/neighbor-diff.sh path/to/app [--bc-version 28]  # any app folder
+bash tools/neighbor-diff.sh --changed                # what CI runs: the folders your branch changes
+bash tools/neighbor-diff.sh path/to/app [--bc-version 28] # any app folder
 ```
 
 Default BC version: 29, and CI runs BC 29 only. A change that a BC version decides (a version guard, a major-gated

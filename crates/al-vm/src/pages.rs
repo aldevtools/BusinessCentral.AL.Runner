@@ -111,7 +111,7 @@ impl HostMove {
     }
 }
 
-fn page_of<'a>(engine: &'a Engine, st: &St) -> &'a ir::Page {
+pub(crate) fn page_of<'a>(engine: &'a Engine, st: &St) -> &'a ir::Page {
     let object = st.borrow().object as usize;
     engine.program.objects[object]
         .page
@@ -266,7 +266,7 @@ mod code_inserted_pinned;
 mod modal_close_save_error;
 mod own_area_caption;
 mod triggerless_action;
-pub(crate) use code_close_veto::{CodeCloseVeto, TriggerKind};
+pub(crate) use code_close_veto::{CodeCloseVeto, PageTrigger, TriggerKind};
 mod controls;
 mod cue_value;
 mod currpage_run_typed_key;

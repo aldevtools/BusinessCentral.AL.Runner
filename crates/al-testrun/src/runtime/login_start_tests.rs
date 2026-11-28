@@ -11,7 +11,9 @@ use super::login_replay_tests::{MAIN, OPAQUE_INSIDE, compiled, compiled_with};
 use super::session_flags::SessionFlags;
 use super::*;
 use crate::login_replay::{Key, first_difference};
-use crate::login_start::{self, MAX_BYTES, MAX_START_BYTES, MAX_STARTS, NotTaken, Start, starts};
+use crate::login_start::{
+    self, DEFAULT_BYTES, DEFAULT_STARTS, LoginReplayLimits, MAX_START_BYTES, NotTaken, Start, starts,
+};
 use al_builtins::assumptions::HitBits;
 use al_builtins::value::Value;
 
@@ -211,6 +213,78 @@ fn a_planted_difference_in_the_replay_is_reported() {
     );
 }
 
+/// [`MAIN`] with a login subscriber that leaves, in a SingleInstance codeunit, a TextBuilder holding the high half of a
+/// surrogate pair alone (corpus PR 1605, LtSurrogateHalves.al Ops_tb_1: Append keeps the half).
+const HALF_IN_BUILDER: &str = r#"
+codeunit 77500 "RPL Half Registration"
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Guided Experience", 'OnRegisterManualSetup', '', false, false)]
+    local procedure RegisterManualSetup() var Holder: Codeunit "RPL Half Holder"; begin Holder.Keep(); end;
+}
+codeunit 77501 "RPL Half Holder"
+{
+    SingleInstance = true;
+    var Builder: TextBuilder;
+    procedure Keep() var H: Text; begin H := 'x'; H[1] := 55357; Builder.Append(H); end;
+}
+"#;
+
+/// Plants in the twin what a String in the image made of the half (issue 9202): U+FFFD in the same TextBuilder cell.
+fn plant_replacement_in_builder(twin: &mut Session) {
+    let at = (twin.engine.program.objects.iter())
+        .position(|o| o.name == "RPL Half Holder")
+        .expect("the holder");
+    let instance = twin.codeunit_instance(at);
+    let Value::Library(_, cell) = &instance.borrow().globals[0] else {
+        panic!("Builder is a TextBuilder")
+    };
+    *cell.borrow_mut() = al_builtins::value::LibraryValue::Text(al_builtins::text::Txt::from_unit(0xFFFD));
+}
+
+// Issue 9202: a replayed login gave a TextBuilder U+FFFD where the login left half of a surrogate pair, and the check
+// reported 0 differ, because its state lines wrote the half as U+FFFD too. Through the check's own path (the replay-vs-run
+// compare and the round trip), a twin that holds U+FFFD in the TextBuilder is a difference in the session state, at the
+// line of that TextBuilder's global.
+#[test]
+fn the_check_reports_a_lone_half_the_replay_turned_into_a_replacement_character() {
+    let (engine, l) = compiled_with(&format!("{MAIN}{HALF_IN_BUILDER}"));
+    crate::login_replay::TWIN_PLANT.with(|p| p.set(Some(plant_replacement_in_builder)));
+    let check = RunOptions {
+        login_replay_check: true,
+        ..Default::default()
+    };
+    let ran = sessions(&engine, &l, "RPL Tests A", 3, &check);
+    crate::login_replay::TWIN_PLANT.with(|p| p.set(None));
+    let report = crate::login_replay::report(&engine).expect("a report");
+    let line = |what: &str| {
+        let line = report.lines().find(|l| l.contains(what));
+        line.unwrap_or_else(|| panic!("{report}")).to_string()
+    };
+    let (replay, image) = (line("replay vs run: "), line("round trips "));
+    assert!(
+        replay.contains("replay vs run: 2 checked, 2 differ (session state 2; first: session state "),
+        "{replay}"
+    );
+    assert!(
+        image.contains("round trips 1, 1 differ (session state 1; first: session state "),
+        "{image}"
+    );
+    // The place the report names is the line of the TextBuilder global, nothing else differs.
+    let place = |l: &str| {
+        let at = l.find("first: session state ").expect("a place") + "first: session state ".len();
+        let n: String = l[at..].chars().take_while(char::is_ascii_digit).collect();
+        n.parse::<usize>().expect("a line number")
+    };
+    assert_eq!(place(&replay), place(&image));
+    assert!(
+        !replay.contains("lines differ"),
+        "only the TextBuilder's line differs: {replay}"
+    );
+    let lines = &ran.states[0].state_lines().lines;
+    let named = &lines[place(&replay) - 1];
+    assert!(named.contains("TextBuilder"), "the place names another line: {named}");
+}
+
 /// [`MAIN`] with install code that sets WorkDate: a codeunit's session that starts from no install baseline starts from
 /// what it left (`install_once.rs`, `Session::install_left` carries WorkDate), before the session enters the codeunit
 /// and logs in.
@@ -248,7 +322,7 @@ fn the_checks_twin_holds_before_its_thaw_what_the_session_held_before_its_login(
     let key = &firsts[0].0;
     for (i, twin) in twins.iter().enumerate() {
         assert!(
-            key.holds_session(twin),
+            key.key.holds_session(twin),
             "twin {i} before its thaw is not the session before its login: {:?}",
             twin.lines
                 .iter()
@@ -843,13 +917,18 @@ fn a_session_the_gate_refuses_runs_its_login_and_is_counted() {
     assert!(line.is_some_and(|l| l.contains("refused by the gate")), "coverage");
 }
 
-// ---- the caps: 8 starts, 64 MB, a start of at most 16 MB, least recently used out ----
+// ---- the caps: 8 starts and 64 MB unless the run sets others, a start of at most 16 MB, least recently used out ----
 
 /// The key of a new session of `engine` whose work date is `n` (so every `n` is another key).
 fn numbered_key(engine: &Arc<Engine>, n: i32) -> Key {
     let mut session = target(engine);
     session.set_work_date(1000 + n);
     Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).expect("a key")
+}
+
+/// [`numbered_key`] as a start is kept under it: by a session that read no resource file.
+fn numbered_start_key(engine: &Arc<Engine>, n: i32) -> crate::login_replay::StartKey {
+    crate::login_replay::StartKey::of(numbered_key(engine, n), &target(engine))
 }
 
 /// A start whose image holds `bytes` of text in a SingleInstance codeunit's global: `kept_bytes` is a little more.
@@ -884,7 +963,92 @@ fn big_engine() -> (Arc<Engine>, Lowered) {
 
 #[test]
 fn the_caps_are_eight_starts_sixty_four_mb_and_sixteen_mb_a_start() {
-    assert_eq!((MAX_STARTS, MAX_BYTES, MAX_START_BYTES), (8, 64 << 20, 16 << 20));
+    assert_eq!(
+        (DEFAULT_STARTS, DEFAULT_BYTES, MAX_START_BYTES),
+        (8, 64 << 20, 16 << 20)
+    );
+}
+
+// With nothing set, a run's options and the environment give the default caps, and a new engine's starts hold them.
+#[test]
+fn with_nothing_set_the_run_keeps_eight_starts_and_sixty_four_mb() {
+    let defaults = LoginReplayLimits {
+        max_starts: 8,
+        max_bytes: 64 << 20,
+    };
+    assert_eq!(LoginReplayLimits::default(), defaults);
+    assert_eq!(RunOptions::default().login_replay_limits, defaults);
+    assert_eq!(LoginReplayLimits::read(|_| None), Ok(defaults));
+    let (engine, l) = big_engine();
+    let st = starts(&engine);
+    for n in 0..9 {
+        st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 1000)));
+    }
+    assert_eq!(st.kept(), 8, "the ninth start pushes the first out");
+}
+
+/// The caps `max_starts` starts and `mib` MiB.
+fn limits(max_starts: usize, mib: u64) -> LoginReplayLimits {
+    LoginReplayLimits {
+        max_starts,
+        max_bytes: mib << 20,
+    }
+}
+
+// A run that sets the count keeps exactly that many starts, above the default too, the least recently used out.
+#[test]
+fn a_set_count_keeps_that_many_starts_least_recently_used_out() {
+    let (engine, l) = big_engine();
+    let st = starts(&engine);
+    st.set_limits(limits(12, 64));
+    for n in 0..12 {
+        st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 1000)));
+    }
+    assert_eq!(st.kept(), 12, "twelve starts, beyond the default eight");
+    // Key 0 is used again: key 1 is now the least recently used.
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_some());
+    st.record(numbered_start_key(&engine, 12), Ok(start_of_size(&engine, &l, 1000)));
+    assert_eq!(st.kept(), 12, "the thirteenth start pushes one out");
+    assert!(
+        st.take(&numbered_key(&engine, 1), &engine).is_none(),
+        "the least recently used is out"
+    );
+    for n in [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] {
+        assert!(st.take(&numbered_key(&engine, n), &engine).is_some(), "key {n}");
+    }
+    // A lower count (a kept engine under the next run's options) drops the least recently used at once: 10, 11, 12 stay.
+    st.set_limits(limits(3, 64));
+    assert_eq!(st.kept(), 3);
+    for n in [10, 11, 12] {
+        assert!(st.take(&numbered_key(&engine, n), &engine).is_some(), "key {n}");
+    }
+}
+
+// A run that sets the megabytes binds the starts by their bytes: once the total would pass it, the least recently used
+// go; one start over it is not kept (`too large`), even below the 16 MB of one start.
+#[test]
+fn set_megabytes_bind_the_starts_by_bytes() {
+    let (engine, l) = big_engine();
+    let st = starts(&engine);
+    st.set_limits(limits(100, 20));
+    // Two starts of 9 MiB fit in 20 MiB (18 MiB and their small parts), a third does not: the oldest goes.
+    for n in 0..2 {
+        st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 9 * MIB)));
+    }
+    assert_eq!(st.kept(), 2);
+    st.record(numbered_start_key(&engine, 2), Ok(start_of_size(&engine, &l, 9 * MIB)));
+    assert_eq!(st.kept(), 2, "a third start of 9 MiB would pass 20 MiB");
+    assert!(st.bytes() <= 20 << 20, "{}", st.bytes());
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_none());
+    assert!(st.take(&numbered_key(&engine, 2), &engine).is_some());
+    // A start of 12 MiB alone passes 10 MiB: not kept, and the kept ones stay.
+    st.set_limits(limits(100, 10));
+    assert_eq!(st.kept(), 1, "a lower cap drops what passes it at once");
+    st.record(numbered_start_key(&engine, 3), Ok(start_of_size(&engine, &l, 12 * MIB)));
+    assert!(st.take(&numbered_key(&engine, 3), &engine).is_none());
+    assert_eq!(st.kept(), 1);
+    let line = st.line().expect("a line");
+    assert!(line.contains("1 too large"), "{line}");
 }
 
 // A start is kept with its bytes counted.
@@ -895,11 +1059,11 @@ fn a_recorded_start_is_kept_and_its_bytes_are_counted() {
     let start = start_of_size(&engine, &l, 2 * MIB);
     let bytes = start.image.kept_bytes();
     assert!(bytes > 2 * MIB as u64, "kept_bytes counts the text: {bytes}");
-    st.record(numbered_key(&engine, 0), Ok(start));
+    st.record(numbered_start_key(&engine, 0), Ok(start));
     assert_eq!(st.kept(), 1);
     assert_eq!(st.bytes(), bytes);
-    assert!(st.take(&numbered_key(&engine, 0)).is_some());
-    assert!(st.knows(&numbered_key(&engine, 0)));
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_some());
+    assert!(st.knows(&numbered_key(&engine, 0), &engine));
 }
 
 // At most eight starts, the least recently used out; a take refreshes.
@@ -907,20 +1071,20 @@ fn a_recorded_start_is_kept_and_its_bytes_are_counted() {
 fn starts_are_bounded_by_eight_least_recently_used_out() {
     let (engine, l) = big_engine();
     let st = starts(&engine);
-    for n in 0..MAX_STARTS as i32 {
-        st.record(numbered_key(&engine, n), Ok(start_of_size(&engine, &l, 1000)));
+    for n in 0..DEFAULT_STARTS as i32 {
+        st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 1000)));
     }
     assert_eq!(st.kept(), 8);
     // Key 0 is used again: key 1 is now the least recently used.
-    assert!(st.take(&numbered_key(&engine, 0)).is_some());
-    st.record(numbered_key(&engine, 8), Ok(start_of_size(&engine, &l, 1000)));
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_some());
+    st.record(numbered_start_key(&engine, 8), Ok(start_of_size(&engine, &l, 1000)));
     assert_eq!(st.kept(), 8, "the ninth start pushes one out");
     assert!(
-        st.take(&numbered_key(&engine, 1)).is_none(),
+        st.take(&numbered_key(&engine, 1), &engine).is_none(),
         "the least recently used is out"
     );
     for n in [0, 2, 3, 4, 5, 6, 7, 8] {
-        assert!(st.take(&numbered_key(&engine, n)).is_some(), "key {n}");
+        assert!(st.take(&numbered_key(&engine, n), &engine).is_some(), "key {n}");
     }
 }
 
@@ -931,20 +1095,20 @@ fn starts_are_bounded_by_sixty_four_mb_and_an_eviction_returns_the_bytes() {
     let st = starts(&engine);
     // Seven starts of 9 MiB fit (63 MiB plus their small parts), an eighth does not: the oldest goes.
     for n in 0..7 {
-        st.record(numbered_key(&engine, n), Ok(start_of_size(&engine, &l, 9 * MIB)));
+        st.record(numbered_start_key(&engine, n), Ok(start_of_size(&engine, &l, 9 * MIB)));
     }
     assert_eq!(st.kept(), 7);
     let seven = st.bytes();
-    assert!(seven > 63 * MIB as u64 && seven <= MAX_BYTES, "{seven}");
-    st.record(numbered_key(&engine, 7), Ok(start_of_size(&engine, &l, 9 * MIB)));
+    assert!(seven > 63 * MIB as u64 && seven <= DEFAULT_BYTES, "{seven}");
+    st.record(numbered_start_key(&engine, 7), Ok(start_of_size(&engine, &l, 9 * MIB)));
     assert_eq!(
         st.kept(),
         7,
         "an eighth start of 9 MiB would pass 64 MB: the least recently used is out"
     );
-    assert!(st.bytes() <= MAX_BYTES, "{}", st.bytes());
-    assert!(st.take(&numbered_key(&engine, 0)).is_none());
-    assert!(st.take(&numbered_key(&engine, 7)).is_some());
+    assert!(st.bytes() <= DEFAULT_BYTES, "{}", st.bytes());
+    assert!(st.take(&numbered_key(&engine, 0), &engine).is_none());
+    assert!(st.take(&numbered_key(&engine, 7), &engine).is_some());
     // The bytes of the one pushed out are not counted any more: 7 starts, not 8.
     assert!(st.bytes() < seven + 100 * 1024, "{} against {seven}", st.bytes());
 }
@@ -954,15 +1118,15 @@ fn starts_are_bounded_by_sixty_four_mb_and_an_eviction_returns_the_bytes() {
 fn a_start_over_sixteen_mb_is_not_kept_and_says_too_large() {
     let (engine, l) = big_engine();
     let st = starts(&engine);
-    st.record(numbered_key(&engine, 0), Ok(start_of_size(&engine, &l, 17 * MIB)));
+    st.record(numbered_start_key(&engine, 0), Ok(start_of_size(&engine, &l, 17 * MIB)));
     assert_eq!(st.kept(), 0);
     assert_eq!(st.bytes(), 0);
     let line = st.line().expect("a line");
     assert!(line.contains("too large"), "{line}");
     // The key is remembered as refused: its session is not frozen again.
-    assert!(st.knows(&numbered_key(&engine, 0)));
+    assert!(st.knows(&numbered_key(&engine, 0), &engine));
     // A start of 15 MiB is kept: the bound is on the start, not near it.
-    st.record(numbered_key(&engine, 1), Ok(start_of_size(&engine, &l, 15 * MIB)));
+    st.record(numbered_start_key(&engine, 1), Ok(start_of_size(&engine, &l, 15 * MIB)));
     assert_eq!(st.kept(), 1);
 }
 
@@ -972,10 +1136,10 @@ fn a_refused_key_is_remembered_and_never_taken() {
     let (engine, _) = compiled();
     let st = starts(&engine);
     let key = numbered_key(&engine, 0);
-    assert!(!st.knows(&key));
-    st.record(key.clone(), Err(al_vm::NotImaged::Field("tasks")));
-    assert!(st.knows(&key));
-    assert!(st.take(&key).is_none());
+    assert!(!st.knows(&key, &engine));
+    st.record(numbered_start_key(&engine, 0), Err(al_vm::NotImaged::Field("tasks")));
+    assert!(st.knows(&key, &engine));
+    assert!(st.take(&key, &engine).is_none());
     assert_eq!(st.kept(), 0);
     assert!(st.line().is_some_and(|l| l.contains("field tasks")));
 }
@@ -1412,4 +1576,72 @@ fn a_session_whose_run_clock_began_on_another_day_runs_its_own_login() {
         assert_eq!(*o, passes(), "session {i} (day {i}) sees the day its own login ran on");
     }
     assert_eq!(starts(&engine).replayed(), 0, "a start of another day is never taken");
+}
+
+// ---- the memory limit: the serve budget holds the room the byte cap leaves the starts (al-runner issue 8211) ----
+
+/// How many test threads a soft budget (serve's) of 2000 MB admits beside 500 MB resident, at a learned cost of 100 MB
+/// a codeunit, on an engine that keeps one start of 4 MiB under the caps of `opts`.
+fn threads_admitted(opts: &RunOptions) -> usize {
+    use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
+    const MB: u64 = 1 << 20;
+    let (engine, l) = big_engine();
+    starts(&engine).set_limits(opts.login_replay_limits);
+    starts(&engine).record(numbered_start_key(&engine, 0), Ok(start_of_size(&engine, &l, 4 * MIB)));
+    let rss = Arc::new(AtomicU64::new(500 * MB));
+    let read = rss.clone();
+    let budget = super::memory::MemoryBudget {
+        limit: 2000 * MB,
+        source: "maxMemory".into(),
+        rss: Arc::new(move || Some(read.load(SeqCst))),
+        hard: false,
+    };
+    let pool = super::memory::Pool::new(Some(budget), 500 * MB, 8);
+    super::corpus::share_with_pool(&pool, &engine, None, opts);
+    let first = pool.enter();
+    rss.store(600 * MB, SeqCst);
+    drop(first);
+    rss.store(500 * MB, SeqCst);
+    let mut members = Vec::new();
+    while let Some(m) = pool.try_add(0) {
+        members.push(m);
+    }
+    1 + members.len()
+}
+
+// A raised byte cap counts in the soft budget before a thread is admitted: 1020 MB of room the starts may still take
+// leave room for two threads, where the default cap leaves room for the eight the pool may use. No start is dropped.
+// The count of 64 starts at 16 MB each (1024 MB) does not bind here.
+#[test]
+fn a_raised_byte_cap_lowers_the_threads_a_soft_budget_admits() {
+    let on = |mib: u64| RunOptions {
+        login_replay: true,
+        login_replay_limits: limits(64, mib),
+        ..Default::default()
+    };
+    assert_eq!(threads_admitted(&on(64)), 8, "60 MB of room fit beside eight threads");
+    assert_eq!(threads_admitted(&on(1024)), 2, "1020 MB of room leave two");
+    // The check keeps starts too; a run that keeps none holds no room.
+    let check = RunOptions {
+        login_replay_check: true,
+        ..on(1024)
+    };
+    assert_eq!(threads_admitted(&check), 2);
+    let off = RunOptions {
+        login_replay: false,
+        ..on(1024)
+    };
+    assert_eq!(threads_admitted(&off), 8, "no start is kept: nothing held");
+}
+
+// Al-runner issue 9173: two starts of at most 16 MB each hold at most 32 MB, so a 1024 MB setting beside a count of
+// two holds 28 MB of room (32 MB less the 4 MiB start), not 1020 MB: the pool admits its eight threads.
+#[test]
+fn the_room_held_is_the_smaller_of_the_byte_cap_and_the_count_at_sixteen_mb_a_start() {
+    let two = RunOptions {
+        login_replay: true,
+        login_replay_limits: limits(2, 1024),
+        ..Default::default()
+    };
+    assert_eq!(threads_admitted(&two), 8, "28 MB of room fit beside eight threads");
 }

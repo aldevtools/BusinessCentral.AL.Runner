@@ -1,4 +1,0 @@
-# key	entry
-# Every test is an expression next to the new rule that the AL compiler takes and main runs: keyword members quoted and
-# plain words unquoted in control, action and page expressions and in sources, and the properties with a grammar of their
-# own (TableRelation, CalcFormula, an xmlport source) naming Exit unquoted. No test differs.
