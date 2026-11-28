@@ -12,7 +12,7 @@
 //! Submodules: `unassigned_element` (members of an unassigned XmlElement measured by
 //! xml/UhUnassignedXmlElement.al), `dom` (node store), `parse`, `write`, `write_to`, `xpath`,
 //! `select`, `queries`, `read`, `read_tree`, `tree`, `edit`, `attrs`, `names`, `node_types`, `lists`,
-//! `manager`, `create_names` (the name check of XmlElement.Create and XmlAttribute.Create: the
+//! `manager`, `cycles` (frees the node-parent cycles no variable reaches), `create_names` (the name check of XmlElement.Create and XmlAttribute.Create: the
 //! invalid names xml/XmlNameValidity.al, XmlElement.al and XmlAttributes.al pin raise BC's error; al-
 //! runner issue 7964 item 1). Entry points: `native_for` (mod.rs), `XmlCell`, `XData` (dom.rs),
 //! `escape_text`, `escape_attr` (write.rs).
@@ -28,6 +28,7 @@ use std::rc::{Rc, Weak};
 mod attr_replace;
 mod attrs;
 mod create_names;
+mod cycles;
 mod dom;
 mod edit;
 mod lists;

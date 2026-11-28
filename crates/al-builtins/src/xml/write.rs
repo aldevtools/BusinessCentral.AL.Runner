@@ -361,7 +361,7 @@ impl Writer {
         self.out.push('<');
         self.out.push_str(&qname(&eff, local));
         self.out.push_str(&attr_text);
-        if children.is_empty() && !open {
+        if self_closed(children, open) {
             self.out.push_str(" />");
             self.level -= 1;
         } else {
@@ -428,7 +428,7 @@ pub(super) fn attribute_markup(h: &Handle) -> Option<Result<String, Signal>> {
         local
     } else if ns == XMLNS_URI && prefix == "xmlns" {
         format!("xmlns:{local}")
-    } else if !ns.is_empty() && prefix.is_empty() && parent_of(h).is_none() && !parent_dropped(h) {
+    } else if !ns.is_empty() && prefix.is_empty() && parent_of(h).is_none() {
         format!("p0:{local}")
     } else {
         return Some(unsupported(

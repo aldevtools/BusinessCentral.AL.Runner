@@ -8,7 +8,8 @@ pub(super) const XML_URI: &str = "http://www.w3.org/XML/1998/namespace";
 #[derive(Debug)]
 pub struct XmlCell {
     pub data: XData,
-    pub parent: Option<Weak<RefCell<LibraryValue>>>,
+    /// Held strongly, as BC keeps a node's document alive (`cycles` frees the cycle this makes).
+    pub parent: Option<Handle>,
     /// Set the first time the node gets a parent and never cleared: a node taken off its parent is not a new one
     /// (`never_attached`).
     pub had_parent: bool,
@@ -147,6 +148,13 @@ pub(super) fn recv_write_to(r: Option<&mut Value>) -> Result<Handle, Signal> {
     recv_or_uninit(r, "XmlNode")
 }
 
+/// Whether an element with these children is written `<a />` and answers IsEmpty Yes: no children, and not parsed from
+/// `<a></a>` (xml/XmlElement.al:692-711 IsEmpty_States: `<a/>` and `<a x="1"/>` are empty, `<a></a>` is not and is
+/// written `<a></a>`; xml/TestProbeXmlContracts.al:WriteTo_EmptyElementFromParsedText).
+pub(super) fn self_closed(children: &[Handle], open: bool) -> bool {
+    children.is_empty() && !open
+}
+
 pub(super) fn new_node(data: XData) -> Handle {
     let h = Rc::new(RefCell::new(LibraryValue::Xml(XmlCell {
         data,
@@ -216,23 +224,18 @@ pub(super) fn with<T>(h: &Handle, f: impl FnOnce(&mut XData) -> T) -> T {
 
 pub(super) fn parent_of(h: &Handle) -> Option<Handle> {
     match &*h.borrow() {
-        LibraryValue::Xml(c) => c.parent.as_ref().and_then(Weak::upgrade),
+        LibraryValue::Xml(c) => c.parent.clone(),
         _ => None,
-    }
-}
-
-/// Whether `h` had a parent that no variable references any more.
-pub(super) fn parent_dropped(h: &Handle) -> bool {
-    match &*h.borrow() {
-        LibraryValue::Xml(c) => c.parent.as_ref().is_some_and(|w| w.upgrade().is_none()),
-        _ => false,
     }
 }
 
 pub(super) fn set_parent(child: &Handle, parent: Option<&Handle>) {
     if let LibraryValue::Xml(c) = &mut *child.borrow_mut() {
-        c.parent = parent.map(Rc::downgrade);
+        c.parent = parent.cloned();
         c.had_parent |= parent.is_some();
+    }
+    if parent.is_some() {
+        super::cycles::note(child);
     }
 }
 
@@ -244,8 +247,7 @@ pub(super) fn attribute_without_namespace(h: &Handle) -> bool {
     )
 }
 
-/// Whether `h` was made by a Create (or a copy) and never had a parent: neither attached now nor taken off one, nor left by a
-/// parent no variable references any more.
+/// Whether `h` was made by a Create (or a copy) and never had a parent: neither attached now nor taken off one.
 pub(super) fn never_attached(h: &Handle) -> bool {
     match &*h.borrow() {
         LibraryValue::Xml(c) => c.parent.is_none() && !c.had_parent,
