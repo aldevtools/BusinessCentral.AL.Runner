@@ -143,6 +143,11 @@ pub trait Ctx: FormatCtx {
     fn http_probe_1424_measured(&self) -> bool {
         false
     }
+    /// `media::measured_jpeg_logo` for the run's target: which logo of open corpus PR 1594 `bytes` is, on a major it measured.
+    /// A context other than a session knows none.
+    fn measured_jpeg_logo(&self, _bytes: &[u8]) -> Option<crate::media::MeasuredJpegLogo> {
+        None
+    }
     /// Record methods (`Record.Insert`, ...) need the store, triggers and
     /// table metadata: the VM implements them. `method` is the catalog name.
     fn record(
