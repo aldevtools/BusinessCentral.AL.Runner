@@ -1351,8 +1351,14 @@ fn a_recordref_as_the_record_of_the_other_run_calls_is_al0133_from_runtime_17() 
         let files = [RECREF_RUN_OBJECTS, RECREF_RUN_MORE_OBJECTS, &src];
         assert_eq!(diags_for("29", &files), vec![format!("AL0133 {text}")], "{call}");
         assert_eq!(diags_for("28", &files), vec![format!("AL0133 {text}")], "{call}");
-        // Below runtime 17.0 these calls are not measured: they compile as before.
-        assert_eq!(diags_declared("29", "16.0", &files), Vec::<String>::new(), "{call}");
+        // Below runtime 17.0 the compilers disagree on all but Xmlport.Run, which has no overload by name and gives
+        // AL0133 at 16.0 and 16.1 too (3867); the others compile as before.
+        let below = diags_declared("29", "16.0", &files);
+        if call.starts_with("Xmlport") {
+            assert_eq!(below, vec![format!("AL0133 {text}")], "{call}");
+        } else {
+            assert_eq!(below, Vec::<String>::new(), "{call}");
+        }
     }
 }
 
@@ -1391,4 +1397,47 @@ fn every_compound_assignment_of_a_fieldref_value_is_al0175() {
             "{stmt}"
         );
     }
+}
+
+#[test]
+fn a_compound_assignment_of_a_fieldref_value_through_the_other_measured_receivers_is_al0175() {
+    // must-not-compile 3869-3873 on corpus pull request 1645: RecRef.FieldIndex(1), KeyRef.FieldIndex(1), a procedure
+    // that returns a FieldRef, a global FieldRef, and a named return value on the left.
+    let want = vec!["AL0175 Operator '+=' cannot be applied to operands of type 'Integer' and 'Joker'".to_string()];
+    let body = "RecRef.Open(50900); FR := RecRef.Field(2); KeyRef := RecRef.KeyIndex(1);";
+    for (globals, sig, stmt) in [
+        ("", "", "I += RecRef.FieldIndex(1).Value();"),
+        ("", "", "I += KeyRef.FieldIndex(1).Value();"),
+        ("", "", "I += GetFR().Value();"),
+        ("var GFR: FieldRef; ", "", "GFR := RecRef.Field(2); I += GFR.Value();"),
+        ("", " Result: Integer", "Result += FR.Value();"),
+    ] {
+        let src = cu(&format!(
+            "{globals}procedure P(){sig} var RecRef: RecordRef; KeyRef: KeyRef; FR: FieldRef; I: Integer; begin {body} {stmt} end; \
+             local procedure GetFR(): FieldRef var R: RecordRef; begin R.Open(50900); exit(R.Field(2)); end;"
+        ));
+        assert_eq!(diags_for("29", &[TABLE, &src]), want, "{stmt}");
+    }
+}
+
+#[test]
+fn a_compound_assignment_of_a_fieldref_value_in_an_unmeasured_form_compiles() {
+    // Not measured, so not judged: other operators on Decimal and BigInteger, a Text or Code with a length, a field on
+    // the left, and `RecRef.Field(<name>)` as the receiver. They compile as on main.
+    for (decl, stmt) in [
+        ("D: Decimal;", "D -= FR.Value();"),
+        ("B: BigInteger;", "B *= FR.Value();"),
+        ("T: Text[50];", "T += FR.Value();"),
+        ("C: Code[20];", "C += FR.Value();"),
+        ("I: Integer;", "I += RecRef.Field('Amount').Value();"),
+    ] {
+        let src = cu(&format!(
+            "procedure P() var RecRef: RecordRef; FR: FieldRef; {decl} begin RecRef.Open(50900); FR := RecRef.Field(2); {stmt} end;"
+        ));
+        assert_eq!(diags_for("29", &[TABLE, &src]), Vec::<String>::new(), "{stmt}");
+    }
+    // A field of the table on the left, in a procedure of the table.
+    let table = "table 50901 \"ALT Counter\" { fields { field(1; Id; Integer) { } field(2; Qty; Integer) { } } \
+         procedure P() var RecRef: RecordRef; FR: FieldRef; begin RecRef.Open(50901); FR := RecRef.Field(2); Qty += FR.Value(); end; }";
+    assert_eq!(diags_for("29", &[table]), Vec::<String>::new());
 }

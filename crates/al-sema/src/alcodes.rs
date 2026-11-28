@@ -194,7 +194,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0133",
-        "reported only for the assignment form `X.M := v` of a builtin method whose one form takes one XML value, given an XML collection (check/infer.rs; case 2372), and from runtime 17.0 for a RecordRef variable or parameter as the record of `Page.Run` and `Page.RunModal` with two arguments, `Page.Run` with a field number, `Report.Run`, `Report.RunModal` and `Xmlport.Run` with four and `Codeunit.Run` with two, the object given by an Integer (check/recordref_record_arg.rs; case 1634, cases 3862-3868 on corpus pull request 1645); other argument conversions are not judged.",
+        "reported only for the assignment form `X.M := v` of a builtin method whose one form takes one XML value, given an XML collection (check/infer.rs; case 2372), and from runtime 17.0 for a RecordRef variable or parameter as the record of `Page.Run` and `Page.RunModal` with two arguments, `Page.Run` with a field number, `Report.Run`, `Report.RunModal` and `Xmlport.Run` with four and `Codeunit.Run` with two, the object given by an Integer, and `Xmlport.Run` from the runtime floor (check/recordref_record_arg.rs; case 1634, and beyond it the assumption `recordref-as-run-record`, cases 3862-3868 on corpus pull request 1645); other argument conversions are not judged.",
     ),
     (
         "AL0196",
@@ -242,7 +242,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0666",
-        "reported for a catalog method newer than the app's runtime (check/calls.rs: cases 0364, 0365, 0576, 0620, 0621, 0640, 0664, 0665, 1200, 1824), for those `Page.Run`, `Page.RunModal` and `Report.Run` calls with a RecordRef record from runtime 4.1 to below 17.0 (check/recordref_record_arg.rs: case 1633, measured down to 4.0 on corpus pull request 1645) and for the properties, data types, attributes and object types alc-features.txt measured (features.rs: cases 0684, 0777, 0778, 0799 to 0804, 0995 to 0997, 1431); a feature or element kind the table has no AL0666 row for is not decided.",
+        "reported for a catalog method newer than the app's runtime (check/calls.rs: cases 0364, 0365, 0576, 0620, 0621, 0640, 0664, 0665, 1200, 1824), for those `Page.Run`, `Page.RunModal` and `Report.Run` calls with a RecordRef record from runtime 4.1 to below 17.0 (check/recordref_record_arg.rs: case 1633, and below and beside its runtime 16.1 the assumption `recordref-as-run-record`, measured down to 4.0 on corpus pull request 1645) and for the properties, data types, attributes and object types alc-features.txt measured (features.rs: cases 0684, 0777, 0778, 0799 to 0804, 0995 to 0997, 1431); a feature or element kind the table has no AL0666 row for is not decided.",
     ),
 ];
 

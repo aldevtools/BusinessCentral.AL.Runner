@@ -7,10 +7,14 @@
 //! 3835 and 3850-3861 on corpus pull request 1645 are its probe).
 //!
 //! Judged in the measured shapes only, each fact measured on its own:
-//! - the left side a variable in scope (a local, a parameter, a `var` parameter or a global) of type Integer with `+=`,
-//!   `-=`, `*=` or `/=`, or of type Decimal, BigInteger or Text (no length) with `+=`;
-//! - the right side `<FieldRef>.Value()` without arguments or `<FieldRef>.Value` without parentheses, the FieldRef a
-//!   variable, a parameter, `RecRef.Field(n)` or an array element.
+//! - the left side a variable in scope (a local, a parameter, a `var` parameter, a global or a named return value) of
+//!   type Integer with `+=`, `-=`, `*=` or `/=`, or of type Decimal, BigInteger or Text (no length) with `+=`;
+//! - the right side `<FieldRef>.Value()` without arguments, the FieldRef a variable in scope (a local, a parameter or a
+//!   global), an element of an array of FieldRef, `RecRef.Field(<number>)`, `RecRef.FieldIndex(<n>)`,
+//!   `KeyRef.FieldIndex(<n>)` or a call of a procedure that returns a FieldRef; or `<FieldRef>.Value` without
+//!   parentheses on a FieldRef variable in scope.
+//!
+//! Any other form (another left type or operator, a field on the left, another receiver) compiles as before.
 use super::*;
 use al_builtins::assumptions::Assumption;
 
@@ -55,17 +59,58 @@ impl Checker<'_> {
         }
     }
 
-    /// Whether `rhs` reads a FieldRef's value: `X.Value()` without arguments or `X.Value` without parentheses.
+    /// Whether `rhs` reads a FieldRef's value in a measured form: `X.Value()` without arguments or `X.Value`, X one of
+    /// the measured receivers.
     fn is_fieldref_value_read(&self, sc: &Scope, rhs: &SyntaxNode) -> bool {
-        match rhs.kind() {
+        if !self.is_fieldref_value(sc, rhs) {
+            return false;
+        }
+        let (member, bare) = match rhs.kind() {
             SyntaxKind::CallExpr => {
                 let no_args = rhs
                     .children()
                     .nth(1)
                     .is_some_and(|list| list.children().next().is_none());
-                no_args && self.is_fieldref_value(sc, rhs)
+                match rhs.children().next() {
+                    Some(m) if no_args => (m, false),
+                    _ => return false,
+                }
             }
-            SyntaxKind::MemberExpr => self.is_fieldref_value(sc, rhs),
+            SyntaxKind::MemberExpr => (rhs.clone(), true),
+            _ => return false,
+        };
+        let Some(receiver) = member
+            .children()
+            .next()
+            .filter(|_| member.kind() == SyntaxKind::MemberExpr)
+        else {
+            return false;
+        };
+        let in_scope = |n: &SyntaxNode| n.kind() == SyntaxKind::NameRef && sc_has_var(sc, &name_of(n).to_lowercase());
+        if bare {
+            // 3859: `I += FR.Value`, FR a local.
+            return in_scope(&receiver);
+        }
+        match receiver.kind() {
+            // 3834, 3855, 3872: a local, a parameter or a global FieldRef.
+            SyntaxKind::NameRef => in_scope(&receiver),
+            // 3854: an element of an array of FieldRef.
+            SyntaxKind::IndexExpr => receiver.children().next().is_some_and(|base| in_scope(&base)),
+            // 3853, 3869, 3870: `RecRef.Field(<number>)`, `RecRef.FieldIndex(<n>)`, `KeyRef.FieldIndex(<n>)`; 3871: a
+            // procedure that returns a FieldRef.
+            SyntaxKind::CallExpr => {
+                let r = receiver.text_range();
+                matches!(
+                    self.resolutions.get(&(sc.file, r.start().into(), r.end().into())).map(Res::inner),
+                    Some(Res::Builtin(id))
+                        if id == "RecordRef.Field#2" || id == "RecordRef.FieldIndex#1" || id == "KeyRef.FieldIndex#1"
+                ) || matches!(
+                    self.resolutions
+                        .get(&(sc.file, r.start().into(), r.end().into()))
+                        .map(Res::inner),
+                    Some(Res::Proc { .. })
+                )
+            }
             _ => false,
         }
     }
