@@ -46,22 +46,34 @@ fn issue_8078_action_added_after_a_separator() {
 
 const RELATION_TEXT: &str = "SetValue of a text into a Text page variable with a TableRelation";
 
-/// Issue 8339: SetValue of a text into a Text page variable and a request page variable with `TableRelation = Company`: refused.
+/// The refusal of a variable control on a Card without a source table or on a request page whose relation corpus PR 1646
+/// does not measure (`pages/relation_text_entry.rs`): Company's primary key is a Text field, the probe's a Code field.
+const UNMEASURED_RELATION: &str =
+    "SetValue of a text into a page variable with a TableRelation, in a shape corpus PR 1646 does not measure";
+
+/// Issue 8339: SetValue of a text into a Text page variable and a request page variable with `TableRelation = Company`:
+/// refused. The reporter's answer (the stored name) fits corpus PR 1646's rule, but that probe measures Code keys only.
 #[test]
 fn issue_8339_text_entry_into_a_related_text_control_is_refused() {
     let o = outcomes(
         include_str!("../fixtures/outside-id/Issue8339.al"),
         "ALR P CompanyRelationSetValue",
     );
-    refused(&o, "PageVariableWithCompanyRelationTakesStoredName", RELATION_TEXT);
+    refused(
+        &o,
+        "PageVariableWithCompanyRelationTakesStoredName",
+        UNMEASURED_RELATION,
+    );
     refused(
         &o,
         "RequestPageVariableWithCompanyRelationTakesStoredName",
-        RELATION_TEXT,
+        UNMEASURED_RELATION,
     );
 }
 
-/// Neighbors of issue 8339 keep main's result: a Text control without a relation and a Code control with one keep the text typed.
+/// Neighbors of issue 8339: a Text control without a relation keeps the text typed, as on main. A Code control related to
+/// Company (a Text key) is refused: corpus PR 1646 measures the rule on Code keys only, and the key types it does not measure
+/// stay refused (the maintainer's review of al-runner issue 9336); main kept the typed text there.
 #[test]
 fn issue_8339_neighbors_keep_the_typed_text() {
     let file = include_str!("../fixtures/outside-id/Issue8339.al");
@@ -91,18 +103,23 @@ fn issue_8339_neighbors_keep_the_typed_text() {
             ),
         ],
     );
-    for src in [no_relation, code] {
-        let o = outcomes(&src, "ALR P CompanyRelationSetValue");
-        assert_eq!(
-            outcome_of(&o, "PageVariableWithCompanyRelationTakesStoredName"),
-            Outcome::Pass,
-            "{o:#?}"
-        );
-    }
+    let o = outcomes(&no_relation, "ALR P CompanyRelationSetValue");
+    assert_eq!(
+        outcome_of(&o, "PageVariableWithCompanyRelationTakesStoredName"),
+        Outcome::Pass,
+        "{o:#?}"
+    );
+    let o = outcomes(&code, "ALR P CompanyRelationSetValue");
+    refused(
+        &o,
+        "PageVariableWithCompanyRelationTakesStoredName",
+        UNMEASURED_RELATION,
+    );
 }
 
 /// Neighbor of issue 8339: a Text page variable whose TableRelation names a table with `TableType = Temporary` (no stored row
-/// can be related) keeps the typed text, as on main; the same relation to a normal table stays refused.
+/// can be related) keeps the typed text, as on main; the same relation to a normal table stays refused (its key is an Integer,
+/// which corpus PR 1646 does not measure).
 #[test]
 fn issue_8339_relation_to_a_temporary_table_keeps_the_typed_text() {
     let relation_to = |table_type: &str| {
@@ -133,7 +150,11 @@ fn issue_8339_relation_to_a_temporary_table_keeps_the_typed_text() {
         "{o:#?}"
     );
     let o = outcomes(&relation_to(""), "ALR P CompanyRelationSetValue");
-    refused(&o, "PageVariableWithCompanyRelationTakesStoredName", RELATION_TEXT);
+    refused(
+        &o,
+        "PageVariableWithCompanyRelationTakesStoredName",
+        UNMEASURED_RELATION,
+    );
 }
 
 /// Issue 8340: OnNewRecord raises an error at the OpenEdit of a Card over an empty table: refused.
@@ -329,8 +350,8 @@ fn issue_8344_on_a_list_is_refused() {
     refused(&o, "NewLineAfterActionPositionedOnFirstRow", "left Rec on a stored row");
 }
 
-/// Issue 8339: a page extension field bound to the base page's protected Text variable, and SetValue of an Integer into the
-/// Text variable: refused.
+/// Issue 8339: a page extension field bound to the base page's protected Text variable (the old refusal), and SetValue of an
+/// Integer into the Text variable (a value corpus PR 1646 does not measure): refused.
 #[test]
 fn issue_8339_base_variable_and_non_text_value_are_refused() {
     let src = format!(
@@ -376,7 +397,7 @@ codeunit 50219 "ALR P CompanyRelationMore"
     );
     let o = outcomes(&src, "ALR P CompanyRelationMore");
     refused(&o, "ExtensionFieldOnBaseVariable", RELATION_TEXT);
-    refused(&o, "IntegerIntoTextVariable", RELATION_TEXT);
+    refused(&o, "IntegerIntoTextVariable", UNMEASURED_RELATION);
 }
 
 const OPEN_ERROR: &str = "an error raised by OnNewRecord or OnAfterGetCurrRecord at the open";
