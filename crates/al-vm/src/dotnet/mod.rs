@@ -101,14 +101,17 @@ const _: fn() = || {
 /// or a reply last wrote into it: an AL write, `Clear`, `CreateOutStream` or `Import` of the Blob since then changes the count.
 /// `fresh`: the bridge started with the bytes of a Blob `CreateOutStream` made the stream on (`zip_blob_writes`);
 /// `origin_empty`: the Blob held no bytes when the bridge was made; `temp_record`: `CreateOutStream` opened the stream on a
-/// Blob field of a temporary record (`zip_blob_writes::opened_on_temp_record`); `update4_utf8`: the bridge is argument 0 of
-/// `ZipArchive(OutStream, Update, false, Encoding.UTF8)` (`zip_blob_writes::fresh_update_ctor`).
+/// Blob field of a temporary record (`zip_blob_writes::opened_on_temp_record`); `of_no_row`: no read or Insert gave the
+/// record the Blob, when the bridge was made (`zip_blob_writes::of_no_row`; a later Clear in place resets those flags);
+/// `update4_utf8`: the bridge is argument 0 of `ZipArchive(OutStream, Update, false, Encoding.UTF8)`
+/// (`zip_blob_writes::fresh_update_ctor`).
 struct Bridge {
     blob: BlobRef,
     edits: u32,
     fresh: bool,
     origin_empty: bool,
     temp_record: bool,
+    of_no_row: bool,
     update4_utf8: bool,
 }
 
@@ -120,6 +123,7 @@ impl Bridge {
             fresh,
             origin_empty: blob.borrow().bytes.is_empty(),
             temp_record,
+            of_no_row: zip_blob_writes::of_no_row(&blob.borrow()),
             update4_utf8,
         }
     }
@@ -588,7 +592,7 @@ impl Session {
         {
             let blob = al_builtins::stream::new_blob();
             save_to = Some((p.to_string(), blob.clone()));
-            let out = LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None);
+            let out = LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None, None);
             let out = std::rc::Rc::new(std::cell::RefCell::new(out));
             values[0] = Value::Library(al_builtins::library_kind::LibraryKind::OutStream, out);
         }
@@ -808,7 +812,7 @@ impl Session {
             let blob = al_builtins::stream::new_blob();
             *(if create_book { open_workbook } else { save_to }) = Some((path.to_string(), blob.clone()));
             values[0] = lib(
-                LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None),
+                LibraryValue::OutStream(blob, al_builtins::stream::Encoding::default(), None, None),
                 al_builtins::library_kind::LibraryKind::OutStream,
             );
             return Ok(());
@@ -1612,7 +1616,7 @@ impl Session {
                         at: st.pos.min(st.len()),
                     }
                 }
-                LibraryValue::OutStream(blob, _, open) => {
+                LibraryValue::OutStream(blob, _, open, opened_at) => {
                     // A Blob whose handed-back bytes .NET wrote over holds bytes that are not known (al-runner issue 7947), and BC
                     // hands .NET that Blob's own stream: refused.
                     if blob.borrow().render_pending.as_deref() == Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN) {
@@ -1629,7 +1633,7 @@ impl Session {
                     // that zip (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al:77-96
                     // WD_Zip_ReadThroughAnOutStream, al-runner issue 6317). The bridge starts with the bytes when the stream
                     // stands at their end; a write over them is refused by the host. A stream standing elsewhere keeps the
-                    // empty bridge whose bytes land at the AL position (the earlier behavior), except the stream of a fresh
+                    // empty bridge whose bytes land at the AL position (the earlier behavior), except the stream of the newest
                     // CreateOutStream handed to a ZipArchive in Update mode (`zip_blob_writes`).
                     let buf = blob.borrow();
                     let at_end = buf.loaded
@@ -1640,7 +1644,7 @@ impl Session {
                         && buf.write_pos == buf.bytes.len();
                     if at_end {
                         DotNetValue::OutStreamWith(buf.bytes.clone())
-                    } else if book.fresh_ok && arg == 0 && zip_blob_writes::fresh_update_seed(&buf) {
+                    } else if book.fresh_ok && arg == 0 && zip_blob_writes::fresh_update_seed(&buf, *opened_at) {
                         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ZipBlobWrites);
                         book.fresh.push(arg);
                         DotNetValue::OutStreamFresh(buf.bytes.clone())

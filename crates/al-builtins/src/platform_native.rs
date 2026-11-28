@@ -885,6 +885,7 @@ mod tests {
                 b.clone(),
                 Encoding::default(),
                 None,
+                None,
             ))),
         )
     }
@@ -1171,7 +1172,12 @@ mod tests {
         let target = new_blob();
         let utf16 = Value::Library(
             LibraryKind::OutStream,
-            Rc::new(RefCell::new(LibraryValue::OutStream(target, Encoding::Utf16, None))),
+            Rc::new(RefCell::new(LibraryValue::OutStream(
+                target,
+                Encoding::Utf16,
+                None,
+                None,
+            ))),
         );
         assert!(refused(out(in_stream(&digits(100)), utf16)));
         let own = blob_with(&digits(100));
@@ -1186,6 +1192,7 @@ mod tests {
             Rc::new(RefCell::new(LibraryValue::OutStream(
                 target.clone(),
                 Encoding::Utf16,
+                None,
                 None,
             ))),
         );

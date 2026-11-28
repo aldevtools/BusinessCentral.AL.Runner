@@ -268,6 +268,7 @@ mod tests {
         let mut line_breaks = LineBreakHistory::cleared(5);
         line_breaks.note_out_open(Encoding::MsDos, true, 6);
         line_breaks.note_text_write(Encoding::MsDos);
+        line_breaks.note_copy(6, 7);
         line_breaks.in_creates = 2;
         line_breaks.in_uses = 4;
         BlobBuf {

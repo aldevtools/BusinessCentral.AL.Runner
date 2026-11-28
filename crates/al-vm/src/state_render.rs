@@ -720,7 +720,7 @@ mod tests {
             (
                 library(
                     LibraryKind::OutStream,
-                    LibraryValue::OutStream(al_builtins::stream::new_blob(), Default::default(), None),
+                    LibraryValue::OutStream(al_builtins::stream::new_blob(), Default::default(), None, None),
                 ),
                 "OutStream (an open stream: it writes a Blob buffer it shares with its owner)",
             ),

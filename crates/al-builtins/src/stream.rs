@@ -1143,7 +1143,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         }
     }
     let b = blob_of(r)?;
-    {
+    let edits = {
         // The content stays (:BlobField_CreateOutStream_DoesNotEmptyExistingData).
         let mut buf = b.borrow_mut();
         buf.dotnet_view = 0;
@@ -1160,7 +1160,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
             buf.write_pos = 0;
             buf.refetch = false;
             drop(buf);
-            set_stream(&a[0], LibraryValue::OutStream(b, enc, None))?;
+            set_stream(&a[0], LibraryValue::OutStream(b, enc, None, Some(edits)))?;
             return Ok(Value::Null);
         }
         // That case writes over content the record holds. Another unloaded Blob (a temporary record's, a copy of an unloaded
@@ -1181,8 +1181,9 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.loaded = true;
         buf.refetch = false;
         buf.persisted = false;
-    }
-    set_stream(&a[0], LibraryValue::OutStream(b, enc, None))?;
+        edits
+    };
+    set_stream(&a[0], LibraryValue::OutStream(b, enc, None, Some(edits)))?;
     Ok(Value::Null)
 }
 
@@ -2217,6 +2218,17 @@ fn in_read(c: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) -> NResu
     Ok(Value::Integer(width as i32))
 }
 
+/// The stamp `Blob.CreateOutStream` gave the OutStream `v` (`LibraryValue::OutStream`, last part).
+fn opened_at(v: &Value) -> Option<u32> {
+    match v {
+        Value::Library(_, h) => match &*h.borrow() {
+            LibraryValue::OutStream(.., stamp) => *stamp,
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 pub(crate) fn out_buf(r: Option<&mut Value>) -> Result<(BlobRef, Encoding), Signal> {
     match r {
         Some(Value::Library(_, h)) => match &*h.borrow() {
@@ -2744,6 +2756,11 @@ fn copy_stream(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NRe
     let (out, _) = out_buf(Some(&mut a[0]))?;
     let bytes = with_in(Some(&mut a[1]), |s| Ok(s.drain()))?;
     write_bytes(&out, &bytes);
+    if let Some(stamp) = opened_at(&a[0]) {
+        let mut buf = out.borrow_mut();
+        let edits = buf.content_edits;
+        buf.line_breaks.note_copy(stamp, edits);
+    }
     Ok(Value::Boolean(true))
 }
 

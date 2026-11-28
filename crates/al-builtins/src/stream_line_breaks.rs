@@ -88,6 +88,12 @@ pub struct LineBreakHistory {
     out_opens: u32,
     /// [`BlobBuf::content_edits`] right after the newest of them (al-vm `zip_blob_writes`).
     out_open_edits: u32,
+    /// Two-argument `CopyStream` calls into the buffer through a stream `CreateOutStream` made.
+    copies: u32,
+    /// The newest of them: the stamp of the OutStream it wrote through (`LibraryValue::OutStream`, last part) and
+    /// [`BlobBuf::content_edits`] right after it (al-vm `zip_blob_writes`).
+    copy_stamp: u32,
+    copy_edits: u32,
     /// Those of them without an encoding (or `TextEncoding::MSDos`) on an empty buffer.
     empty_default_opens: u32,
     /// `WriteText(Text)` calls through an OutStream of the default encoding on the buffer.
@@ -116,6 +122,14 @@ impl LineBreakHistory {
         }
     }
 
+    /// A two-argument `CopyStream` into the buffer through the OutStream `CreateOutStream` stamped `stamp`, which left the
+    /// buffer with `edits` edits.
+    pub(crate) fn note_copy(&mut self, stamp: u32, edits: u32) {
+        self.copies += 1;
+        self.copy_stamp = stamp;
+        self.copy_edits = edits;
+    }
+
     pub(crate) fn note_text_write(&mut self, enc: Encoding) {
         if enc == Encoding::MsDos {
             self.default_text_writes += 1;
@@ -129,6 +143,9 @@ impl LineBreakHistory {
             base_edits,
             out_opens,
             out_open_edits,
+            copies,
+            copy_stamp,
+            copy_edits,
             empty_default_opens,
             default_text_writes,
             in_creates,
@@ -138,6 +155,9 @@ impl LineBreakHistory {
             base_edits,
             out_opens,
             out_open_edits,
+            copies,
+            copy_stamp,
+            copy_edits,
             empty_default_opens,
             default_text_writes,
             in_creates,
@@ -153,6 +173,9 @@ impl LineBreakHistory {
             base_edits: r.u32()?,
             out_opens: r.u32()?,
             out_open_edits: r.u32()?,
+            copies: r.u32()?,
+            copy_stamp: r.u32()?,
+            copy_edits: r.u32()?,
             empty_default_opens: r.u32()?,
             default_text_writes: r.u32()?,
             in_creates: r.u32()?,
@@ -175,9 +198,9 @@ impl LineBreakHistory {
         self.out_open_edits
     }
 
-    /// Whether a `CreateOutStream` is the newest edit of the buffer, which has `content_edits` edits.
-    pub fn opened_last(&self, content_edits: u32) -> bool {
-        self.out_opens > 0 && self.out_open_edits == content_edits
+    /// The stamp of the OutStream a two-argument `CopyStream` wrote through, when that copy left the buffer with `edits` edits.
+    pub fn copied_through(&self, edits: u32) -> Option<u32> {
+        (self.copies > 0 && self.copy_edits == edits).then_some(self.copy_stamp)
     }
 
     /// Whether the buffer holds what one `WriteText(Text)` through the one `CreateOutStream` of the default encoding on it empty

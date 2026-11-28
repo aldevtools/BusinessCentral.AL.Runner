@@ -2000,12 +2000,16 @@ pub enum LibraryValue {
     XmlNamespaces(crate::xml::NsScopes),
     /// An InStream: a snapshot being read.
     InStream(crate::stream::InState),
-    /// An OutStream: appends to a Blob buffer. The last part is what the VM kept when the stream was opened on a Blob field of
-    /// a temporary record ([`crate::stream::OutOpen`]).
+    /// An OutStream: appends to a Blob buffer. The third part is what the VM kept when the stream was opened on a Blob field
+    /// of a temporary record ([`crate::stream::OutOpen`]). The last part is the buffer's
+    /// [`crate::stream::BlobBuf::content_edits`] right after the `Blob.CreateOutStream` that made this stream (`None` for a
+    /// stream made otherwise): every OutStream of one Blob shares its buffer, so this tells them apart (al-vm
+    /// `zip_blob_writes`).
     OutStream(
         crate::stream::BlobRef,
         crate::stream::Encoding,
         Option<Rc<crate::stream::OutOpen>>,
+        Option<u32>,
     ),
 }
 

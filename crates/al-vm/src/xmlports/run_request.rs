@@ -31,6 +31,7 @@ impl Session {
                         al_builtins::stream::new_blob(),
                         al_builtins::stream::Encoding::default(),
                         None,
+                        None,
                     ))),
                 );
                 Self::xp_run_use_request_page_refused(schema)?;
