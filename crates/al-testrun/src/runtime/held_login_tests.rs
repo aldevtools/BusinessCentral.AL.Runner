@@ -118,8 +118,10 @@ fn only_a_session_from_the_install_baseline_starts_the_runs_login() {
 #[test]
 fn a_runner_130450_codeunit_after_the_held_login_refuses_nothing() {
     let (l, engine) = super::tests::engine_for(SRC);
-    let mut wrote = CompanyOpenWrites::default();
-    wrote.held = held_reads(&held(&l), true, false, false);
+    let wrote = CompanyOpenWrites {
+        held: held_reads(&held(&l), true, false, false),
+        ..Default::default()
+    };
     assert!(wrote.held.is_none());
     let r = refusals(&l, &engine, &wrote);
     assert_eq!((&r[0], &r[1], &r[2]), (&None, &None, &None), "{r:?}");
@@ -130,8 +132,10 @@ fn a_runner_130450_codeunit_after_the_held_login_refuses_nothing() {
 #[test]
 fn a_hub_codeunit_without_the_held_image_refuses_only_the_single_instance_reader() {
     let (l, engine) = super::tests::engine_for(SRC);
-    let mut wrote = CompanyOpenWrites::default();
-    wrote.held = held_reads(&held(&l), false, false, true);
+    let wrote = CompanyOpenWrites {
+        held: held_reads(&held(&l), false, false, true),
+        ..Default::default()
+    };
     let r = refusals(&l, &engine, &wrote);
     assert_eq!((&r[0], &r[1]), (&None, &None));
     assert!(r[2].as_ref().is_some_and(|w| w.contains("could not be kept")), "{r:?}");
