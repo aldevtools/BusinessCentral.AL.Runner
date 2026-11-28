@@ -35,7 +35,7 @@ mod staged_dir;
 mod system_environment;
 mod xml_errors;
 mod zip_blob_writes;
-pub(crate) use zip_blob_writes::copied_out_stream;
+pub(crate) use zip_blob_writes::{note_element_stream, unstamp_out_stream};
 mod zip_entry_streams;
 mod zone_rules;
 
@@ -166,6 +166,8 @@ pub struct DotNetState {
     bridges: HashMap<u64, Bridge>,
     /// The newest .NET write through a bridge, per Blob (`zip_blob_writes`).
     net_writes: Vec<zip_blob_writes::NetWrite>,
+    /// The OutStreams read from an array element (`zip_blob_writes::note_element_stream`).
+    element_streams: Vec<std::rc::Weak<RefCell<LibraryValue>>>,
     /// ADR-056: the workbook writers `WorkbookWriter.Create(fileName)` made, by handle: the file and the AL stream the writer
     /// writes into instead. `Close` makes the bytes the file.
     open_workbooks: HashMap<DotNetHandle, (String, BlobRef)>,
@@ -206,6 +208,7 @@ impl DotNetState {
             available,
             bridges,
             net_writes,
+            element_streams,
             open_workbooks,
             closed_workbooks,
             worksheets,
@@ -223,6 +226,8 @@ impl DotNetState {
             && available.is_none()
             && bridges.is_empty()
             && net_writes.is_empty()
+            // A list of gone cells answers as an empty one.
+            && element_streams.iter().all(|w| w.strong_count() == 0)
             && open_workbooks.is_empty()
             && closed_workbooks.is_empty()
             && worksheets.is_empty()
@@ -1642,11 +1647,12 @@ impl Session {
                             "an OutStream of a Blob whose bytes a DotNet call wrote over, handed to .NET",
                         );
                     }
+                    let opened_at = zip_blob_writes::stamp_of(&self.dotnet, h, *opened_at);
                     book.outs.push(BookOut {
                         arg,
                         blob: blob.clone(),
                         temp_record: zip_blob_writes::opened_on_temp_record(open.as_deref()),
-                        opened_at: *opened_at,
+                        opened_at,
                     });
                     // BC hands .NET the Blob's own stream: a ZipArchive in Read mode over an OutStream AL copied a zip into reads
                     // that zip (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al:77-96
@@ -1662,7 +1668,7 @@ impl Session {
                         && buf.write_pos == buf.bytes.len();
                     if at_end {
                         DotNetValue::OutStreamWith(buf.bytes.clone())
-                    } else if book.fresh_ok && arg == 0 && zip_blob_writes::fresh_update_seed(&buf, *opened_at) {
+                    } else if book.fresh_ok && arg == 0 && zip_blob_writes::fresh_update_seed(&buf, opened_at) {
                         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ZipBlobWrites);
                         book.fresh.push(arg);
                         DotNetValue::OutStreamFresh(buf.bytes.clone())

@@ -31,8 +31,9 @@
 //! and the .NET write positions apart, SgDotNetStreams.al:154-172), so the next write marks the Blob
 //! (`al_builtins::stream::note_write`) and handing its stream to .NET again refuses, as on main after an overwrite.
 //!
-//! A copy of the OutStream (`:=`, a by-value parameter) loses the stamp ([`copied_out_stream`]): not measured, so main's
-//! answer.
+//! Every assumed rewrite needs the stamp of the stream handed to .NET. An OutStream copied (`:=`, a by-value parameter)
+//! loses it ([`unstamp_out_stream`]); one read from an array element never has it at .NET ([`note_element_stream`]): not
+//! measured, so main's answer.
 //!
 //! Every other rewrite keeps main's answer: an Update archive's rewrite refuses, an overwrite marks the Blob
 //! (`DOTNET_BRIDGE_OVERWRITTEN`). Not measured, so not served: another ZipArchiveMode over a fresh OutStream, the B
@@ -49,6 +50,7 @@ use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::stream::{BlobBuf, BlobRef};
 use al_builtins::value::{DotNetKind, Value};
 use al_host::dotnet::Rewrite;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// The newest .NET write that reached a Blob through a bridge, for part 2's states (one per Blob), with the bridge's stream
@@ -135,16 +137,46 @@ pub(super) fn fresh_update_seed(buf: &BlobBuf, opened_at: Option<u32>) -> bool {
         && buf.write_pos == 0
 }
 
-/// A copy of OutStream `v` was made (`:=`, a by-value parameter): its stamp is dropped. The probes hand .NET the variable
-/// `CreateOutStream` wrote, directly or through a `var` parameter (ZipBlobUpdateFreshOutStream.al:150-170,
-/// ZipBlobUpdateBlobChanged.al:19-30, :152-180), never a copy. The runner's copy shares the stream cell, so both holders
-/// lose the stamp: parts 1 and 2 then give main's answer (`fresh_update_seed`, `changed_state_measured`).
-pub(crate) fn copied_out_stream(v: &Value) {
+/// A copy of OutStream `v` was made: its stamp is dropped. The probes hand .NET a scalar OutStream variable that
+/// `CreateOutStream` wrote, directly (ZipBlobUpdateFreshOutStream.al:146-170) or through a `var` parameter bound to a local
+/// (ZipBlobUpdateBlobChanged.al:19-32, ZipBlobDotNetOverwrite.al:17-34), never a copy. The callers: `:=` of an OutStream
+/// (`exec::run`) and a by-value OutStream parameter (`Session::call`). The runner's copy shares the stream cell, so the
+/// original loses the stamp too: parts 1, 2 and 3 then give main's answer (`fresh_update_seed`, `Bridge::opened_at` in
+/// `rewrite_verdict`).
+pub(crate) fn unstamp_out_stream(v: &Value) {
     if let Value::Library(al_builtins::library_kind::LibraryKind::OutStream, h) = v
         && let al_builtins::value::LibraryValue::OutStream(.., opened_at) = &mut *h.borrow_mut()
     {
         *opened_at = None;
     }
+}
+
+/// OutStream `v` was read from an array element (`Session::read_place`): its cell is noted for the session, so the stream
+/// is never stamped when it reaches .NET ([`stamp_of`]), also when a later `CreateOutStream` writes the cell through a `var`
+/// parameter bound to the element. No probe holds the stream in an array. Every array of OutStreams, copied whole or handed
+/// by value, shares its elements' cells, and an element reaches .NET only by a read of it (or through a parameter bound by
+/// that read).
+pub(crate) fn note_element_stream(state: &mut super::DotNetState, v: &Value) {
+    if let Value::Library(al_builtins::library_kind::LibraryKind::OutStream, h) = v {
+        let cells = &mut state.element_streams;
+        if !cells.iter().any(|w| std::ptr::eq(w.as_ptr(), Rc::as_ptr(h))) {
+            cells.retain(|w| w.strong_count() > 0);
+            cells.push(Rc::downgrade(h));
+        }
+    }
+}
+
+/// The stamp of the OutStream cell `h` handed to .NET: `opened_at`, or none for a cell read from an array element.
+pub(super) fn stamp_of(
+    state: &super::DotNetState,
+    h: &Rc<std::cell::RefCell<al_builtins::value::LibraryValue>>,
+    opened_at: Option<u32>,
+) -> Option<u32> {
+    let in_array = state
+        .element_streams
+        .iter()
+        .any(|w| std::ptr::eq(w.as_ptr(), Rc::as_ptr(h)));
+    if in_array { None } else { opened_at }
 }
 
 /// Part 2's Blob: no read or Insert gave the record that Blob. Read when the bridge is made: a Clear in place gives the
@@ -182,12 +214,19 @@ impl Session {
                 Verdict::ReplaceAssumed
             }
             // Part 2.
-            Some(Rewrite::ZipUpdate4) if !bridge.fresh && self.changed_state_measured(bridge, before, &buf) => {
+            Some(Rewrite::ZipUpdate4)
+                if !bridge.fresh && bridge.opened_at.is_some() && self.changed_state_measured(bridge, before, &buf) =>
+            {
                 assume(Assumption::ZipBlobWrites);
                 Verdict::ReplaceAssumed
             }
             // Part 3: the bridge is the one AL handed its Blob to (the sidecar counts the writers of one bridge only).
-            Some(Rewrite::Overwrite) if bridge.origin_empty && unchanged && self.bridges_of(&bridge.blob) == 1 => {
+            Some(Rewrite::Overwrite)
+                if bridge.origin_empty
+                    && bridge.opened_at.is_some()
+                    && unchanged
+                    && self.bridges_of(&bridge.blob) == 1 =>
+            {
                 assume(Assumption::ZipBlobWrites);
                 Verdict::ReplaceAssumed
             }

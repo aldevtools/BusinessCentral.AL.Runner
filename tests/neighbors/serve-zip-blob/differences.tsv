@@ -17,6 +17,4 @@ NB SZ R4 After Rewrite 59449::Overwrite48_ThenNetAppend	ASSUMED zip-blob-writes 
 NB SZ R4 After Rewrite 59449::Overwrite48_ThenStreamView	ASSUMED zip-blob-writes (corpus PR 1633: the overwrite is the measured one; the stream handed to .NET after it keeps main's refusal)
 NB SZ R4 After Rewrite 59449::Overwrite48_ThenSecondStreamWriter	ASSUMED zip-blob-writes (corpus PR 1633: the overwrite is the measured one; the stream handed to .NET after it keeps main's refusal)
 NB SZ R4 After Rewrite 59449::Fresh_Update4_Dispose_ThenALWriteText	REFUSED a Blob whose bytes a DotNet call wrote over after it had handed them back
-NB SZ R5 Copies 59453::Fresh_Update4_OverArrayCopyElement	ASSUMED zip-blob-writes (corpus PR 1633 measures a scalar OutStream variable; an array copied whole is not measured and still served: open, al-runner issue 9373)
-NB SZ R5 Copies 59453::Fresh_Update4_ArrayByValue	ASSUMED zip-blob-writes (corpus PR 1633 measures a scalar OutStream variable; an array handed by value is not measured and still served: open, al-runner issue 9373)
-NB SZ R5 Copies 59453::Fresh_Update4_OverArrayElement	ASSUMED zip-blob-writes (corpus PR 1633 measures a scalar OutStream variable; an array element, no copy, is served the same: open, al-runner issue 9373)
+NB SZ R6 Holders 59455::Overwrite48_OverVarScalar	ASSUMED zip-blob-writes (corpus PR 1633, ZipBlobDotNetOverwrite.al:17-49: the measured overwrite through a scalar var OutStream parameter)
