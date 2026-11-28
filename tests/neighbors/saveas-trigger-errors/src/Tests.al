@@ -219,11 +219,6 @@ codeunit 97120 "NBS Tests"
         BooleanForm(Report::"NBS Word Rpt", 10, ReportFormat::Xml, 'false TestField/Tag must be equal to ''X''  in NBS Row: Code=. Current value is ''''.');
     end;
 
-    [Test]
-    procedure Word_ReportInsertsThenErrors_PdfBoolean_NotMeasured()
-    begin
-        BooleanForm(Report::"NBS Word Rpt", 11, ReportFormat::Pdf, 'false Dialog/N11');
-    end;
 
     [Test]
     procedure ProcessingOnly_WithOnInitReport_WordBoolean_NotMeasured()
@@ -259,5 +254,28 @@ codeunit 97120 "NBS Tests"
     procedure Rdlc_OnPreReportError_PdfBoolean_MainsRule()
     begin
         BooleanForm(Report::"NBS Rdlc Rpt", 1, ReportFormat::Pdf, 'false Dialog/N1');
+    end;
+}
+
+// The report writes a row before its error. In a test codeunit of its own: the write's transaction state does not reach the
+// other tests.
+codeunit 97121 "NBS Insert Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Word_ReportInsertsThenErrors_PdfBoolean_NotMeasured()
+    var
+        S: Codeunit "NBS Site";
+        TempRow: Record "NBS Row" temporary;
+        OutS: OutStream;
+    begin
+        S.Set(Report::"NBS Word Rpt", 11, ReportFormat::Pdf);
+        ClearLastError();
+        TempRow.Data.CreateOutStream(OutS);
+        if Report.SaveAs(Report::"NBS Word Rpt", '', ReportFormat::Pdf, OutS) then
+            Error('SaveAs answered true');
+        if GetLastErrorCode() + '/' + GetLastErrorText() <> 'Dialog/N11' then
+            Error('expected Dialog/N11 but was %1/%2', GetLastErrorCode(), GetLastErrorText());
     end;
 }
