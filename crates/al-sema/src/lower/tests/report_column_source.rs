@@ -54,18 +54,21 @@ fn lowered(report: &str) -> (Vec<(String, Option<usize>)>, Vec<Assumption>) {
 
 #[test]
 fn a_source_qualified_with_a_dotted_own_item_name_is_its_field() {
-    let (ws, l) = lower_src(&format!(
-        "{TABLE}
-report 50100 R {{ dataset {{ dataitem(\"A. B\"; T) {{
-    column(X; \"A. B\".Qty) {{ IncludeCaption = true; }}
-    column(Y; \"A. B\".Qty.G) {{ }}
-}} }} }}"
-    ));
-    let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
-    let columns = &l.program.objects[oi].report.as_ref().unwrap().items[0].columns;
-    let fields = |c: &al_ir::ReportColumn| (c.item_field, c.caption_field, c.places_field);
-    assert_eq!(fields(&columns[0]), (Some(2), Some(2), Some(2)), "{}", columns[0].name);
-    assert_eq!(fields(&columns[1]), (None, None, None), "{}", columns[1].name);
+    for (column, want) in [
+        ("column(X; \"A. B\".Qty) { IncludeCaption = true; }", Some(2)),
+        ("column(Y; \"A. B\".Qty.G) { }", None),
+    ] {
+        let (ws, l) = lower_src(&format!(
+            "{TABLE}\nreport 50100 R {{ dataset {{ dataitem(\"A. B\"; T) {{ {column} }} }} }}"
+        ));
+        let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
+        let c = &l.program.objects[oi].report.as_ref().unwrap().items[0].columns[0];
+        assert_eq!(
+            (c.item_field, c.caption_field, c.places_field),
+            (want, want, want),
+            "{column}"
+        );
+    }
 }
 
 /// The measured cells of DataItemNamesDottedQualifier.al (:75-82, :145-155) resolve to their field and flag the report.
@@ -91,7 +94,7 @@ fn the_measured_dotted_shapes_resolve_through_the_assumption() {
 }
 
 /// The measured cells of part 2 (DataItemNamesDottedQualifier.al:383-400 at cf6884b9, labels :565-567, columns :596-633):
-/// Code, Integer, Text, Date, Enum and Option fields with IncludeCaption; Decimal AutoFormatType 0 with DecimalPlaces 0:5 or
+/// Code, Integer, Text, Date and Enum fields with IncludeCaption; Decimal AutoFormatType 0 with DecimalPlaces 0:5 or
 /// alone, AutoFormatType 2 and 1 with AutoFormatExpression ''; a column without property over AutoFormatType 0 + DecimalPlaces
 /// 0:5 and over AutoFormatType 1 + AutoFormatExpression ''.
 #[test]
@@ -106,7 +109,6 @@ fn the_measured_typed_dotted_shapes_resolve_through_the_assumption() {
     column(LQuantity; \"Dq. Line\".Q5) { IncludeCaption = true; }
     column(LUnitCost; \"Dq. Line\".UnitExpr) { IncludeCaption = true; }
     column(LCostAmount; \"Dq. Line\".Expr) { IncludeCaption = true; }
-    column(LKind; \"Dq. Line\".Kind) { IncludeCaption = true; }
     column(LBinCode; \"Dq. Line\".Bin) { IncludeCaption = true; }
     column(LSeq; \"Dq. Line\".Seq) { IncludeCaption = true; }
     column(LZeroFmt; \"Dq. Line\".Zero) { IncludeCaption = true; }
@@ -115,7 +117,7 @@ fn the_measured_typed_dotted_shapes_resolve_through_the_assumption() {
     column(DUnit; \"Dq. Line\".Unit) { IncludeCaption = true; }
 } } }",
     );
-    let want = [14, 8, 0, 1, 16, 19, 20, 11, 15, 17, 18, 21, 19, 11, 4];
+    let want = [14, 8, 0, 1, 16, 19, 20, 11, 17, 18, 21, 19, 11, 4];
     for ((name, field), pos) in columns.iter().zip(want) {
         assert_eq!(*field, Some(pos), "{name}");
     }
@@ -128,77 +130,152 @@ fn the_measured_typed_dotted_shapes_resolve_through_the_assumption() {
 /// `report-column-field-unit-amount-format`, dotted or not; every other shape keeps main's formatter.
 #[test]
 fn a_unit_amount_field_marks_its_measured_columns() {
+    for (item, column, want) in [
+        (
+            "\"Dq. Line\"",
+            "column(DUnit; \"Dq. Line\".Unit) { IncludeCaption = true; }",
+            true,
+        ),
+        (
+            "\"Dq. Line\"",
+            "column(LUnitCost; \"Dq. Line\".UnitExpr) { IncludeCaption = true; }",
+            true,
+        ),
+        ("\"Dq. Line\"", "column(NoProperty; \"Dq. Line\".UnitExpr) { }", false),
+        (
+            "\"Dq. Line\"",
+            "column(Bare; UnitExpr) { IncludeCaption = true; }",
+            false,
+        ),
+        (
+            "\"Dq. Line\"",
+            "column(Currency; \"Dq. Line\".UnitCur) { IncludeCaption = true; }",
+            false,
+        ),
+        (
+            "\"Dq. Line\"",
+            "column(Amount; \"Dq. Line\".Expr) { IncludeCaption = true; }",
+            false,
+        ),
+        (
+            "Undotted",
+            "column(ULUnitCost; Undotted.UnitExpr) { IncludeCaption = true; }",
+            true,
+        ),
+        (
+            "Undotted",
+            "column(OtherCase; undotted.UnitExpr) { IncludeCaption = true; }",
+            false,
+        ),
+        (
+            "Undotted",
+            "column(FieldOtherCase; Undotted.unitexpr) { IncludeCaption = true; }",
+            false,
+        ),
+    ] {
+        let (ws, l) = lower_src(&format!(
+            "{TABLE}\nreport 50100 R {{ dataset {{ dataitem({item}; T) {{ {column} }} }} }}"
+        ));
+        let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
+        let c = &l.program.objects[oi].report.as_ref().unwrap().items[0].columns[0];
+        assert_eq!(c.field_unit_amount_format, want, "{column}");
+    }
+}
+
+/// Dotted shapes the probe does not measure keep main's answer: no field, no assumption. Each column is the only one of its
+/// report, so the all-or-none rule cannot hide a column the gate admits by mistake.
+#[test]
+fn an_unmeasured_dotted_shape_keeps_mains_answer() {
+    for column in [
+        "column(EnumNoCaption; \"A. B\".StNoCap) { IncludeCaption = true; }",
+        "column(DateNoCaption; \"A. B\".DueNoCap) { IncludeCaption = true; }",
+        "column(OptionNoCaption; \"A. B\".KindNoCap) { IncludeCaption = true; }",
+        "column(OptionField; \"A. B\".Kind) { IncludeCaption = true; }",
+        "column(BooleanField; \"A. B\".Flag) { IncludeCaption = true; }",
+        "column(ZeroOtherPlaces; \"A. B\".Q3Zero) { IncludeCaption = true; }",
+        "column(ZeroWithExpression; \"A. B\".ZeroExpr) { IncludeCaption = true; }",
+        "column(UnitCurrency; \"A. B\".UnitCur) { IncludeCaption = true; }",
+        "column(UnitNoCaption; \"A. B\".UnitNoCap) { IncludeCaption = true; }",
+        "column(CodeNoProperty; \"A. B\".Code1) { }",
+        "column(EnumNoProperty; \"A. B\".St) { }",
+        "column(UnitNoProperty; \"A. B\".UnitExpr) { }",
+        "column(PlacesOverZero; \"A. B\".Q5) { DecimalPlaces = 4 : 4; }",
+        "column(TextNoCaption; \"A. B\".Bare) { IncludeCaption = true; }",
+        "column(TextCaptionMl; \"A. B\".Ml) { IncludeCaption = true; }",
+        "column(Unmodelled; \"A. B\".Unm) { IncludeCaption = true; }",
+        "column(MediaField; \"A. B\".Pic) { IncludeCaption = true; }",
+        "column(AmountTypeWithPlaces; \"A. B\".AmtPlaces) { IncludeCaption = true; }",
+        "column(NoProperty; \"A. B\".Qty) { }",
+        "column(BothProperties; \"A. B\".Qty) { IncludeCaption = true; DecimalPlaces = 4 : 4; }",
+        "column(PlacesOverText; \"A. B\".Name) { DecimalPlaces = 4 : 4; }",
+        "column(OtherCase; \"a. b\".Qty) { IncludeCaption = true; }",
+        "column(FieldOtherCase; \"A. B\".qty) { IncludeCaption = true; }",
+    ] {
+        let (columns, assumes) = lowered(&format!(
+            "report 50100 R {{ dataset {{ dataitem(\"A. B\"; T) {{ {column} }} }} }}"
+        ));
+        assert_eq!(columns[0].1, None, "{column}");
+        assert!(assumes.is_empty(), "{column}: {assumes:?}");
+    }
+}
+
+/// One column qualified with its own item's dotted name that the gate rejects keeps every dotted column of the report on main's
+/// answer (no field, no assumption): a report serves its dotted columns only when the gate admits each of them, in any item.
+#[test]
+fn one_rejected_dotted_column_keeps_the_whole_report_on_mains_answer() {
+    for rejected in [
+        "column(NoProperty; \"A. B\".Qty) { }",
+        "dataitem(\"C. D\"; T) { column(OptionField; \"C. D\".Kind) { IncludeCaption = true; } }",
+        "dataitem(\"C. D\"; T) { column(OwnOtherCase; \"c. d\".Qty) { IncludeCaption = true; } }",
+    ] {
+        let (ws, l) = lower_src(&format!(
+            "{TABLE}
+report 50100 R {{ dataset {{ dataitem(\"A. B\"; T) {{
+    column(Admitted; \"A. B\".Qty) {{ IncludeCaption = true; }}
+    {rejected}
+}} }} }}"
+        ));
+        let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
+        let r = l.program.objects[oi].report.as_ref().unwrap();
+        for c in r.items.iter().flat_map(|i| i.columns.iter()) {
+            assert_eq!(c.item_field, None, "{rejected}: {}", c.name);
+        }
+        assert!(r.assumes.is_empty(), "{rejected}: {:?}", r.assumes);
+    }
+}
+
+/// A column that names another data item's dotted name keeps main's rule, as an undotted one does (`caption_sources`, probe
+/// :224 and :250 at cf6884b9), and does not stop the own item's admitted dotted columns.
+#[test]
+fn a_dotted_parent_qualifier_does_not_stop_the_report() {
     let (ws, l) = lower_src(&format!(
         "{TABLE}
-report 50100 R {{ dataset {{ dataitem(\"Dq. Line\"; T) {{
-    column(DUnit; \"Dq. Line\".Unit) {{ IncludeCaption = true; }}
-    column(LUnitCost; \"Dq. Line\".UnitExpr) {{ IncludeCaption = true; }}
-    column(NoProperty; \"Dq. Line\".UnitExpr) {{ }}
-    column(Bare; UnitExpr) {{ IncludeCaption = true; }}
-    column(Currency; \"Dq. Line\".UnitCur) {{ IncludeCaption = true; }}
-    column(Amount; \"Dq. Line\".Expr) {{ IncludeCaption = true; }}
-}}
-dataitem(Undotted; T) {{
-    column(ULUnitCost; Undotted.UnitExpr) {{ IncludeCaption = true; }}
-    column(OtherCase; undotted.UnitExpr) {{ IncludeCaption = true; }}
-    column(FieldOtherCase; Undotted.unitexpr) {{ IncludeCaption = true; }}
+report 50100 R {{ dataset {{ dataitem(\"A. B\"; T) {{
+    column(Admitted; \"A. B\".Qty) {{ IncludeCaption = true; }}
+    dataitem(Child; T) {{ column(ParentDotted; \"A. B\".Qty) {{ IncludeCaption = true; }} }}
 }} }} }}"
     ));
     let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
-    let items = &l.program.objects[oi].report.as_ref().unwrap().items;
-    let marks: Vec<_> = items
-        .iter()
-        .flat_map(|i| i.columns.iter())
-        .map(|c| (c.name.as_str(), c.field_unit_amount_format))
-        .collect();
-    assert_eq!(
-        marks,
-        [
-            ("DUnit", true),
-            ("LUnitCost", true),
-            ("NoProperty", false),
-            ("Bare", false),
-            ("Currency", false),
-            ("Amount", false),
-            ("ULUnitCost", true),
-            ("OtherCase", false),
-            ("FieldOtherCase", false),
-        ]
-    );
+    let r = l.program.objects[oi].report.as_ref().unwrap();
+    assert_eq!(r.items[0].columns[0].item_field, Some(2));
+    let parent = &r.items[1].columns[0];
+    assert_eq!((parent.item_field, parent.caption_field), (None, Some(2)));
+    assert_eq!(r.assumes, [Assumption::ReportColumnDottedItemQualifier]);
 }
 
-/// Dotted shapes the probe does not measure keep main's answer: no field, no assumption.
+/// A dotted column a reportextension adds keeps the report's dotted columns on main's answer too: an extension column never
+/// takes the dotted rule.
 #[test]
-fn an_unmeasured_dotted_shape_keeps_mains_answer() {
+fn a_dotted_extension_column_keeps_the_report_on_mains_answer() {
     let (columns, assumes) = lowered(
         "report 50100 R { dataset { dataitem(\"A. B\"; T) {
-    column(EnumNoCaption; \"A. B\".StNoCap) { IncludeCaption = true; }
-    column(DateNoCaption; \"A. B\".DueNoCap) { IncludeCaption = true; }
-    column(OptionNoCaption; \"A. B\".KindNoCap) { IncludeCaption = true; }
-    column(BooleanField; \"A. B\".Flag) { IncludeCaption = true; }
-    column(ZeroOtherPlaces; \"A. B\".Q3Zero) { IncludeCaption = true; }
-    column(ZeroWithExpression; \"A. B\".ZeroExpr) { IncludeCaption = true; }
-    column(UnitCurrency; \"A. B\".UnitCur) { IncludeCaption = true; }
-    column(UnitNoCaption; \"A. B\".UnitNoCap) { IncludeCaption = true; }
-    column(CodeNoProperty; \"A. B\".Code1) { }
-    column(EnumNoProperty; \"A. B\".St) { }
-    column(UnitNoProperty; \"A. B\".UnitExpr) { }
-    column(PlacesOverZero; \"A. B\".Q5) { DecimalPlaces = 4 : 4; }
-    column(TextNoCaption; \"A. B\".Bare) { IncludeCaption = true; }
-    column(TextCaptionMl; \"A. B\".Ml) { IncludeCaption = true; }
-    column(Unmodelled; \"A. B\".Unm) { IncludeCaption = true; }
-    column(MediaField; \"A. B\".Pic) { IncludeCaption = true; }
-    column(AmountTypeWithPlaces; \"A. B\".AmtPlaces) { IncludeCaption = true; }
-    column(NoProperty; \"A. B\".Qty) { }
-    column(BothProperties; \"A. B\".Qty) { IncludeCaption = true; DecimalPlaces = 4 : 4; }
-    column(PlacesOverText; \"A. B\".Name) { DecimalPlaces = 4 : 4; }
-    column(OtherCase; \"a. b\".Qty) { IncludeCaption = true; }
-    column(FieldOtherCase; \"A. B\".qty) { IncludeCaption = true; }
+    column(Admitted; \"A. B\".Qty) { IncludeCaption = true; }
+} } }
+reportextension 50101 X extends R { dataset { add(\"A. B\") {
+    column(Added; \"A. B\".Name) { IncludeCaption = true; }
 } } }",
     );
-    for (name, field) in &columns {
-        assert_eq!(*field, None, "{name}");
-    }
+    assert_eq!(columns[0], ("Admitted".to_string(), None));
     assert!(assumes.is_empty(), "{assumes:?}");
 }
 

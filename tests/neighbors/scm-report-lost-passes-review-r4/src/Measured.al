@@ -29,7 +29,7 @@ codeunit 50981 "NB DQ2 Observer"
     procedure Verify()
     begin
         if Failures <> '' then
-            Error(Failures);
+            Error('%1', Failures);
     end;
 }
 
