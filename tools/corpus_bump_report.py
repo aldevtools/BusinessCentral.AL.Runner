@@ -103,7 +103,14 @@ def main(d):
     body.append("The bot does not merge. It changed only the corpus pin, `oracle/`, the harness counts in "
                 "`crates/al-test-cli/tests/corpus_harness.rs` and the not-passing lists `metrics/*/not-passing*.txt` "
                 "(ADR-065): lines for new oracle cases that do not pass, and the deletion of stale lines. It never "
-                "adds a line for a case the old oracle had.")
+                "adds a line for a case the old oracle had. In `crates/` and `docs/` it changed only citations by "
+                "name, rewritten to the new pin (ADR-065 amendment 2).")
+    rewrote = [l.strip()[len("rewrote "):] for l in read(d, "bump.log").splitlines()
+               if l.strip().startswith("rewrote ")]
+    if rewrote:
+        body.append("")
+        body.append("Files whose citations by name the bump rewrote:")
+        body.extend(f"- `{f}`" for f in capped(rewrote))
 
     left = []
     lost = regressions(read(d, "diff.txt"))
@@ -136,6 +143,11 @@ def main(d):
         left.append(("Rename-map errors (ADR-065 amendment 1): a renamed or moved case that lost its pass, or a "
                      "passing case the corpus rename map sends to no oracle. Fix the code or the corpus map line",
                      capped(renames)))
+    unrewritten = [l.strip()[len("not rewritten: "):] for l in read(d, "bump.log").splitlines()
+                   if l.strip().startswith("not rewritten: ")]
+    if unrewritten:
+        left.append(("Citations by name the bump did not rewrite (ADR-065 amendment 2): a test the rename map splits "
+                     "or removes. Cite the new test by hand; the citations test fails until then", capped(unrewritten)))
     warnings = [l.strip() for l in read(d, "bump.log").splitlines() if "WARNING" in l]
     if warnings:
         left.append(("Warnings of the bump script", capped(warnings)))

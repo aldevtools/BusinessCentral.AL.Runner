@@ -645,6 +645,38 @@ fn commit_refuses_a_pin_that_is_not_the_target() {
     assert_eq!(commits(&r), 1);
 }
 
+/// ADR-065 amendment 2, step 3: the bump rewrites the citations by name of `crates/` and `docs/` (`al-test-cli
+/// --rewrite-citations`), and the bot commits a file there only when every changed line holds a citation token.
+#[test]
+fn commit_takes_rewritten_citation_lines_and_refuses_other_code_changes() {
+    let token = |name: &str| format!("{}:\"{name}\"/A", "corpus");
+    let r = runner();
+    let p = r.dir.path();
+    put(p, "crates/x/src/a.rs", &format!("fn a() {{}}\n// pinned ({})\n", token("LT Old")));
+    git(p, &["add", "-A"]);
+    git(p, &["commit", "-qm", "cite"]);
+    bump_files(&r);
+    put(p, "crates/x/src/a.rs", &format!("fn a() {{}}\n// pinned ({})\n", token("LT New")));
+    let o = commit(&r, &r.corpus.c.clone());
+    assert!(o.status.success(), "{}", text(&o));
+    let files = git(p, &["show", "--name-only", "--format=", "HEAD"]);
+    assert!(files.lines().any(|l| l == "crates/x/src/a.rs"), "{files}");
+    // A change of a line without a token is no rewrite: refused.
+    let r = runner();
+    let p = r.dir.path();
+    bump_files(&r);
+    put(p, "crates/x/src/b.rs", "fn b() {}\n");
+    let o = commit(&r, &r.corpus.c.clone());
+    assert!(!o.status.success());
+    assert!(text(&o).contains("crates/x/src/b.rs"), "{}", text(&o));
+}
+
+#[test]
+fn the_bump_rewrites_the_citations_from_the_old_pin() {
+    let script = read("tools/corpus_bump.sh");
+    assert!(script.contains("--rewrite-citations \"$old\""), "tools/corpus_bump.sh");
+}
+
 // ---------------------------------------------------------------------------------------------------
 // `tools/corpus_bump_report.py DIR`: the pull request body.
 
@@ -815,6 +847,21 @@ fn report_quotes_the_rename_map_error_lines() {
         body.contains("the rename map sends the passing case 100 A to 100 Nowhere"),
         "{body}"
     );
+}
+
+/// The citations the bump could not rewrite (a split or removed test) are left for a person.
+#[test]
+fn report_lists_the_citations_the_bump_did_not_rewrite() {
+    let d = clean_inputs();
+    let p = d.path();
+    put(
+        p,
+        "bump.log",
+        "citations by name:\n  rewrote crates/x/src/a.rs\n  not rewritten: crates/x/src/b.rs: the test was removed at the new pin\n",
+    );
+    let body = report(p);
+    assert!(body.contains("crates/x/src/b.rs: the test was removed"), "{body}");
+    assert!(body.contains("crates/x/src/a.rs"), "names the rewritten files: {body}");
 }
 
 #[test]

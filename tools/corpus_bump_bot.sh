@@ -16,8 +16,9 @@
 #       body lists it. It exits nonzero only when the bump itself or the commit is refused.
 #   tools/corpus_bump_bot.sh commit REPO SHA RUN
 #       Commits the bump in REPO: only the corpus submodule (at SHA), oracle/, the harness counts and the not-passing
-#       lists metrics/*/not-passing*.txt (and the strict-order lists, whose renamed lines a bump moves). Any other
-#       changed path is refused. A list may only gain lines for cases the
+#       lists metrics/*/not-passing*.txt (and the strict-order lists, whose renamed lines a bump moves), and files of
+#       crates/ and docs/ whose every changed line holds a citation token (the citations the bump rewrote to the new
+#       pin, ADR-065 amendment 2). Any other changed path is refused. A list may only gain lines for cases the
 #       base oracle (HEAD) did not have and lose lines: `al-test-cli --list-changes HEAD` must find no line for a case
 #       HEAD's oracle had (that line would hide a regression; adding one is the owner's decision, CLAUDE.md hard rule 2)
 #       and no passing case the corpus rename map sends to no oracle (ADR-065 amendment 1).
@@ -104,8 +105,16 @@ allowed() {
   return 1
 }
 
+# Whether every line the working tree changed in file $2 of repository $1 holds a citation token by name
+# (`corpus:"..."` or `corpus:<kind>:"..."`, ADR-065 amendment 2): a file the citation rewrite of the bump wrote.
+citations_only() { # repository, path
+  local changed
+  changed="$(git -C "$1" diff -U0 --no-color -- "$2" | grep -E '^[-+]' | grep -Ev '^(\+\+\+|---) ' || true)"
+  [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -Evq 'corpus:([a-z]+:)?"'
+}
+
 commit_bump() { # repository, commit, run
-  local r="$1" sha="$2" run="$3" bad=0 path
+  local r="$1" sha="$2" run="$3" bad=0 path cited=()
   [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "commit $sha is not a full commit id"
   while IFS= read -r path; do
     [ -n "$path" ] || continue
@@ -115,6 +124,8 @@ commit_bump() { # repository, commit, run
       # added to that list makes --list-changes below exit 3.
       metrics/*/strict-order-not-run.txt) ;;
       metrics/*) echo "corpus bump bot: $path changed: a bump writes no file under metrics/ but the not-passing and strict-order lists" >&2; bad=1 ;;
+      crates/* | docs/*)
+        allowed "$path" || { citations_only "$r" "$path" && cited+=("$path"); } || { echo "corpus bump bot: $path changed in a line without a citation token: a bump rewrites only citations there" >&2; bad=1; } ;;
       *) allowed "$path" || { echo "corpus bump bot: $path is not part of a corpus bump" >&2; bad=1; } ;;
     esac
   done < <(git -C "$r" status --porcelain=v1 -uall --ignore-submodules=none | cut -c4-)
@@ -147,6 +158,8 @@ commit_bump() { # repository, commit, run
   git -C "$r" add -A -- 'metrics/*/not-passing*.txt' 2>/dev/null || true
   git -C "$r" add -A -- 'metrics/*/strict-order-not-run.txt' 2>/dev/null || true
   [ ! -e "$r/$harness" ] || git -C "$r" add -- "$harness"
+  # The citations the bump rewrote (checked above: every changed line holds a token).
+  [ "${#cited[@]}" = 0 ] || git -C "$r" add -- "${cited[@]}"
   if git -C "$r" diff --cached --quiet; then
     echo "corpus bump bot: nothing to commit" >&2
     return 0
