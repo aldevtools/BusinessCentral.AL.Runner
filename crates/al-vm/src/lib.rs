@@ -39,7 +39,7 @@ pub(crate) use state::*;
 mod baseline;
 mod hub_sequences;
 mod sequence_start;
-pub use raise_watch::RaiseChanges;
+pub use raise_watch::{AskChangers, RaiseChanges, WatchNotes};
 pub use sequence_start::{CommitBy, DataAccess, Interval, Reached, RefLoads, SequenceStart, TxPoint, TxPointKind};
 mod storage_checkpoint;
 pub use storage_checkpoint::{StorageCheckpoint, Unkept};

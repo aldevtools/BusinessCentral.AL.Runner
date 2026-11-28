@@ -1,0 +1,26 @@
+{
+  "id": "8d1a2b3c-0000-4000-8000-000000118945",
+  "name": "LS Partner",
+  "publisher": "LS Partner Co",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "15.0",
+  "idRanges": [
+    {
+      "from": 60970,
+      "to": 60979
+    },
+    {
+      "from": 60990,
+      "to": 60999
+    }
+  ],
+  "dependencies": [
+    {
+      "id": "8d1a2b3c-0000-4000-8000-000000108945",
+      "name": "LS Stand-in Platform",
+      "publisher": "Microsoft",
+      "version": "1.0.0.0"
+    }
+  ]
+}

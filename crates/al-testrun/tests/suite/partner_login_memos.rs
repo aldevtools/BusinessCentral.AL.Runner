@@ -96,9 +96,14 @@ fn tests(body: &str) -> String {
 
 /// The outcome of test Read and the ids of the assumption entries it marked.
 fn run(partner_src: &str, test: &str) -> (Outcome, Vec<&'static str>) {
+    run_main(partner_src, &tests(test))
+}
+
+/// [`run`] with the whole source `main_src` of the app under test.
+fn run_main(partner_src: &str, main_src: &str) -> (Outcome, Vec<&'static str>) {
     let rt = CorpusRuntime::try_run_suites_with(
         vec![
-            app("main", &["partner"], &tests(test)),
+            app("main", &["partner"], main_src),
             app("partner", &["ms"], partner_src),
             app("ms", &[], MS),
         ],
@@ -291,4 +296,125 @@ fn env_info_changed_by_a_third_subscriber_refuses() {
     let src = partner("E.IsSandbox();", "E.IsSaaS();") + third;
     let got = run(&src, "if not (E.IsSaaS() and E.IsSandbox()) then Error('env');");
     assert_refused(got, "subscribers");
+}
+
+// The setup-ask caches (assumption partner-login-setup-ask-cache, corpus probe pending): SingleInstance codeunits of the
+// partner app changed only in the setup ask of the login's write of PAsk (60805), read by a test of an app under test
+// with an install codeunit.
+
+/// A partner cache codeunit 60820 PCache (`N: Integer`, `Last: Code[20]`) whose setup subscriber, of the event `event` of
+/// `publisher`, fills it for PAsk; `bump` is called by nothing unless a body calls it.
+fn ask_cache(publisher: &str, event: &str) -> String {
+    format!(
+        "codeunit 60820 PCache {{ SingleInstance = true; var N: Integer; Last: Code[20];
+            [EventSubscriber(ObjectType::Codeunit, {publisher}, '{event}', '', false, false)]
+            local procedure S(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+            begin if TableId = 60805 then begin N += 1; Last := 'ASKED'; end; end;
+            procedure Bump() begin N += 10; end;
+            procedure Count(): Integer begin exit(N); end;
+            procedure LastAsk(): Code[20] begin exit(Last); end; }}"
+    )
+}
+
+/// The app under test: its install codeunit and test Read with body `body` (`P`: PCache) and the codeunits `more`.
+fn ask_tests(body: &str, more: &str) -> String {
+    format!(
+        "codeunit 60911 Inst {{ Subtype = Install; trigger OnInstallAppPerCompany() begin end; }}
+        codeunit 60951 A {{ Subtype = Test; [Test] procedure Read() var P: Codeunit PCache; begin {body} end; }}
+        {more}"
+    )
+}
+
+const WRITE_ASK: &str = "Q.K := 1; Q.Insert();";
+const READ_CACHE: &str = "if (P.Count() <> 1) or (P.LastAsk() <> 'ASKED') then Error('cache %1', P.Count());";
+
+// A partner cache whose own Global Triggers setup subscriber fills it in the login's ask: the test reads what the ask left.
+#[test]
+fn ask_cache_filled_by_its_own_setup_subscriber_is_kept() {
+    let src = partner(WRITE_ASK, "") + &ask_cache("Codeunit::\"Global Triggers\"", "GetDatabaseTableTriggerSetup");
+    let got = run_main(&src, &ask_tests(READ_CACHE, ""));
+    assert_flagged(got, "partner-login-setup-ask-cache");
+}
+
+// The same cache filled by a subscriber of the event GlobalTriggerManagement raises inside the ask.
+#[test]
+fn ask_cache_filled_through_global_trigger_management_is_kept() {
+    let src = partner(WRITE_ASK, "")
+        + &ask_cache(
+            "Codeunit::GlobalTriggerManagement",
+            "OnAfterGetDatabaseTableTriggerSetup",
+        );
+    let got = run_main(&src, &ask_tests(READ_CACHE, ""));
+    assert_flagged(got, "partner-login-setup-ask-cache");
+}
+
+// A counter of the app under test whose setup subscriber counts the ask of the partner login's write.
+#[test]
+fn own_ask_counter_is_kept() {
+    let own = "codeunit 60952 OwnCount { SingleInstance = true; var N: Integer;
+        [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'GetDatabaseTableTriggerSetup', '', false, false)]
+        local procedure S(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+        begin if TableId = 60805 then N += 1; end;
+        procedure Count(): Integer begin exit(N); end; }";
+    let src = partner(WRITE_ASK, "") + &ask_cache("Codeunit::\"Global Triggers\"", "GetDatabaseTableTriggerSetup");
+    let main = ask_tests("", own).replace(
+        "var P: Codeunit PCache; begin ",
+        "var P: Codeunit PCache; O: Codeunit OwnCount; begin if O.Count() <> 1 then Error('own %1', O.Count()); ",
+    );
+    assert_flagged(run_main(&src, &main), "partner-login-setup-ask-cache");
+}
+
+// A later login subscriber of the same app bumps the cache the first one's ask filled: judged as if the fill had not
+// happened (a change by one partner subscriber of its own app's Integer cache), the fill's mark stays.
+#[test]
+fn ask_cache_changed_by_a_later_login_subscriber_keeps_the_fill_mark() {
+    let src = partner(WRITE_ASK, "") + &ask_cache("Codeunit::\"Global Triggers\"", "GetDatabaseTableTriggerSetup")
+        + "codeunit 60821 PBumper { [EventSubscriber(ObjectType::Codeunit, Codeunit::\"System Initialization\", 'OnAfterLogin', '', false, false)]
+            local procedure L() var P: Codeunit PCache; begin P.Bump(); end; }";
+    let src = src
+        .replace("var N: Integer; Last: Code[20];", "var N: Integer; Last: Text;")
+        .replace("): Code[20]", "): Text");
+    let got = run_main(
+        &src,
+        &ask_tests("if P.Count() <> 11 then Error('cache %1', P.Count());", ""),
+    );
+    assert_flagged(got, "partner-login-setup-ask-cache");
+}
+
+// A login subscriber of the app under test bumps the cache after the partner login's ask filled it.
+#[test]
+fn ask_cache_changed_by_an_own_login_subscriber_keeps_the_fill_mark() {
+    let src = partner(WRITE_ASK, "") + &ask_cache("Codeunit::\"Global Triggers\"", "GetDatabaseTableTriggerSetup");
+    let own = "codeunit 60954 OwnLogin { [EventSubscriber(ObjectType::Codeunit, Codeunit::\"System Initialization\", 'OnAfterLogin', '', false, false)]
+        local procedure L() var P: Codeunit PCache; begin P.Bump(); end; }";
+    let got = run_main(&src, &ask_tests("if P.Count() < 0 then Error('cache');", own));
+    assert_flagged(got, "partner-login-setup-ask-cache");
+}
+
+// The login subscriber itself changes the cache outside the ask as well: not a fill; the other facts refuse its Code
+// global.
+#[test]
+fn ask_cache_changed_outside_the_ask_too_refuses() {
+    let src = partner(&format!("{WRITE_ASK} PC.Bump();"), "")
+        .replace("Q: Record PAsk;", "Q: Record PAsk; PC: Codeunit PCache;")
+        + &ask_cache("Codeunit::\"Global Triggers\"", "GetDatabaseTableTriggerSetup");
+    let got = run_main(&src, &ask_tests(READ_CACHE, ""));
+    assert_refused(got, "of a type other than");
+}
+
+// A setup subscriber of the app under test fills the partner's cache: code of another app, not a fill; the other facts
+// refuse its Code global.
+#[test]
+fn ask_cache_changed_by_another_apps_setup_subscriber_refuses() {
+    let src = partner(WRITE_ASK, "")
+        + "codeunit 60820 PCache { SingleInstance = true; var N: Integer; Last: Code[20];
+            procedure Bump() begin N += 1; Last := 'ASKED'; end;
+            procedure Count(): Integer begin exit(N); end;
+            procedure LastAsk(): Code[20] begin exit(Last); end; }";
+    let foreign = "codeunit 60953 Foreign {
+        [EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'GetDatabaseTableTriggerSetup', '', false, false)]
+        local procedure S(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+        var P: Codeunit PCache; begin if TableId = 60805 then P.Bump(); end; }";
+    let got = run_main(&src, &ask_tests(READ_CACHE, foreign));
+    assert_refused(got, "of a type other than");
 }

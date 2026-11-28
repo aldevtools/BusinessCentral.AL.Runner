@@ -27,7 +27,9 @@
 //! PR 1490) for the measured shapes (a dependency app's codeunit of the subscriber's app or one it
 //! depends on, measured global types or Microsoft's 3702/3703, at most two subscribers of different
 //! apps that change different globals), through the entries of corpus PR 1571 for Microsoft's
-//! measured caches and 3702 filled by two subscribers of one app (`login_memo.rs`; each subscriber
+//! measured caches and 3702 filled by two subscribers of one app (`login_memo.rs`), through entry
+//! `partner-login-setup-ask-cache` for a partner codeunit filled only in the setup ask of a subscriber's write by a
+//! setup-ask subscriber of its own app (`login_ask_cache.rs`; each subscriber
 //! runs under al-vm's watch of the `Global Triggers` raises that changed a global of those codeunits); the own subscribers' changes are noted by `own_step` and
 //! refuse a codeunit a partner subscriber changed too), otherwise marked so that every read of one of
 //! its globals is refused, from any code (al-vm `single_unmeasured.rs`; al-runner issue 8239), the
@@ -70,6 +72,8 @@ struct Change {
     globals: BTreeSet<usize>,
     /// It changed each of them outside any `Global Triggers` raise only ([`By::outside_raises_only`]).
     outside_only: bool,
+    /// [`kept`] judged it a setup-ask cache fill (`login_ask_cache::changed_in_own_ask`).
+    in_ask: bool,
 }
 
 /// One partner login subscriber's change of a SingleInstance codeunit, as [`kept`] judges it.
@@ -82,6 +86,9 @@ pub(crate) struct By<'a> {
     /// outside any raise); `None` for a codeunit the watch did not stamp, no entry for a global it did not stamp
     /// (`login_memo::raise_watched`).
     pub raises: Option<&'a BTreeMap<usize, BTreeSet<String>>>,
+    /// Global -> the subscriber routines of the outermost setup ask that changed it (al-vm `AskChangers`); `None` when
+    /// it changed in no such ask.
+    pub askers: Option<&'a BTreeMap<usize, BTreeSet<(usize, usize)>>>,
 }
 
 impl By<'_> {
@@ -89,6 +96,13 @@ impl By<'_> {
     pub fn raised(&self, g: usize) -> Vec<&str> {
         (self.raises.and_then(|r| r.get(&g)).into_iter().flatten())
             .map(String::as_str)
+            .collect()
+    }
+
+    /// The setup-ask subscriber routines that changed global `g`; empty when none did.
+    pub fn asked_by(&self, g: usize) -> Vec<(usize, usize)> {
+        (self.askers.and_then(|a| a.get(&g)).into_iter().flatten())
+            .copied()
             .collect()
     }
 
@@ -266,8 +280,9 @@ pub(crate) fn raise(
     let (po, pr) = step.publisher;
     // The SingleInstance codeunits each subscriber changed, with the globals it changed, in the order they ran.
     // With the `Global Triggers` events whose raise changed each global (al-vm `RaiseChanges`).
-    let mut singles_by: Vec<((usize, usize), Singles, al_vm::RaiseChanges)> = Vec::new();
-    let watched = crate::login_memo::raise_watched(lowered);
+    let mut singles_by: Vec<((usize, usize), Singles, al_vm::WatchNotes)> = Vec::new();
+    let mut watched = crate::login_memo::raise_watched(lowered);
+    watched.extend(crate::login_ask_cache::ask_watched(lowered, &session.engine));
     crate::install::call_before_first_test(lowered, session, who, |s| {
         let order = s.subscriber_order(po, step.event, &step.subscribers)?;
         // What one subscriber left is where the next one starts: nothing runs between them.
@@ -312,13 +327,15 @@ pub(crate) fn raise(
             let by = By {
                 app,
                 globals,
-                raises: raises.get(o),
+                raises: raises.places.get(o),
+                askers: raises.askers.get(o),
             };
             let verdict = kept(lowered, session, step, *o, &by, singles.len(), earlier);
             earlier.push(Change {
                 app: Some(app),
                 globals: globals.clone(),
                 outside_only: by.outside_raises_only(),
+                in_ask: verdict == Kept::Assumed(Assumption::PartnerLoginSetupAskCache),
             });
             match verdict {
                 Kept::Pinned => {}
@@ -360,11 +377,13 @@ pub(crate) fn own_step(
 ) {
     for (o, globals) in singles {
         let earlier = left.changed_by.entry(o).or_default();
-        let partner_before = earlier.iter().any(|c| c.app.is_some());
+        // A setup-ask fill before it keeps its mark (`partner-login-setup-ask-cache`).
+        let partner_before = earlier.iter().any(|c| c.app.is_some() && !c.in_ask);
         earlier.push(Change {
             app: None,
             globals,
             outside_only: false,
+            in_ask: false,
         });
         if partner_before {
             let what = "a subscriber of an app under test changed it after a partner subscriber did";
@@ -407,6 +426,11 @@ enum Kept {
 ///   both outside any `Global Triggers` raise (`login_memo::env_info_pair`, cell E1); `partner-login-microsoft-cache`, a
 ///   Microsoft cache codeunit other than 3702 and 3703 that no subscriber changed before, by id, exactly the changed globals
 ///   and the raise each changed in (`login_memo::microsoft_cache_measured`, cells M1 to M4).
+/// - Assumed (`partner-login-setup-ask-cache`, corpus probe pending; al-runner issue 8945): a codeunit of a partner app,
+///   dependency or under test, whose every changed global changed only in the outermost setup ask of the subscriber's write,
+///   by a setup-ask subscriber of the codeunit's own app, every earlier change of it such a fill or a change by a login
+///   subscriber of an app under test (`login_ask_cache::changed_in_own_ask`). A later change of another kind is judged by the other facts as if the fills
+///   had not happened, and the fills' mark stays.
 fn kept(
     lowered: &Lowered,
     session: &mut Session,
@@ -432,6 +456,15 @@ fn kept(
     {
         return Kept::Pinned;
     }
+    let events = &session.engine.events;
+    // Every earlier change a fill, or a change by a login subscriber of an app under test (`own_step`).
+    let fill_or_own = |c: &Change| c.in_ask || c.app.is_none();
+    if earlier.iter().all(fill_or_own) && crate::login_ask_cache::changed_in_own_ask(lowered, events, memo, by) {
+        return Kept::Assumed(Assumption::PartnerLoginSetupAskCache);
+    }
+    // After setup-ask fills, the facts below judge this change as if the fills had not happened; their mark stays.
+    let earlier: Vec<Change> = earlier.iter().filter(|c| !c.in_ask).cloned().collect();
+    let earlier = &earlier[..];
     if !lowered.dependency[memo] {
         return Kept::Refused("it is a codeunit of an app under test".into());
     }
@@ -454,6 +487,7 @@ fn kept(
                 app: Some(a),
                 globals: first,
                 outside_only,
+                ..
             },
         ] if *a == sub_app => {
             let pair = *outside_only && by.outside_raises_only();
