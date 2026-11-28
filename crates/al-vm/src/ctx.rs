@@ -149,6 +149,9 @@ impl al_builtins::native::Ctx for Session {
     fn http_probe_1424_measured(&self) -> bool {
         al_version::http_probe_1424_measured(self.engine.target.as_ref())
     }
+    fn measured_jpeg_logo(&self, bytes: &[u8]) -> Option<al_builtins::media::MeasuredJpegLogo> {
+        al_builtins::media::measured_jpeg_logo(bytes, self.engine.target.as_ref())
+    }
     fn error_text_raise(&self) -> Result<(), Signal> {
         // An Error of a CaptionClass run is measured only where `CaptionDialogs` lets it raise (record/captions/
         // CaptionClassStateFreeCalls.al:919-936, al-runner issue 7391).
