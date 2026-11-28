@@ -544,7 +544,11 @@ impl Providers {
                 {
                     row[p] = Value::Text(self.ident.company.clone().into());
                 }
-                mat::Entry::ok(row)
+                // The icon of a logo of open corpus PR 1594: its Content, Mime Type, Height and Width (`media::measured_jpeg_logo`).
+                match o.logo_icon {
+                    Some(_) => mat::Entry::ok(row).assuming(al_builtins::assumptions::Assumption::AppLogoJpegSizes),
+                    None => mat::Entry::ok(row),
+                }
             })
             .collect()
     }
