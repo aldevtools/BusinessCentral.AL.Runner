@@ -1137,11 +1137,15 @@ impl<'a> Owner<'a> {
                         .iter()
                         .position(|f| f.name.eq_ignore_ascii_case(&source))
                 });
-                // `Item.Field` on the item's own table (reports/layouts-saveas/BcXmlBlobObjects.al: `Row.Data`).
+                // `Item.Field` on the item's own table (reports/layouts-saveas/BcXmlBlobObjects.al: `Row.Data`). The split
+                // skips a dot inside a quoted name: a data item name may hold one (reports/dataset/ReportDatasetNames.al:31
+                // `"A. B"`), and its qualified source is still one field of the own item.
                 let item_field = table.and_then(|t| {
                     let item = crate::scan::unquote_double(sec.args().first()?);
-                    let source = args.get(1)?;
-                    let (qualifier, member) = source.trim().split_once('.')?;
+                    let parts = split_outside_quotes(args.get(1)?.trim());
+                    let [qualifier, member] = parts.as_slice() else {
+                        return None;
+                    };
                     if !crate::scan::unquote_double(qualifier).eq_ignore_ascii_case(&item) {
                         return None;
                     }
