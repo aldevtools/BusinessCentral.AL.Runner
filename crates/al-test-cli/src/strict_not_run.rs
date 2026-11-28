@@ -12,8 +12,8 @@
 //! 4. a line of a default list whose case passes in BC's order is printed, never pruned and never a failure: that list
 //!    belongs to the default run.
 //!
-//! A line may only leave the strict list: `--list-changes` reports a line added against a base branch that has the file
-//! (`added`). Pure functions; `main.rs` `check_lists` reads and writes the files.
+//! A line may only leave the strict list: `--list-changes` reports a line added against a base branch that has the file,
+//! and a line of a new file whose paragraph names no issue (`added`). Pure functions; `main.rs` `check_lists` reads and writes the files.
 
 use crate::not_passing::{self, Check};
 use crate::oracle::{CaseId, OracleCase};
@@ -95,10 +95,34 @@ pub fn prune(text: &str, stale: &BTreeSet<CaseId>) -> String {
     s
 }
 
-/// The lines `now` adds to the strict list against `base`, the list at the base revision (`None`: the base revision has
-/// no such file, so this change seeds it and adds nothing).
-pub fn added(base: Option<&BTreeSet<CaseId>>, now: &BTreeSet<CaseId>) -> Vec<CaseId> {
-    base.map_or_else(Vec::new, |b| now.difference(b).cloned().collect())
+/// The lines `now` (parsed from `text`) adds to the strict list against `base`, the list at the base revision. `None`:
+/// the base revision has no such file, so this change seeds it; a seed adds each case line that is not in a paragraph
+/// (lines between blank lines) with a `# not run:` comment naming its issue (`issue <number>`; al-runner issue 8948).
+pub fn added(base: Option<&BTreeSet<CaseId>>, now: &BTreeSet<CaseId>, text: &str) -> Vec<CaseId> {
+    match base {
+        Some(b) => now.difference(b).cloned().collect(),
+        None => {
+            let mut out = BTreeSet::new();
+            for para in text.split("\n\n") {
+                let comment: Vec<&str> = para
+                    .lines()
+                    .filter_map(|l| l.trim_start().strip_prefix('#'))
+                    .map(str::trim)
+                    .collect();
+                let reason = comment.first().is_some_and(|c| c.starts_with("not run:")) && names_issue(&comment.join(" "));
+                if !reason {
+                    out.extend(para.lines().filter_map(|l| not_passing::parse(l).ok()).flatten());
+                }
+            }
+            out.into_iter().collect()
+        }
+    }
+}
+
+/// Whether `text` has `issue <number>`.
+fn names_issue(text: &str) -> bool {
+    text.match_indices("issue ")
+        .any(|(i, m)| text[i + m.len()..].starts_with(|c: char| c.is_ascii_digit()))
 }
 
 #[cfg(test)]
@@ -231,10 +255,23 @@ mod tests {
     }
 
     #[test]
-    fn a_line_added_against_a_base_that_has_the_file_is_reported_and_seeding_adds_none() {
+    fn a_line_added_against_a_base_that_has_the_file_is_reported() {
+        let text = "1 A\n2 B\n";
         let now = set(&[(1, "A"), (2, "B")]);
-        assert_eq!(added(Some(&set(&[(1, "A")])), &now), vec![id(2, "B")]);
-        assert_eq!(added(Some(&set(&[(1, "A"), (2, "B"), (3, "C")])), &now), vec![]);
-        assert_eq!(added(None, &now), vec![]);
+        assert_eq!(added(Some(&set(&[(1, "A")])), &now, text), vec![id(2, "B")]);
+        assert_eq!(added(Some(&set(&[(1, "A"), (2, "B"), (3, "C")])), &now, text), vec![]);
+    }
+
+    /// Al-runner issue 8948 item 1: a seed (the base revision has no file) adds every case line that is not in a
+    /// `# not run:` paragraph naming its issue.
+    #[test]
+    fn a_seed_adds_the_lines_whose_paragraph_names_no_issue() {
+        let text = "# header, issue 1 named here does not count\n\n\
+                    # not run: a reason that names\n# runner issue 8917.\n1 A\n1 B\n\n\
+                    # not run: a reason without a number.\n2 C\n\n\
+                    # a reason that names issue 9 but is no not-run reason\n3 D\n\n\
+                    4 E\n";
+        let now = not_passing::parse(text).unwrap();
+        assert_eq!(added(None, &now, text), vec![id(2, "C"), id(3, "D"), id(4, "E")]);
     }
 }

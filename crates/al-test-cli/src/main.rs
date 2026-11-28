@@ -310,15 +310,18 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
     let mut grown = false;
     for v in &cfg.versions {
         let rel = al_test_cli::strict_not_run::path(v.major);
-        let now = read_list(&root.join(&rel))?;
+        let path = root.join(&rel);
+        let text = if path.exists() { read(&path)? } else { String::new() };
+        let now = not_passing::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         let base_list = base.list_opt(&rel)?;
-        let added = al_test_cli::strict_not_run::added(base_list.as_ref(), &now);
+        let added = al_test_cli::strict_not_run::added(base_list.as_ref(), &now, &text);
         if !added.is_empty() {
             grown = true;
-            println!(
-                "\n### Lines added to `{rel}` ({}): this list may only shrink\n",
-                added.len()
-            );
+            let why = match base_list {
+                Some(_) => "this list may only shrink",
+                None => "a new list's case lines need a `# not run:` paragraph that names their issue",
+            };
+            println!("\n### Lines added to `{rel}` ({}): {why}\n", added.len());
             added.iter().for_each(|c| println!("- {} {}", c.codeunit, c.name));
         }
     }

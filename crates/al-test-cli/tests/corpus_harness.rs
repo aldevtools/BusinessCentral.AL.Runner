@@ -618,7 +618,8 @@ fn in_bcs_order_only_the_strict_list_has_stale_lines_and_pruning_never_writes_a_
 }
 
 // The strict list only shrinks: `--list-changes` exits 3 on a line added against a base branch that has the file, and
-// takes a base without the file as the change that seeds it.
+// on a seed's line (the base has no file) whose paragraph has no `# not run:` reason naming an issue (al-runner issue
+// 8948 item 1).
 #[test]
 fn list_changes_refuses_a_line_added_to_the_strict_list() {
     let root = root_with_a_failing_test();
@@ -643,14 +644,17 @@ fn list_changes_refuses_a_line_added_to_the_strict_list() {
             String::from_utf8_lossy(&o.stdout).to_string(),
         )
     };
-    // The base has no strict list yet: seeding it is no addition.
+    // The base has no strict list yet: a seed line needs its issue.
     let seed = |root: &Path| {
         let _ = std::fs::remove_dir_all(root.join("metrics"));
         commit_oracle(root);
         std::fs::create_dir_all(root.join("metrics/27")).unwrap();
     };
     seed(root.path());
-    let (code, md) = changes("60900 FailsOnPurpose\n");
+    let (code, md) = changes("# header\n\n60900 FailsOnPurpose\n");
+    assert_eq!(code, 3, "{md}");
+    assert!(md.contains("names their issue") && md.contains("60900 FailsOnPurpose"), "{md}");
+    let (code, md) = changes("# header\n\n# not run: a reason (runner issue 1).\n60900 FailsOnPurpose\n");
     assert_eq!(code, 0, "{md}");
     std::fs::remove_dir_all(root.path().join(".git")).unwrap();
     commit_oracle(root.path());
