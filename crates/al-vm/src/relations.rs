@@ -439,6 +439,7 @@ impl Session {
             Some(ValidateSite::AlRecordValidate) => source.row_origin.is_none() && source.position.is_none(),
             Some(ValidateSite::TestPageControl {
                 new_line_of_trapped_static_card,
+                ..
             }) => new_line_of_trapped_static_card,
             _ => false,
         };

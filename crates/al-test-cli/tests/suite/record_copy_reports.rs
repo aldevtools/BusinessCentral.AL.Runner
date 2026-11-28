@@ -578,7 +578,7 @@ codeunit 50122 "XN Test"
     end;
 
     [Test]
-    procedure MeasuredChain_ReadByFindFirst_Refused()
+    procedure MeasuredChain_ReadByFindFirst_Runs()
     var
         Item: Record "XN Item";
         Found: Record "XN Item";
@@ -586,15 +586,19 @@ codeunit 50122 "XN Test"
         Stored(Item, 3);
         Found.FindFirst();
         Found.Validate(Value, 15);
+        if Found.Seen <> 10 then
+            Error('Seen %1', Found.Seen);
     end;
 
     [Test]
-    procedure MeasuredChain_Temporary_Refused()
+    procedure MeasuredChain_Temporary_Runs()
     var
         Item: Record "XN Item" temporary;
     begin
         Stored(Item, 3);
         Item.Validate(Value, 15);
+        if Item.Seen <> 10 then
+            Error('Seen %1', Item.Seen);
     end;
 
     [Test]
@@ -607,7 +611,7 @@ codeunit 50122 "XN Test"
     end;
 
     [Test]
-    procedure MeasuredChain_FreshRecord_Refused()
+    procedure MeasuredChain_FreshRecord_Runs()
     var
         Item: Record "XN Item";
     begin
@@ -615,6 +619,8 @@ codeunit 50122 "XN Test"
         Item.Value := 10;
         Item.Mode := 3;
         Item.Validate(Value, 15);
+        if Item.Seen <> 10 then
+            Error('Seen %1', Item.Seen);
     end;
 
     [Test]
@@ -666,11 +672,13 @@ fn issue_8189_neighbors_refuse_a_read_of_xrec_or_keep_main() {
         ("OnModify_ValidateInProc_Runs", PASS, false),
         ("OnModify_ValidateInProc_TriggerReadsXRec_Refused", XREC_REFUSED, false),
         ("DirectFromTrigger_CopyOfXRec_Runs", PASS, false),
-        ("MeasuredChain_FreshRecord_Refused", XREC_REFUSED, false),
+        // A record never inserted, read by FindFirst, or temporary: the trigger's xRec, pinned
+        // (record/validate/XRecTableProcThroughCodeunit.al:430 `Way3_FreshRecord`, :759 `Way3_FindFirst`,
+        // :743 `Way3_TemporaryRecord`, each `T x=10;C x=10;`).
+        ("MeasuredChain_FreshRecord_Runs", PASS, false),
         ("MeasuredChain_FieldRefValidate_Refused", XREC_REFUSED, false),
-        // Run: a record read by Get or inserted by itself, both stored (XRecTableProcThroughCodeunit.al:337-352).
-        ("MeasuredChain_ReadByFindFirst_Refused", XREC_REFUSED, false),
-        ("MeasuredChain_Temporary_Refused", XREC_REFUSED, false),
+        ("MeasuredChain_ReadByFindFirst_Runs", PASS, false),
+        ("MeasuredChain_Temporary_Runs", PASS, false),
         // The pinned chain hands the trigger's xRec on whether the procedure reads it or not. Each writes after refused
         // tests whose reach is not fully known, so the type they left is not known: the write is marked.
         ("MeasuredChain_NoXRecRead_Runs", PASS, true),
@@ -679,9 +687,9 @@ fn issue_8189_neighbors_refuse_a_read_of_xrec_or_keep_main() {
     check(&o, &want);
 }
 
-/// Neighbors of the shape of issue 8189 in the buffer and in the object whose call runs: a Get of a row the open transaction
-/// modified (after its Insert, or after a Commit), a running trigger of a table extension, and a table extension's code
-/// calling another table extension's procedure.
+/// Neighbors of the shape of issue 8189 in the buffer and in the object whose call runs: a Get of a row another variable
+/// modified (after the open transaction's Insert, or after a Commit), a table extension's field trigger on an own Insert's
+/// buffer, and a table extension's code calling another table extension's procedure.
 const XREC_GET_AND_EXTENSIONS: &str = r##"
 table 50140 "XG Item"
 {
@@ -791,7 +799,7 @@ codeunit 50144 "XG Test"
     end;
 
     [Test]
-    procedure MeasuredChain_GetOfRowModifiedInOpenTx_Refused()
+    procedure MeasuredChain_GetOfCommittedRowModifiedByOther_Runs()
     var
         Item: Record "XG Item";
         Other: Record "XG Item";
@@ -804,10 +812,12 @@ codeunit 50144 "XG Test"
         Other.Modify();
         Read.Get('A');
         Read.Validate(Value, 15);
+        if Read.Seen <> 10 then
+            Error('Seen %1', Read.Seen);
     end;
 
     [Test]
-    procedure MeasuredChain_GetOfRowInsertedThenModified_Refused()
+    procedure MeasuredChain_GetOfInsertedRowModifiedByOther_Runs()
     var
         Item: Record "XG Item";
         Other: Record "XG Item";
@@ -819,6 +829,8 @@ codeunit 50144 "XG Test"
         Other.Modify();
         Read.Get('A');
         Read.Validate(Value, 15);
+        if Read.Seen <> 10 then
+            Error('Seen %1', Read.Seen);
     end;
 
     [Test]
@@ -853,20 +865,19 @@ codeunit 50144 "XG Test"
 "##;
 
 #[test]
-fn issue_8189_get_of_a_written_row_and_running_extension_triggers_refuse() {
+fn issue_8189_get_of_a_written_row_and_extension_triggers() {
     let o = run(XREC_GET_AND_EXTENSIONS, "XG Test");
     let want = [
         // The second pinned buffer (XRecTableProcThroughCodeunit.al:348-352): a Get of the row the open transaction
         // inserted, nothing written to it since.
         ("MeasuredChain_GetOfRowInsertedInOpenTx_Pinned", PASS, false),
-        // A Get of a row the open transaction modified, after a Commit or after its Insert: not measured.
-        ("MeasuredChain_GetOfRowModifiedInOpenTx_Refused", XREC_REFUSED, false),
-        (
-            "MeasuredChain_GetOfRowInsertedThenModified_Refused",
-            XREC_REFUSED,
-            false,
-        ),
-        // The running call is a trigger of a table extension: not measured.
+        // A Get of a row another variable modified, after a Commit or after the open transaction's Insert: the trigger's xRec,
+        // pinned (XRecTableProcThroughCodeunit.al:790 `Way3_GetOfCommittedRowModifiedByOther`, :810
+        // `Way3_GetOfInsertedRowModifiedByOther`, each `T x=10;C x=10;`).
+        ("MeasuredChain_GetOfCommittedRowModifiedByOther_Runs", PASS, false),
+        ("MeasuredChain_GetOfInsertedRowModifiedByOther_Runs", PASS, false),
+        // A table extension's field OnValidate calls the codeunit, which calls a procedure of the table: pinned on the buffer
+        // `AfterGet` only (XRecTableProcThroughCodeunit.al:669 `ExtField_Codeunit_BaseProc`); here the buffer of an own Insert.
         ("ExtTrigger_Codeunit_BaseProc_ReadsXRec_Refused", XREC_REFUSED, false),
         // The called procedure is one of a table extension: the base trigger's xRec, pinned (al-runner issue 8284,
         // record/validate/XRecTableProcThroughCodeunit.al BaseField_Codeunit_ExtProc, record/validate/
@@ -906,7 +917,10 @@ pub(crate) fn check(o: &[(String, String, bool)], want: &[(&str, &str, bool)]) {
 }
 
 /// The table's own OnInsert, OnModify and OnDelete call `Rec.Proc()` (Base Application's Sales Header OnInsert calls
-/// Rec.SetSellToCustomerFromFilter, which validates a field): a plain call, whose xRec is blank, as on main.
+/// Rec.SetSellToCustomerFromFilter, which validates a field). `Insert(true)` on a record never inserted: the procedure reads the
+/// trigger's xRec, also in the trigger of a Validate it calls (record/validate/XRecTableProcThroughCodeunit.al:577 `OnInsert_RecProc`
+/// `R x=10`, :587 `OnInsert_RecProcValidates` `O x=10/0`). Modify(true) and Delete(true) on the buffer of an own Insert, which the
+/// file does not measure: a plain call, whose xRec is blank, as on main.
 const XREC_OWN_TRIGGERS: &str = r##"
 table 50140 "XT Item"
 {
@@ -996,7 +1010,12 @@ codeunit 50142 "XT Test"
 
     local procedure Expect(Seen: Integer)
     begin
-        if Seen <> 100 then
+        ExpectSeen(Seen, 100);
+    end;
+
+    local procedure ExpectSeen(Seen: Integer; Want: Integer)
+    begin
+        if Seen <> Want then
             Error('Seen %1', Seen);
     end;
 
@@ -1009,7 +1028,7 @@ codeunit 50142 "XT Test"
         Item.Value := 10;
         Item.Mode := 1;
         Item.Insert(true);
-        Expect(Item.Seen);
+        ExpectSeen(Item.Seen, 110);
     end;
 
     [Test]
@@ -1021,7 +1040,7 @@ codeunit 50142 "XT Test"
         Item.Value := 10;
         Item.Mode := 2;
         Item.Insert(true);
-        Expect(Item.Seen);
+        ExpectSeen(Item.Seen, 110);
     end;
 
     [Test]
@@ -1069,7 +1088,7 @@ codeunit 50142 "XT Test"
 "##;
 
 #[test]
-fn a_tables_own_triggers_calling_rec_proc_keep_the_plain_xrec() {
+fn a_tables_own_triggers_calling_rec_proc_get_the_insert_xrec_else_the_plain_one() {
     let o = run(XREC_OWN_TRIGGERS, "XT Test");
     let want = [
         ("OnInsert_RecProc_ReadsXRec", PASS, false),

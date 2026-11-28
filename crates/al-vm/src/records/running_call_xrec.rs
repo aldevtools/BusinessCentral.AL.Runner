@@ -1,37 +1,29 @@
-//! The xRec of a procedure of a table or of one of its table extensions that code other than the table's own calls on a record
-//! while a trigger of the same record runs (`Session::running_call_xrec`, by `table_proc_xrec` in `nested_validate.rs`): the
-//! running field trigger's xRec, shared, in the chains of calls the corpus measured, else a blank xRec marked
-//! `XREC_OF_RUNNING_CALL` whose read refuses. While a table extension's insert or delete trigger runs on the record, the
-//! blank xRec carries that trigger's mark instead (`ext_trigger_xrec.rs`, not measured), checked before every chain.
+//! The xRec of a procedure of a table or of one of its table extensions called on a record while a trigger of the same record
+//! runs, by code that holds no xRec of it (`Session::running_call_xrec`, by `table_proc_xrec` in `nested_validate.rs`): the
+//! running trigger's xRec in the chains of calls the corpus measured, else a blank xRec marked `XREC_OF_RUNNING_CALL` whose
+//! read refuses. While a table extension's insert or delete trigger runs on the record, the blank xRec carries that trigger's
+//! mark instead (`ext_trigger_xrec.rs`, not measured), checked before every chain.
 //!
-//! Each chain starts in a field OnValidate trigger of the table and ends in a codeunit procedure that has the record as a `var`
-//! parameter and calls the procedure on it (al-runner issues 8189 and 8284):
-//! - through a procedure of the table that is no trigger (`through_own_procedure`, record/validate/XRecTableProcThroughCodeunit.al:365-414);
-//! - straight from the trigger (`straight_from_trigger`, not through an interface), or from the subscriber of an integration
-//!   event the trigger raises (`through_subscriber`), record/validate/XRecTableProcThroughSubscriber.al. Under a Validate the
-//!   table's own code nested, BC keeps one xRec for both Validates; this runner does too in the nests
-//!   `nested_validate_xrec` shares. Where the inner Validate kept its own copy, the xRec is shared only while neither was assigned
-//!   or filtered (`nested_xrecs_untouched`), and for reading only (`ProcXrec::SharedReadOnly`).
+//! The chains a field OnValidate of the record starts, ending in a codeunit procedure that has the record as a `var` parameter
+//! and calls the procedure on it (al-runner issues 8189 and 8284), the trigger's xRec shared:
+//! - through a procedure of the table that is no trigger (`through_own_procedure`), on the buffers and Validate call sites
+//!   `validate_of_own_procedure_chain` lists (record/validate/XRecTableProcThroughCodeunit.al);
+//! - straight from the trigger (`straight_from_trigger`), or from the subscriber of an integration event the trigger raises
+//!   (`through_subscriber`), record/validate/XRecTableProcThroughSubscriber.al. Under a Validate the table's own code nested,
+//!   BC keeps one xRec for both Validates; this runner does too in the nests `nested_validate_xrec` shares. Where the inner
+//!   Validate kept its own copy, the xRec is shared only while neither was assigned or filtered (`nested_xrecs_untouched`),
+//!   and for reading only (`ProcXrec::SharedReadOnly`, `XREC_CHANGED_UNDER_NESTED_VALIDATE`).
 //!
-//! Every chain also needs the facts its cells share (`cell_facts`); the Validate called by other code than a test procedure, and
-//! an event with two subscribers, run through assumption `xrec-table-proc-callers-subscribers` (`callers_assumed`,
-//! `subscribers_measured`). A record changed after its OnBeforeValidateEvent returned on the two
-//! chains of al-runner issue 8284 runs through assumption `xrec-table-proc-routes` (al-runner issue 8974).
+//! Every such chain also needs the facts its cells share (`cell_facts`); the Validate called by other code than a test
+//! procedure, and an event with two subscribers, run through assumption `xrec-table-proc-callers-subscribers`
+//! (`callers_assumed`, `subscribers_measured`). A record changed after its OnBeforeValidateEvent returned on the two chains of
+//! al-runner issue 8284 runs through assumption `xrec-table-proc-routes` (al-runner issue 8974).
 //!
-//! The xRec of a procedure of a table or of its table extensions that a codeunit procedure calls on
-//! its `var` record while a field OnValidate of that record runs: the trigger's xRec, shared, in the
-//! measured chains (through a procedure of the table,
-//! record/validate/XRecTableProcThroughCodeunit.al; straight from the trigger, or from the sole
-//! subscriber of an integration event the trigger raises, also under a Validate the table's own code
-//! nested, record/validate/XRecTableProcThroughSubscriber.al; only with the facts every cell shares,
-//! `cell_facts`: no SingleInstance codeunit, the record untouched since the Validate started, the
-//! outer Validate called by a test codeunit, or, through assumption `xrec-table-proc-callers-
-//! subscribers`, by the callers `callers_assumed` lists and with two subscribers,
-//! `subscribers_measured`; under the nested Validate shared only while both Validates' xRecs hold the
-//! outer before-image and one view, and for reading: a change of values or view refuses,
-//! `XREC_CHANGED_UNDER_NESTED_VALIDATE`, `XrecView`), else a blank xRec marked `XREC_OF_RUNNING_CALL`
-//! whose reads refuse, also in the triggers of a Validate it calls (`BeforeImage`), and in a
-//! procedure the shared one calls on Rec (`shared_xrec_of_own_procedure`).
+//! Under a write trigger of `write_trigger_below` (the table's OnInsert, OnModify or OnDelete, or a table extension's
+//! OnBeforeModify, record/validate/XRecTableProcThroughCodeunit.al): through a codeunit (`through_write_trigger`), the
+//! trigger's xRec shared for reading only (`XREC_CHANGED_UNDER_WRITE_TRIGGER`); `Rec.Proc()` from the table's own code
+//! (`write_trigger_own_call_xrec`), a copy of the trigger's xRec values (`ProcXrec::PlainWith`), so an assignment stays in
+//! the procedure as on a plain call. A procedure the shared one calls on Rec: `shared_xrec_of_own_procedure`.
 
 use super::nested_validate::{ProcXrec, ValidateRun, ValidateSite, XREC_OF_RUNNING_CALL};
 use crate::records::Rec;
@@ -112,7 +104,7 @@ impl Session {
         }
         if self.table_or_its_extension(f.object, table) {
             if let Some(x) = self.write_trigger_own_call_xrec(object, table, rc, f) {
-                return ProcXrec::SharedReadOnly(x, XREC_CHANGED_UNDER_WRITE_TRIGGER);
+                return ProcXrec::PlainWith(x.borrow().fields.clone());
             }
             let Some(x) = self.shared_xrec_of_own_procedure(rc, f) else {
                 return ProcXrec::Plain;
@@ -271,7 +263,7 @@ impl Session {
     /// - `FieldRef.Validate(Value)` straight from the test procedure, on the RecordRef `GetTable` filled from the buffer `AfterGet`
     ///   (`Way3_FieldRefValidate` :469-486);
     /// - `SetValue` of a TestPage control straight from the test procedure, on the Card that `OpenEdit` and `GoToKey` positioned on
-    ///   the row `AfterInsert` inserted (`Way3_TestPageSetValue` :447-467).
+    ///   the row `AfterInsert` inserted (`Way3_TestPageSetValue` :447-467; the site's `after_go_to_key_on_card`).
     fn validate_of_own_procedure_chain(&self, rc: &Rec, trigger: usize) -> bool {
         let Some(run) = self.sole_validate_run(Rc::as_ptr(rc) as usize) else {
             return false;
@@ -284,16 +276,18 @@ impl Session {
             Some(ValidateSite::FieldRef) => from_test() && Self::buffer_after_get(&r),
             Some(ValidateSite::TestPageControl {
                 new_line_of_trapped_static_card: false,
+                after_go_to_key_on_card: true,
             }) => from_test() && Self::buffer_of_test_page(&r),
             _ => false,
         }
     }
 
     /// The codeunit procedure, no event subscriber and not reached through an interface (`iface_frames`), called straight from the
-    /// table's field OnValidate calls a procedure of the table or of one of its table extensions: the trigger's xRec on a buffer
-    /// of `measured_buffer`, the Validate being the one `Record.Validate` AL code called on the record, whose trigger is that
-    /// frame (record/validate/XRecTableProcThroughCodeunit.al `CodeunitFromTriggerDirectly_AfterGet`,
-    /// `BaseField_Codeunit_ExtProc`; record/validate/XRecTableProcThroughSubscriber.al:647, :764, :780). Which facts are
+    /// table's field OnValidate calls a procedure of the table or of one of its table extensions: the trigger's xRec, the
+    /// Validate being the one `Record.Validate` AL code called on the record, whose trigger is that
+    /// frame, on a buffer of `straight_chain_buffer` (record/validate/XRecTableProcThroughCodeunit.al
+    /// `CodeunitFromTriggerDirectly_AfterGet`, `BaseField_Codeunit_ExtProc`; record/validate/XRecTableProcThroughSubscriber.al:647,
+    /// :764, :780). Which facts are
     /// only assumed (`cell_facts`). Or the OnValidate of a field of a table extension calls the codeunit, which calls a
     /// procedure of the table, the facts all pinned (`ExtField_Codeunit_BaseProc` :669, `ValidateExtAndObserve` :657): the
     /// extension's xRec. The object whose trigger runs, and which facts are only assumed.
@@ -305,7 +299,7 @@ impl Session {
             && !self.iface_frames.contains(&(n - 1))
             && (self.field_on_validate_at(table, n - 2) || ext_field)
             && self.sole_validate_from_al_at(Rc::as_ptr(rc) as usize, n - 2)
-            && Self::measured_buffer(&rc.borrow());
+            && Self::straight_chain_buffer(&rc.borrow(), ext_field);
         if !shape {
             return None;
         }
@@ -346,7 +340,8 @@ impl Session {
     /// pins: from a procedure of the table the table's OnInsert, OnModify or OnDelete called unqualified (`RunWriteTrigger`
     /// :108-124; `OnInsert_RecProc` :577, `OnModify_RecProc` :607, `OnDelete_RecProc` :637, and the procedure validating a field
     /// whose trigger reads xRec, :587, :617, :647), and straight from a table extension's OnBeforeModify (:197-213;
-    /// `ExtOnBeforeModify_RecProc` :722, :732): the trigger's xRec, which the caller's instance holds, shared for reading.
+    /// `ExtOnBeforeModify_RecProc` :722, :732): the trigger's xRec, which the caller's instance holds. `running_call_xrec` hands
+    /// the procedure a copy of its values.
     fn write_trigger_own_call_xrec(&self, object: usize, table: usize, rc: &Rec, f: &Frame) -> Option<Rec> {
         let n = self.frames.len();
         if object != table || n == 0 || self.frames[n - 1] != f.object || self.call_stack[n - 1].routine != f.routine {
@@ -408,12 +403,6 @@ impl Session {
                 && self.only_test_codeunit_frames(0, self.frames.len() - t);
             shape.then_some(trigger_object)
         })
-    }
-
-    /// Whether object `x` is a table extension of table `table`.
-    fn objects_extension_of(&self, x: usize, table: usize) -> bool {
-        let objects = &self.engine.program.objects;
-        objects[x].kind == ObjKind::TableExtension && objects[x].extends_id == objects[table].id
     }
 
     /// The facts every cell of the two chains of al-runner issue 8284 shares beyond its frames (review of PR 8304, 2026-11-20):
@@ -737,6 +726,15 @@ impl Session {
             (true, Some((true, false, false, false, false, NoRead))) => true,
             _ => false,
         }
+    }
+
+    /// The buffers the chain straight from the trigger (`straight_from_trigger`) was measured on: `AfterInsert`
+    /// (record/validate/XRecTableProcThroughSubscriber.al:498-507; `Codeunit_BaseProc_AfterInsert` :764) and `AfterGet`
+    /// (record/validate/XRecTableProcThroughCodeunit.al `CodeunitFromTriggerDirectly_AfterGet` :417). The other buffers of
+    /// `measured_buffer` were measured on the chain through a procedure of the table only. From a table extension's field
+    /// OnValidate (`ext_field`): `AfterGet` only (`ExtField_Codeunit_BaseProc` :669, `ValidateExtAndObserve` :657).
+    fn straight_chain_buffer(r: &RecordState, ext_field: bool) -> bool {
+        Self::buffer_after_get(r) || (!ext_field && Self::buffer_of_own_insert(r))
     }
 
     /// The buffer `AfterGet` (record/validate/XRecTableProcThroughCodeunit.al:348-353): not temporary, a Get of the row the

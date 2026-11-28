@@ -836,8 +836,14 @@ impl Session {
                             _ => None,
                         }
                     });
-                    if let (crate::records::ProcXrec::PlainUnpinned(mark), Some(Some(x))) = (&proc_xrec, &plain) {
-                        x.borrow_mut().unpinned_buffer = Some(mark);
+                    match (&proc_xrec, &plain) {
+                        (crate::records::ProcXrec::PlainUnpinned(mark), Some(Some(x))) => {
+                            x.borrow_mut().unpinned_buffer = Some(mark);
+                        }
+                        (crate::records::ProcXrec::PlainWith(fields), Some(Some(x))) => {
+                            x.borrow_mut().fields.clone_from(fields);
+                        }
+                        _ => {}
                     }
                     let pushed = if let Some(Some(x)) = plain {
                         self.plain_proc_xrec.push((handle, self.call_stack.len() + 1, x));

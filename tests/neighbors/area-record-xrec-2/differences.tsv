@@ -1,0 +1,11 @@
+# key	entry
+# Every other test keeps main's answer (a refusal, or the blank xRec of a plain call; the assignment rows: the trigger keeps its own xRec).
+# T05: a Get after another variable's ModifyAll is served like the measured Get after another variable's Modify (:790, :810): the Get is the fact read, the writes before it are not.
+XR2 P1::TestPage_GoToKey	PINNED tests/al-language/record/validate/XRecTableProcThroughCodeunit.al:447
+XR2 T05::Validate_GetAfterOtherVariableModifyAll	PINNED tests/al-language/record/validate/XRecTableProcThroughCodeunit.al:810
+XR2 T10::FieldRef_AfterGetFromTest	PINNED tests/al-language/record/validate/XRecTableProcThroughCodeunit.al:469
+XR2 T15::Write_Insert_Codeunit	PINNED tests/al-language/record/validate/XRecTableProcThroughCodeunit.al:567
+XR2 T16::Write_Modify_Codeunit_AfterGet	PINNED tests/al-language/record/validate/XRecTableProcThroughCodeunit.al:597
+XR2 T25::Own_Insert_RecProc	PINNED tests/al-language/record/validate/XRecTableProcThroughCodeunit.al:577
+XR2 T26::Own_Modify_RecProc_AfterGet	PINNED tests/al-language/record/validate/XRecTableProcThroughCodeunit.al:607
+XR2 T33::Own_ExtOnBeforeModify_RecProc	PINNED tests/al-language/record/validate/XRecTableProcThroughCodeunit.al:722

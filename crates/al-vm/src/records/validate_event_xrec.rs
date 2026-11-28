@@ -290,6 +290,7 @@ impl Session {
                 ValidateSite::FieldRef
                 | ValidateSite::TestPageControl {
                     new_line_of_trapped_static_card: false,
+                    ..
                 },
             ) => test_code(),
             _ => false,
