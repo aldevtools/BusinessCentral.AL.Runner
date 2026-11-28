@@ -1546,7 +1546,8 @@ impl Session {
 }
 
 /// `:=` (`Op::StoreLocal`, `Op::StorePlace`) of an InStream shares the stream with the target; the stream keeps that a
-/// variable assignment shared it (`al_builtins::stream_line_breaks`).
+/// variable assignment shared it (`al_builtins::stream_line_breaks`). An OutStream's copy loses its stamp
+/// (`dotnet::copied_out_stream`).
 #[inline]
 fn mark_assigned_stream(v: &Value) {
     if let Value::Library(al_builtins::library_kind::LibraryKind::InStream, h) = v
@@ -1554,6 +1555,7 @@ fn mark_assigned_stream(v: &Value) {
     {
         s.shared_by_assign = true;
     }
+    crate::dotnet::copied_out_stream(v);
 }
 
 /// A value [`Session::run_stream_builtin`] runs on: an InStream or OutStream handle.

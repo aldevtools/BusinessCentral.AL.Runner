@@ -31,6 +31,9 @@
 //! and the .NET write positions apart, SgDotNetStreams.al:154-172), so the next write marks the Blob
 //! (`al_builtins::stream::note_write`) and handing its stream to .NET again refuses, as on main after an overwrite.
 //!
+//! A copy of the OutStream (`:=`, a by-value parameter) loses the stamp ([`copied_out_stream`]): not measured, so main's
+//! answer.
+//!
 //! Every other rewrite keeps main's answer: an Update archive's rewrite refuses, an overwrite marks the Blob
 //! (`DOTNET_BRIDGE_OVERWRITTEN`). Not measured, so not served: another ZipArchiveMode over a fresh OutStream, the B
 //! states on a stored table's record not declared temporary (read, inserted or neither), another encoding or leaveOpen
@@ -130,6 +133,18 @@ pub(super) fn fresh_update_seed(buf: &BlobBuf, opened_at: Option<u32>) -> bool {
         && !buf.bytes.is_empty()
         && opened_at == Some(buf.content_edits)
         && buf.write_pos == 0
+}
+
+/// A copy of OutStream `v` was made (`:=`, a by-value parameter): its stamp is dropped. The probes hand .NET the variable
+/// `CreateOutStream` wrote, directly or through a `var` parameter (ZipBlobUpdateFreshOutStream.al:150-170,
+/// ZipBlobUpdateBlobChanged.al:19-30, :152-180), never a copy. The runner's copy shares the stream cell, so both holders
+/// lose the stamp: parts 1 and 2 then give main's answer (`fresh_update_seed`, `changed_state_measured`).
+pub(crate) fn copied_out_stream(v: &Value) {
+    if let Value::Library(al_builtins::library_kind::LibraryKind::OutStream, h) = v
+        && let al_builtins::value::LibraryValue::OutStream(.., opened_at) = &mut *h.borrow_mut()
+    {
+        *opened_at = None;
+    }
 }
 
 /// Part 2's Blob: no read or Insert gave the record that Blob. Read when the bridge is made: a Clear in place gives the

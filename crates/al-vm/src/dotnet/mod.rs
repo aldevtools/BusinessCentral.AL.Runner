@@ -35,6 +35,7 @@ mod staged_dir;
 mod system_environment;
 mod xml_errors;
 mod zip_blob_writes;
+pub(crate) use zip_blob_writes::copied_out_stream;
 mod zip_entry_streams;
 mod zone_rules;
 

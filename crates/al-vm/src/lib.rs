@@ -2616,6 +2616,11 @@ impl Session {
                 // An event argument the platform leaves unknown (RequestPageXml of SubstituteReport for an Html SaveAs, reports.rs)
                 // is passed on by value as it is: a routine that never reads it runs, a read is refused where it happens.
                 (a @ Value::Unknown(_), false) => a,
+                // An OutStream handed by value is a copy (`dotnet::copied_out_stream`).
+                (a @ Value::Library(al_builtins::library_kind::LibraryKind::OutStream, _), false) => {
+                    crate::dotnet::copied_out_stream(&a);
+                    ops::convert_plain(a, &r.locals[i].ty)?
+                }
                 // A `var` Option parameter with another member list than the value (`var_option`).
                 (a, true) if carried_kept.get(i) == Some(&true) => a,
                 (a, true) if let Some(v) = crate::var_option::var_binding(&a, &r.locals[i].ty, subscriber) => v?,
