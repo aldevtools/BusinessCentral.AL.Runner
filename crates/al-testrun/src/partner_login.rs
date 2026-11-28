@@ -79,19 +79,20 @@ pub(crate) struct By<'a> {
     /// The globals (index) it changed.
     pub globals: &'a BTreeSet<usize>,
     /// Global -> where it changed (al-vm `RaiseChanges`: the `Global Triggers` raises running there, or the empty name
-    /// outside any raise); `None` for a codeunit the watch did not stamp (`login_memo::raise_watched`).
+    /// outside any raise); `None` for a codeunit the watch did not stamp, no entry for a global it did not stamp
+    /// (`login_memo::raise_watched`).
     pub raises: Option<&'a BTreeMap<usize, BTreeSet<String>>>,
 }
 
 impl By<'_> {
-    /// Where global `g` changed; empty for a codeunit the watch did not stamp.
+    /// Where global `g` changed; empty for a codeunit or global the watch did not stamp.
     pub fn raised(&self, g: usize) -> Vec<&str> {
         (self.raises.and_then(|r| r.get(&g)).into_iter().flatten())
             .map(String::as_str)
             .collect()
     }
 
-    /// Whether the watch stamped the codeunit and each changed global changed outside any raise only.
+    /// Whether the watch stamped each changed global and each changed outside any raise only.
     pub fn outside_raises_only(&self) -> bool {
         self.globals.iter().all(|&g| self.raised(g) == [""])
     }
@@ -268,13 +269,17 @@ pub(crate) fn raise(
     let mut singles_by: Vec<((usize, usize), Singles, al_vm::RaiseChanges)> = Vec::new();
     let watched = crate::login_memo::raise_watched(lowered);
     crate::install::call_before_first_test(lowered, session, who, |s| {
-        for sub in s.subscriber_order(po, step.event, &step.subscribers)? {
-            let at = s.left_stamp();
+        let order = s.subscriber_order(po, step.event, &step.subscribers)?;
+        // What one subscriber left is where the next one starts: nothing runs between them.
+        let mut at = s.left_stamp();
+        for sub in order {
             s.watch_global_trigger_changes(watched.clone());
             let raised = s.raise_to(po, pr, &[sub]);
             let raises = s.take_global_trigger_changes();
             raised?;
-            singles_by.push((sub, at.changed(&s.left_stamp()).singles, raises));
+            let end = s.left_stamp();
+            singles_by.push((sub, at.changed(&end).singles, raises));
+            at = end;
         }
         Ok(())
     })?;

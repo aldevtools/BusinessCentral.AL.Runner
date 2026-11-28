@@ -22,7 +22,7 @@
 use crate::runtime::written::{JoinedReach, ReachIndex, login_subscriber_reach_facts, login_subscribers_reach_without};
 use al_sema::lower::Lowered;
 use al_vm::events::Registry;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The procedures of System Application's facades whose reads of the memos the probe measured: codeunit (id, name),
 /// procedure names (corpus PR 1490, P2XaLoginMemos.al, codeunit "LT P2 XA Env Seen", procedure Record).
@@ -88,16 +88,29 @@ const MEASURED_CACHES: &[(u32, &[&str], &[&str])] = &[
     (9177, &["ApplicationAreaCache"], &[""]),
 ];
 
-/// The codeunits whose globals the watch of a partner login subscriber's `Global Triggers` raises stamps (al-vm
-/// `watch_global_trigger_changes`): those [`microsoft_cache_measured`] and [`env_info_pair`] read the places of, codeunit
-/// 3702 and the [`MEASURED_CACHES`] of the dependency apps published by Microsoft.
-pub(crate) fn raise_watched(lowered: &Lowered) -> BTreeSet<usize> {
+/// The globals of codeunit 3702 the two subscribers of cell E1 changed, the first's and the second's ([`env_info_pair`]).
+const ENV_INFO_PAIR: [&[&str]; 2] = [
+    &["IsSandboxConfig", "IsSandboxInitialized"],
+    &["IsSaaSConfig", "IsSaasInitialized"],
+];
+
+/// The globals the watch of a partner login subscriber's `Global Triggers` raises stamps (al-vm
+/// `watch_global_trigger_changes`), per codeunit: those whose places [`microsoft_cache_measured`] and [`env_info_pair`]
+/// read, the globals named in [`MEASURED_CACHES`] and [`ENV_INFO_PAIR`] of those codeunits of the dependency apps published
+/// by Microsoft. Both read the places only when the changed globals are by name exactly one row's, so the places of
+/// another global are never read.
+pub(crate) fn raise_watched(lowered: &Lowered) -> BTreeMap<usize, BTreeSet<usize>> {
     let objs = &lowered.program.objects;
     (0..objs.len())
-        .filter(|&o| {
-            objs[o].is_kind(al_ir::ObjKind::Codeunit)
-                && microsoft_dependency(lowered, o)
-                && (objs[o].id == Some(3702) || MEASURED_CACHES.iter().any(|row| objs[o].id == Some(row.0)))
+        .filter(|&o| objs[o].is_kind(al_ir::ObjKind::Codeunit) && microsoft_dependency(lowered, o))
+        .filter_map(|o| {
+            let names: Vec<&str> = if objs[o].id == Some(3702) {
+                ENV_INFO_PAIR.concat()
+            } else {
+                MEASURED_CACHES.iter().find(|row| objs[o].id == Some(row.0))?.1.to_vec()
+            };
+            let globals = (0..objs[o].globals.len()).filter(|&g| named(&objs[o].globals[g].name, &names));
+            Some((o, globals.collect()))
         })
         .collect()
 }
@@ -126,17 +139,22 @@ pub(crate) fn microsoft_cache_measured(lowered: &Lowered, memo: usize, by: &crat
 pub(crate) fn env_info_pair(lowered: &Lowered, memo: usize, first: &BTreeSet<usize>, second: &BTreeSet<usize>) -> bool {
     microsoft_dependency(lowered, memo)
         && lowered.program.objects[memo].id == Some(3702)
-        && globals_named(lowered, memo, first, &["IsSandboxConfig", "IsSandboxInitialized"])
-        && globals_named(lowered, memo, second, &["IsSaaSConfig", "IsSaasInitialized"])
+        && globals_named(lowered, memo, first, ENV_INFO_PAIR[0])
+        && globals_named(lowered, memo, second, ENV_INFO_PAIR[1])
 }
 
-/// Whether the globals `globals` of codeunit `memo` are by name (any case) exactly `names`.
+/// Whether the globals `globals` of codeunit `memo` are by name exactly `names` ([`named`]).
 fn globals_named(lowered: &Lowered, memo: usize, globals: &BTreeSet<usize>, names: &[&str]) -> bool {
     let decl = &lowered.program.objects[memo].globals;
     globals.len() == names.len()
         && globals
             .iter()
-            .all(|&g| (decl.get(g)).is_some_and(|d| names.iter().any(|n| d.name.eq_ignore_ascii_case(n))))
+            .all(|&g| (decl.get(g)).is_some_and(|d| named(&d.name, names)))
+}
+
+/// Whether global name `name` is one of `names`, in any case.
+fn named(name: &str, names: &[&str]) -> bool {
+    names.iter().any(|n| name.eq_ignore_ascii_case(n))
 }
 
 /// Whether object `o` is in a dependency app published by Microsoft.
