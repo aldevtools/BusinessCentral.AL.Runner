@@ -1,0 +1,6 @@
+# key	entry
+NB DQ Measured Tests::Dotted_Labels_OwnAndChild	ASSUMED report-column-dotted-item-qualifier (corpus PR 1652, open)
+NB DQ Measured Tests::Dotted_Columns_OwnItem	ASSUMED report-column-dotted-item-qualifier (corpus PR 1652, open)
+NB DQ Measured Tests::Dotted_Columns_ChildItem	ASSUMED report-column-dotted-item-qualifier (corpus PR 1652, open)
+NB DQ Measured Tests::Dotted_Labels_WhenNoRows	ASSUMED report-column-dotted-item-qualifier (corpus PR 1652, open)
+NB DQ Measured Tests::DotVariants_LabelsAndColumns	ASSUMED report-column-dotted-item-qualifier (corpus PR 1652, open)

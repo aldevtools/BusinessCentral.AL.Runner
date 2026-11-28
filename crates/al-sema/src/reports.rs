@@ -1008,6 +1008,10 @@ struct Owner<'a> {
     column_syntax: HashMap<usize, ir::SourceSyntax>,
     /// The table of each global `Record` variable the object declares, by lower-case name.
     record_globals: HashMap<String, usize>,
+    /// The object is a report, not a reportextension: only a report's own columns take a dotted item qualifier.
+    report_itself: bool,
+    /// A column resolved through [`dotted_qualifier_measured`]: the report's run is flagged.
+    dotted_served: std::cell::Cell<bool>,
 }
 
 impl<'a> Owner<'a> {
@@ -1059,6 +1063,8 @@ impl<'a> Owner<'a> {
             column_routines,
             column_syntax,
             record_globals,
+            report_itself: obj.kind().eq_ignore_ascii_case("report"),
+            dotted_served: std::cell::Cell::new(false),
         }
     }
 
@@ -1138,16 +1144,25 @@ impl<'a> Owner<'a> {
                         .position(|f| f.name.eq_ignore_ascii_case(&source))
                 });
                 // `Item.Field` on the item's own table (reports/layouts-saveas/BcXmlBlobObjects.al: `Row.Data`). The split
-                // skips a dot inside a quoted name: a data item name may hold one (reports/dataset/ReportDatasetNames.al:31
-                // `"A. B"`), and a quoted qualifier of the own item names one field of it (streams/P138ColCaptionQualified.al:251
-                // `"LT QS Cap Row"."No."`).
+                // skips a dot inside a quoted name; a qualifier that holds one takes the field only in the shapes
+                // `dotted_qualifier_measured` admits, else it names no field.
                 let item_field = table.and_then(|t| {
                     let item = crate::scan::unquote_double(sec.args().first()?);
                     let parts = split_outside_quotes(args.get(1)?.trim());
                     let [qualifier, member] = parts.as_slice() else {
                         return None;
                     };
-                    if !crate::scan::unquote_double(qualifier).eq_ignore_ascii_case(&item) {
+                    let qualifier = crate::scan::unquote_double(qualifier);
+                    if qualifier.contains('.') {
+                        let member = crate::scan::unquote_double(member);
+                        let pos = self.members[t].fields.iter().position(|f| f.name == member)?;
+                        let measured = self.report_itself
+                            && qualifier == item
+                            && dotted_qualifier_measured(&self.members[t].fields[pos], t, &c);
+                        self.dotted_served.set(self.dotted_served.get() || measured);
+                        return measured.then_some(pos);
+                    }
+                    if !qualifier.eq_ignore_ascii_case(&item) {
                         return None;
                     }
                     let member = crate::scan::unquote_double(member);
@@ -1214,6 +1229,55 @@ fn source_syntax(r: &ast::Routine) -> ir::SourceSyntax {
         }
         _ => ir::SourceSyntax::Other,
     }
+}
+
+/// Whether column `column` over field `f` of table `t`, written with its data item's dotted name (`"Dq. Row".Qty`, the name
+/// in the item's own case), is a shape corpus PR 1652 measures (assumption `report-column-dotted-item-qualifier`;
+/// tests/al-language/reports/dataset/DataItemNamesDottedQualifier.al at 1751a6b0): a normal field the table itself declares,
+/// whose caption no tableextension changes, with no CaptionML and no AutoFormatExpression (:30-39); a Text field with a Caption
+/// (:32, `Name`); a Decimal field with or without Caption, with DecimalPlaces and no AutoFormatType (:33, :38, :39), or with
+/// AutoFormatType 1 and no DecimalPlaces (:35);
+/// a column that states exactly IncludeCaption = true (:75-81, labels :224, values :236) or exactly DecimalPlaces over a
+/// Decimal field (:82, :236). Every other dotted shape keeps main's answer (no field).
+fn dotted_qualifier_measured(f: &crate::members::FieldInfo, t: usize, column: &ast::Section) -> bool {
+    let prop = |name: &str| {
+        f.properties
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.trim())
+    };
+    let field = f.class == crate::members::FieldClass::Normal
+        && f.declared_in == Some(t)
+        && !f.caption_modified
+        && prop("CaptionML").is_none()
+        && prop("AutoFormatExpression").is_none();
+    let text = matches!(f.ty, crate::types::Ty::Text(_))
+        && prop("Caption").is_some()
+        && prop("DecimalPlaces").is_none()
+        && prop("AutoFormatType").is_none();
+    // AutoFormatType 2 (:37, `#,##0.00###`) and AutoFormatType 1 with DecimalPlaces (:38, `#,##0.00` on BC 28 and 29) are
+    // measured too, but the field formatter of al-vm `column_formatter.rs` answers them by DecimalPlaces (also for an undotted
+    // qualifier), so they keep main's answer.
+    let decimal = f.ty == crate::types::Ty::Decimal
+        && matches!(
+            (prop("AutoFormatType"), prop("DecimalPlaces")),
+            (None, _) | (Some("1"), None)
+        );
+    let stated: Vec<(String, String)> = column
+        .properties()
+        .map(|p| {
+            (
+                p.name().to_ascii_lowercase(),
+                p.value_text().trim().to_ascii_lowercase(),
+            )
+        })
+        .collect();
+    let column_shape = match stated.as_slice() {
+        [(name, value)] if name == "includecaption" => value == "true",
+        [(name, _)] if name == "decimalplaces" => decimal,
+        _ => false,
+    };
+    field && (text || decimal) && column_shape
 }
 
 /// `s` split at each dot outside double quotes.
@@ -1491,7 +1555,16 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         on_post: object_trigger(&o, obj, "OnPostReport"),
         on_pre_rendering: object_trigger(&o, obj, "OnPreRendering"),
         extensions: cx.extensions.clone(),
-        assumes: cx.extension_assumes.clone(),
+        assumes: cx
+            .extension_assumes
+            .iter()
+            .copied()
+            .chain(
+                o.dotted_served
+                    .get()
+                    .then_some(al_builtins::assumptions::Assumption::ReportColumnDottedItemQualifier),
+            )
+            .collect(),
         dependency_items: false,
         request_flag_slot: cx.request_flag_slot,
         request_rec_routines: request_rec_routines(&o, obj),

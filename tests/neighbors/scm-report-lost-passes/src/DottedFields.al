@@ -236,3 +236,41 @@ codeunit 50938 "NB Dot Blob Tests"
             Error('got %1', Got);
     end;
 }
+
+// The measured column shape (IncludeCaption) over an AutoFormatType 1 field while a subscriber outside Microsoft's apps writes
+// the AutoFormat result: main refuses IncludeCaption (no field), head reaches the field and refuses the format (the
+// subscriber rule of al-vm auto_format_writer.rs). Both do not run the test.
+report 50938 "NB Dot AutoFormat Cap"
+{
+    ProcessingOnly = false;
+    DefaultLayout = RDLC;
+    UseRequestPage = false;
+
+    dataset
+    {
+        dataitem("Dot. Fmt"; "NB Dot Fmt")
+        {
+            column(QualAfCap; "Dot. Fmt".AmountAf) { IncludeCaption = true; }
+        }
+    }
+}
+
+codeunit 50939 "NB Dot AutoFormat Cap Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure OwnItemDotted_AutoFormatSubscriberIncludeCaption()
+    var
+        Lib: Codeunit "NB Dot Lib";
+        Row: Record "NB Dot Fmt";
+        Got: Text;
+    begin
+        Row := Lib.Seed();
+        Row.Insert();
+        Got := Lib.Lines(Report::"NB Dot AutoFormat Cap", '<Column ');
+        if not Got.StartsWith('[<Column name="QualAfCap"') then
+            Error('got %1', Got);
+    end;
+}
