@@ -35,6 +35,45 @@ fn a_subscriber_of_an_app_with_no_order_to_the_installing_app_is_refused() {
     }
 }
 
+/// The refusal names the subscriber and what its trial run showed (al-vm `order_trial.rs`): C's subscriber writes table
+/// Log. An outside suite saw only the event and the app (al-runner issue 6924) and could not tell what to change.
+#[test]
+fn the_install_order_refusal_names_the_subscriber_and_what_its_trial_showed() {
+    match outcome(with_c(), "InstallSeesOnlyAppsInstalledBefore") {
+        Outcome::NotRun(why) => {
+            assert!(why.contains("subscriber CSubs.OnPhase in app"), "{why}");
+            assert!(why.contains("running it once showed: it writes Log"), "{why}");
+        }
+        other => panic!("expected not run, got {other:?}"),
+    }
+}
+
+/// A trial run that stopped on an error: the refusal names the error text it stopped on.
+#[test]
+fn the_install_order_refusal_names_the_error_the_trial_stopped_on() {
+    const C_ERRS: &str = r#"
+codeunit 63000 CSubs
+{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::Events, 'OnPhase', '', false, false)]
+    local procedure OnPhase(Phase: Text)
+    begin
+        Error('C stops here');
+    end;
+}
+"#;
+    let mut apps = with_c();
+    apps[2] = app(C_ID, &[A_ID], C_ERRS);
+    match outcome(apps, "InstallSeesOnlyAppsInstalledBefore") {
+        Outcome::NotRun(why) => {
+            assert!(
+                why.contains("running it once showed: it stopped with an error or a refusal (C stops here)"),
+                "{why}"
+            )
+        }
+        other => panic!("expected not run, got {other:?}"),
+    }
+}
+
 /// The dependency apps install one at a time too: during A's install B's subscribers do not run, during B's they do.
 #[test]
 fn dependency_apps_install_one_at_a_time() {

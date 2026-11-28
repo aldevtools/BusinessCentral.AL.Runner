@@ -35,7 +35,8 @@
 //! open-order install code writes, `var` arguments unchanged, or only state handed to `Sender` (then
 //! its app's code writes nothing until the next app installs). Picked in `dispatch.rs`
 //! `event_targets`, run in `raise_to_subscribers`, writes and reads noted in `records/op_inner.rs`.
-//! Entry points: `trial_start`, `trial_end`, `note_table_op`.
+//! The refusal text, with the subscriber and what its trial showed: `order_unknown_refusal`.
+//! Entry points: `trial_start`, `trial_end`, `note_table_op`, `order_unknown_refusal`.
 
 use crate::Session;
 use crate::impact::Touches;
@@ -228,6 +229,29 @@ impl Session {
         } else {
             Verdict::NoEffect
         })
+    }
+
+    /// The refusal of subscriber `(object, routine)` to `event` while an app installs that its app has no dependency path
+    /// to (`dispatch.rs` `event_targets`), and, after a trial run, what that run showed (`trial`: the `Err` of
+    /// [`Session::trial_end`], with the refusal or error it stopped on). Names the subscriber so a suite can find it.
+    pub(crate) fn order_unknown_refusal(
+        &self,
+        event: &str,
+        (object, routine): (usize, usize),
+        trial: Option<&str>,
+    ) -> al_builtins::native::Signal {
+        let objects = &self.engine.program.objects;
+        let obj = &objects[object];
+        let app = (self.engine.program.apps.get(obj.app as usize)).map_or("?", |a| a.name.as_str());
+        let routine = obj.routines.get(routine).map_or("?", |r| r.name.as_str());
+        let shown = trial
+            .map(|why| format!("; running it once showed: {why}"))
+            .unwrap_or_default();
+        al_builtins::native::Signal::unsupported(format!(
+            "event {event}: subscriber {}.{routine} in app {app} would run while an app installs that it has no dependency \
+             path to; the install order of the two is not known{shown}",
+            obj.name
+        ))
     }
 
     /// A write of a non-temporary row of `table`: noted during a trial; refused while code of an app whose subscriber

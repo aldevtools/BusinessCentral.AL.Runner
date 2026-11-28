@@ -1,0 +1,1 @@
+Refusal reason text only: the install-order refusal now names the subscriber and what its trial run showed; no test outcome changes.
