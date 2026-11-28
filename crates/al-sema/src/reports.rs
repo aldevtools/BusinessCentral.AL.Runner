@@ -1328,12 +1328,11 @@ fn dotted_qualifier_measured(f: &crate::members::FieldInfo, t: usize, column: &a
     let p = |name: &str| field_prop(f, name);
     let captioned = p("Caption").is_some();
     let formats = (p("AutoFormatType"), p("AutoFormatExpression"), p("DecimalPlaces"));
+    let no_format = formats == (None, None, None);
     let typed = match &f.ty {
-        Ty::Text(_) => captioned && formats == (None, None, None) && shape == IncludeCaption,
-        Ty::Date | Ty::Enum(_) => {
-            captioned && formats == (None, None, None) && matches!(shape, IncludeCaption | NoProperty)
-        }
-        Ty::Code(_) | Ty::Integer => formats == (None, None, None) && shape == IncludeCaption,
+        Ty::Text(_) => captioned && no_format && shape == IncludeCaption,
+        Ty::Date | Ty::Enum(_) => captioned && no_format && matches!(shape, IncludeCaption | NoProperty),
+        Ty::Code(_) | Ty::Integer => no_format && shape == IncludeCaption,
         Ty::Decimal => match (formats.0.as_deref(), formats.1.as_deref(), formats.2.as_deref()) {
             (None, None, _) => matches!(shape, IncludeCaption | DecimalPlaces),
             // Only where the field formatter answers AutoFormatType 2 as BC does.
