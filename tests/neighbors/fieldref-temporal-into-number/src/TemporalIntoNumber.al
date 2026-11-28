@@ -614,7 +614,6 @@ codeunit 50321 "FT Tests"
         FR: FieldRef;
         X: Option A,B,C;
     begin
-        FR := Src(RR, 2, 20260115D);
         FR := Src(RR, 2, ClosingDate(20260115D));
         X := FR.Value();
         Error('got [%1]', Format(X, 0, 9));
@@ -627,7 +626,6 @@ codeunit 50321 "FT Tests"
         FR: FieldRef;
         I: Integer;
     begin
-        FR := Src(RR, 2, 20260115D);
         FR := Src(RR, 2, ClosingDate(20260115D));
         asserterror I := FR.Value();
         Expect(Conv('Date', 'System.Int32'));
@@ -640,7 +638,6 @@ codeunit 50321 "FT Tests"
         FR: FieldRef;
         X: Option A,B,C;
     begin
-        FR := Src(RR, 2, 20260115D);
         FR := Src(RR, 4, CreateDateTime(17530101D, 000001T));
         asserterror X := FR.Value();
         Error('got [%1]', GetLastErrorText());
