@@ -29,7 +29,7 @@ const NARROW_NO_BREAK_SPACE: char = '\u{202F}';
 /// `ToString()` of a `System.DateTime` the variable holds (the probe's `Dn.ToString()`, DotNetDateTimeKind.al:178) and
 /// the text ends in U+202F and `AM` or `PM`, in the state the probe ran in (`measured`, asked last). Any other call, text
 /// or state: `result` unchanged.
-pub(super) fn datetime_default_text(
+fn datetime_default_text(
     target: &Target,
     kind: MemberKind,
     member: &str,
@@ -60,11 +60,25 @@ pub(super) fn datetime_default_text(
 }
 
 impl Session {
+    /// `datetime_default_text` of a .NET reply, asked about the state of this session.
+    pub(super) fn datetime_reply_text(
+        &mut self,
+        target: &Target,
+        kind: MemberKind,
+        member: &str,
+        values: &[Value],
+        result: Value,
+    ) -> Value {
+        datetime_default_text(target, kind, member, values, result, || {
+            self.datetime_text_state_measured()
+        })
+    }
+
     /// The formatting state DotNetDateTimeKind.al ran `Dn.ToString()` in (a test codeunit): no report runs (no report body
     /// or `OnInitReport`, `report_preview_pinned`, and no `RunRequestPage`), the session language en-US, no `FormatRegion`,
     /// and the sidecar's culture and its date formats as it started. Code of a report object called outside a run is the
     /// session's.
-    pub(super) fn datetime_text_state_measured(&mut self) -> bool {
+    fn datetime_text_state_measured(&mut self) -> bool {
         self.report.report_preview_pinned.is_empty()
             && !self.report.request_only_page
             && self.language() == LCID_EN_US
