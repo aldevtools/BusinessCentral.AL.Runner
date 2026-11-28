@@ -273,6 +273,18 @@ struct StreamBook {
     update4_utf8: bool,
 }
 
+impl StreamBook {
+    /// The empty book of one call, with `fresh_ok` and `update4_utf8` read from the call (`zip_blob_writes::fresh_update_ctor`).
+    fn for_call(clr_type: &str, construct: bool, values: &[Value]) -> Self {
+        let fresh_ok = zip_blob_writes::fresh_update_ctor(clr_type, construct, values);
+        StreamBook {
+            fresh_ok,
+            update4_utf8: fresh_ok && values.len() == 4,
+            ..StreamBook::default()
+        }
+    }
+}
+
 /// What a `var` parameter gets in place of a `[RunOnClient]` variable (`ir::DotNetOp::ClientNull`).
 fn run_on_client_null() -> Value {
     Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Internal {
@@ -607,12 +619,7 @@ impl Session {
         }
 
         // Marshal before the session is borrowed.
-        let fresh_ok = zip_blob_writes::fresh_update_ctor(&clr_type, kind == MemberKind::Construct, &values);
-        let mut book = StreamBook {
-            fresh_ok,
-            update4_utf8: fresh_ok && values.len() == 4,
-            ..StreamBook::default()
-        };
+        let mut book = StreamBook::for_call(&clr_type, kind == MemberKind::Construct, &values);
         let mut wire = Vec::with_capacity(values.len());
         for (i, v) in values.iter().enumerate() {
             wire.push(DotNetArg {
