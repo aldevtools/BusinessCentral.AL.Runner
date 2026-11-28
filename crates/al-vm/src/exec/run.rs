@@ -979,7 +979,11 @@ impl Session {
         if !site.field_reads.is_empty() {
             self.call_field_reads(site, &mut values, f)?;
         }
-        self.call_site(
+        // Taken by the callee's frame (`records::ByValueCall`); cleared here too when the call ends before its frame.
+        if !site.local_values.is_empty() {
+            self.next_own_locals = self.own_local_args(site, f);
+        }
+        let r = self.call_site(
             site.object,
             site.routine,
             instance,
@@ -987,7 +991,9 @@ impl Session {
             values,
             site.try_call,
             f,
-        )
+        );
+        self.next_own_locals.clear();
+        r
     }
 
     /// `Op::BlobFieldRead`: the value in register `r` moves as `Session::field_read_into_variant` says.
