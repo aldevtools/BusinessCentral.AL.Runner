@@ -210,7 +210,7 @@ pub fn ensure_piece<S: RangeSource>(
             piece.entry, piece.sha256
         ));
     }
-    crate::service_tier::write_atomic(&path, &bytes)?;
+    crate::cache::write_atomic(&path, &bytes)?;
     Ok(path)
 }
 

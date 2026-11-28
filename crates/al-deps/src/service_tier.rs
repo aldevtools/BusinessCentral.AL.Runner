@@ -18,7 +18,7 @@
 //! `ServiceTier::service_file` (one top-level file by name), `service_dir`.
 use crate::artifact::Cdn;
 use crate::build::BuildId;
-use crate::cache::Store;
+use crate::cache::{Store, write_atomic};
 use crate::remote::RemoteZip;
 use crate::zip::Entry;
 use std::collections::{BTreeMap, HashSet};
@@ -184,7 +184,7 @@ impl<C: Cdn> ServiceTier<C> {
         }
         if !self.download {
             return Err(format!(
-                "{file} of build {} is not in the artifact cache ({}) and downloading is off; one run without --no-download caches it",
+                "{file} of build {} is not in the artifact cache ({}) and downloading is off; a run without --no-download caches it at its first DotNet call",
                 self.build,
                 dir.join(file).display()
             ));
@@ -314,14 +314,6 @@ impl<C: Cdn> ServiceTier<C> {
             by_name: by_name.into_iter().map(|(k, (_, i))| (k, i)).collect(),
         })
     }
-}
-
-pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let parent = path.parent().ok_or("no parent directory")?;
-    std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-    let tmp = path.with_extension(format!("tmp{}", std::process::id()));
-    std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 #[cfg(test)]

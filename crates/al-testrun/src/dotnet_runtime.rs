@@ -27,7 +27,7 @@
 //! run's service tier names (`ServiceRuntime`: a fetched tier or an extracted service folder; an
 //! unreadable one refuses every DotNet call), else the BC major's table (8 for BC 27-28, 10 for BC 29),
 //! and the newest installed patch of it, or a newer major with `--dotnet-allow-roll-forward`.
-//! Entry points: `ServiceRuntime`, `need`, `start_note` (asked once at the start of a run), `runtime_major_for_bc`,
+//! Entry points: `ServiceRuntime`, `need`, `start_note` (asked once at the start of an offline run), `runtime_major_for_bc`,
 //! `pick_runtime`.
 
 use al_deps::artifact::Cdn;
@@ -118,11 +118,14 @@ pub fn of_extracted(dir: PathBuf, own_dir: Option<&Path>, run_tier: Option<Servi
     }
 }
 
-/// Run start (issue 8977): asks the run's service tier once which runtime it runs on, before any test. A fetched tier
-/// whose runtime configuration the cache lacks fetches it now when downloading is on, so that a run with any selection
-/// caches it; offline, the answer names the build and the missing file here, once, instead of first at a DotNet call.
+/// Run start (issue 8977): with downloading off, asks the run's service tier once which runtime it runs on, before any
+/// test, from the cache and the disk only; the answer names the build and the missing file here, once, instead of first
+/// at a DotNet call. With downloading on it asks nothing and makes no request: the tier is asked at the first DotNet call.
 /// `Some`: the line to print, when every DotNet call of the run will be refused with that reason.
-pub fn start_note(service: Option<&ServiceRuntime>) -> Option<String> {
+pub fn start_note(service: Option<&ServiceRuntime>, download: bool) -> Option<String> {
+    if download {
+        return None;
+    }
     let why = (service?.0)().err()?;
     Some(format!("warning: every DotNet call of this run will be refused: {why}"))
 }
@@ -312,7 +315,7 @@ mod tests {
         ));
         let file = al_deps::service_tier::service_dir(cache.path(), &build)
             .join(al_deps::service_runtime::SERVER_RUNTIME_CONFIG);
-        let note = start_note(Some(&ServiceRuntime::of_tier(tier))).unwrap();
+        let note = start_note(Some(&ServiceRuntime::of_tier(tier)), false).unwrap();
         assert!(
             note.starts_with("warning: every DotNet call of this run will be refused: ")
                 && note.contains("BC build 29.0.54011.55816")
@@ -323,8 +326,34 @@ mod tests {
         // A tier that answers, and a run without one, have no note.
         let t = tempfile::tempdir().unwrap();
         let dir = folder(t.path(), "29.0.54011.55816", "10.0.0");
-        assert_eq!(start_note(Some(&ServiceRuntime::of_dir(dir))), None);
-        assert_eq!(start_note(None), None);
+        assert_eq!(start_note(Some(&ServiceRuntime::of_dir(dir)), false), None);
+        assert_eq!(start_note(None, false), None);
+    }
+
+    /// Issue 8977, review round 1: with downloading on, the start of a run does not ask the service tier at all, so it
+    /// makes no request; the tier is asked at the first DotNet call, as before the start note.
+    #[test]
+    fn with_downloading_on_the_start_note_does_not_ask_the_service_tier() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let calls = Arc::new(AtomicU32::new(0));
+        let counted = calls.clone();
+        let rt = ServiceRuntime(Arc::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+            Err("asked".into())
+        }));
+        assert_eq!(start_note(Some(&rt), true), None);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        // An online tier whose feed cannot be reached: no note, and nothing is written into its folder.
+        let cache = tempfile::tempdir().unwrap();
+        let build = al_deps::build::BuildId::parse("29.0.54011.55816").unwrap();
+        let tier = Arc::new(ServiceTier::new(
+            al_deps::artifact::HttpCdn::new("http://127.0.0.1:9"),
+            cache.path(),
+            build.clone(),
+            true,
+        ));
+        assert_eq!(start_note(Some(&ServiceRuntime::of_tier(tier)), true), None);
+        assert!(!al_deps::service_tier::service_dir(cache.path(), &build).exists());
     }
 
     #[test]

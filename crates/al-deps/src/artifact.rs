@@ -479,7 +479,7 @@ pub fn pick_build<C: Cdn>(
     let local_pick = |exact_only| local_root.and_then(|r| pick_local(r, &fetch.query, exact_only, &fetch.country));
     let picked = |selection, look_again| Ok(Some(Picked { selection, look_again }));
     // Layer A, first look: the cache. A cached build needs no network to be chosen.
-    let cached = store.list_builds();
+    let cached = store.list_builds(&fetch.country);
     // The build of the tests, when the query names one, must itself be cached: another
     // cached build waits until the build of the tests is looked for on disk and on the feed.
     let usable = fetch.query.exact().is_none_or(|e| cached.contains(&e));
@@ -926,7 +926,16 @@ pub fn load_with_artifacts<C: Cdn>(req: &Request<'_>, fetch: &Fetch, cdn: &C) ->
         // Name what was missing and where it would have come from (ADR-013 decision 1).
         let from = match &used {
             Some(u) => format!("BC build {} at {}/{}/platform", u.build, cdn.base_url(), u.build),
-            None => format!("a BC build matching {} at {}", fetch.query.prefix, cdn.base_url()),
+            None if is_w1(&fetch.country) => {
+                format!("a BC build matching {} at {}", fetch.query.prefix, cdn.base_url())
+            }
+            // A build whose country folder is not cached is no cached build of the country (`Store::list_builds`).
+            None => format!(
+                "a BC build matching {} and the artifact of --country {} at {}",
+                fetch.query.prefix,
+                fetch.country,
+                cdn.base_url()
+            ),
         };
         let missing: Vec<String> = loaded
             .skipped
@@ -1713,11 +1722,7 @@ mod tests {
         let sandbox = dir.path().join("sandbox");
         extracted_artifact(&sandbox, build);
         let cache = dir.path().join("cache");
-        let tier =
-            crate::service_tier::ServiceTier::new(FixtureCdn::new(dir.path(), &[build]), &cache, id.clone(), true);
-        tier.service_file(crate::service_runtime::SERVER_RUNTIME_CONFIG)
-            .unwrap();
-        assert!(Store::new(&cache).build(&id).load_tail().is_some());
+        service_tier_fetch(dir.path(), &cache, build);
         for download in [false, true] {
             let mut f = fetch(&cache, download, None);
             f.query = f.query.with_preferred(Some(id.clone()));
@@ -1733,6 +1738,69 @@ mod tests {
             let used = out.artifact.unwrap();
             assert_eq!((used.build.to_string().as_str(), used.origin), (build, Origin::Local));
         }
+    }
+
+    const COUNTRY_BUILD: &str = "27.5.46862.56249";
+
+    /// A `--country us` run online whose project holds `System`: every other Microsoft app comes from the country
+    /// artifact, so the platform artifact is never opened for apps (issue 8977, review round 1). Returns the cache and
+    /// the project's `.alpackages`.
+    fn country_cache_without_platform_apps(dir: &Path) -> (PathBuf, PathBuf) {
+        let cdn = FixtureCdn::new(dir, &[COUNTRY_BUILD]).with_country(dir, "us");
+        let alpkg = alpackages(dir);
+        ms_package(&alpkg, SYS, "System", "27.0.46760.0");
+        let cache = dir.join("cache");
+        let f = with_country(fetch(&cache, true, Some("27.5")), "us");
+        run(&alpkg, &f, &cdn, MissingPolicy::Error, &base_project()).unwrap();
+        let bd = Store::new(&cache).build(&BuildId::parse(COUNTRY_BUILD).unwrap());
+        assert!(bd.load_tail().is_none() && !bd.apps_dir().exists());
+        (cache, alpkg)
+    }
+
+    /// The service tier saves the platform artifact's central directory of the build (a DotNet call online).
+    fn service_tier_fetch(dir: &Path, cache: &Path, build: &str) {
+        let id = BuildId::parse(build).unwrap();
+        let tier = crate::service_tier::ServiceTier::new(FixtureCdn::new(dir, &[build]), cache, id.clone(), true);
+        tier.service_file(crate::service_runtime::SERVER_RUNTIME_CONFIG)
+            .unwrap();
+        assert!(Store::new(cache).build(&id).load_tail().is_some());
+    }
+
+    fn offline_country_run(cache: &Path, alpkg: &Path) -> Result<Provisioned, String> {
+        let f = with_country(fetch(cache, false, Some("27.5")), "us");
+        run(alpkg, &f, &NoNetwork, MissingPolicy::Error, &base_project())
+    }
+
+    /// A country build whose apps are all in `country-<cc>/apps/` is a cached build of the next offline run of that
+    /// country, with or without the platform's central directory saved since (issue 8977, review round 1).
+    #[test]
+    fn a_country_build_with_its_apps_only_in_the_country_folder_answers_an_offline_run_of_that_country() {
+        let dir = tempfile::tempdir().unwrap();
+        let (cache, alpkg) = country_cache_without_platform_apps(dir.path());
+        let out = offline_country_run(&cache, &alpkg).unwrap();
+        assert!(base_text(&out).contains("// us"), "{}", base_text(&out));
+        service_tier_fetch(dir.path(), &cache, COUNTRY_BUILD);
+        let out = offline_country_run(&cache, &alpkg).unwrap();
+        assert!(base_text(&out).contains("// us"), "{}", base_text(&out));
+    }
+
+    /// A w1 run offline does not take a build whose recorded apps are all a country's: its own `apps/` is empty, even
+    /// with the platform's central directory saved (the issue 8977 shape). The local artifacts of the build answer.
+    #[test]
+    fn a_w1_run_offline_does_not_take_a_build_whose_apps_are_only_in_a_country_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let (cache, alpkg) = country_cache_without_platform_apps(dir.path());
+        service_tier_fetch(dir.path(), &cache, COUNTRY_BUILD);
+        let sandbox = dir.path().join("sandbox");
+        extracted_artifact(&sandbox, COUNTRY_BUILD);
+        let mut f = fetch(&cache, false, Some("27.5"));
+        f.local_artifacts = Some(sandbox);
+        let out = run(&alpkg, &f, &NoNetwork, MissingPolicy::Error, &project()).unwrap();
+        let used = out.artifact.unwrap();
+        assert_eq!(
+            (used.build.to_string().as_str(), used.origin),
+            (COUNTRY_BUILD, Origin::Local)
+        );
     }
 
     #[test]

@@ -211,7 +211,9 @@ pub fn choose<'f, C: Cdn>(
     let local_pick = |exact_only: bool| {
         local_root.and_then(|r| pick_local(r, &fetch.query, exact_only, &fetch.country).map(|s| (r, s)))
     };
-    let cached = store.list_builds();
+    // A listing reads the platform's central directory for any country (`list`); offline it cannot be fetched.
+    let mut cached = store.list_builds(&fetch.country);
+    cached.retain(|b| store.build(b).has_tail());
     let cached_sel = fetch
         .query
         .exact()
@@ -550,6 +552,65 @@ mod tests {
             .err()
             .unwrap();
         assert!(e.contains("--no-download"), "{e}");
+    }
+
+    /// A cache that only listed (the central directory, no app of the build) is no cached build: offline, the local
+    /// artifacts of the build answer, and without them the listing says what is missing. Listing from that cache would
+    /// read every uncached entry from the feed despite `--no-download` (`Listing::get`).
+    #[test]
+    fn offline_a_cache_that_only_listed_gives_way_to_the_local_artifacts_or_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let platform = dir.path().join("platform.zip");
+        std::fs::write(&platform, artifact()).unwrap();
+        let feed = Feed {
+            platform,
+            reads: Cell::new(0),
+        };
+        let cache = dir.path().join("cache");
+        list(&fetch(&cache, true, None), &feed).unwrap();
+        assert!(cache.join("artifacts/29.0.1.3/platform.tail").is_file());
+        let e = list(&fetch(&cache, false, None), &feed).err().unwrap();
+        assert!(
+            e.contains("no BC build matching") && e.contains("--no-download is set"),
+            "{e}"
+        );
+        let root = dir.path().join("sandbox");
+        let test = root.join("29.0.1.3/platform/Applications/BaseApp/Test");
+        std::fs::create_dir_all(&test).unwrap();
+        std::fs::write(test.join("Tests-A.Source.zip"), b"a").unwrap();
+        let mut f = fetch(&cache, false, None);
+        f.local_artifacts = Some(root);
+        let l = list(&f, &feed).unwrap();
+        assert_eq!((l.build.as_str(), l.origin), ("29.0.1.3", Origin::Local));
+    }
+
+    /// A country listing reads the platform's central directory too: offline, a build whose country folder is cached
+    /// but whose platform central directory is not gives way to the local artifacts of the build, as on main.
+    #[test]
+    fn offline_a_country_listing_does_not_take_a_build_without_the_platform_central_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        let build = BuildId::parse("29.0.1.3").unwrap();
+        let cbd = Store::new(&cache).country_build(&build, "us");
+        let zip = artifact();
+        let tail_len = zip.len().min(4096);
+        cbd.save_tail("u", zip.len() as u64, &zip[zip.len() - tail_len..])
+            .unwrap();
+        cbd.put_entry("Applications.US/Tests-ERM.Source.zip", "u", b"t")
+            .unwrap();
+        let root = dir.path().join("sandbox");
+        std::fs::create_dir_all(root.join("29.0.1.3/platform/Applications/BaseApp/Test")).unwrap();
+        std::fs::create_dir_all(root.join("29.0.1.3/us/Applications.US")).unwrap();
+        std::fs::write(root.join("29.0.1.3/us/Applications.US/Tests-ERM.Source.zip"), b"t").unwrap();
+        let mut f = fetch(&cache, false, None);
+        f.country = "us".into();
+        f.local_artifacts = Some(root);
+        let feed = Feed {
+            platform: dir.path().join("none"),
+            reads: Cell::new(0),
+        };
+        let l = list(&f, &feed).unwrap();
+        assert_eq!((l.build.as_str(), l.origin), ("29.0.1.3", Origin::Local));
     }
 
     #[test]
