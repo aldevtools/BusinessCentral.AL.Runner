@@ -1,4 +1,4 @@
-// The corpus probe ListNewLineWritesOtherTable.al of corpus pull request 1527 (al-runner issue 8735), whole.
+// The corpus probe ListNewLineWritesOtherTable.al of corpus pull requests 1527 and 1536 (al-runner issue 8735), whole.
 // BC Documentation: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/methods-auto/page/page-saverecord-method
 // Scope: in-scope
 // local object: the table field's OnValidate that inserts the page's new line, and the writes of another table before
@@ -674,6 +674,33 @@ codeunit 97660 "LT NW Tests"
         Check('details', 'A;', VarDetails());
     end;
 
+    // The follow-ups of the review of the runner pull request 8806: the control modifies another table, then
+    // CurrPage.Update(true); the table field and the control both write another table, then CurrPage.Update(true).
+    [Test]
+    [HandlerFunctions('MixHandler')]
+    procedure NewLine_ControlModifiesAnotherTableThenUpdateTrue_ShowsAndSavesTheRow()
+    begin
+        Initialize();
+        AddVarDetail('Old');
+        RunMix(14);
+        Check('shown after the Name SetValue', 'A//', ShownAfterName);
+        Check('shown after the Value SetValue', 'A//V', ShownAfterValue);
+        Check('rows', 'A//V;', MixRows());
+        Check('details', 'ByPage;', VarDetails());
+    end;
+
+    [Test]
+    [HandlerFunctions('MixHandler')]
+    procedure NewLine_TableFieldAndControlWriteAnotherTableThenUpdateTrue_ShowsAndSavesTheRow()
+    begin
+        Initialize();
+        RunMix(15);
+        Check('shown after the Name SetValue', 'A//', ShownAfterName);
+        Check('shown after the Value SetValue', 'A//V', ShownAfterValue);
+        Check('rows', 'A//V;', MixRows());
+        Check('details', 'A;ByPage;', VarDetails());
+    end;
+
     [ModalPageHandler]
     procedure MixCountHandler(var Lines: TestPage "LT NW Mix Lines")
     begin
@@ -742,7 +769,7 @@ table 97667 "LT NW Mix Line"
                                 Detail.Text := 'Touched';
                                 Detail.Modify();
                             until Detail.Next() = 0;
-                    11, 13:
+                    11, 13, 15:
                         begin
                             Detail.Init();
                             Detail.Text := Name;
@@ -821,6 +848,16 @@ page 97668 "LT NW Mix Lines"
                                     CurrPage.SaveRecord();
                                     CurrPage.Update(false);
                                 end;
+                            14:
+                                begin
+                                    TouchDetails();
+                                    CurrPage.Update(true);
+                                end;
+                            15:
+                                begin
+                                    AddDetail('ByPage');
+                                    CurrPage.Update(true);
+                                end;
                         end;
                     end;
                 }
@@ -838,6 +875,17 @@ page 97668 "LT NW Mix Lines"
         Detail.Init();
         Detail.Text := NewText;
         Detail.Insert();
+    end;
+
+    local procedure TouchDetails()
+    var
+        Detail: Record "LT NW Var Detail";
+    begin
+        if Detail.FindSet() then
+            repeat
+                Detail.Text := 'ByPage';
+                Detail.Modify();
+            until Detail.Next() = 0;
     end;
 
     local procedure StampOther(Line: Record "LT NW Mix Line")

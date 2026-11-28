@@ -4,7 +4,7 @@ use super::*;
 use al_sema::workspace::AppSource;
 
 /// Compiles `src` into an engine on the emit version a run reads from its build (al-vm `emit_version`; here a fixed one, for the missing-object text).
-fn engine_for(src: &str) -> (al_sema::lower::Lowered, std::sync::Arc<Engine>) {
+pub(super) fn engine_for(src: &str) -> (al_sema::lower::Lowered, std::sync::Arc<Engine>) {
     let (ws, l) = al_sema::lower::compile(
         vec![AppSource {
             id: "a".into(),

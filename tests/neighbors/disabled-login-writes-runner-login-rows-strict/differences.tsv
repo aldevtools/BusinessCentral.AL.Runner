@@ -1,0 +1,9 @@
+# key	entry	version
+G1 A Disabled::A_Write	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	28
+G1 Fn Login Row Exists::H_LoginRowExists	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:491)	28
+G1 Login Row Exists OnRun::G2_LoginRowExists	ASSUMED hub-login-later-runners (corpus PR 1644: LgnHeldLoginRunners.al:656; the hub's login row left alone and the row of another runner-130450 session are not measured)	28
+G1 Login Row Exists::G_LoginRowExists	ASSUMED hub-login-later-runners (corpus PR 1644: LgnHeldLoginRunners.al:656; the hub's login row left alone and the row of another runner-130450 session are not measured)	28
+G1 A Disabled::A_Write	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	29
+G1 Fn Login Row Exists::H_LoginRowExists	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:491)	29
+G1 Login Row Exists OnRun::G2_LoginRowExists	ASSUMED hub-login-later-runners (corpus PR 1644: LgnHeldLoginRunners.al:656; the hub's login row left alone and the row of another runner-130450 session are not measured)	29
+G1 Login Row Exists::G_LoginRowExists	ASSUMED hub-login-later-runners (corpus PR 1644: LgnHeldLoginRunners.al:656; the hub's login row left alone and the row of another runner-130450 session are not measured)	29

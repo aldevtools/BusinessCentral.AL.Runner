@@ -1,0 +1,11 @@
+{
+  "id": "7c1f3b52-9d4e-4a86-b0e2-5f8a1d6c3e97",
+  "name": "Neighbors nested Validate xRec review r7",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "29.0.0.0",
+  "runtime": "18.0",
+  "target": "Cloud",
+  "idRanges": [{ "from": 50300, "to": 50399 }],
+  "dependencies": []
+}

@@ -1,0 +1,15 @@
+# key	entry	version
+RS A Disabled::A_NoteSession	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	28
+RS P1 Runner::P1_OwnSessionRows	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:656, :669, :672)	28
+RS P1 Runner::P1_OtherSessionThanHub	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:656, :664)	28
+RS P1 Runner::P1_HubSessionActive	REFUSED Session.IsSessionActive of the hub session or an earlier runner 130450 session	28
+RS A Disabled::A_NoteSession	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	29
+RS P1 Runner::P1_OwnSessionRows	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:656, :669, :672)	29
+RS P1 Runner::P1_OtherSessionThanHub	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:656, :664)	29
+RS P1 Runner::P1_HubSessionActive	REFUSED Session.IsSessionActive of the hub session or an earlier runner 130450 session	29
+RS P1 Runner::P1_ActiveSessionRow	ASSUMED hub-login-later-runners (corpus PR 1644, LgnHeldLoginRunners.al:656, :664; own row: metadata/platform-tables/PlTSession.al:294, RvActiveSessionWrites.al:42-70)	28
+RS P2 Runner::P2_OtherSessionThanP1	REFUSED OnRun: a codeunit that runner 130450 runs after another one after the held login answered its own session id, and	28
+RS P2 Runner::P2_OwnSessionRows	REFUSED OnRun: a codeunit that runner 130450 runs after another one after the held login answered its own session id, and	28
+RS P1 Runner::P1_ActiveSessionRow	ASSUMED hub-login-later-runners (corpus PR 1644, LgnHeldLoginRunners.al:656, :664; own row: metadata/platform-tables/PlTSession.al:294, RvActiveSessionWrites.al:42-70)	29
+RS P2 Runner::P2_OtherSessionThanP1	REFUSED OnRun: a codeunit that runner 130450 runs after another one after the held login answered its own session id, and	29
+RS P2 Runner::P2_OwnSessionRows	REFUSED OnRun: a codeunit that runner 130450 runs after another one after the held login answered its own session id, and	29

@@ -52,6 +52,7 @@ impl Session {
         st.borrow_mut().factbox_line = Default::default();
         st.borrow_mut().factbox_blank_landing = false;
         st.borrow_mut().left_view_test_filter = Default::default();
+        st.borrow_mut().take_after_new();
         st.borrow_mut().forget_code_inserted_line();
         self.prune_page_held();
         let parts = std::mem::take(&mut st.borrow_mut().parts);

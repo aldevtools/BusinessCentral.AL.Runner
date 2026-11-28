@@ -16,8 +16,9 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 /// The first bytes of a file: what it is and which layout it has. Layout 8: a Text or Code with half of a surrogate
-/// pair has a form of its own (al-builtins `value_codec`, issue 9202).
-const MAGIC: &[u8; 8] = b"ALBRUN\0\x08";
+/// pair has a form of its own (al-builtins `value_codec`, issue 9202). Layout 9: a login record's assumption marks
+/// take one word per 64 registry entries (`HitBits`), so a file from a binary with another registry size is not read.
+const MAGIC: &[u8; 8] = b"ALBRUN\0\x09";
 
 /// The extension of the entry files (the layers have `alcc`, the source index `alci`).
 pub const EXTENSION: &str = "albr";
@@ -392,7 +393,11 @@ mod tests {
                 work_date: 739_000,
                 day: 739_100,
                 globals: vec![(3, 739_100, false), (5, 0, true)],
-                hits: al_builtins::assumptions::HitBits([5, 1 << 36, 0, 1 << 3]),
+                hits: al_builtins::assumptions::HitBits::EMPTY
+                    .with(al_builtins::assumptions::Assumption::ALL[0])
+                    .with(
+                        al_builtins::assumptions::Assumption::ALL[al_builtins::assumptions::Assumption::ALL.len() - 1],
+                    ),
             }],
             read_resources: true,
         }

@@ -339,6 +339,21 @@ impl Lowerer<'_> {
         matches!(self.res(a), Some(Res::Builtin(i)) if i == "FieldRef.Value#1")
     }
 
+    /// The id of the implementation for a call whose first argument is written as a `FieldRef.Value()` call:
+    /// - `TextBuilder.Append` appends the formatted value (text/textbuilder-bigtext/TextBuilderAppendFieldDirect.al);
+    /// - `Abs` of a Date, Time or DateTime raises as its conversion into a Decimal does (corpus PR 1629,
+    ///   recordref-fieldref/fieldref-value-convert/FvcTemporalIntoNumberPlaces.al:322-354 `abs`).
+    fn field_value_argument_id(&self, id: &str, args: &[SyntaxNode]) -> Option<&'static str> {
+        if !args.first().is_some_and(|a| self.is_fieldref_value(a)) {
+            return None;
+        }
+        match id {
+            "TextBuilder.Append#1" => Some("TextBuilder.AppendFieldValue#1"),
+            "System.Abs#1" => Some("System.AbsFieldValue#1"),
+            _ => None,
+        }
+    }
+
     /// The id of the implementation for a call whose argument is written as a Variant, where BC treats it apart.
     fn variant_argument_id(&self, id: &str, args: &[SyntaxNode]) -> Option<&'static str> {
         let variant = |i: usize| args.get(i).is_some_and(|a| matches!(self.ty_of(a), Ty::Variant));
@@ -507,17 +522,18 @@ impl Lowerer<'_> {
                             out.push(ir::Arg::Value(value));
                             continue;
                         }
-                        let local_proc = self
+                        let (callee_local, callee_has_attributes) = self
                             .routine_nodes
                             .get(object)
                             .get(routine)
-                            .is_some_and(|r| r.is_local() && r.attributes().next().is_none());
+                            .map_or((false, true), |r| (r.is_local(), r.attributes().next().is_some()));
                         let site = if receiver_node.is_none()
-                            && instance.is_none()
-                            && object == self.oi
-                            && local_proc
-                            && !try_call
-                        {
+                            && ir::is_same_object_procedure_argument(
+                                object == self.oi,
+                                instance.is_none(),
+                                callee_local,
+                                callee_has_attributes,
+                            ) {
                             super::convert::TextConstantSite::ArgumentOfSameObjectProcedure
                         } else {
                             super::convert::TextConstantSite::Other
@@ -722,10 +738,8 @@ impl Lowerer<'_> {
                     self.field_error_variant_id(&id, args)
                 } else if let Some(variant_id) = self.variant_argument_id(&id, args) {
                     variant_id.to_string()
-                } else if id == "TextBuilder.Append#1" && args.first().is_some_and(|a| self.is_fieldref_value(a)) {
-                    // `FieldRef.Value()` written directly as the argument appends the formatted value
-                    // (text/textbuilder-bigtext/TextBuilderAppendFieldDirect.al).
-                    "TextBuilder.AppendFieldValue#1".to_string()
+                } else if let Some(field_value_id) = self.field_value_argument_id(&id, args) {
+                    field_value_id.to_string()
                 } else if id == "TextBuilder.Append#1"
                     && args.first().is_some_and(|a| {
                         matches!(self.ty_of(a), Ty::Variant)

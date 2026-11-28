@@ -880,11 +880,7 @@ mod tests {
     fn out_stream_on(b: &BlobRef) -> Value {
         Value::Library(
             LibraryKind::OutStream,
-            Rc::new(RefCell::new(LibraryValue::OutStream(
-                b.clone(),
-                Encoding::default(),
-                None,
-            ))),
+            Rc::new(RefCell::new(LibraryValue::out_stream(b.clone(), Encoding::default()))),
         )
     }
 
@@ -930,6 +926,57 @@ mod tests {
         let r = stream_text(in_stream(&[b'A'; 100]), true);
         assert_eq!(r.find("\r\n").map(|i| i + 1), Some(77), "length {}", r.len());
         assert_eq!(r.len(), 138);
+    }
+
+    /// `ToBase64(InStream, true[, OutStream])` with a context whose buffers a temporary table's local record of a `[Test]`
+    /// method holds, on BC `major`.
+    fn run_temporary_table(major: u16, id: &str, args: &mut [Value]) -> Out {
+        let f = TABLE.iter().find(|e| e.id == id).expect("entry").run;
+        let mut ctx = crate::native::tests::TestCtx::default();
+        ctx.temporary_table_local = true;
+        ctx.target = Some(al_version::Target::for_bc(al_version::BcVersion::new(major, 5)));
+        let _ = take_hits();
+        f(&mut ctx, None, args)
+    }
+
+    // al-runner issue 9322, the reporter's repro on BC 28.4: a temporary table's own Blob, 100 'A' bytes, unread, gives a CR LF
+    // at position 77 and 138 characters, through assumption base-convert-line-breaks-temporary-table-blob.
+    #[test]
+    fn issue_9322_temporary_table_blob_on_28_runs_flagged() {
+        let mut args = [in_stream(&[b'A'; 100]), Value::Boolean(true)];
+        let r = run_temporary_table(28, "Base64Convert.ToBase64#stream", &mut args);
+        let Ok(Value::Text(t)) = r else { panic!("{r:?}") };
+        assert_eq!((t.find("\r\n").map(|i| i + 1), t.len()), (Some(77), 138));
+        assert_eq!(
+            take_hits(),
+            [crate::assumptions::Assumption::BaseConvertLineBreaksTemporaryTableBlob]
+        );
+    }
+
+    // The neighbors of the 9322 shape the evidence does not measure keep main's refusal: another major, other content than
+    // the repro's 100 ASCII bytes, a stream read before the call, the OutStream form.
+    #[test]
+    fn issue_9322_neighbors_refuse() {
+        let e_acute = [0xC3, 0xA9].repeat(50);
+        for bytes in [vec![b'A'; 57], vec![b'A'; 120], e_acute] {
+            let mut args = [in_stream(&bytes), Value::Boolean(true)];
+            let r = run_temporary_table(28, "Base64Convert.ToBase64#stream", &mut args);
+            assert!(matches!(r, Err(Signal::Unsupported(_))), "{} bytes: {r:?}", bytes.len());
+        }
+        for major in [27, 29] {
+            let mut args = [in_stream(&[b'A'; 100]), Value::Boolean(true)];
+            let r = run_temporary_table(major, "Base64Convert.ToBase64#stream", &mut args);
+            assert!(matches!(r, Err(Signal::Unsupported(_))), "BC {major}: {r:?}");
+        }
+        let s = in_stream(&digits(100));
+        read_text_len(&s, 10);
+        let r = run_temporary_table(28, "Base64Convert.ToBase64#stream", &mut [s, Value::Boolean(true)]);
+        assert!(matches!(r, Err(Signal::Unsupported(_))), "read before: {r:?}");
+        let target = blob_with(&[]);
+        let mut args = [in_stream(&digits(100)), Value::Boolean(true), out_stream_on(&target)];
+        let r = run_temporary_table(28, "Base64Convert.ToBase64#stream-out", &mut args);
+        assert!(matches!(r, Err(Signal::Unsupported(_))), "OutStream form: {r:?}");
+        assert!(take_hits().is_empty());
     }
 
     // Base64LineBreaks.al:103-168: lengths and the codes at 76-78 and 153-157 with and without line breaks.
@@ -1170,7 +1217,7 @@ mod tests {
         let target = new_blob();
         let utf16 = Value::Library(
             LibraryKind::OutStream,
-            Rc::new(RefCell::new(LibraryValue::OutStream(target, Encoding::Utf16, None))),
+            Rc::new(RefCell::new(LibraryValue::out_stream(target, Encoding::Utf16))),
         );
         assert!(refused(out(in_stream(&digits(100)), utf16)));
         let own = blob_with(&digits(100));
@@ -1182,11 +1229,7 @@ mod tests {
         let target = new_blob();
         let utf16 = Value::Library(
             LibraryKind::OutStream,
-            Rc::new(RefCell::new(LibraryValue::OutStream(
-                target.clone(),
-                Encoding::Utf16,
-                None,
-            ))),
+            Rc::new(RefCell::new(LibraryValue::out_stream(target.clone(), Encoding::Utf16))),
         );
         run(
             "Base64Convert.ToBase64#stream-out",

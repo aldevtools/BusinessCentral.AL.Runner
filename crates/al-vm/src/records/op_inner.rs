@@ -1889,8 +1889,9 @@ impl Session {
                     let value = args.get(1).cloned();
                     flowfield_error = self.validate_flowfield(rec, &t, pos, value.as_ref())?;
                 }
-                // A Validate nested in an OnValidate of the same record keeps the outer call's
-                // before-image as xRec (corpus record/TestXRecContracts.al:133).
+                // A Validate nested in an OnValidate of the same record gets the outer call's before-image as xRec
+                // (corpus record/TestXRecContracts.al:133): in the measured nest the outer Validate's own xRec handle
+                // (`nested_validate_xrec`), else a copy of it (`validate_xrec_handle`).
                 // `handle` is the address of `rec`, which this call borrows for as long as the entry exists, and the
                 // entry is popped below on every way out (the result is held, not `?`-ed, until then), so no other
                 // record can get the address while it is on the stack (tests/store/xrec.rs).
@@ -1930,9 +1931,11 @@ impl Session {
                 if let Some(v) = new_value {
                     rec.borrow_mut().fields[pos] = v;
                 }
-                let xrec = Self::validate_xrec_handle(rec, &before);
+                let xrec = self
+                    .nested_validate_xrec(handle, entry.1, args.get(1).is_some(), rec)
+                    .unwrap_or_else(|| Self::validate_xrec_handle(rec, &before));
                 let outermost = outer.is_none().then_some(before);
-                self.while_validating(entry, rec, &xrec, outermost, |s| {
+                self.while_validating(entry, args.get(1).is_some(), rec, &xrec, outermost, |s| {
                     s.validate_hooks(&t, rec, &xrec, field, snapshot)
                 })?;
                 if sum_flowfield {

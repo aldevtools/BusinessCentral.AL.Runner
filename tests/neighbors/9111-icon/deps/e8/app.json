@@ -1,0 +1,3 @@
+{ "id": "9111d000-0000-4000-8000-000000000002", "name": "Icon E8", "publisher": "Neighbor 9111", "version": "1.0.0.0",
+  "platform": "27.0.0.0", "runtime": "15.0", "logo": "logo.jpg", "idRanges": [ { "from": 50182, "to": 50182 } ],
+  "dependencies": [ { "id": "63ca2fa4-4f03-4f2b-a480-172fef340d3f", "name": "System Application", "publisher": "Microsoft", "version": "27.0.0.0" } ] }
