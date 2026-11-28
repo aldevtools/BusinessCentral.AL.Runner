@@ -70,10 +70,10 @@ pub(crate) fn save_record_refusal(
 
 // ---- Caption ----
 //
-// BC 29.0 (local run of corpus PR 1456, pages/lifecycle/CurrPageCaptionOwn*.al): beside page procedures named Caption,
-// every `CurrPage.Caption` form is the platform method; a bare or page-variable call with one argument is the platform
-// setter; a call without arguments names the own parameterless procedure the code sees, and the platform getter where it
-// sees none. Compile facts: must-not-compile 3210-3215 of that PR.
+// BC 27, 28 and 29 (corpus PR 1456, pinned: pages/lifecycle/CurrPageCaptionOwn*.al): beside page procedures named
+// Caption, every `CurrPage.Caption` form is the platform method; a bare or page-variable call with one argument is the
+// platform setter; a call without arguments names the own parameterless procedure the code sees, and the platform getter
+// where it sees none. Compile facts: must-not-compile 3210-3215 of that PR.
 
 /// How a site names `Caption`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

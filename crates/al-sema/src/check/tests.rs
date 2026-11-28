@@ -1167,3 +1167,86 @@ fn a_left_out_test_codeunit_keeps_its_error_at_the_position_of_a_selected_ones_e
         .collect();
     assert_eq!(apps, [0, 1], "{:?}", r.diagnostics);
 }
+
+/// The AL0122 checks of must-not-compile 3214 and 3215 bind only the pinned name: `Caption`, in a page (3214:4-17), with
+/// a procedure that carries no access modifier (3215:16), or a name no builtin has. A name a builtin shares, or a
+/// procedure with an access modifier, is not measured and keeps main's answer: no error (al-runner PR 9524 review).
+#[test]
+fn own_call_result_checks_skip_builtin_names_and_access_modifiers() {
+    let caller = |page: &str, s: &str| {
+        format!("codeunit 50110 K {{ procedure R() var P: Page \"{page}\"; S: Text; B: Boolean; begin {s} end; }}")
+    };
+    let protected = "page 50100 \"Prot\" { PageType = Card; protected procedure Caption() begin end; }";
+    let editable = "page 50101 \"Edit\" { PageType = Card; procedure Editable() begin end; }";
+    let user_id = "codeunit 50102 U { procedure UserId(): Integer begin exit(5); end; \
+                   procedure Read(): Text var S: Text; begin S := UserId(); exit(S); end; }";
+    let codeunit_caption = "codeunit 50103 V { procedure Caption(): Integer begin exit(5); end; \
+                            procedure Read(): Text var S: Text; begin S := Caption(); exit(S); end; }";
+    for files in [
+        vec![protected.to_string(), caller("Prot", "S := P.Caption();")],
+        vec![editable.to_string(), caller("Edit", "B := P.Editable();")],
+        vec![user_id.to_string()],
+        vec![codeunit_caption.to_string()],
+    ] {
+        let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+        let al0122: Vec<String> = diags(&refs).into_iter().filter(|d| d.starts_with("AL0122")).collect();
+        assert!(al0122.is_empty(), "{files:?}\n{al0122:?}");
+    }
+}
+
+/// A name no builtin has binds only the own procedure: the 3214 and 3215 type rules hold for it.
+#[test]
+fn own_call_result_checks_judge_a_name_no_builtin_has() {
+    let page = "page 50100 \"Own\" { PageType = Card; procedure ZzNothing() begin end; \
+                procedure ZzNumber(): Integer begin exit(5); end; \
+                trigger OnOpenPage() var S: Text; begin S := ZzNumber(); end; }";
+    let caller = "codeunit 50110 K { procedure R() var P: Page \"Own\"; S: Text; begin S := P.ZzNothing(); end; }";
+    let al0122: Vec<String> = diags(&[page, caller])
+        .into_iter()
+        .filter(|d| d.starts_with("AL0122"))
+        .collect();
+    assert_eq!(
+        al0122,
+        [
+            "AL0122 Cannot implicitly convert type 'Integer' to 'Text'",
+            "AL0122 Cannot implicitly convert type 'None' to 'Text'"
+        ]
+    );
+}
+
+/// A dependency's code is not judged: the 3210 shape (AL0129) in a dependency page the app calls gets no error, as the
+/// sibling checks of a dependency get none.
+#[test]
+fn a_dependency_page_assigning_its_own_text_caption_gets_no_al0129() {
+    let app = |id: &str, deps: Vec<String>, src: &str| AppSource {
+        id: id.into(),
+        name: id.into(),
+        dependencies: deps,
+        files: vec![(format!("{id}.al"), src.to_string())],
+    };
+    let w = Workspace::load_apps(
+        vec![
+            app(
+                "dep",
+                vec![],
+                "page 50100 \"Dep\" { PageType = Card; Caption = 'Static'; \
+                 trigger OnOpenPage() begin Caption := 'X'; end; \
+                 procedure Caption(): Text begin exit('Own'); end; \
+                 procedure Show() begin Caption := 'Y'; end; }",
+            ),
+            app(
+                "a",
+                vec!["dep".into()],
+                "codeunit 50110 K { procedure R() var P: Page \"Dep\"; begin P.Show(); P.Run(); end; }",
+            ),
+        ],
+        vec![
+            crate::workspace::AppKind::Dependency,
+            crate::workspace::AppKind::default(),
+        ],
+        &Default::default(),
+    );
+    let m = crate::members::build(&w);
+    let r = check(&w, &m, &Catalog::load());
+    assert!(r.diagnostics.iter().all(|d| d.code != "AL0129"), "{:?}", r.diagnostics);
+}

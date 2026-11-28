@@ -123,6 +123,96 @@ impl<'a> Checker<'a> {
         self.diag(sc, rhs, "AL0122", message);
     }
 
+    /// AL0122 for two call results under `:=` (`exit` and the other contexts are not pinned): the platform caption read
+    /// through `CurrPage`, with or without parentheses, into an Integer (must-not-compile 3211, 3212: beside an own
+    /// `Caption(): Integer` the read is still the platform caption, a Text), and a call without arguments of an own
+    /// procedure that returns an Integer into a Text (3214, `S := Caption()` beside an own `Caption(): Integer`; Text[N]
+    /// is not pinned).
+    pub(crate) fn al_call_result_assignment(&mut self, sc: &Scope, rhs: &SyntaxNode, target: &Ty, source: &Ty) {
+        if self.ws.is_dependency(sc.oi) {
+            return;
+        }
+        let message = match (target, source) {
+            (Ty::Integer, _) if self.currpage_caption_read(sc, rhs) => {
+                "Cannot implicitly convert type 'Text' to 'Integer'"
+            }
+            (Ty::Text(None), Ty::Integer) if self.own_parameterless_call(sc, rhs) => {
+                "Cannot implicitly convert type 'Integer' to 'Text'"
+            }
+            _ => return,
+        };
+        self.diag(sc, rhs, "AL0122", message.to_string());
+    }
+
+    /// Whether the bare name `target` in a page's code names only the page's own parameterless `Caption(): Text`: the
+    /// target of `Caption := 'X'` there is that procedure, not the page caption (must-not-compile 3210, AL0129).
+    fn own_text_caption_named(&self, sc: &Scope, target: &SyntaxNode, visible: &[&Cand]) -> bool {
+        self.ws.objects[sc.oi].kind == ObjKind::Page
+            && name_of(target).eq_ignore_ascii_case("Caption")
+            && !visible.is_empty()
+            && visible.iter().all(|c| match c.target {
+                Res::Proc { object, offset } => {
+                    object == sc.oi
+                        && self.members[object]
+                            .procedure_at(offset)
+                            .is_some_and(|p| p.params.is_empty() && p.ret == Some(Ty::Text(None)))
+                }
+                _ => false,
+            })
+    }
+
+    /// The resolution the checker stored for `node`.
+    pub(crate) fn res_at(&self, sc: &Scope, node: &SyntaxNode) -> Option<&Res> {
+        let r = node.text_range();
+        self.resolutions
+            .get(&(sc.file, r.start().into(), r.end().into()))
+            .map(Res::inner)
+    }
+
+    /// Whether `rhs` is `CurrPage.Caption` or `CurrPage.Caption()` and names the platform method `Page.Caption`.
+    fn currpage_caption_read(&self, sc: &Scope, rhs: &SyntaxNode) -> bool {
+        let (member_expr, args) = match rhs.kind() {
+            SyntaxKind::CallExpr => (rhs.first_child(), crate::own_named_page_methods::call_args(rhs)),
+            SyntaxKind::MemberExpr => (Some(rhs.clone()), None),
+            _ => return false,
+        };
+        let Some(member_expr) = member_expr.filter(|m| m.kind() == SyntaxKind::MemberExpr) else {
+            return false;
+        };
+        let (Some(recv), Some(member)) = (member_expr.first_child(), member_expr.children().nth(1)) else {
+            return false;
+        };
+        let platform = |n: &SyntaxNode| matches!(self.res_at(sc, n), Some(Res::Builtin(id)) if id == "Page.Caption#1");
+        matches!(args, None | Some(0))
+            && is_currpage(sc, &recv)
+            && (platform(rhs) || platform(&member_expr) || platform(&member))
+    }
+
+    /// Whether `rhs` is a bare call without arguments of a procedure of the object whose code holds it, under a name whose
+    /// binding is measured: `Caption` in a page's code (must-not-compile 3214:4-17), or a name no builtin has, so that
+    /// only the own procedure can bind.
+    fn own_parameterless_call(&self, sc: &Scope, rhs: &SyntaxNode) -> bool {
+        let Some(callee) = (rhs.kind() == SyntaxKind::CallExpr)
+            .then(|| rhs.first_child())
+            .flatten()
+            .filter(|c| c.kind() == SyntaxKind::NameRef)
+        else {
+            return false;
+        };
+        let name = name_of(&callee);
+        let measured = (name.eq_ignore_ascii_case("Caption") && self.ws.objects[sc.oi].kind == ObjKind::Page)
+            || self.only_own_can_bind(&name);
+        measured
+            && crate::own_named_page_methods::call_args(rhs) == Some(0)
+            && matches!(self.res_at(sc, rhs), Some(Res::Proc { object, .. }) if *object == sc.self_obj)
+    }
+
+    /// Whether no builtin of any type or version has a method or function called `name`: a call of that name binds
+    /// only a procedure of the workspace.
+    fn only_own_can_bind(&self, name: &str) -> bool {
+        !self.catalog.knows_name(name)
+    }
+
     /// The message of AL0122 for an Integer sum into a Text: `T := I + 1` (must-not-compile 1250), also two integer literals
     /// as in `exit(1 + 2)` of a procedure returning Text (al-runner issue 5588, alc measured by the reporter; the text is
     /// 1250's). Only `+` with two operands that are Integer variables or literals is judged; a Text[N] target is not.
@@ -387,15 +477,21 @@ impl<'a> Checker<'a> {
         {
             return;
         }
-        let Some(callee) = rhs.children().next().filter(|c| c.kind() == SyntaxKind::NameRef) else {
+        let Some(callee) = rhs.children().next() else { return };
+        if callee.kind() == SyntaxKind::MemberExpr {
+            return self.al_no_result_page_variable_call(sc, rhs, &callee, target);
+        }
+        if callee.kind() != SyntaxKind::NameRef {
             return;
-        };
+        }
         let name = name_of(&callee);
         let own = self.members[sc.self_obj].procedures_named(&name);
         // A TryFunction returns a Boolean without declaring one (corpus errors/error-texts/ErTTryBasics.al:81).
-        let try_function = self.ws.object_ast(sc.self_obj).routines().any(|r| {
-            r.name().eq_ignore_ascii_case(&name) && r.attributes().any(|a| a.name().eq_ignore_ascii_case("TryFunction"))
-        });
+        let try_function = self
+            .ws
+            .object_ast(sc.self_obj)
+            .routines()
+            .any(|r| r.name().eq_ignore_ascii_case(&name) && is_try_function(&r));
         if try_function || own.is_empty() || own.iter().any(|p| p.ret.is_some()) || sc_has_var(sc, &name.to_lowercase())
         {
             return;
@@ -406,6 +502,47 @@ impl<'a> Checker<'a> {
             "AL0122",
             format!("Cannot implicitly convert type 'None' to '{target}'"),
         );
+    }
+
+    /// AL0122 (corpus must-not-compile 3215): `P.M()` on a local Page variable names a procedure of the page that
+    /// returns nothing (`S := P.Caption()` beside an own `Caption()`). Other receivers, a procedure with an access
+    /// modifier and a name a builtin shares other than `Caption` are not judged: which method BC binds there is not measured.
+    fn al_no_result_page_variable_call(&mut self, sc: &Scope, rhs: &SyntaxNode, callee: &SyntaxNode, target: &Ty) {
+        let Some(recv) = callee.first_child() else { return };
+        let r = recv.text_range();
+        let page_local = matches!(self.res_at(sc, &recv), Some(Res::Local(_)))
+            && matches!(
+                self.types.get(&(sc.file, r.start().into(), r.end().into())),
+                Some(Ty::Object(ObjKind::Page, _))
+            );
+        let Some(&Res::Proc { object, offset }) = self.res_at(sc, rhs).filter(|_| page_local) else {
+            return;
+        };
+        let Some(proc) = self.members[object].procedure_at(offset) else {
+            return;
+        };
+        let Some(routine) = self
+            .ws
+            .object_ast(object)
+            .routines()
+            .find(|r| usize::from(r.syntax().text_range().start()) == offset)
+        else {
+            return;
+        };
+        // Measured: `Caption`, or a name no builtin has, on a procedure of the page itself without an access modifier
+        // (3215:4-18).
+        let public = !routine.is_local() && !routine.is_internal() && !routine.is_protected();
+        let measured = public
+            && self.ws.objects[object].kind == ObjKind::Page
+            && (proc.name.eq_ignore_ascii_case("Caption") || self.only_own_can_bind(&proc.name));
+        if measured && proc.ret.is_none() && !is_try_function(&routine) {
+            self.diag(
+                sc,
+                rhs,
+                "AL0122",
+                format!("Cannot implicitly convert type 'None' to '{target}'"),
+            );
+        }
     }
 
     /// AL0122 (corpus must-not-compile 0324): a codeunit variable is assigned to an interface variable and the codeunit
@@ -684,6 +821,9 @@ impl<'a> Checker<'a> {
                             .is_some_and(|s| crate::lower::is_assign_call(&s.receiver, &s.name)))
                     }))
             {
+                if plain && !self.ws.is_dependency(sc.oi) && self.own_text_caption_named(sc, target, &visible) {
+                    self.diag(sc, target, "AL0129", AL0129_TEXT.to_string());
+                }
                 return self.ty_of_inferred(sc, target, e);
             }
             let builtins = !visible.is_empty() && visible.iter().all(|c| matches!(c.target, Res::Builtin(_)));
@@ -2151,8 +2291,11 @@ fn alc_param_type(t: &Ty) -> Option<String> {
     })
 }
 
-/// Whether `node` is inside the `requestpage` section of a report: its control, action and page triggers and its
-/// procedures.
+/// Whether the routine carries the `[TryFunction]` attribute.
+fn is_try_function(r: &ast::Routine) -> bool {
+    r.attributes().any(|a| a.name().eq_ignore_ascii_case("TryFunction"))
+}
+
 /// Whether `recv` is the bare name `CurrPage` and no variable of that name hides it.
 fn is_currpage(sc: &Scope, recv: &SyntaxNode) -> bool {
     recv.kind() == SyntaxKind::NameRef
@@ -2160,6 +2303,8 @@ fn is_currpage(sc: &Scope, recv: &SyntaxNode) -> bool {
         && !sc.vars.iter().any(|frame| frame.contains_key("currpage"))
 }
 
+/// Whether `node` is inside the `requestpage` section of a report: its control, action and page triggers and its
+/// procedures.
 pub(crate) fn in_request_page(node: &SyntaxNode) -> bool {
     node.ancestors().any(|a| {
         a.kind() == SyntaxKind::Section

@@ -262,10 +262,15 @@ fn calls_with_unmeasured_arguments_beside_an_own_caption_refuse() {
     }
 }
 
-/// Lowers `src` after the row table and asserts the Caption gate refused a site: a routine refused, or a statement
-/// lowered to a refusal (as in an action trigger).
+/// Lowers `src` after the row table and asserts the Caption gate refused a site.
 fn assert_caption_refusal(src: &str) {
-    let (_, l) = lower_src(&format!("{ROW}\n{src}"));
+    assert_caption_refusal_in(&format!("{ROW}\n{src}"));
+}
+
+/// Lowers `src` (tables included) and asserts the Caption gate refused a site: a routine refused, or a statement
+/// lowered to a refusal (as in an action trigger).
+fn assert_caption_refusal_in(src: &str) {
+    let (_, l) = lower_src(src);
     let bodies = l
         .program
         .objects
@@ -284,4 +289,38 @@ fn assert_caption_refusal(src: &str) {
         r.iter().any(|r| r.contains("beside a page procedure named Caption")),
         "{src}\n{r:?}"
     );
+}
+
+/// A local, a parameter, a source-table field, a page global and a named return value called `Caption` beside an own
+/// `Caption(): Text` keep the gate's refusal, in page and in page-extension code: no cell measures which one BC names
+/// there (al-runner issue 9505).
+#[test]
+fn a_variable_or_field_named_caption_beside_an_own_caption_refuses() {
+    let own = "procedure Caption(): Text begin exit('Own'); end;";
+    let field_row = "table 50100 T { fields { field(1; No; Code[20]) { } field(2; Caption; Text[30]) { } } }";
+    for body in [
+        "trigger OnOpenPage() begin Caption := 'Fld'; end;",
+        "procedure Loc(): Text var Caption: Text; begin Caption := 'Loc'; exit(Caption + Rec.Caption); end;",
+    ] {
+        assert_caption_refusal_in(&format!("{field_row}\n{}", card("P", body, own)));
+    }
+    assert_caption_refusal(&format!(
+        "page 50100 P {{ PageType = Card; SourceTable = T; Caption = 'Static'; var S: Text; Caption: Text; \
+         trigger OnOpenPage() begin Caption := 'Glob'; end; {own} }}"
+    ));
+    assert_caption_refusal(&card(
+        "P",
+        "procedure Ret() Caption: Text begin Caption := 'Ret'; end;",
+        own,
+    ));
+    for routine in [
+        "procedure Loc(): Text var Caption: Text; begin Caption := 'Loc'; exit(Caption); end;",
+        "procedure Par(Caption: Text): Text begin Caption := Caption + 'P'; exit(Caption); end;",
+    ] {
+        assert_caption_refusal(&card("P", routine, own));
+        assert_caption_refusal(&format!(
+            "{}\npageextension 50101 E extends P {{ {routine} }}",
+            card("P", "", own)
+        ));
+    }
 }

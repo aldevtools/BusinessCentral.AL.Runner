@@ -74,7 +74,7 @@ pub const IMPLEMENTED: &[(&str, &str)] = &[
     ),
     (
         "AL0122",
-        "an enum assigned to an enum of another type whose target does not state AssignmentCompatibility = true; an Integer variable assigned to a Text; a text literal of two or more characters assigned to an Integer; an Enum variable, enum value or Enum field to a Decimal; Decimal or Integer to Boolean, Date to Text, Boolean, Text or Decimal to Date, Variant or a one-character literal to an Enum, a Record to an Integer; and every rejected cell of the implicit-conversion compile matrix in the contexts `:=`, `+=`, `exit`, `x in [...]`, a case label and the false branch of `c ? a : b` (check/conv.rs, tests/conversion_matrix.rs)",
+        "an enum assigned to an enum of another type whose target does not state AssignmentCompatibility = true; an Integer variable assigned to a Text; a text literal of two or more characters assigned to an Integer; an Enum variable, enum value or Enum field to a Decimal; Decimal or Integer to Boolean, Date to Text, Boolean, Text or Decimal to Date, Variant or a one-character literal to an Enum, a Record to an Integer; `CurrPage.Caption` to an Integer (cases 3211, 3212), a call without arguments of an own procedure returning an Integer to a Text (case 3214), `P.M()` on a local Page variable of a procedure returning nothing (case 3215); and every rejected cell of the implicit-conversion compile matrix in the contexts `:=`, `+=`, `exit`, `x in [...]`, a case label and the false branch of `c ? a : b` (check/conv.rs, tests/conversion_matrix.rs)",
     ),
     (
         "AL0124",
@@ -190,7 +190,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0129",
-        "reported only for the assignment form `X.M := v` of a builtin method without a parameter or with only optional ones, two or more (cases 2365, 2366, 2370, 2371), and a compound assignment `X.M += v` to a builtin method (case 2367; check/infer.rs); other left-hand sides are not judged.",
+        "reported only for the assignment form `X.M := v` of a builtin method without a parameter or with only optional ones, two or more (cases 2365, 2366, 2370, 2371), and a compound assignment `X.M += v` to a builtin method (case 2367), and `Caption := v` in a page that declares a parameterless `Caption(): Text` (case 3210; check/infer.rs); other left-hand sides are not judged.",
     ),
     (
         "AL0133",

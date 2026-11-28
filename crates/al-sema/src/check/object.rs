@@ -899,6 +899,7 @@ impl<'a> Checker<'a> {
                 if plain && self.conv_assign(sc, lhs, target, rhs, source).is_none() {
                     self.al_enum_assignment(sc, rhs, target, source);
                     self.al_integer_text_assignment(sc, rhs, target, source);
+                    self.al_call_result_assignment(sc, rhs, target, source);
                     self.al_scalar_assignment(sc, rhs, target, source);
                     self.al_xmlport_separator_into_char(sc, rhs, target);
                     self.al_enum_decimal_assignment(sc, rhs, target, source);
