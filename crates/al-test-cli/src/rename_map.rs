@@ -224,6 +224,11 @@ pub fn app_of<'a>(
     Ok(apps)
 }
 
+/// One base case that reached a head key: (old key, old suite, passed).
+type Source = (CaseId, Option<String>, bool);
+/// The sources per head list (suite) and head key.
+type Sources = BTreeMap<Option<String>, BTreeMap<CaseId, Vec<Source>>>;
+
 /// The base lists of a major carried to its head oracles through `map`. A base case reaches a head list whose oracle
 /// has its head key and that is the same list (same suite) or another app's (an app move). Errors: a codeunit id in two
 /// apps, a cycle in the map.
@@ -232,7 +237,7 @@ pub fn carry(map: &RenameMap, base: &[BaseList], head: &[HeadOracle]) -> Result<
     app_of("the head oracle", head.iter().map(|h| (h.app.as_str(), &h.cases)))?;
     let at_head = |k: &CaseId| head.iter().any(|h| h.cases.contains(k));
     // Per head list and head key: (old key, old suite, passed) of each base case that reached it.
-    let mut sources: BTreeMap<Option<String>, BTreeMap<CaseId, Vec<(CaseId, Option<String>, bool)>>> = BTreeMap::new();
+    let mut sources: Sources = BTreeMap::new();
     let mut lost = Vec::new();
     for b in base {
         for old in &b.oracle {

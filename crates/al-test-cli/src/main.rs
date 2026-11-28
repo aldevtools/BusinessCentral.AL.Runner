@@ -1876,7 +1876,17 @@ fn check_lists(
                 ));
             }
             let carry = &carries[&t.major];
-            let known = carry_lines(t, path, carry, &mut list, &mut notes, &mut writes, root)?;
+            let known = carry_lines(
+                t,
+                path,
+                carry,
+                &mut CarryOut {
+                    list: &mut list,
+                    notes: &mut notes,
+                    writes: &mut writes,
+                },
+                root,
+            )?;
             failed |= known.1;
             let new = not_passing::new_cases(&list, t.all, &known.0, &*t.recorded);
             if !new.is_empty() {
@@ -1994,32 +2004,36 @@ fn carries(
     Ok(out)
 }
 
+/// What `carry_lines` changes: the target's list, the notes to print and the files to write (path, text, notes).
+struct CarryOut<'a> {
+    list: &'a mut std::collections::BTreeSet<oracle::CaseId>,
+    notes: &'a mut Vec<String>,
+    writes: &'a mut Vec<(PathBuf, String, Vec<String>)>,
+}
+
 /// ADR-065 amendment 1 at `--list-new-cases`, for one target: adds the moved lines to `list`, prints each renamed case
 /// that lost its pass (and, for the main app, each passing case the map sends nowhere), and queues the strict list with
 /// its renamed lines moved. Returns the head keys the base cases reached (no new cases) and whether the bump is red.
-#[allow(clippy::too_many_arguments)]
 fn carry_lines(
     t: &Target,
     path: &Path,
     carry: &al_test_cli::rename_map::Carry,
-    list: &mut std::collections::BTreeSet<oracle::CaseId>,
-    notes: &mut Vec<String>,
-    writes: &mut Vec<(PathBuf, String, Vec<String>)>,
+    out: &mut CarryOut<'_>,
     root: &Path,
 ) -> Result<(std::collections::BTreeSet<oracle::CaseId>, bool), String> {
     use al_test_cli::rename_map;
     let Some(carried) = carry.of(t.suite.as_deref()) else {
         return Ok((Default::default(), false));
     };
-    let lines = rename_map::bump_lines(carried, list, t.all, &*t.recorded);
+    let lines = rename_map::bump_lines(carried, out.list, t.all, &*t.recorded);
     if !lines.moved.is_empty() {
-        notes.push(format!(
+        out.notes.push(format!(
             "BC {}: {} line(s) moved to new keys (the corpus rename map or an app move) in {}",
             t.label,
             lines.moved.len(),
             path.display()
         ));
-        list.extend(lines.moved);
+        out.list.extend(lines.moved);
     }
     let mut red = false;
     for (r, why) in &lines.lost_passes {
@@ -2036,7 +2050,7 @@ fn carry_lines(
         if strict.exists() {
             if let Some(text) = carry.rewrite_list(&read(&strict)?)? {
                 let note = format!("BC {}: renamed lines moved in {}", t.label, strict.display());
-                writes.push((strict, text, vec![note]));
+                out.writes.push((strict, text, vec![note]));
             }
         }
     }
