@@ -594,7 +594,6 @@
 70515 CodeComparison
 70515 PYC_CodeAgainstTextLiteral
 70515 TextOrdering
-70535 PW_TriggerError_InPreReport_LastError
 70540 TextOrder_BaseLetterAccentCase
 70540 TextOrder_Punctuation
 70551 KeyRef_FieldIndexPastKey
@@ -613,8 +612,6 @@
 70645 Controls_SetValue_ReachBaseAndExtension
 70652 BT_Evaluate_FromGetFilter_Language
 70652 SetFilter_UnknownText_Result
-70679 Formats_ProcessingOnly_ExcelHtmlXml
-70679 Formats_ProcessingOnly_PdfWord
 70690 Static_Guarded_PendingWrite_KeepsOrReplacesAnEarlierError
 70690 Static_Guarded_PendingWrite_ReturnsFalse_LastError
 70690 Static_Guarded_TwoSuccessfulImports_ThenPending
