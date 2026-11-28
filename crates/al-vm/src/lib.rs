@@ -38,7 +38,7 @@ mod state;
 pub(crate) use state::*;
 mod baseline;
 mod held_login;
-pub use held_login::{HeldLogin, OwnLogin};
+pub use held_login::{HeldLogin, HeldLogins, OwnLogin};
 mod hub_sequences;
 mod sequence_start;
 pub use sequence_start::{CommitBy, DataAccess, Interval, Reached, RefLoads, SequenceStart, TxPoint, TxPointKind};
@@ -924,8 +924,8 @@ pub struct Session {
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
-    /// The session's data holds what the run's one login wrote (`Baseline::login_held`).
-    pub(crate) login_held: Option<std::sync::Arc<HeldLogin>>,
+    /// The logins whose writes the session's data holds (`Baseline::held_logins`).
+    pub(crate) held_logins: HeldLogins,
     /// The session's data is what a test codeunit left (`Baseline::codeunit_left`).
     pub(crate) codeunit_left: bool,
     /// The `Engine::demo_tables` the running test's own code (not install code) wrote to (`records/op_inner.rs`): a read of
@@ -1538,7 +1538,7 @@ impl Session {
             sessions_started: 0,
             install_without_client: false,
             company_built: false,
-            login_held: None,
+            held_logins: Default::default(),
             codeunit_left: false,
             demo_written: Default::default(),
             gl_setup_written: false,

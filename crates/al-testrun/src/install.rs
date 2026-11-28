@@ -1254,11 +1254,7 @@ impl CompanyOpenWrites {
     /// `own_login`, and those of `partner_login`.
     pub fn watched(&self) -> BTreeSet<u32> {
         let mut out = self.tables.clone();
-        out.extend(
-            self.held
-                .iter()
-                .flat_map(|held| held.tables.iter().chain(&held.id_tables).copied()),
-        );
+        out.extend(self.held.iter().flat_map(|held| held.tables.iter().copied()));
         out.extend(self.watched_login.iter().flat_map(|(t, _)| t.iter().copied()));
         out.extend(self.own_login.iter().copied());
         out.extend(self.partner_login.watched());
@@ -1266,11 +1262,10 @@ impl CompanyOpenWrites {
     }
 
     /// After a test that `began`, of the watched tables it touched (`hits`): the one that decides its outcome
-    /// ([`CompanyOpenWrites::touched`]), if any; a table of `HeldReads::id_tables` only when the session answered its own
-    /// id (`id_read`). A test that touched a table of `own_login` marks
+    /// ([`CompanyOpenWrites::touched`]), if any. A test that touched a table of `own_login` marks
     /// `login-own-registration-reads-alone`. The other watched tables (an earlier Disabled codeunit's, `run.rs`) are the
     /// caller's to judge on the whole of `hits`: the first table touched can be one of `own_login`.
-    pub fn watch_hit(&self, hits: &BTreeSet<u32>, began: bool, id_read: bool) -> Option<u32> {
+    pub fn watch_hit(&self, hits: &BTreeSet<u32>, began: bool) -> Option<u32> {
         if !began {
             return None;
         }
@@ -1281,35 +1276,24 @@ impl CompanyOpenWrites {
         (hits.iter())
             .find(|t| {
                 self.tables.contains(t)
-                    || self.held.as_ref().is_some_and(|held| held.refuses_touch(**t, id_read))
+                    || self.held.as_ref().is_some_and(|held| held.tables.contains(t))
                     || self.watched_login.as_ref().is_some_and(|(w, _)| w.contains(t))
             })
             .copied()
             .or(partner)
     }
 
-    /// Why an OnRun that touched `hits` is refused after the session answered its own id (`id_read`): the first table of
-    /// `HeldReads::id_tables` it touched.
-    pub fn id_read_hit(&self, hits: &BTreeSet<u32>, lowered: &Lowered, id_read: bool) -> Option<String> {
-        let held = self.held.as_ref().filter(|_| id_read)?;
-        hits.iter()
-            .filter(|t| held.id_tables.contains(t))
-            .find_map(|&t| self.touched(t, lowered, id_read))
-    }
-
-    /// Why a test that read or wrote table `t` while it ran is not run: `None` when `t` is not watched (a table of
-    /// `HeldReads::id_tables` without `id_read`, see [`CompanyOpenWrites::watch_hit`]).
-    pub fn touched(&self, t: u32, lowered: &Lowered, id_read: bool) -> Option<String> {
+    /// Why a test that read or wrote table `t` while it ran is not run: `None` when `t` is not watched.
+    pub fn touched(&self, t: u32, lowered: &Lowered) -> Option<String> {
         let name = Self::table_name(lowered, t);
         if self.tables.contains(&t) {
             return Some(self.reason(&format!("this test read or wrote table {name} while it ran")));
         }
-        if let Some(held) = self.held.as_ref().filter(|held| held.refuses_touch(t, id_read)) {
-            let why = match held.tables.contains(&t) {
-                true => held.tables_why,
-                false => held.id_why,
-            };
-            return Some(format!("{why}: this test read or wrote table {name} while it ran"));
+        if let Some(held) = self.held.as_ref().filter(|held| held.tables.contains(&t)) {
+            return Some(format!(
+                "{}: this test read or wrote table {name} while it ran",
+                held.tables_why
+            ));
         }
         let Some((_, why)) = self.watched_login.as_ref().filter(|(tables, _)| tables.contains(&t)) else {
             return self.partner_login.touched(t, lowered);
@@ -1332,20 +1316,9 @@ pub(crate) struct HeldReads {
     pub singles: BTreeSet<usize>,
     /// Why a reader of `singles` is not run.
     pub singles_why: &'static str,
-    /// Tables a test may not touch when its session answered its own id (al-vm `Session::own_id_read`): checked after the
-    /// test ran ([`CompanyOpenWrites::watch_hit`]).
-    pub id_tables: BTreeSet<u32>,
-    /// Why such a test is not run.
-    pub id_why: &'static str,
 }
 
 impl HeldReads {
-    /// Whether a test that touched table `t` while it ran is not run: `t` is one of `tables`, or of `id_tables` when the
-    /// session answered its own id (`id_read`).
-    fn refuses_touch(&self, t: u32, id_read: bool) -> bool {
-        self.tables.contains(&t) || (id_read && self.id_tables.contains(&t))
-    }
-
     fn refuses(&self, facts: &crate::runtime::written::ReachFacts, lowered: &Lowered) -> Option<String> {
         let single = match &facts.unknown {
             Some(_) => self.singles.first(),
