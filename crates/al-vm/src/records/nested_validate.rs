@@ -31,9 +31,9 @@ use std::rc::Rc;
 /// here a read of it refuses.
 pub(crate) const XREC_OF_RUNNING_CALL: &str = "xRec in a table procedure called through other code on a record whose trigger or procedure runs: real BC hands it the running call's xRec in the shapes XRecTableProcThroughCodeunit.al and XRecTableProcThroughSubscriber.al pin, this shape is not run";
 
-/// The procedures of the table between the trigger of a Validate and the Validate it nests in the cells that assign or filter the
-/// one xRec of both (record/validate/XRecTableProcThroughSubscriber.al:116-118 `CopyFromItem`, :190-198 `UpdateMode`).
-const NESTING_PROCEDURES_ASSIGNED: usize = 2;
+/// How many Validates of one record record/validate/XRecNestedValidateShapes.al ran in one another (the two-level cells
+/// `Validate_TwoLevel*_Observed`: "Item No." nests Mode, which nests Grade); the nested one is the third at most.
+const NESTED_VALIDATES_MEASURED: usize = 3;
 
 /// The before-image a Validate hands its triggers as xRec: the field values, and the `RecordState::unpinned_buffer` reason
 /// the xRec gets (the procedure xRec's mark when `records.rs` `unmeasured_xrec_mark` holds for it, `validate_before_image`).
@@ -425,25 +425,18 @@ impl Session {
         (own || self.stamp_validating.contains(&handle)).then(|| before.clone())
     }
 
-    /// The xRec handle a Validate of `rec` (at `handle`, called from `site`, of the field at `pos`, `with_value` whether it hands
-    /// a new value) hands its triggers when the table's own code nests it in the one running Validate of the record: that
-    /// Validate's, shared. Real BC keeps one xRec for both: what the outer trigger assigns before it nests is what the inner
-    /// trigger reads, what the inner trigger assigns is what the outer trigger reads after, and a filter set on it shows in both
-    /// (record/validate/XRecTableProcThroughSubscriber.al:1050, :1064, :1078, :758). Only in the shape those cells measured,
-    /// each fact by equality: the outer Validate a `Record.Validate` from a procedure of a test codeunit that has no attribute
-    /// (`ValidateItemAndObserve`, :518-525), called by the `[Test]` procedure of that codeunit (:1042-1050), whose trigger is a
-    /// field OnValidate of the table (:104); the inner one a `Record.Validate` from AL code with a value, of another field
-    /// (:197); between the two exactly [`NESTING_PROCEDURES_ASSIGNED`] procedures of the table that are no triggers and have no
-    /// attribute, called on the trigger's record (`CopyFromItem`, `UpdateMode`, :116-118, :190-198); the buffer `AfterInsert`
-    /// (:498-507); the record and the outer xRec with the view no filter, mark, key or sort changed; neither field with an
-    /// OnBeforeValidate or OnAfterValidate trigger of a table extension, and no OnBeforeValidateEvent or OnAfterValidateEvent
-    /// subscriber of the outer field (XRS Line Ext declares none, :238-274; XRS Subscriber subscribes to the validate events
-    /// of Mode only, :348-453). Any other shape keeps its own copy of the before-image (`None`).
+    /// The xRec handle a Validate of `rec` (at `handle`, called from `site`, `with_value` whether it hands a new value) hands
+    /// its triggers and validate events when the table's own code nests it in a running Validate of the same record variable:
+    /// the outer Validate's own handle, so the whole nest has one xRec and every writer (a trigger, a table extension validate
+    /// trigger, a validate event subscriber, a table procedure) is seen by every later reader at every level. Pinned for one
+    /// nest by record/validate/XRecTableProcThroughSubscriber.al:1042-1083 (assign before the nest :1050, assign in it :1064,
+    /// filter in it :1078); every measured nest runs through assumption `xrec-one-across-nested-validate`, each fact of its
+    /// entry by equality. `None`, the caller's own copy of the outer before-image (`validate_before_image`), for every other
+    /// nest.
     pub(crate) fn nested_validate_xrec(
         &self,
         handle: usize,
         site: Option<ValidateSite>,
-        pos: usize,
         with_value: bool,
         rec: &Rec,
     ) -> Option<Rec> {
@@ -451,35 +444,63 @@ impl Session {
         if site != from_al || !with_value || self.stamp_validating.contains(&handle) {
             return None;
         }
-        let mut running = self.validate_sites.iter().filter(|v| v.handle == handle);
-        let (Some(outer), None) = (running.next(), running.next()) else {
-            return None;
-        };
+        let runs: Vec<&ValidateRun> = self.validate_sites.iter().filter(|v| v.handle == handle).collect();
+        let (first, innermost) = (runs.first()?, runs.last()?);
         let table = rec.borrow().table as usize;
-        let (o, i) = (outer.depth, self.call_stack.len());
-        let outer_field = self.routine_at(o).1.field;
-        let fields = &self.engine.program.objects[table].table.as_ref()?.fields;
-        let outer_def = fields.get(outer_field?)?;
-        let outer_unsubscribed = || {
-            ["onbeforevalidateevent", "onaftervalidateevent"]
-                .iter()
-                .all(|e| self.field_event_subscribers(table, e, &outer_def.name) == 0)
-        };
-        let measured = outer.site == from_al
-            && o == self.test_frame_base() + 2
-            && o + 1 + NESTING_PROCEDURES_ASSIGNED == i
-            && self.only_test_codeunit_frames(0, i - o)
+        let (o, i) = (innermost.depth, self.call_stack.len());
+        if o >= i || i != self.frames.len() {
+            return None;
+        }
+        let measured = runs.len() < NESTED_VALIDATES_MEASURED
+            && runs.iter().all(|r| Rc::ptr_eq(&r.xrec, &first.xrec))
+            && first.site == from_al
+            && self.outer_callers_measured(first.depth)
             && self.field_on_validate_at(table, o)
-            && outer_field != Some(pos)
-            && Self::no_ext_validate(outer_def)
-            && fields.get(pos).is_some_and(Self::no_ext_validate)
+            && i - o - 1 <= super::running_call_xrec::NESTING_PROCEDURES_MEASURED
             && self.own_procedures_between(table, o, i)
             && ((o + 1)..i).all(|d| self.routine_at(d).1.attributes.is_empty())
             && Self::buffer_of_own_insert(&rec.borrow())
             && super::XrecView::of(&rec.borrow()).untouched()
-            && super::XrecView::of(&outer.xrec.borrow()).untouched()
-            && outer_unsubscribed();
-        measured.then(|| outer.xrec.clone())
+            && super::XrecView::of(&first.xrec.borrow()).untouched();
+        (measured && assumptions::hit(Assumption::XrecOneAcrossNestedValidate)).then(|| first.xrec.clone())
+    }
+
+    /// Whether the trigger of the outermost Validate of a nest, in frame `o`, is called as record/validate/
+    /// XRecNestedValidateShapes.al measured (assumption `xrec-one-across-nested-validate`): from the `[Test]` procedure of a test
+    /// codeunit (also one naming handlers, no other attribute), directly or through one procedure of that codeunit with no
+    /// attribute (XRecTableProcThroughSubscriber.al:1049, :518-525), `[TryFunction]` (under no other try scope; its result
+    /// used, or as a statement, which the runner does not tell apart) or `[MessageHandler]`; no event or trigger frame between.
+    fn outer_callers_measured(&self, o: usize) -> bool {
+        let base = self.test_frame_base();
+        if !(base + 1..=base + 2).contains(&o) {
+            return false;
+        }
+        let first = self.frames[base];
+        let names = |d: usize| -> Vec<String> {
+            let mut n: Vec<String> = self
+                .routine_at(d)
+                .1
+                .attributes
+                .iter()
+                .map(|a| a.name.to_ascii_lowercase())
+                .collect();
+            n.sort();
+            n
+        };
+        let tries = (base..o).filter(|&d| names(d) == ["tryfunction"]).count();
+        Self::is_test_codeunit(&self.engine.program.objects[first])
+            && self.tx.try_depth == tries
+            && (base..o).all(|d| {
+                let measured: &[&[&str]] = if d == base {
+                    &[&["test"], &["handlerfunctions", "test"]]
+                } else {
+                    &[&[], &["tryfunction"], &["messagehandler"]]
+                };
+                self.frames[d] == first
+                    && !self.call_stack[d].event
+                    && !self.routine_at(d).1.is_trigger
+                    && measured.iter().any(|m| names(d) == *m)
+            })
     }
 
     /// The before-image a Validate of `rec` (at `handle`) hands its triggers as xRec, `outer` being `outer_validate_before` and

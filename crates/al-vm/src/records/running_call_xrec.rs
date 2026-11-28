@@ -9,8 +9,8 @@
 //! - through a procedure of the table that is no trigger (`through_own_procedure`, record/validate/XRecTableProcThroughCodeunit.al:365-414);
 //! - straight from the trigger (`straight_from_trigger`, not through an interface), or from the subscriber of an integration
 //!   event the trigger raises (`through_subscriber`), record/validate/XRecTableProcThroughSubscriber.al. Under a Validate the
-//!   table's own code nested, BC keeps one xRec for both Validates; this runner does too in the shape its cells measured
-//!   (`nested_validate_xrec`). Where the inner Validate kept its own copy, the xRec is shared only while neither was assigned
+//!   table's own code nested, BC keeps one xRec for both Validates; this runner does too in the nests
+//!   `nested_validate_xrec` shares. Where the inner Validate kept its own copy, the xRec is shared only while neither was assigned
 //!   or filtered (`nested_xrecs_untouched`), and for reading only (`ProcXrec::SharedReadOnly`).
 //!
 //! Every chain also needs the facts its cells share (`cell_facts`); the Validate called by other code than a test procedure, and
@@ -45,7 +45,7 @@ use std::rc::Rc;
 /// Validate and the Validate (none, one, two and three: `Subscriber_VarRec_NestedValidateInTrigger` :663,
 /// `..._NestedValidateInFirstTableProcedure` :691, `..._NestedValidateInTableProcedure` :590,
 /// `..._NestedValidateInThirdTableProcedure` :677).
-const NESTING_PROCEDURES_MEASURED: usize = 3;
+pub(super) const NESTING_PROCEDURES_MEASURED: usize = 3;
 
 /// The refusal when a procedure that shared the trigger's xRec under a Validate the table's own code nested (`nested_by_own_code`)
 /// changed it: real BC keeps one xRec for both Validates, so an assignment shows to the trigger of the outer Validate too

@@ -1,21 +1,39 @@
 # key	entry
-# One xRec for both Validates (issue 8312). The shape of :1042 and :1056 without the integration event: the inner trigger reads
-# xRec before it raises the event, and the subscriber's procedures only read it, so the subscriber does not decide these reads.
-NBX T10 OuterAssign_TwoProcs_N::OuterAssign_TwoProcs_NoSubscriber	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1050
-NBX T11 InnerAssign_TwoProcs_N::InnerAssign_TwoProcs_NoSubscriber	PINNED tests/al-language/record/validate/XRecTableProcThroughSubscriber.al:1064
-# Rec.CopyFromItem() is the same call as CopyFromItem() for xRec: BC hands Rec.Proc(), this.Proc() and Proc() the trigger's
-# xRec and keeps the procedure's assignment (XRecTableProcCalls.al:191, :202, :213); the runner does not tell them apart.
-NBX T16 OuterAssign_RecDotProc::OuterAssign_RecDotProcedure	PINNED tests/al-language/record/validate/XRecTableProcCalls.al:191
+# One xRec handle for a whole nest of Validates of one record variable (issue 8312; review round 3 of PR 9328: by construction,
+# records/nested_validate.rs `nested_validate_xrec`). Every nest the probe measured runs through assumption
+# xrec-one-across-nested-validate (corpus record/validate/XRecNestedValidateShapes.al, branch probe-9331-nested-validate-xrec,
+# al-runner issue 9331), the pinned nest of XRecTableProcThroughSubscriber.al:1042-1083 too. Main's result is two copies,
+# which BC does not give in any of these rows.
+NBX T10 OuterAssign_TwoProcs_N::OuterAssign_TwoProcs_NoSubscriber	ASSUMED xrec-one-across-nested-validate (pinned shape XRecTableProcThroughSubscriber.al:1050; probe branch probe-9331-nested-validate-xrec)
+NBX T11 InnerAssign_TwoProcs_N::InnerAssign_TwoProcs_NoSubscriber	ASSUMED xrec-one-across-nested-validate (pinned shape XRecTableProcThroughSubscriber.al:1064)
+NBX T12 OuterAssign_DirectInTr::OuterAssign_DirectInTrigger	ASSUMED xrec-one-across-nested-validate (probe Validate_NoProcOuterAssigns_Observed)
+NBX T13 OuterAssign_OneProcedu::OuterAssign_OneProcedure	ASSUMED xrec-one-across-nested-validate (probe Validate_OneProcOuterAssigns_Observed)
+NBX T14 OuterAssign_ThreeProce::OuterAssign_ThreeProcedures	ASSUMED xrec-one-across-nested-validate (probe Validate_ThreeProcsOuterAssigns_Observed)
+NBX T16 OuterAssign_RecDotProc::OuterAssign_RecDotProcedure	ASSUMED xrec-one-across-nested-validate (Rec.Proc() is the call Proc() is for xRec, XRecTableProcCalls.al:191)
+NBX T17 OuterAssign_SameField::OuterAssign_SameField	ASSUMED xrec-one-across-nested-validate (probe Validate_SameFieldNestedOuterAssigns_Observed)
+NBX T23 ThreeLevel_DeepAssign::ThreeLevel_DeepAssign	ASSUMED xrec-one-across-nested-validate (probe Validate_TwoLevelInnerAssigns_Observed)
+NBX T24 OuterAssign_FromTestPr::OuterAssign_FromTestProcedure	ASSUMED xrec-one-across-nested-validate (probe Validate_*OuterAssigns_Observed, Validate in the [Test] procedure)
+NBX T40 InnerFieldExtHook::InnerFieldExtensionHookAssignsXRec	ASSUMED xrec-one-across-nested-validate (probe Validate_InnerExtAfterValidateAssigns_Observed)
+NBX T41 OuterFieldExtHook::OuterFieldExtensionHookAssignsXRec	ASSUMED xrec-one-across-nested-validate (probe Validate_OuterExtBeforeValidateAssigns_Observed)
+NBX T42 OuterFieldSubscriber::OuterFieldSubscriberAssignsXRec	ASSUMED xrec-one-across-nested-validate (probe Validate_OuterBeforeSubscriberAssigns_Observed)
+NBX T43 InnerFieldSubAssign::InnerFieldSubscriberAssignsXRec	ASSUMED xrec-one-across-nested-validate (probe Validate_InnerAfterSubscriberAssigns_Observed)
+NBX T44 InnerFieldSubRead::InnerFieldSubscriberReadsOuterAssignedXRec	ASSUMED xrec-one-across-nested-validate (probe Validate_InnerBeforeSubscriberOuterAssigned_Observed)
+NBX T60 InnerFilter_TwoProcs::InnerFilter_TwoProcs	ASSUMED xrec-one-across-nested-validate (probe Validate_*InnerFilters_Observed, the xRec filter)
+NBX T61 InnerTry_TwoProcs::InnerTry_TwoProcs	ASSUMED xrec-one-across-nested-validate (probe Validate_TwoProcsInnerTryAssigns_Observed)
+NBX T62 TwoLevel_DeepAssign::TwoLevel_DeepAssign	ASSUMED xrec-one-across-nested-validate (probe Validate_TwoLevelInnerAssigns_Observed)
+NBX T63 TwoLevel_OuterAssign::TwoLevel_OuterAssign	ASSUMED xrec-one-across-nested-validate (probe Validate_TwoLevelOuterAssigns_Observed)
+NBX T64 FromTryFunction::FromTryFunction	ASSUMED xrec-one-across-nested-validate (probe Validate_FromTestTryFunction_Observed)
+NBX T65 FromTryFunctionStateme::FromTryFunctionStatement	ASSUMED xrec-one-across-nested-validate (the runner does not tell a TryFunction statement from a used result; XRecTableProcCallers.al, corpus PR 1482, measured both the same)
+NBX T66 FromMessageHandler::FromMessageHandler	ASSUMED xrec-one-across-nested-validate (probe Validate_FromMessageHandler_Observed)
+# The fourth Validate is not measured: it keeps main's copy of the outer before-image; the three around it share.
+NBX T68 FourLevels::FourLevels	ASSUMED xrec-one-across-nested-validate (the three outer Validates; the fourth keeps main's copy)
 # A test procedure that also carries [Scope('OnPrem')] (issue 8974): corpus PR 1583, Caller_ScopeOnPremTest_IntegrationEvent and
 # Caller_ScopeOnPremTestWithHandler_Nested.
 NBX T26 ScopeOnPrem_Subscriber::ScopeOnPrem_Subscriber	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1583)
 NBX T27 ScopeOnPremWithHandler::ScopeOnPremWithHandler_Nested	ASSUMED xrec-table-proc-callers-subscribers (corpus PR 1583)
-# Not here, main's copy on both: no, one or three procedures between the triggers, Validate without a value, the same field,
-# a temporary record, a buffer from Get, a record never inserted, a filter on the record, a filter on xRec before the nested
-# Validate, a third nested Validate, the outer Validate in the test procedure or in a codeunit that is no test codeunit; and
-# [Scope('Cloud')], [Scope('OnPrem')] with another attribute, refused on both.
-# Review round 1, main's copy on both: the helper called by a [TryFunction] of the test codeunit (T32), a [TryFunction] table
-# procedure between the triggers (T33).
-# Review round 2, main's copy on both: a table extension OnAfterValidate of Mode that assigns xRec (T40), a table extension
-# OnBeforeValidate of "Item No." that assigns xRec (T41), an OnBeforeValidateEvent subscriber of "Item No." that assigns xRec
-# (T42).
+# Main's copy on both (no row): a Validate without a value (T15), a temporary record (T18), a buffer from Get (T19), a record
+# never inserted (T20), a filter on the record (T21), a filter on xRec before the nested Validate (T22), the outer Validate in a
+# codeunit that is no test codeunit (T25), the outer Validate in a [TryFunction] through a helper (T32), a [TryFunction] table
+# procedure between the triggers (T33), the outer Validate in a [ConfirmHandler] (T67), the nested Validate in a table
+# extension procedure (T69), with its value in a Variant (T70); Validate on another record variable gets its own xRec on both
+# (T71). [Scope('Cloud')] and [Scope('OnPrem')] with another attribute refuse on both (T28, T29).

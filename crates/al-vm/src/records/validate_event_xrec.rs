@@ -54,7 +54,9 @@ impl Session {
     ) -> Result<(), Signal> {
         let before = event == "onbeforevalidateevent";
         let handle = Rc::as_ptr(rec) as usize;
-        let no_ext_validate = Self::no_ext_validate(field);
+        // The probe's validated fields have no table extension OnBeforeValidate or OnAfterValidate, writers no cell measures
+        // (review of PR 9063, 2026-11-25).
+        let no_ext_validate = field.ext_before_validate.is_empty() && field.ext_after_validate.is_empty();
         if !self.listened(t, event, Some(&field.name))? {
             if before {
                 self.note_kept_by_before_event(handle, no_ext_validate);
@@ -62,7 +64,16 @@ impl Session {
             return self.table_event(t, event, rec, Some(xrec), false, Some(&field.name));
         }
         let field_measured = field.on_validate.is_some_and(|(o, _)| o == t.object as usize) && no_ext_validate;
-        let sole_subscriber = self.field_event_subscribers(t.object as usize, event, &field.name) == 1;
+        let sole_subscriber = self
+            .engine
+            .events
+            .subscribers_at(t.object as usize, event)
+            .is_some_and(|subs| {
+                subs.iter()
+                    .filter(|s| s.element.eq_ignore_ascii_case(&field.name))
+                    .count()
+                    == 1
+            });
         self.validate_events.push(ValidateEvent {
             handle,
             xrec: xrec.clone(),
@@ -81,20 +92,6 @@ impl Session {
             self.note_kept_by_before_event(handle, kept);
         }
         r
-    }
-
-    /// Whether `field` has no OnBeforeValidate or OnAfterValidate trigger of a table extension. The probe's validated fields have
-    /// none, writers of xRec no cell measures (review of PR 9063, 2026-11-25; review of PR 9328, 2026-11-28).
-    pub(super) fn no_ext_validate(field: &al_ir::Field) -> bool {
-        field.ext_before_validate.is_empty() && field.ext_after_validate.is_empty()
-    }
-
-    /// How many subscribers the OnBeforeValidateEvent or OnAfterValidateEvent (`event`) of table `object` declares for the field
-    /// named `field`.
-    pub(super) fn field_event_subscribers(&self, object: usize, event: &str, field: &str) -> usize {
-        self.engine.events.subscribers_at(object, event).map_or(0, |subs| {
-            subs.iter().filter(|s| s.element.eq_ignore_ascii_case(field)).count()
-        })
     }
 
     /// Notes on the innermost Validate of the record at `handle` whether its OnBeforeValidateEvent returned with the fields
