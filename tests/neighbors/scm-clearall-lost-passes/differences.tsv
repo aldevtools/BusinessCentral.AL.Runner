@@ -5,7 +5,6 @@ CNC Test::NeverCalled_HolderRunsTwice_EntryAndCounter	ASSUMED clear-all-uncalled
 CNC Test::NeverCalled_HolderWritesAfter_OwnerReads	ASSUMED clear-all-uncalled-register-tree (open corpus PR 1650)
 CNC Test::NeverCalled_OwnerClearAll_EveryGlobal	ASSUMED clear-all-uncalled-register-tree (open corpus PR 1650)
 CNC Test::NeverCalled_OwnerRunsInOnRun_ThenHolderRuns	ASSUMED clear-all-uncalled-register-tree (open corpus PR 1650)
+CNC Test::NeverCalled_OwnerWritesAfter_HolderReads	ASSUMED clear-all-uncalled-register-tree (open corpus PR 1650; not run on main and head: the earlier WrittenBefore_OwnerClearAll_EveryGlobal is refused, as on main; the flag is from the earlier tests of the codeunit)
 CNC Test::NeverCalled_OwnerWritesInOnRun_HolderReads	ASSUMED clear-all-uncalled-register-tree (open corpus PR 1650)
 N Uncalled Base::Base_NeverCalled_StaysShared	ASSUMED clear-all-uncalled-register-tree (open corpus PR 1650)
-N Uncalled Direct::Assumed_ClearAllFromDirectCall	ASSUMED clear-all-uncalled-register-tree (open corpus PR 1650; the call path is not read)
-N Uncalled Local::Assumed_HolderIsTestLocal	ASSUMED clear-all-uncalled-register-tree (open corpus PR 1650; the holder kind is not read)

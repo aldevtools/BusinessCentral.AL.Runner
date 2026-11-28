@@ -2,12 +2,97 @@
 //! no call has made yet ([`super::Store::UncalledTree`], assumption clear-all-uncalled-register-tree, open corpus PR 1650,
 //! tests/al-language/codeunits/clear-instance/ClearSharedCodeunitNeverCalledTree.al): the shape of "Sales-Post" clearing
 //! the "Whse. Jnl.-Register Line" that "Whse.-Activity-Post" gave it through a setter (al-runner issue 8964). Which
-//! codeunits form the tree is [`Session::uncalled_tree_node`]'s; the cell itself is [`super::measured`]'s. Entry point:
-//! `Session::uncalled_tree_pair` (from `Session::store_kind_in`).
+//! codeunits form the tree is [`Session::uncalled_tree_node`]'s, which call path and holder [`Session::uncalled_tree_path`]'s
+//! (from the [`RunCaller`]s that [`Session::codeunit_run_noting_caller`] keeps); the cell itself is [`super::measured`]'s.
+//! Entry points: `Session::uncalled_tree_pair` (from `Session::store_kind_in`), `Session::uncalled_tree_path` (from
+//! `Session::measured_cell`), `Session::codeunit_run_noting_caller` (from `Session::vm_class_call`).
 
 use super::*;
 
+/// A `Codeunit.Run` of a codeunit variable that runs (`Session::run_callers`): who ran which instance, how.
+pub(crate) struct RunCaller {
+    /// The length of `Session::call_stack` when the Run began: the index of the frame of the run codeunit's OnRun.
+    at: usize,
+    /// The instance of the routine that called `Run`.
+    caller: Weak<RefCell<Instance>>,
+    /// The instance `Run` runs.
+    run: Weak<RefCell<Instance>>,
+    /// The Run's result is used (`if X.Run(...) then`).
+    guarded: bool,
+}
+
 impl Session {
+    /// `Codeunit.Run` of codeunit instance `rc` from frame `f` (`Codeunit.Run#1`), noted in `run_callers` while it runs.
+    pub(crate) fn codeunit_run_noting_caller(
+        &mut self,
+        rc: Rc<RefCell<Instance>>,
+        values: &[Value],
+        guarded: bool,
+        f: &Frame,
+    ) -> Result<Value, Signal> {
+        self.run_callers.push(RunCaller {
+            at: self.call_stack.len(),
+            caller: Rc::downgrade(&f.instance),
+            run: Rc::downgrade(&rc),
+            guarded,
+        });
+        let ran = self.codeunit_run(
+            al_builtins::builtin_id::ids::CODEUNIT_RUN_1,
+            Some(Value::Codeunit(rc)),
+            values,
+            guarded,
+        );
+        self.run_callers.pop();
+        ran
+    }
+
+    /// Whether the `ClearAll()` in `owner` that meets register instance `rc` runs where corpus PR 1650 measures it
+    /// (ClearSharedCodeunitNeverCalledTree.al): in the owner's OnRun trigger (:294-300) through two local procedures,
+    /// "RunWithCheck" (:302) and "ClearAllVariables" (:313-316), with no event frame; the OnRun entered by the statement
+    /// form of `Run` of a codeunit variable (`SalesPost.Run(TempHeader)` :364) from a procedure that is not local (`Post`
+    /// :356) of a codeunit with no Subtype, no TableNo, not SingleInstance ("CNC Holder" :349); a global of that holder's
+    /// instance declared as the owner holding the instance run (`SalesPost` :353), and one declared as the register's
+    /// codeunit holding `rc` (`WhseJnlRegisterLine` :352).
+    pub(super) fn uncalled_tree_path(&self, owner: usize, rc: &Rc<RefCell<Instance>>) -> bool {
+        let Some(run) = self.run_callers.last() else {
+            return false;
+        };
+        let n = self.call_stack.len();
+        // Whether frame `i` runs a routine of `object` that is (not) local and (not) a trigger, not as an event.
+        let frame_is = |i: usize, object: usize, local: bool, trigger: bool| {
+            let frame = self.call_stack[i];
+            self.frames[i] == object && !frame.event && {
+                let r = &self.engine.program.objects[object].routines[frame.routine];
+                r.local == local && r.is_trigger == trigger
+            }
+        };
+        let Some(holder) = run.caller.upgrade() else {
+            return false;
+        };
+        let holder_object = holder.borrow().object as usize;
+        let holds = |declared: usize, instance: &Rc<RefCell<Instance>>| {
+            let globals = &self.engine.program.objects[holder_object].globals;
+            holder.borrow().globals.iter().zip(globals).any(|(v, g)| {
+                g.ty == RtType::Codeunit(declared as u32) && matches!(v, Value::Codeunit(x) if Rc::ptr_eq(x, instance))
+            })
+        };
+        let Some(below) = run.at.checked_sub(1) else {
+            return false;
+        };
+        run.at + 3 == n
+            && !run.guarded
+            && frame_is(n - 1, owner, true, false)
+            && frame_is(n - 2, owner, true, false)
+            && frame_is(run.at, owner, false, true)
+            && self.engine.program.objects[owner].routines[self.call_stack[run.at].routine]
+                .name
+                .eq_ignore_ascii_case("OnRun")
+            && frame_is(below, holder_object, false, false)
+            && self.owner_kind(holder_object) == Some(Owner::Plain)
+            && run.run.upgrade().is_some_and(|o| holds(owner, &o))
+            && holds(rc.borrow().object as usize, rc)
+    }
+
     /// Whether `ClearAll()` in `owner` of its global of codeunit `store` is the pair corpus PR 1650 measures
     /// (ClearSharedCodeunitNeverCalledTree.al): the owner a codeunit with a TableNo ([`Owner::TableNo`], "CNC Owner"
     /// :287-293) and the store the register of an [`Session::uncalled_tree_node`] tree ("CNC Reg" :215-229).

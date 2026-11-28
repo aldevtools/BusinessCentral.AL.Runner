@@ -1041,6 +1041,9 @@ pub struct Session {
     /// The `call_stack` index of each frame an interface method call entered (`run_iface`), innermost last: the codeunit
     /// procedure is reached through an interface (records/running_call_xrec.rs tells the chains apart by it).
     pub(crate) iface_frames: Vec<usize>,
+    /// Each `Codeunit.Run` of a codeunit variable that runs, innermost last
+    /// (`clear_shared_codeunit/uncalled_tree.rs` reads who ran the owner of a `ClearAll`).
+    pub(crate) run_callers: Vec<clear_shared_codeunit::RunCaller>,
     pub(crate) cx: al_data::AccessContext,
     /// The tables that held a row when the install baseline was captured (none without one).
     pub(crate) baseline_rows: std::collections::BTreeSet<u32>,
@@ -1485,6 +1488,7 @@ impl Session {
             ext_before_watch: Default::default(),
             shared_proc_xrec: Vec::new(),
             iface_frames: Vec::new(),
+            run_callers: Vec::new(),
             cx: al_data::AccessContext {
                 company: company.into(),
                 user: user.into(),

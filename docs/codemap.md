@@ -365,7 +365,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `callstack.rs`: The AL call stack of an error and the live stack. Entry: `add_frame`.
 - `caught_errors.rs`: The count of errors AL code caught: asserterror. Entry: `catch_error`.
 - `clear_shared_codeunit.rs`: Clear and ClearAll of a codeunit variable whose instance another holder shares. Entry: `Session::clear_shared_codeunit`.
-- `clear_shared_codeunit/uncalled_tree.rs`: the ClearAll cell of a never-called register tree shared into a TableNo owner (open corpus PR 1650). Entry: `Session::uncalled_tree_pair`.
+- `clear_shared_codeunit/uncalled_tree.rs`: the ClearAll cell of a never-called register tree shared into a TableNo owner, and the call path and holder it reads from the running `Codeunit.Run`s (open corpus PR 1650). Entry: `Session::uncalled_tree_pair`, `Session::uncalled_tree_path`, `Session::codeunit_run_noting_caller`.
 - `crm.rs`: A `TableType = CRM` table through the `@@test@@`… Entry: `connection_check`.
 - `companies.rs`: The company a record works in, ChangeCompany. Entry: `find_company`.
 - `dataset.rs`: The dataset XML `Report.SaveAs` writes: header. Entry: `dataset_name`.

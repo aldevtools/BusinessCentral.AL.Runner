@@ -15,6 +15,8 @@
 
 mod uncalled_tree;
 
+pub(crate) use uncalled_tree::RunCaller;
+
 use super::*;
 use crate::var_option::ArrayOf;
 use al_builtins::assumptions::{Assumption, assume};
@@ -755,6 +757,10 @@ impl Session {
             (_, Some(Store::UncalledTree)) if !one_other_holder(rc) => {
                 "a holder other than the one variable the corpus measures shares the register".to_string()
             }
+            (_, Some(Store::UncalledTree)) if !self.uncalled_tree_path(owner, rc) => {
+                "the ClearAll runs in a call path or a holder of the register other than the one the corpus measures"
+                    .to_string()
+            }
             (_, Some(Store::Kinds)) if !self.kinds_instances(rc, 0) => {
                 "an Interface global holds an instance of a codeunit that is no store of the measured kinds".to_string()
             }
@@ -807,7 +813,7 @@ impl Session {
             && (s != Store::Tree || self.tree_as_measured(rc, 0))
             && ((o, s) != (Owner::Plain, Store::TableNoKinds) || self.plain_owner_register(rc.borrow().object as usize))
             && (s != Store::Kinds || self.kinds_instances(rc, 0))
-            && (s != Store::UncalledTree || one_other_holder(rc))
+            && (s != Store::UncalledTree || one_other_holder(rc) && self.uncalled_tree_path(owner, rc))
             // The store with one more Integer that no call made is measured for "CLQ Store Plus" only
             // (ClearSharedCodeunitOwnerKinds.al:183, StorePlus_UnusedAlias :684; ClearSharedCodeunitPlusUncalled.al), which
             // implements no interface: no Interface, List or Dictionary slot can share it.

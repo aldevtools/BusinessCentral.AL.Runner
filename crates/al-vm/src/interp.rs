@@ -70,6 +70,9 @@ impl Session {
         if class == Class::FilterPageBuilder {
             return self.filter_page_builder_op(id, recv, &values, ret_used);
         }
+        if let (ids::CODEUNIT_RUN_1, Some(Value::Codeunit(rc))) = (id, &recv) {
+            return self.codeunit_run_noting_caller(rc.clone(), &values, ret_used, f);
+        }
         self.codeunit_run(id, recv, &values, ret_used)
     }
 

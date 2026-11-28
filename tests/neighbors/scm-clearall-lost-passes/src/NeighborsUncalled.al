@@ -539,7 +539,7 @@ codeunit 86941 "N Uncalled Direct"
     Subtype = Test;
 
     [Test]
-    procedure Assumed_ClearAllFromDirectCall()
+    procedure Refused_ClearAllFromDirectCall()
     var
         H: Codeunit "N Holder Base";
         Reg: Codeunit "N Reg Base";
@@ -558,7 +558,7 @@ codeunit 86942 "N Uncalled Local"
     Subtype = Test;
 
     [Test]
-    procedure Assumed_HolderIsTestLocal()
+    procedure Refused_HolderIsTestLocal()
     var
         
         Reg: Codeunit "N Reg Base";

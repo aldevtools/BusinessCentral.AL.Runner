@@ -298,6 +298,7 @@ macro_rules! session_fields {
                 ext_before_watch => |s: &Session| s.ext_before_watch.borrow().is_empty(),
                 shared_proc_xrec => |s: &Session| s.shared_proc_xrec.is_empty(),
                 iface_frames => |s: &Session| s.iface_frames.is_empty(),
+                run_callers => |s: &Session| s.run_callers.is_empty(),
                 field_error_form => |s: &Session| s.field_error_form.is_none(),
                 error_finals => |s: &Session| s.error_finals.is_none(),
                 var_alias_watch => |s: &Session| s.var_alias_watch.is_empty(),
