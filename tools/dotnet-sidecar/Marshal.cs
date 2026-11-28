@@ -320,8 +320,10 @@ public sealed class Bridge : MemoryStream
     // empty, whose one writer is a StreamWriter made with the stream alone, holding just the handed-back bytes; either that
     // StreamWriter's write, inside AL's call of its Write(Text) or Flush(), starts at 0 right after AL's `Position := 0` and
     // ends at the stream's end (48 x B over 48 x A), or AL's SetLength(10) cuts the stream standing at its end. Every other
-    // write over them (another writer, another start or end, another length) keeps the mark. The host hands the whole content
-    // to the Blob only when the Blob held just the bridge's bytes.
+    // write over them (another writer, another start or end, another length) keeps the mark. The writers counted here are
+    // those of this bridge: each AL call that hands the OutStream over makes a new bridge, so the host serves the overwrite
+    // only for the one bridge AL made over the Blob (al-vm `zip_blob_writes`, part 3), and only when the Blob held just the
+    // bridge's bytes.
     bool OverwriteMeasured(long at, long end) =>
         seeded == 0 && !overwriteServed && PlainWriters == 1 && OtherWriters == 0 && Length == Drained
         && ((AlWriterCall && AlPositionZero && at == 0 && end == Length)

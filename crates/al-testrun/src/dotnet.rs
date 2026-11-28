@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 /// The protocol version the sidecar must speak.
-pub const PROTOCOL: u64 = 6;
+pub const PROTOCOL: u64 = 7;
 
 /// Where the sidecar and .NET are found and how a call is bounded.
 #[derive(Debug, Clone)]

@@ -12,3 +12,8 @@ NB SZ Overwrite 59420::ZB_Stored_Overwrite48_AtPosition0	ASSUMED zip-blob-writes
 NB SZ Fresh ALWrite 59427::ZB_Temp_FreshOutStream_Update4_ALWriteBeforeDispose	REFUSED DotNet System.IO.Compression.ZipArchive.Dispose: a .NET rewrite of an OutStream AL wrote into since the call before
 NB SZ R1 Fresh 59433::Fresh_ClearBeforeDispose	REFUSED DotNet System.IO.Compression.ZipArchive.Dispose: a .NET rewrite of an OutStream AL wrote into since the call before
 NB SZ R1 Overwrite 59431::Overwrite_SecondCycleAtPosition0	ASSUMED zip-blob-writes (corpus PR 1633: the first cycle is the measured one; the second keeps main's mark)
+NB SZ R4 After Rewrite 59449::Overwrite48_ThenALWriteText	ASSUMED zip-blob-writes (corpus PR 1633: the overwrite is the measured one; the AL write after it keeps main's mark)
+NB SZ R4 After Rewrite 59449::Overwrite48_ThenNetAppend	ASSUMED zip-blob-writes (corpus PR 1633: the overwrite is the measured one; the .NET write after it keeps main's mark)
+NB SZ R4 After Rewrite 59449::Overwrite48_ThenStreamView	ASSUMED zip-blob-writes (corpus PR 1633: the overwrite is the measured one; the stream handed to .NET after it keeps main's refusal)
+NB SZ R4 After Rewrite 59449::Overwrite48_ThenSecondStreamWriter	ASSUMED zip-blob-writes (corpus PR 1633: the overwrite is the measured one; the stream handed to .NET after it keeps main's refusal)
+NB SZ R4 After Rewrite 59449::Fresh_Update4_Dispose_ThenALWriteText	REFUSED a Blob whose bytes a DotNet call wrote over after it had handed them back

@@ -1854,6 +1854,7 @@ impl Session {
                                             first_write_truncates: false,
                                             file: false,
                                             dotnet_view: 0,
+                                            dotnet_rewritten: false,
                                             unread_content: false,
                                             assigned_unsaved: false,
                                             assigned_write: al_builtins::stream::AssignedWrite::No,

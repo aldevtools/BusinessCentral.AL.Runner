@@ -104,7 +104,8 @@ const _: fn() = || {
 /// Blob field of a temporary record (`zip_blob_writes::opened_on_temp_record`); `of_no_row`: no read or Insert gave the
 /// record the Blob, when the bridge was made (`zip_blob_writes::of_no_row`; a later Clear in place resets those flags);
 /// `update4_utf8`: the bridge is argument 0 of `ZipArchive(OutStream, Update, false, Encoding.UTF8)`
-/// (`zip_blob_writes::fresh_update_ctor`).
+/// (`zip_blob_writes::fresh_update_ctor`); `opened_at`: the stamp of the AL OutStream it was made from (which
+/// `Blob.CreateOutStream` made it, `LibraryValue::OutStream`).
 struct Bridge {
     blob: BlobRef,
     edits: u32,
@@ -113,18 +114,26 @@ struct Bridge {
     temp_record: bool,
     of_no_row: bool,
     update4_utf8: bool,
+    opened_at: Option<u32>,
 }
 
 impl Bridge {
-    fn new(blob: &BlobRef, fresh: bool, temp_record: bool, update4_utf8: bool) -> Self {
+    fn new(out: &BookOut, fresh: bool, update4_utf8: bool) -> Self {
+        let BookOut {
+            blob,
+            temp_record,
+            opened_at,
+            ..
+        } = out;
         Bridge {
             blob: blob.clone(),
             edits: blob.borrow().content_edits,
             fresh,
             origin_empty: blob.borrow().bytes.is_empty(),
-            temp_record,
+            temp_record: *temp_record,
             of_no_row: zip_blob_writes::of_no_row(&blob.borrow()),
             update4_utf8,
+            opened_at: *opened_at,
         }
     }
 
@@ -268,13 +277,20 @@ struct StreamBook {
     /// The InStream arguments: argument position, the stream, and where the bytes sent start in it (what .NET reports as
     /// consumed counts from there).
     ins: Vec<(usize, Rc<RefCell<LibraryValue>>, usize)>,
-    /// The OutStream arguments: argument position, the Blob, and whether the stream was opened on a temporary record.
-    outs: Vec<(usize, BlobRef, bool)>,
+    outs: Vec<BookOut>,
     /// The call may seed a bridge from a fresh `CreateOutStream` (`zip_blob_writes::fresh_update_ctor`), and the arguments it did.
     fresh_ok: bool,
     fresh: Vec<usize>,
     /// The call is `ZipArchive(OutStream, Update, false, Encoding.UTF8)` (`fresh_ok` with four arguments).
     update4_utf8: bool,
+}
+
+/// An OutStream argument of a call: its position, its Blob, whether the stream was opened on a temporary record, and its stamp.
+struct BookOut {
+    arg: usize,
+    blob: BlobRef,
+    temp_record: bool,
+    opened_at: Option<u32>,
 }
 
 impl StreamBook {
@@ -1458,13 +1474,9 @@ impl Session {
             let Some(bridge) = self.dotnet.bridges.get_mut(id) else {
                 return unsupported(format!("DotNet {shown}: bytes for an unknown stream bridge {id}"));
             };
-            let (blob, edits, len) = (
-                bridge.blob.clone(),
-                bridge.blob.borrow().content_edits,
-                bridge.blob.borrow().bytes.len(),
-            );
+            let write = zip_blob_writes::NetWrite::before(bridge, false);
             bridge.append(bytes);
-            self.note_net_write(&blob, edits, len, false);
+            self.note_net_write(write);
         }
         // Which rewrite the Blob takes, and which keeps main's answer: `zip_blob_writes`.
         for (id, before, bytes, kind) in &streams.replaced {
@@ -1473,12 +1485,13 @@ impl Session {
             };
             let blob = bridge.blob.clone();
             match self.rewrite_verdict(bridge, *before, *kind) {
-                zip_blob_writes::Verdict::Replace => {
-                    let (edits, len) = (blob.borrow().content_edits, blob.borrow().bytes.len());
+                verdict @ (zip_blob_writes::Verdict::Replace | zip_blob_writes::Verdict::ReplaceAssumed) => {
+                    let write = zip_blob_writes::NetWrite::before(bridge, true);
                     if let Some(bridge) = self.dotnet.bridges.get_mut(id) {
                         bridge.replace(bytes);
                     }
-                    self.note_net_write(&blob, edits, len, true);
+                    blob.borrow_mut().dotnet_rewritten = verdict == zip_blob_writes::Verdict::ReplaceAssumed;
+                    self.note_net_write(write);
                 }
                 zip_blob_writes::Verdict::Mark => mark_overwritten(&blob),
                 zip_blob_writes::Verdict::Refuse => {
@@ -1517,10 +1530,10 @@ impl Session {
             }
         }
         for (idx, id) in &reply.streams.bridges {
-            if let Some((_, blob, temp)) = book.outs.iter().find(|(i, ..)| i == idx) {
+            if let Some(out) = book.outs.iter().find(|o| o.arg == *idx) {
                 self.dotnet.bridges.insert(
                     *id,
-                    Bridge::new(blob, book.fresh.contains(idx), *temp, book.update4_utf8 && *idx == 0),
+                    Bridge::new(out, book.fresh.contains(idx), book.update4_utf8 && *idx == 0),
                 );
             }
         }
@@ -1617,25 +1630,29 @@ impl Session {
                     }
                 }
                 LibraryValue::OutStream(blob, _, open, opened_at) => {
-                    // A Blob whose handed-back bytes .NET wrote over holds bytes that are not known (al-runner issue 7947), and BC
-                    // hands .NET that Blob's own stream: refused.
-                    if blob.borrow().render_pending.as_deref() == Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN) {
+                    // A Blob whose handed-back bytes .NET wrote over holds bytes that are not known (al-runner issue 7947),
+                    // and BC hands .NET that Blob's own stream: refused. So is one whose bytes a served .NET rewrite made:
+                    // the AL position after it is not measured (`BlobBuf::dotnet_rewritten`).
+                    let buf = blob.borrow();
+                    if buf.render_pending.as_deref() == Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN)
+                        || buf.dotnet_rewritten
+                    {
                         return unsupported(
                             "an OutStream of a Blob whose bytes a DotNet call wrote over, handed to .NET",
                         );
                     }
-                    book.outs.push((
+                    book.outs.push(BookOut {
                         arg,
-                        blob.clone(),
-                        zip_blob_writes::opened_on_temp_record(open.as_deref()),
-                    ));
+                        blob: blob.clone(),
+                        temp_record: zip_blob_writes::opened_on_temp_record(open.as_deref()),
+                        opened_at: *opened_at,
+                    });
                     // BC hands .NET the Blob's own stream: a ZipArchive in Read mode over an OutStream AL copied a zip into reads
                     // that zip (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al:77-96
                     // WD_Zip_ReadThroughAnOutStream, al-runner issue 6317). The bridge starts with the bytes when the stream
                     // stands at their end; a write over them is refused by the host. A stream standing elsewhere keeps the
                     // empty bridge whose bytes land at the AL position (the earlier behavior), except the stream of the
                     // newest CreateOutStream handed to a ZipArchive in Update mode (`zip_blob_writes`).
-                    let buf = blob.borrow();
                     let at_end = buf.loaded
                         && !buf.first_write_truncates
                         && buf.render_pending.is_none()

@@ -1469,11 +1469,24 @@ fn an_unbuilt_sidecar_is_unavailable_with_the_publish_command() {
 #[cfg(unix)]
 #[test]
 fn a_protocol_mismatch_is_a_refusal_naming_both_versions() {
+    refuses_a_helper_speaking(99, false);
+}
+
+// A helper of protocol 6 sends rewrite replies without the writer tag (al-vm `dotnet/zip_blob_writes.rs`): the handshake
+// refuses it rather than reading its rewrites as untagged, even when it calls itself compatible.
+#[cfg(unix)]
+#[test]
+fn a_helper_of_protocol_6_is_refused() {
+    refuses_a_helper_speaking(6, true);
+}
+
+#[cfg(unix)]
+fn refuses_a_helper_speaking(version: u64, compatible: bool) {
     let dir = tempfile::tempdir().unwrap();
     let dll = dir.path().join("AlDotNetSidecar.dll");
     std::fs::write(&dll, b"").unwrap();
-    // `dotnet --list-runtimes` answers; run as `dotnet <dll>` it writes one hello frame of version 99.
-    let reply = r#"{"id":1,"ok":true,"value":{"protocol":99,"compatible":false,"major":8}}"#;
+    // `dotnet --list-runtimes` answers; run as `dotnet <dll>` it writes one hello frame of `version`.
+    let reply = format!(r#"{{"id":1,"ok":true,"value":{{"protocol":{version},"compatible":{compatible},"major":8}}}}"#);
     let len = reply.len();
     let script = [
         "if [ \"$1\" = \"--list-runtimes\" ]; then echo 'Microsoft.NETCore.App 8.0.1 [/x]'; exit 0; fi".to_string(),
@@ -1492,7 +1505,9 @@ fn a_protocol_mismatch_is_a_refusal_naming_both_versions() {
     let mut sess = h.open_session(&DotNetSessionConfig::default());
     let why = refused(sess.invoke(st("System.Convert"), "ToInt32", vec![s("1")]));
     assert!(
-        why.contains("protocol mismatch") && why.contains("99") && why.contains(&PROTOCOL.to_string()),
+        why.contains("protocol mismatch")
+            && why.contains(&format!("speaks version {version}"))
+            && why.contains(&format!("host version {PROTOCOL}")),
         "{why}"
     );
     sess.close();
