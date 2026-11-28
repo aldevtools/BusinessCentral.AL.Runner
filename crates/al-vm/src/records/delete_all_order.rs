@@ -109,6 +109,13 @@ impl Session {
             .for_each(|read| *read = true);
     }
 
+    /// [`Self::note_row_code_read`] for a record method that reads rows (`record_op_inner`).
+    pub(super) fn note_row_code_record_read(&self, method: RecordOp) {
+        if Self::is_read_call(method) || matches!(method, RecordOp::CountApprox | RecordOp::LoadFields) {
+            self.note_row_code_read();
+        }
+    }
+
     /// The writes the temporary table of `rec` took so far (its own store); 0 for a database record.
     fn temp_table_writes(&mut self, rec: &Rec) -> Result<u64, Signal> {
         match rec.borrow().temporary {

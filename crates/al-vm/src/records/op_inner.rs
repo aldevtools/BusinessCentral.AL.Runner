@@ -9,7 +9,7 @@ use crate::state::{UnpinnedLock, WriteOfAl};
 impl Session {
     /// The record methods that read the database: a call of one on a database record starts the transaction when nothing has
     /// yet (`TxPhase::Read`).
-    fn is_read_call(method: RecordOp) -> bool {
+    pub(super) fn is_read_call(method: RecordOp) -> bool {
         matches!(
             method,
             RecordOp::Get
@@ -83,9 +83,7 @@ impl Session {
         self.table_op_checks(&t, rec, method, args)?;
         // The impact trace, and a subscriber whose install order is not known run once under watch (order_trial.rs).
         self.note_table_op(t.object, method.writes(), rec.borrow().temporary)?;
-        if Self::is_read_call(method) || matches!(method, RecordOp::CountApprox | RecordOp::LoadFields) {
-            self.note_row_code_read();
-        }
+        self.note_row_code_record_read(method);
         if matches!(
             method,
             RecordOp::Find
