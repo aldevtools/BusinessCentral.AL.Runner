@@ -71,9 +71,9 @@ fn issue_8339_text_entry_into_a_related_text_control_is_refused() {
     );
 }
 
-/// Neighbors of issue 8339: a Text control without a relation keeps the text typed, as on main. A Code control related to
-/// Company (a Text key) is refused: corpus PR 1646 measures the rule on Code keys only, and the key types it does not measure
-/// stay refused (the maintainer's review of al-runner issue 9336); main kept the typed text there.
+/// Neighbors of issue 8339 keep main's result: a Text control without a relation and a Code control with one keep the text typed.
+/// The Code control is related to Company, whose key is a Text field; corpus PR 1646 measures Code keys only, and a Code
+/// variable related to a Text key keeps main's path (`pages/relation_text_entry.rs`).
 #[test]
 fn issue_8339_neighbors_keep_the_typed_text() {
     let file = include_str!("../fixtures/outside-id/Issue8339.al");
@@ -103,18 +103,14 @@ fn issue_8339_neighbors_keep_the_typed_text() {
             ),
         ],
     );
-    let o = outcomes(&no_relation, "ALR P CompanyRelationSetValue");
-    assert_eq!(
-        outcome_of(&o, "PageVariableWithCompanyRelationTakesStoredName"),
-        Outcome::Pass,
-        "{o:#?}"
-    );
-    let o = outcomes(&code, "ALR P CompanyRelationSetValue");
-    refused(
-        &o,
-        "PageVariableWithCompanyRelationTakesStoredName",
-        UNMEASURED_RELATION,
-    );
+    for src in [no_relation, code] {
+        let o = outcomes(&src, "ALR P CompanyRelationSetValue");
+        assert_eq!(
+            outcome_of(&o, "PageVariableWithCompanyRelationTakesStoredName"),
+            Outcome::Pass,
+            "{o:#?}"
+        );
+    }
 }
 
 /// Neighbor of issue 8339: a Text page variable whose TableRelation names a table with `TableType = Temporary` (no stored row

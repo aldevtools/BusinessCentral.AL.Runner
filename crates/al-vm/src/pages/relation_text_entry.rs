@@ -24,7 +24,9 @@
 //! Every other shape of a variable control on such a page is refused, and so is a Text variable control with a
 //! TableRelation elsewhere (al-runner issue 8339: which value BC takes there is not measured). A relation, without a
 //! condition, to one table with `TableType = Temporary` keeps its path: such a table stores no row a value could be taken
-//! from. A Code variable elsewhere and a table field outside the measured shape keep their paths too.
+//! from. So does a Code variable related to a table whose primary key is one Text field, or to a table the program did not
+//! compile (`relates_to_text_key`). A Code variable elsewhere and a table field outside the measured shape keep their paths
+//! too.
 //!
 //! Entry point: `relation_text_entry` (by `control_set_value`).
 
@@ -71,6 +73,14 @@ impl Session {
                     return Ok(());
                 }
                 let ty = self.control_type(st, idx, value);
+                // A Code variable related to a table whose primary key is one Text field, or to a table the program did not
+                // compile (Company in the neighbor of al-runner issue 8339: no code reads it, so its key is not known here),
+                // keeps main's path: corpus PR 1646 measures Code keys only.
+                if matches!(ty, Some(RtType::Code(_)))
+                    && text.as_deref().is_some_and(|t| relates_to_text_key(&engine, t))
+                {
+                    return Ok(());
+                }
                 if let Some(ty) = ty.clone().filter(|ty| self.measured_variable(st, idx, ty)) {
                     let (Some(typed), Some(text)) = (typed, text) else {
                         return self.unmeasured(st, &ty);
@@ -362,6 +372,21 @@ fn relates_to_temporary_table(engine: &Engine, text: &str) -> bool {
         return false;
     };
     matches!(tables_named(engine, &table).as_slice(), [t] if engine.object_facts[*t].temporary())
+}
+
+/// Whether a control's own TableRelation `text` is `Table` or `Table.Field`, with or without a `where(..)`, and names
+/// exactly one table of the workspace whose primary key is one Text field, or names no table the program compiled.
+fn relates_to_text_key(engine: &Engine, text: &str) -> bool {
+    let Some((table, _)) = simple_relation(before_where(text)) else {
+        return false;
+    };
+    match tables_named(engine, &table).as_slice() {
+        [] => true,
+        [t] => engine.tables[*t].as_ref().is_some_and(
+            |d| matches!(d.keys.first().map(Vec::as_slice), Some([k]) if matches!(d.fields[*k].ty, RtType::Text(_))),
+        ),
+        _ => false,
+    }
 }
 
 /// `text` up to its first `where` word outside double quotes (all of it when it has none).

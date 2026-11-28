@@ -91,6 +91,8 @@ codeunit 70937 "NB TSV Tests"
                 TP.ExtCtl.SetValue(Typed);
             7:
                 TP.FiltCtl.SetValue(Typed);
+            8:
+                TP.NamedCtl.SetValue(Typed);
         end;
     end;
 
@@ -446,6 +448,18 @@ codeunit 70937 "NB TSV Tests"
     end;
 
     // Neighbors that keep main's path (the rule does not read them).
+    [Test]
+    procedure CodeVar_TextKeyKeepsMain()
+    var
+        TP: TestPage "NB TSV Code Var";
+    begin
+        Seed();
+        TP.OpenEdit();
+        Check(SetCode(TP, 8, 'mn'), 'ok');
+        Same(TP.NamedCtl.Value(), 'MN');
+        TP.Close();
+    end;
+
     [Test]
     procedure ExtensionControl_Prefix()
     var

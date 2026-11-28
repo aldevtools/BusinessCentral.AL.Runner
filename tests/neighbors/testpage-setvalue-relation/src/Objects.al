@@ -33,6 +33,16 @@ table 70932 "NB TSV Num"
     keys { key(PK; "No") { Clustered = true; } }
 }
 
+table 70939 "NB TSV Named"
+{
+    DataClassification = SystemMetadata;
+    fields
+    {
+        field(1; Name; Text[30]) { }
+    }
+    keys { key(PK; Name) { Clustered = true; } }
+}
+
 table 70933 "NB TSV Capt"
 {
     Caption = 'Captioned Book';
@@ -104,6 +114,7 @@ page 70931 "NB TSV Code Var"
             field(NumCtl; NumCode) { ApplicationArea = All; TableRelation = "NB TSV Num"; }
             field(CaptCtl; CaptCode) { ApplicationArea = All; TableRelation = "NB TSV Capt"; }
             field(ShortCtl; ShortCode) { ApplicationArea = All; TableRelation = "NB TSV Book"; }
+            field(NamedCtl; NamedCode) { ApplicationArea = All; TableRelation = "NB TSV Named"; }
             field(FiltCtl; FiltCode) { ApplicationArea = All; TableRelation = "NB TSV Book" where(Active = const(true)); }
         }
     }
@@ -114,6 +125,7 @@ page 70931 "NB TSV Code Var"
         CaptCode: Code[10];
         ShortCode: Code[3];
         FiltCode: Code[10];
+        NamedCode: Code[10];
 }
 
 pageextension 70932 "NB TSV Code Var Ext" extends "NB TSV Code Var"
