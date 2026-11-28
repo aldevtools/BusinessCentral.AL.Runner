@@ -797,12 +797,8 @@ fn body_places(body: &[Stmt], note: &mut dyn FnMut(&Place)) {
 /// or Variant (`RR.GetTable(Row)` in one routine, `RR.Insert()` in another).
 fn is_record_alias(ty: &RtType) -> bool {
     use al_builtins::library_kind::LibraryKind as K;
-    let mut ty = ty;
-    while let RtType::Array(_, inner) = ty {
-        ty = inner;
-    }
     matches!(
-        ty,
+        crate::impact_static::element_type(ty),
         RtType::Variant | RtType::Library(K::RecordRef | K::FieldRef | K::KeyRef)
     )
 }
@@ -902,10 +898,7 @@ pub(crate) fn remainder_reach_facts(
     for (&(global, i), &(uses, _)) in &named {
         let slot = if global { obj.globals.get(i) } else { rt.locals.get(i) };
         let slot = slot?;
-        let mut ty = &slot.ty;
-        while let RtType::Array(_, inner) = ty {
-            ty = inner;
-        }
+        let ty = crate::impact_static::element_type(&slot.ty);
         match ty {
             // Only filter reads: the page runs no code for them.
             RtType::Page(_) | RtType::TestPage(_) if uses == 0 => {}
@@ -1360,11 +1353,7 @@ enum Step {
 
 /// Whether a slot of type `ty` holds a Record, also as the elements of an array.
 fn is_record(ty: &RtType) -> bool {
-    let mut ty = ty;
-    while let RtType::Array(_, inner) = ty {
-        ty = inner;
-    }
-    matches!(ty, RtType::Record(..))
+    matches!(crate::impact_static::element_type(ty), RtType::Record(..))
 }
 
 /// Records a routine's [`Summary`]: the analysis of its body, with the steps that depend on the walk deferred.
@@ -1527,10 +1516,7 @@ impl Rec<'_> {
     /// page's source table, the run of a query, an xmlport's import.
     fn slot(&mut self, ty: &RtType) {
         let objs = &self.lowered.program.objects;
-        let mut ty = ty;
-        while let RtType::Array(_, inner) = ty {
-            ty = inner;
-        }
+        let ty = crate::impact_static::element_type(ty);
         match ty {
             RtType::Record(t, _) => {
                 self.out.touched.insert(*t);
@@ -1848,14 +1834,11 @@ impl Rec<'_> {
         while let Place::Index(b, _) = p {
             p = b;
         }
-        let mut ty = match p {
+        let ty = crate::impact_static::element_type(match p {
             Place::Local(i) => &obj.routines[r].locals.get(*i)?.ty,
             Place::Global(i) => &obj.globals.get(*i)?.ty,
             _ => return None,
-        };
-        while let RtType::Array(_, inner) = ty {
-            ty = inner;
-        }
+        });
         Some(ty.clone())
     }
 

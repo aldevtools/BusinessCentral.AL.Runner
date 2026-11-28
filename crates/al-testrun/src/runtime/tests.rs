@@ -2592,18 +2592,20 @@ const HIT_IN_ONRUN: &str = "codeunit 60152 T
     end;
 }";
 
-// Rework counts determinism as observable tooling quality: the marks of a test are those of the code that test ran,
-// whatever ran on the thread before it and however often the same selection runs. (A run of the whole ERM bucket
-// three times gave the same assumption lists for all 9333 tests once main's address-keyed state fixes were in; before
-// them a page event mark moved between the tests of one codeunit from run to run.)
+// Rework counts determinism as observable tooling quality: the marks of a test are those of the code that test ran and
+// of the OnRun it starts from (al-runner issue 8620: each test starts from what OnRun left, so OnRun's marks count for
+// every test of the codeunit, not for the first one only), whatever ran on the thread before it and however often the
+// same selection runs. (A run of the whole ERM bucket three times gave the same assumption lists for all 9333 tests once
+// main's address-keyed state fixes were in; before them a page event mark moved between the tests of one codeunit from
+// run to run.)
 #[test]
 fn the_marks_of_a_test_do_not_depend_on_what_ran_before_it_or_on_the_run() {
     let first = assumptions_of(HIT_IN_ONRUN);
     let of = |hits: &[(String, Vec<&'static str>)], n: &str| hits.iter().find(|(t, _)| t == n).map(|(_, h)| h.clone());
     assert_eq!(
         of(&first, "FirstTestRunsNone"),
-        None,
-        "a mark of OnRun leaked into the first test: {first:?}"
+        Some(vec!["text-digits-to-integer"]),
+        "the mark of the OnRun the test starts from: {first:?}"
     );
     assert_eq!(
         of(&first, "SecondTestRunsAnAssumption"),

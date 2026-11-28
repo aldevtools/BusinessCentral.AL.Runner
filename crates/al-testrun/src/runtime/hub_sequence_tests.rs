@@ -138,10 +138,13 @@ fn a_sequence_inserted_in_a_test_refuses() {
         "NumberSequence.Insert('HUBNEW', 1, 1, false); if NumberSequence.Next('HUBNEW', false) = 0 then;",
         "cur=0",
     )
+    // B reads only HUBNEW: a read of HUBSEQ, which OnRun inserted, would refuse B on its own (al-runner issue 9303).
     .replace(
         "if NumberSequence.Exists('HUBSEQ'",
-        "if NumberSequence.Next('HUBNEW', false) = 0 then;\n        if NumberSequence.Exists('HUBSEQ'",
-    );
+        "if NumberSequence.Next('HUBNEW', false) = 0 then;\n        if NumberSequence.Exists('HUBNEW'",
+    )
+    .replace("Current('HUBSEQ'", "Current('HUBNEW'");
+    assert!(!src[src.find("procedure B()").unwrap()..].contains("HUBSEQ"), "{src}");
     b_not_run(&outcomes(&src));
 }
 
