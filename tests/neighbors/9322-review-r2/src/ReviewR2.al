@@ -102,3 +102,19 @@ codeunit 91704 "PZS N Repro"
         Rep.Measured('x', Converter.ToBase64(InS, true));
     end;
 }
+
+codeunit 91705 "PZS Control"
+{
+    Subtype = Test;
+
+    // Control that runs on every version, so each run compares something: the Text form of the same 100 bytes
+    // (tests/al-language/streams/Base64LineBreaks.al:221).
+    [Test]
+    procedure TextFormRuns()
+    var
+        Converter: Codeunit "Base64 Convert";
+        Rep: Codeunit "PZS Report";
+    begin
+        Rep.Measured('text', Converter.ToBase64(PadStr('', 100, 'A'), true, TextEncoding::UTF8, 0));
+    end;
+}
