@@ -241,14 +241,15 @@ fn reached(at: Option<usize>, from: Option<usize>) -> bool {
 /// codeunit of the session took from, when that codeunit's numbers did not reach it here ([`reached`]; a codeunit outside
 /// the carry chain never hands them on). Every test, whatever its outcome, goes into `taken_after` (codeunit id, test,
 /// numbers: the cause of a stability flip, decision 7, never printed); each failed test also gets the numbers hint
-/// ([`numbers_hints`]), added to its SingleInstance hint when it has one. A codeunit in two sessions (`--test-suites`) is
-/// hinted in the first that names an earlier taker only (`numbered`). Returns how many failed tests got a hint they did
-/// not have.
+/// ([`numbers_hints`]), added to its SingleInstance hint when it has one. A test of a codeunit in two sessions
+/// (`--test-suites`) is hinted in the first session that names an earlier taker for it only (`numbered`, per unit index
+/// and test, so another test of the codeunit keeps its own first session). Returns how many failed tests got a hint they
+/// did not have.
 pub(super) fn hint_numbers(
     lowered: &al_sema::lower::Lowered,
     units: &[super::Unit],
     ks: &[usize],
-    numbered: &mut BTreeSet<usize>,
+    numbered: &mut BTreeSet<(usize, String)>,
     slots: &mut [Option<super::UnitResult>],
     taken_after: &mut Vec<TakenAfter>,
 ) -> usize {
@@ -260,7 +261,7 @@ pub(super) fn hint_numbers(
         let Some(Ok(done)) = slots[k].as_mut().map(|r| &mut r.result) else {
             continue;
         };
-        if !before.is_empty() && !numbered.contains(&k) {
+        if !before.is_empty() {
             let from = done.5.carry_from;
             let unseen: BTreeMap<(String, String), usize> = before
                 .iter()
@@ -269,7 +270,12 @@ pub(super) fn hint_numbers(
                     Some((key.clone(), w.0))
                 })
                 .collect();
-            let tests: Vec<String> = done.0.iter().map(|(t, _)| t.clone()).collect();
+            let tests: Vec<String> = done
+                .0
+                .iter()
+                .map(|(t, _)| t.clone())
+                .filter(|t| !numbered.contains(&(k, t.clone())))
+                .collect();
             let failed: BTreeSet<String> = done
                 .0
                 .iter()
@@ -277,10 +283,8 @@ pub(super) fn hint_numbers(
                 .map(|(t, _)| t.clone())
                 .collect();
             let hints = numbers_hints(lowered, units, &done.5.numbers_taken, &unseen, &tests);
-            if !hints.is_empty() {
-                numbered.insert(k);
-            }
             for (test, numbers) in hints {
+                numbered.insert((k, test.clone()));
                 taken_after.push((units[k].id, test.clone(), numbers.clone()));
                 if !failed.contains(&test) {
                     continue;

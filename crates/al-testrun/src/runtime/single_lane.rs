@@ -246,14 +246,13 @@ pub struct LaneReport {
 }
 
 impl LaneReport {
-    /// ADR-070 decision 4: the summary line of a default run, printed with or without `--timings`, when
-    /// [`passing_read_carried`](Self::passing_read_carried) is above 0.
-    pub fn passing_line(&self) -> Option<String> {
-        (self.passing_read_carried > 0).then(|| {
+    /// ADR-070 decision 4: the summary line of a default run, printed with or without `--timings`, when `n` reported
+    /// passing tests read carried state (`ChainReport::run_output_lines`).
+    pub(super) fn passing_line(n: usize) -> Option<String> {
+        (n > 0).then(|| {
             format!(
-                "{} passing tests read SingleInstance state that an earlier codeunit would have left differently on BC. \
-                 {STRICT_FLAG} runs BC's order.",
-                self.passing_read_carried
+                "{n} passing tests read SingleInstance state that an earlier codeunit would have left differently on BC. \
+                 {STRICT_FLAG} runs BC's order."
             )
         })
     }
@@ -290,7 +289,7 @@ impl Lane<'_> {
         // Amendment 6: a codeunit listed in two suites is in two sessions but runs and is reported once. The first
         // session (in the file's order) where it is dependent decides.
         let mut counted: BTreeSet<usize> = BTreeSet::new();
-        let mut numbered: BTreeSet<usize> = BTreeSet::new();
+        let mut numbered: BTreeSet<(usize, String)> = BTreeSet::new();
         for ks in streams(self.units, self.place, &has, self.suites) {
             let found = session_found(&ks, slots);
             let fresh: Vec<usize> = found
@@ -351,10 +350,7 @@ impl Lane<'_> {
         let read_in = done.5.singles_out.as_ref().map(|o| &o.read_in);
         let hints = super::order_hint::hints_for(self.lowered, self.units, changed, &writers, read_in, &failed);
         let reads = super::order_hint::hints_for(self.lowered, self.units, changed, &writers, read_in, &passing);
-        let n = (hints.len(), reads.len());
-        done.5.order_hints.extend(hints);
-        done.5.order_hints.extend(reads);
-        n
+        (merge_hints(&mut done.5.order_hints, hints), merge_hints(&mut done.5.order_hints, reads))
     }
 
     /// ADR-058 amendment 1, decision 4: dependent codeunit `p` of session `ks` and what it read, for the report.
@@ -388,6 +384,23 @@ impl Lane<'_> {
             self.name(ks[w])
         )
     }
+}
+
+/// Adds the SingleInstance reads of `hints` to the order hints of a unit: into the hint a test already has (the numbers
+/// hint an earlier session of a codeunit in two `--test-suites` sessions gave it), else as its hint. Returns how many
+/// tests got a hint they did not have.
+fn merge_hints(have: &mut Vec<(String, super::OrderHint)>, hints: Vec<(String, super::OrderHint)>) -> usize {
+    let mut added = 0;
+    for (test, hint) in hints {
+        match have.iter_mut().find(|(t, _)| *t == test) {
+            Some((_, h)) => h.reads.extend(hint.reads),
+            None => {
+                have.push((test, hint));
+                added += 1;
+            }
+        }
+    }
+    added
 }
 
 #[cfg(test)]
