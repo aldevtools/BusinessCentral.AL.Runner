@@ -1167,3 +1167,303 @@ fn a_left_out_test_codeunit_keeps_its_error_at_the_position_of_a_selected_ones_e
         .collect();
     assert_eq!(apps, [0, 1], "{:?}", r.diagnostics);
 }
+
+// Page.Run, Page.RunModal and Report.Run with a RecordRef in the place of the record do not compile (al-runner issue
+// 9280): must-not-compile 1634-page-run-recordref.al:1-3 (runtime 17.1 and 18.0) and 1633-page-run-recordref-bc27.al:1-3
+// (runtime 16.1).
+const RECREF_RUN_OBJECTS: &str = "table 50910 \"RR Row\" { fields { field(1; Id; Integer) { } } keys { key(PK; Id) { Clustered = true; } } } \
+     page 50910 \"RR List\" { PageType = List; SourceTable = \"RR Row\"; layout { area(Content) { repeater(R) { field(Id; Rec.Id) { } } } } } \
+     report 50910 \"RR Report\" { ProcessingOnly = true; dataset { dataitem(Row; \"RR Row\") { } } }";
+
+fn recref_run_calls(var: &str, arg: &str) -> String {
+    cu(&format!(
+        "procedure P() var RecRef: RecordRef; {var} begin RecRef.Open(Database::\"RR Row\"); \
+         Page.Run(Page::\"RR List\", {arg}); Page.RunModal(Page::\"RR List\", {arg}); \
+         Report.Run(Report::\"RR Report\", false, false, {arg}); end;"
+    ))
+}
+
+#[test]
+fn a_recordref_as_the_record_of_page_run_is_al0133_from_runtime_17() {
+    let src = recref_run_calls("", "RecRef");
+    let want = vec![
+        "AL0133 Argument 2: cannot convert from 'RecordRef' to 'Table'",
+        "AL0133 Argument 2: cannot convert from 'RecordRef' to 'Table'",
+        "AL0133 Argument 4: cannot convert from 'RecordRef' to 'var Table'",
+    ];
+    assert_eq!(diags_for("28", &[RECREF_RUN_OBJECTS, &src]), want);
+    assert_eq!(diags_for("29", &[RECREF_RUN_OBJECTS, &src]), want);
+    assert_eq!(diags_declared("29", "17.0", &[RECREF_RUN_OBJECTS, &src]), want);
+}
+
+#[test]
+fn a_recordref_as_the_record_of_page_run_is_al0666_at_runtime_16() {
+    let src = recref_run_calls("", "RecRef");
+    let want = |at: &str| {
+        ["Run", "RunModal", "Run"]
+            .map(|m| {
+                format!(
+                    "AL0666 '{m}' is not available in runtime version '{at}'. The supported runtime versions are: '17.0' or greater."
+                )
+            })
+            .to_vec()
+    };
+    assert_eq!(diags_declared("29", "16.1", &[RECREF_RUN_OBJECTS, &src]), want("16.1"));
+    assert_eq!(diags_declared("29", "16.0", &[RECREF_RUN_OBJECTS, &src]), want("16.0"));
+}
+
+#[test]
+fn a_recordref_as_the_record_of_page_run_is_al0666_down_to_runtime_4_1_and_refused_below() {
+    // The AL compilers of BC 28 and 29 report AL0666 for the 1633 shape at every runtime from 4.0 to 16.1; at 4.0 an app
+    // that depends on the Base Application does not compile at all (`'dependencies.id' is not available in runtime
+    // version '4.0'`), so below 4.1 the runner refuses (corpus pull request 1645, review round 1).
+    let src = cu("procedure P() var RecRef: RecordRef; begin Page.Run(Page::\"RR List\", RecRef); end;");
+    for at in ["15.0", "4.1"] {
+        assert_eq!(
+            diags_declared("29", at, &[RECREF_RUN_OBJECTS, &src]),
+            vec![format!(
+                "AL0666 'Run' is not available in runtime version '{at}'. The supported runtime versions are: '17.0' or greater."
+            )]
+        );
+    }
+    let got = diags_declared("29", "4.0", &[RECREF_RUN_OBJECTS, &src]);
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert!(
+        got[0].starts_with(
+            "AR1007 `Run` takes a RecordRef as its record, which the AL compiler rejects; the app declares runtime 4.0"
+        ),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn a_recordref_record_of_page_run_is_reported_where_the_al_compiler_reports_it() {
+    // al-runner issue 9280: AL0133 at the argument (column 43 of `Page.Run(Page::"Repro Item Card", RecRef)`), AL0666 at
+    // the call (column 9).
+    let src = cu("procedure P() var RecRef: RecordRef; begin Page.Run(Page::\"RR List\", RecRef); end;");
+    let at = |runtime: &str| {
+        let w = ws(&[RECREF_RUN_OBJECTS, &src]);
+        let m = crate::members::build(&w);
+        let mut target = al_version::Target::for_bc(al_version::BcVersion::parse("29").unwrap());
+        target.app_runtimes = vec![("a".into(), al_version::Runtime::parse(runtime).unwrap())];
+        let r = check(&w, &m, &Catalog::for_target(&target));
+        assert_eq!(r.diagnostics.len(), 1, "{:?}", r.diagnostics);
+        src[r.diagnostics[0].offset..].to_string()
+    };
+    assert!(at("18.0").starts_with("RecRef); end;"), "{}", at("18.0"));
+    assert!(at("16.1").starts_with("Page.Run("), "{}", at("16.1"));
+}
+
+#[test]
+fn a_variant_that_holds_a_recordref_as_the_record_of_page_run_compiles() {
+    // al-runner issue 9280: the Variant form compiles at every runtime and runs on BC (tests/al-language/pages/lt-ce-page-run/
+    // CePageRun.al).
+    let src = recref_run_calls("V: Variant;", "V");
+    for runtime in ["16.0", "16.1", "17.0", "18.0"] {
+        assert_eq!(
+            diags_declared("29", runtime, &[RECREF_RUN_OBJECTS, &src]),
+            Vec::<String>::new(),
+            "{runtime}"
+        );
+    }
+}
+
+// An Integer += or -= the Value() of a FieldRef does not compile: the value is typed Joker (al-runner issue 9283).
+fn fieldref_value_into_integer(stmt: &str) -> String {
+    cu(&format!(
+        "procedure P() var RecRef: RecordRef; FR: FieldRef; I: Integer; begin RecRef.Open(50900); FR := RecRef.Field(2); {stmt} end;"
+    ))
+}
+
+#[test]
+fn an_integer_plus_or_minus_assigned_a_fieldref_value_is_al0175() {
+    for op in ["+=", "-="] {
+        let src = fieldref_value_into_integer(&format!("I {op} FR.Value();"));
+        let want = format!("AL0175 Operator '{op}' cannot be applied to operands of type 'Integer' and 'Joker'");
+        for runtime in ["16.0", "18.0"] {
+            assert_eq!(
+                diags_declared("29", runtime, &[TABLE, &src]),
+                vec![want.clone()],
+                "{op} at {runtime}"
+            );
+        }
+        // At the statement (al-runner issue 9283: column 9 of `        I += FR.Value();`).
+        let w = ws(&[TABLE, &src]);
+        let m = crate::members::build(&w);
+        let r = check(&w, &m, &Catalog::load());
+        assert_eq!(r.diagnostics.len(), 1, "{:?}", r.diagnostics);
+        assert!(src[r.diagnostics[0].offset..].starts_with(&format!("I {op} FR.Value()")));
+    }
+}
+
+#[test]
+fn an_integer_assigned_a_fieldref_value_compiles() {
+    // al-runner issue 9283: `I := FR.Value()` compiles.
+    let src = fieldref_value_into_integer("I := FR.Value();");
+    assert_eq!(diags_declared("29", "18.0", &[TABLE, &src]), Vec::<String>::new());
+}
+
+// The other forms the AL compilers of BC 27, 28 and 29 reject (corpus pull request 1645, must-not-compile 3850-3868).
+const RECREF_RUN_MORE_OBJECTS: &str = "xmlport 50910 \"RR Port\" { schema { textelement(Root) { tableelement(Row; \"RR Row\") { fieldelement(Id; Row.Id) { } } } } }";
+
+#[test]
+fn a_recordref_parameter_var_parameter_or_global_as_the_record_of_page_run_is_al0133() {
+    // must-not-compile 3862-3864.
+    let three = "Page.Run(Page::\"RR List\", RecRef); Page.RunModal(Page::\"RR List\", RecRef); \
+         Report.Run(Report::\"RR Report\", false, false, RecRef);";
+    let want = vec![
+        "AL0133 Argument 2: cannot convert from 'RecordRef' to 'Table'",
+        "AL0133 Argument 2: cannot convert from 'RecordRef' to 'Table'",
+        "AL0133 Argument 4: cannot convert from 'RecordRef' to 'var Table'",
+    ];
+    for src in [
+        cu(&format!("procedure P(RecRef: RecordRef) begin {three} end;")),
+        cu(&format!("procedure P(var RecRef: RecordRef) begin {three} end;")),
+        cu(&format!("var RecRef: RecordRef; procedure P() begin {three} end;")),
+    ] {
+        assert_eq!(diags_for("29", &[RECREF_RUN_OBJECTS, &src]), want, "{src}");
+    }
+}
+
+#[test]
+fn a_recordref_as_the_record_of_the_other_run_calls_is_al0133_from_runtime_17() {
+    // must-not-compile 3865-3868: Page.Run with a field number, Report.RunModal, Xmlport.Run and Codeunit.Run.
+    let cases = [
+        (
+            "Page.Run(Page::\"RR List\", RecRef, 1);",
+            "Argument 2: cannot convert from 'RecordRef' to 'Table'",
+        ),
+        (
+            "Report.RunModal(Report::\"RR Report\", false, false, RecRef);",
+            "Argument 4: cannot convert from 'RecordRef' to 'var Table'",
+        ),
+        (
+            "Xmlport.Run(Xmlport::\"RR Port\", false, false, RecRef);",
+            "Argument 4: cannot convert from 'RecordRef' to 'var Table'",
+        ),
+        (
+            "Codeunit.Run(Codeunit::C, RecRef);",
+            "Argument 2: cannot convert from 'RecordRef' to 'var Table'",
+        ),
+    ];
+    for (call, text) in cases {
+        let src = cu(&format!("procedure P() var RecRef: RecordRef; begin {call} end;"));
+        let files = [RECREF_RUN_OBJECTS, RECREF_RUN_MORE_OBJECTS, &src];
+        assert_eq!(diags_for("29", &files), vec![format!("AL0133 {text}")], "{call}");
+        assert_eq!(diags_for("28", &files), vec![format!("AL0133 {text}")], "{call}");
+        // Below runtime 17.0 the compilers disagree on all but Xmlport.Run, which has no overload by name and gives
+        // AL0133 at 16.0 and 16.1 too (3867); the others compile as before.
+        let below = diags_declared("29", "16.0", &files);
+        if call.starts_with("Xmlport") {
+            assert_eq!(below, vec![format!("AL0133 {text}")], "{call}");
+        } else {
+            assert_eq!(below, Vec::<String>::new(), "{call}");
+        }
+    }
+}
+
+fn joker_compound(decl: &str, globals: &str, stmt: &str) -> String {
+    cu(&format!(
+        "{globals}procedure P({decl}) var RecRef: RecordRef; FR: FieldRef; FieldRefs: array[2] of FieldRef; \
+         I: Integer; D: Decimal; B: BigInteger; T: Text; begin RecRef.Open(50900); FR := RecRef.Field(2); \
+         FieldRefs[1] := FR; {stmt} end;"
+    ))
+}
+
+#[test]
+fn every_compound_assignment_of_a_fieldref_value_is_al0175() {
+    // must-not-compile 3850-3861: the left forms, the right forms and the contrasts.
+    let cases = [
+        ("Par: Integer", "", "Par += FR.Value();", "+=", "Integer"),
+        ("var Par: Integer", "", "Par += FR.Value();", "+=", "Integer"),
+        ("", "var G: Integer; ", "G += FR.Value();", "+=", "Integer"),
+        ("", "", "I += RecRef.Field(2).Value();", "+=", "Integer"),
+        ("", "", "I += FieldRefs[1].Value();", "+=", "Integer"),
+        ("ParFR: FieldRef", "", "I += ParFR.Value();", "+=", "Integer"),
+        ("", "", "D += FR.Value();", "+=", "Decimal"),
+        ("", "", "B += FR.Value();", "+=", "BigInteger"),
+        ("", "", "T += FR.Value();", "+=", "Text"),
+        ("", "", "I += FR.Value;", "+=", "Integer"),
+        ("", "", "I *= FR.Value();", "*=", "Integer"),
+        ("", "", "I /= FR.Value();", "/=", "Integer"),
+    ];
+    for (decl, globals, stmt, op, left) in cases {
+        let src = joker_compound(decl, globals, stmt);
+        assert_eq!(
+            diags_for("29", &[TABLE, &src]),
+            vec![format!(
+                "AL0175 Operator '{op}' cannot be applied to operands of type '{left}' and 'Joker'"
+            )],
+            "{stmt}"
+        );
+    }
+}
+
+#[test]
+fn a_compound_assignment_of_a_fieldref_value_through_the_other_measured_receivers_is_al0175() {
+    // must-not-compile 3869-3873 on corpus pull request 1645: RecRef.FieldIndex(1), KeyRef.FieldIndex(1), a procedure
+    // that returns a FieldRef, a global FieldRef, and a named return value on the left.
+    let want = vec!["AL0175 Operator '+=' cannot be applied to operands of type 'Integer' and 'Joker'".to_string()];
+    let body = "RecRef.Open(50900); FR := RecRef.Field(2); KeyRef := RecRef.KeyIndex(1);";
+    for (globals, sig, stmt) in [
+        ("", "", "I += RecRef.FieldIndex(1).Value();"),
+        ("", "", "I += KeyRef.FieldIndex(1).Value();"),
+        ("", "", "I += GetFR().Value();"),
+        ("var GFR: FieldRef; ", "", "GFR := RecRef.Field(2); I += GFR.Value();"),
+        ("", " Result: Integer", "Result += FR.Value();"),
+    ] {
+        let src = cu(&format!(
+            "{globals}procedure P(){sig} var RecRef: RecordRef; KeyRef: KeyRef; FR: FieldRef; I: Integer; begin {body} {stmt} end; \
+             local procedure GetFR(): FieldRef var R: RecordRef; begin R.Open(50900); exit(R.Field(2)); end;"
+        ));
+        assert_eq!(diags_for("29", &[TABLE, &src]), want, "{stmt}");
+    }
+}
+
+#[test]
+fn a_compound_assignment_of_a_fieldref_value_in_an_unmeasured_form_compiles() {
+    // Not measured, so not judged: other operators on Decimal and BigInteger, a Text or Code with a length, a field on
+    // the left, and `RecRef.Field(<name>)` as the receiver. They compile as on main.
+    for (decl, stmt) in [
+        ("D: Decimal;", "D -= FR.Value();"),
+        ("B: BigInteger;", "B *= FR.Value();"),
+        ("T: Text[50];", "T += FR.Value();"),
+        ("C: Code[20];", "C += FR.Value();"),
+        ("I: Integer;", "I += RecRef.Field('Amount').Value();"),
+    ] {
+        let src = cu(&format!(
+            "procedure P() var RecRef: RecordRef; FR: FieldRef; {decl} begin RecRef.Open(50900); FR := RecRef.Field(2); {stmt} end;"
+        ));
+        assert_eq!(diags_for("29", &[TABLE, &src]), Vec::<String>::new(), "{stmt}");
+    }
+    // A field of the table on the left, in a procedure of the table.
+    let table = "table 50901 \"ALT Counter\" { fields { field(1; Id; Integer) { } field(2; Qty; Integer) { } } \
+         procedure P() var RecRef: RecordRef; FR: FieldRef; begin RecRef.Open(50901); FR := RecRef.Field(2); Qty += FR.Value(); end; }";
+    assert_eq!(diags_for("29", &[table]), Vec::<String>::new());
+}
+
+#[test]
+fn a_named_or_var_fieldref_receiver_and_a_named_recordref_record_are_rejected() {
+    // must-not-compile 3874-3876 on corpus pull request 1645: the Value() of a named FieldRef return value and of a var
+    // FieldRef parameter, and a named RecordRef return value as the record of the three pinned calls.
+    let joker = vec!["AL0175 Operator '+=' cannot be applied to operands of type 'Integer' and 'Joker'".to_string()];
+    let named = cu(
+        "procedure FieldOf() FldRef: FieldRef var RecRef: RecordRef; I: Integer; begin RecRef.Open(50900); \
+         FldRef := RecRef.Field(2); I += FldRef.Value(); end;",
+    );
+    assert_eq!(diags_for("29", &[TABLE, &named]), joker);
+    let var_param = cu("procedure P(var FR: FieldRef) var I: Integer; begin I += FR.Value(); end;");
+    assert_eq!(diags_for("29", &[TABLE, &var_param]), joker);
+    let record = cu(
+        "procedure P() RR: RecordRef begin RR.Open(Database::\"RR Row\"); Page.Run(Page::\"RR List\", RR); \
+         Page.RunModal(Page::\"RR List\", RR); Report.Run(Report::\"RR Report\", false, false, RR); end;",
+    );
+    assert_eq!(
+        diags_for("29", &[RECREF_RUN_OBJECTS, &record]),
+        vec![
+            "AL0133 Argument 2: cannot convert from 'RecordRef' to 'Table'",
+            "AL0133 Argument 2: cannot convert from 'RecordRef' to 'Table'",
+            "AL0133 Argument 4: cannot convert from 'RecordRef' to 'var Table'",
+        ]
+    );
+}
