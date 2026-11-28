@@ -24,7 +24,7 @@
 //!
 //! - writes of other tables before the save, after the table field's insert, by the table field or the control (inserts and
 //!   modifies, no delete), leave the save and the Update as they are, also before the rewritten row (ListNewLineWritesOtherTable.al,
-//!   corpus pull requests 1527, merged, and 1536, open, 17 of 17 green on BC 29.1 in 3 runs, under the assumption
+//!   corpus pull requests 1527, merged, and 1536, open, 19 of 19 green on BC 29.1 in 3 runs, under the assumption
 //!   `list-new-line-writes-other-table`, `only_other_tables_written`).
 //!
 //! - on a List page with OnAfterGetRecord, OnAfterGetCurrRecord and one CardPart FactBox (`Triggers::FactboxExtra`), the same
@@ -45,12 +45,14 @@
 //! of the page's table stays as the save left it (`extra_code_rows`); nothing changes after the
 //! Update (`extra_code_unchanged`). `Update(true)` after the save writes Rec over the row again
 //! (`extra_code_update_true`); TestPage.OpenEdit with a filter of the test is the open
-//! `Opened::OpenEditOneGroup`; a row the control's OnValidate wrote once before the save is
+//! `Opened::OpenEditOneGroup`; a row the control's OnValidate wrote exactly once before the save is
 //! `Inserted::Rewritten`, which a control's OnValidate tells by the row version it began with
 //! (`ControlOnValidate::row_version`, `new_line_row_version`). Writes of other tables before the save
 //! (al-runner issue 8735; assumption `list-new-line-writes-other-table`, corpus pull request 1527)
 //! pass when the line's insert was the store's first write and the page's table's only one, with no
-//! delete (`only_other_tables_written`).
+//! delete (`only_other_tables_written`). Next to one rewrite, the cells measure exactly one Insert of
+//! another table and one Modify of the page's table (:630, :654); more writes of the page's table or a
+//! Modify of another table refuse.
 
 use super::code_inserted_new_line::{Leave, Opened, UNMEASURED_CODE, View};
 use super::state::{CodeInsertedSave, SavedView};
@@ -109,28 +111,35 @@ impl Session {
             ) | (Leave::SaveRecord, Opened::OpenEditOneGroup, Some(View::Alone))
                 | (Leave::UpdateTrue, Opened::RunModalOneGroup, Some(View::Alone))
         );
-        // The row the control's OnValidate wrote once through another record before the save (`Inserted::Rewritten`): measured
-        // under Page.RunModal on an empty group, where nothing but the table field's insert wrote the store before the control's
-        // OnValidate began (:443).
+        // The row the control's OnValidate wrote exactly once through another record before the save (`Inserted::Rewritten`):
+        // measured under Page.RunModal on an empty group, where nothing but the table field's insert wrote the store before the
+        // control's OnValidate began (:443).
         let insert_before_control = {
             let s = st.borrow();
             matches!((line, s.control_onvalidate.as_ref()), (Some((mark, deletes)), Some(c)) if c.writes == (mark + 1, deletes))
         };
         let rewritten_measured =
             rewritten && insert_before_control && opened == Opened::RunModalOneGroup && view == Some(View::Alone);
+        // The control's OnValidate wrote the rewritten row and nothing else (:443, :463).
+        let control_only_rewrote = st
+            .borrow()
+            .control_onvalidate
+            .as_ref()
+            .is_some_and(|c| self.write_mark() == (c.writes.0 + 1, c.writes.1));
         // Writes of other tables before the save, or before the control's OnValidate began for the rewritten row (on an empty
         // group only): measured under Page.RunModal (ListNewLineWritesOtherTable.al, `only_other_tables_written`). The rewritten
-        // row is the control's only write (`Inserted::Rewritten`): a control that also writes another table is refused, in
-        // either order (:630, :654, review of #8806, point 2).
+        // row is the control's only write of the page's table (`Inserted::Rewritten`), with no other-table write or one Insert
+        // of another table, before or after it (:463, :630, :654, follow-up of the review of #8806); a Modify of another table
+        // in that slice is not measured.
         let other_tables = !only_the_insert
             && !rewritten_measured
             && opened == Opened::RunModalOneGroup
-            && (!rewritten || view == Some(View::Alone))
+            && (!rewritten || (view == Some(View::Alone) && control_only_rewrote))
             && self.only_other_tables_written(st, rewritten)?;
         if !(measured && (only_the_insert || rewritten_measured || other_tables) && self.no_record_trigger(st)) {
             return Err(Signal::unsupported(UNMEASURED_CODE));
         }
-        if other_tables {
+        if other_tables || (rewritten_measured && !control_only_rewrote) {
             assume(Assumption::ListNewLineWritesOtherTable);
         }
         if rewritten {
