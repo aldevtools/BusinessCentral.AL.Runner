@@ -1150,6 +1150,7 @@ impl Session {
         let saved = self.report.report_trigger.replace((self.depth + 1, kind));
         self.report.report_flow = None;
         let r = self.call(object, routine, inst, Vec::new());
+        self.report.failed_trigger = matches!(r, Err(Signal::Error(_))).then_some((object, kind));
         self.report.report_trigger = saved;
         self.report.flow_unwind = None;
         let flow = self.report.report_flow.take();
@@ -2642,6 +2643,7 @@ impl Session {
         let outer_language = self.report.curr_report_language.take();
         let outer_run_language = std::mem::replace(&mut self.report.run_language, variable_language);
         let outer_variable_region = std::mem::replace(&mut self.report.variable_region, variable_region.is_some());
+        let changes = self.start_save_run();
         let ran = self.report_in_world(enters, |s| {
             s.report_body(&inst, &schema, false, Some(&parameters), deferred)
         });
@@ -2678,44 +2680,10 @@ impl Session {
                 Ok(Value::Boolean(saved))
             }
             Ok(false) => unsupported("CurrReport.Quit during a SaveAs (what the dataset holds is not pinned)"),
-            // An error a trigger raises: with no layout it reaches the caller
-            // (reportextension/TestReportExtensionTriggers.al:SaveAsXml_ExtPreReportError_FailsTheSave); in a
-            // report with an RDLC layout SaveAs answers false and leaves the stream alone
-            // (streams/TestReportSaveAsRecordRefFilter.al:TestReport_SaveAs_NoRecordRef_LeavesDataItemUnfiltered).
-            // That GetLastErrorText then holds the error is not pinned.
             Err(Signal::Error(e)) => {
-                let layout = schema.report().layout;
-                let extended = !schema.report().extensions.is_empty();
-                match (layout, extended) {
-                    (ir::ReportLayout::None, _) if !result_used => Err(Signal::Error(e)),
-                    // With the answer used, a report without a layout answers false and raises nothing
-                    // (text/PnBReportSaveAs.al:412-413, TriggerError_InPreReport). What the last error
-                    // holds then is not pinned: GetLastErrorText and GetLastErrorCode are refused.
-                    // The error of a DataItemTableView `const(0D)` stays the last error
-                    // (streams/CjDataset.al:190-211: `save err|code` Evaluate).
-                    (ir::ReportLayout::None, false) => {
-                        self.last_error = if std::mem::take(&mut self.report.zero_date_view_failed) {
-                            *e
-                        } else {
-                            al_builtins::native::unpinned_error()
-                        };
-                        Ok(Value::Boolean(false))
-                    }
-                    // An error of a trigger reaches a SaveAs whose result is not used, also with a layout
-                    // (streams/TestReportCurrReportLanguage.al:TestReport_SettingCurrReportLanguageToZero_IsRejectedAsInvalid:
-                    // `asserterror Probe.SaveAs(..)` on a report with an RDLC layout).
-                    (ir::ReportLayout::Rdlc, false) if !result_used => Err(Signal::Error(e)),
-                    (ir::ReportLayout::Rdlc, false) => {
-                        self.hold_error(*e)?;
-                        Ok(Value::Boolean(false))
-                    }
-                    _ => unsupported(format!(
-                        "an error in a SaveAs of report \"{}\", which has a layout of this kind or an extension \
-                         (whether SaveAs raises it or answers false is not pinned): {}",
-                        schema.name(),
-                        e.message
-                    )),
-                }
+                let call =
+                    save_trigger_error::FailedSave::of(&format, at, (&target, &parameters, record_ref), result_used);
+                self.save_trigger_error(e, &schema, call.after(&output, changes))
             }
             Err(other) => Err(other),
         }
@@ -3828,6 +3796,7 @@ use request_flag::{REQUEST_PAGE_OFF, REQUEST_PAGE_OFF_UNPINNED_GETTER, REQUEST_P
 mod request_unshown;
 mod running;
 mod save_processing_only;
+mod save_trigger_error;
 pub(crate) mod transaction_world;
 pub(crate) mod word_xml_part;
 

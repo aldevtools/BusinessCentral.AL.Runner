@@ -1,0 +1,6 @@
+# key	entry
+NBX Tests::NoLayoutExtWord_Control_PdfStatement_RaisesNoLayout	ASSUMED saveas-platform-error-before-triggers (corpus PR 1579, SaveAsTriggerErrors.al:764)
+NBX Tests::NoLayoutExtWord_OnPreReportError_PdfBoolean_FalseWithNoLayout	ASSUMED saveas-platform-error-before-triggers (corpus PR 1579, SaveAsTriggerErrors.al:780)
+NBX Tests::NoLayoutExtWord_OnAfterGetRecordError_WordStatement_RaisesNoLayout	ASSUMED saveas-platform-error-before-triggers (corpus PR 1579, SaveAsTriggerErrors.al:796)
+NBX Tests::NoLayoutExtWord_Control_WordBoolean_FalseWithNoLayout	ASSUMED saveas-platform-error-before-triggers (corpus PR 1579, SaveAsTriggerErrors.al:764)
+NBX Tests::NoLayoutExtWord_OnAfterGetRecordError_XmlBoolean_FalseWithError	ASSUMED saveas-trigger-error-reaches-caller (corpus PR 1579, SaveAsTriggerErrors.al:796)

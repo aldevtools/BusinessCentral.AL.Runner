@@ -568,12 +568,22 @@ fn report_pdf_placeholder_a_word_layout_writes_a_pdf() {
     assert_eq!(al_testkit::text(run(SRC, "WordLayout")), "Yes|row1;row2;|%PDF-");
 }
 
+// The statement form of an Excel layout as Pdf raises ReportUnsupportedFormat (corpus pull request 1579,
+// reports/layouts-saveas/SaveAsTriggerErrors.al:604 `Pdf stmt`, assumption saveas-platform-error-before-triggers).
 #[test]
-fn report_pdf_placeholder_an_excel_layout_keeps_the_refusal() {
+fn report_pdf_placeholder_an_excel_layout_as_a_statement_raises_unsupported_format() {
+    assumptions::take_hits();
     match run(SRC, "ExcelLayout") {
-        Err(Signal::Unsupported(why)) => assert!(why.contains("as Pdf"), "{why}"),
-        other => panic!("expected a refusal, got {other:?}"),
+        Err(Signal::Error(e)) => {
+            assert_eq!(e.code, "ReportUnsupportedFormat");
+            assert_eq!(
+                e.message,
+                "The Pdf output format is not supported by the current report layout format."
+            );
+        }
+        other => panic!("expected the error, got {other:?}"),
     }
+    assert!(assumptions::take_hits().contains(&Assumption::SaveasPlatformErrorBeforeTriggers));
 }
 
 // An RDLC layout saved as Word writes the Word placeholder (CiReportRunLeads.al:674-692 SaveAs_RdlcOnly_WordExcel; ADR-040

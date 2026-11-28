@@ -154,6 +154,8 @@ pub struct Layout {
     pub default_rendering: Option<String>,
     /// `ir::Report::layout_properties`.
     pub layout_properties: Vec<String>,
+    /// `ir::Report::extension_layouts`.
+    pub extension_layouts: Vec<String>,
 }
 
 /// The entries of a `labels` section: `Name = 'text'` with optional `Comment`, `MaxLength` and `Locked` after a comma,
@@ -431,6 +433,7 @@ pub fn layout(obj: &ast::Object, timer_trigger: Option<&str>) -> Layout {
             .properties()
             .find(|p| p.name().eq_ignore_ascii_case("DefaultRenderingLayout"))
             .map(|p| p.value_text().trim().trim_matches('"').to_string()),
+        extension_layouts: Vec::new(),
     };
     for p in obj.properties() {
         let (name, value) = (p.name().to_ascii_lowercase(), p.value_text());
@@ -837,6 +840,9 @@ pub struct ExtLayout {
     /// Why a run that renders output cannot run: the layouts of a `rendering` section. They change no dataset, so a
     /// Report.SaveAs as Xml runs (reports/layouts-saveas/ReportExtensionSaveAs.al:194-201, :252-260).
     pub output: Vec<String>,
+    /// The `Type` of each layout of its `rendering` section, lower-case, and the name of each layout section of another
+    /// kind (`ir::Report::extension_layouts`).
+    pub layouts: Vec<String>,
 }
 
 /// Whether a reportextension changes the run: a routine or trigger of its own, or a section other than `requestpage`. The
@@ -859,6 +865,7 @@ pub fn ext_layout(obj: &ast::Object) -> ExtLayout {
         reasons: Vec::new(),
         labels: Vec::new(),
         output: Vec::new(),
+        layouts: Vec::new(),
     };
     for p in obj.properties() {
         let name = p.name().to_ascii_lowercase();
@@ -951,9 +958,16 @@ pub fn ext_layout(obj: &ast::Object) -> ExtLayout {
                 Ok(l) => out.labels.extend(l),
                 Err(why) => out.reasons.push(format!("reportextension {why}")),
             },
-            n if LAYOUT_SECTIONS.contains(&n) => out
-                .output
-                .push(format!("reportextension section {n} (a layout) is not supported yet")),
+            n if LAYOUT_SECTIONS.contains(&n) => {
+                out.output
+                    .push(format!("reportextension section {n} (a layout) is not supported yet"));
+                if n == "rendering" {
+                    out.layouts
+                        .extend(rendering_layouts(obj).into_iter().map(|(_, kind, ..)| kind));
+                } else {
+                    out.layouts.push(n.to_string());
+                }
+            }
             other => out
                 .reasons
                 .push(format!("reportextension section {other} is not supported yet")),
@@ -1792,6 +1806,7 @@ pub fn build(cx: &Context, obj: &ast::Object, mut reasons: Vec<String>) -> ir::R
         default_rendering_layout: layout.default_rendering.clone(),
         default_layout_kind: layout.default_layout_kind.clone(),
         layout_properties: layout.layout_properties.clone(),
+        extension_layouts: layout.extension_layouts.clone(),
     }
 }
 

@@ -235,6 +235,19 @@ codeunit 50953 "RTO Tests"
         exit(GetLastErrorText());
     end;
 
+    procedure StaticSaveAsPreReportErrorLastError(): Text
+    var
+        R: Record "RTO Row";
+        OutS: OutStream;
+        Ok: Boolean;
+    begin
+        Seed();
+        R.Get(1);
+        R.Data.CreateOutStream(OutS);
+        Ok := Report.SaveAs(Report::"RTO PreError", '', ReportFormat::Xml, OutS);
+        exit(GetLastErrorText());
+    end;
+
     procedure SecondSaveAsCode(): Text
     var
         R: Record "RTO Row";
@@ -387,11 +400,22 @@ fn the_getter_after_an_execute_of_a_set_variable_is_refused() {
     );
 }
 
-/// PnBReportSaveAs.al:412-413 pins only the answer of the SaveAs; what GetLastErrorText then holds is refused.
+/// text/PnBReportSaveAs.al:698 (PW_TriggerError_InPreReport_LastError) pins the last error after a used variable SaveAs as
+/// Xml for the data items of "LT PnB Rep" (two top-level, one inside the first); this report has one data item, so what
+/// GetLastErrorText then holds stays refused.
 #[test]
-fn the_last_error_after_a_failed_used_saveas_without_layout_is_refused() {
+fn the_last_error_after_a_failed_used_saveas_without_layout_of_another_shape_is_refused() {
     assert_refused(
         al_testkit::run_in(FIXTURE, "RTO Tests", "SaveAsPreReportErrorLastError"),
+        "GetLastErrorText",
+    );
+}
+
+/// The static Report.SaveAs of the same report is not pinned: what the last error then holds stays refused.
+#[test]
+fn the_last_error_after_a_failed_used_static_saveas_without_layout_is_refused() {
+    assert_refused(
+        al_testkit::run_in(FIXTURE, "RTO Tests", "StaticSaveAsPreReportErrorLastError"),
         "GetLastErrorText",
     );
 }
