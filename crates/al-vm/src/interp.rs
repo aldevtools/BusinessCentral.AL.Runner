@@ -1699,6 +1699,39 @@ impl Session {
         }
     }
 
+    /// `v`, already converted to the field's type, into field `pos` of the record `rc` holds: the end of
+    /// [`Self::write_as_general`] for a field place. `assign` is false for a builtin's write-back.
+    fn write_record_field(
+        &mut self,
+        rc: &Rc<RefCell<al_builtins::value::RecordState>>,
+        pos: usize,
+        v: Value,
+        assign: bool,
+    ) -> Result<(), Signal> {
+        self.connection_check(rc)?;
+        if let (true, Value::Decimal(d)) = (assign, &v) {
+            self.decimal_field_range(rc, pos, *d)?;
+        }
+        let mut r = rc.borrow_mut();
+        if let Some(why) = r.unpinned_buffer {
+            crate::records::held_part_field_write(why)?;
+        }
+        let how = if assign {
+            crate::blob_transfer::assign_into(&r, &v)
+        } else {
+            BlobMove::WriteBack
+        };
+        let v = crate::blob_transfer::moved(Some(&r.fields[pos]), v, how, Holder::Other, || FieldKind::Plain)?;
+        r.before_field_write();
+        r.fields[pos] = v;
+        r.touched = true;
+        r.assigned = true;
+        if r.load.partial {
+            r.load.written(pos);
+        }
+        Ok(())
+    }
+
     /// The range check of `Rec.Field := d` (`ops::field_assignment_range`): a stored field of a record that is not
     /// temporary, the shape its cells measure. Every other field keeps main's store.
     fn decimal_field_range(
@@ -1941,31 +1974,7 @@ impl Session {
                 ops::convert(v, &ty)?
             };
             return match self.read(base, f)? {
-                Value::Record(rc) => {
-                    self.connection_check(&rc)?;
-                    if let (true, Value::Decimal(d)) = (assign, &v) {
-                        self.decimal_field_range(&rc, *pos, *d)?;
-                    }
-                    let mut r = rc.borrow_mut();
-                    if let Some(why) = r.unpinned_buffer {
-                        crate::records::held_part_field_write(why)?;
-                    }
-                    let how = if assign {
-                        crate::blob_transfer::assign_into(&r, &v)
-                    } else {
-                        BlobMove::WriteBack
-                    };
-                    let v =
-                        crate::blob_transfer::moved(Some(&r.fields[*pos]), v, how, Holder::Other, || FieldKind::Plain)?;
-                    r.before_field_write();
-                    r.fields[*pos] = v;
-                    r.touched = true;
-                    r.assigned = true;
-                    if r.load.partial {
-                        r.load.written(*pos);
-                    }
-                    Ok(())
-                }
+                Value::Record(rc) => self.write_record_field(&rc, *pos, v, assign),
                 other => Err(Signal::unsupported(format!("field of {}", other.describe()))),
             };
         }
