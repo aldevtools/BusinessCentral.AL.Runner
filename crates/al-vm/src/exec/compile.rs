@@ -82,6 +82,7 @@ fn compile_form(
             Vec::new()
         },
         program,
+        object: o,
         measured: Vec::new(),
     };
     c.block(&r.body).ok()?;
@@ -130,6 +131,8 @@ struct Compiler<'a> {
     kept_params: Vec<bool>,
     /// The program, for the attributes of a called procedure (`mark_measured`).
     program: &'a ir::Program,
+    /// The object of the routine compiled.
+    object: usize,
     /// The `FieldRef.Value()` conversions that sit in a place the probes measured (`FieldValueSite::Measured`).
     measured: Vec<&'a ir::Expr>,
 }
@@ -1586,17 +1589,28 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    /// The arguments of `e` that sit in a measured place: a by-value argument of a procedure that is no TryFunction,
-    /// and the value `List.Add` adds (FvcTemporalIntoNumberPlaces.al `argument`, `list_*`). Other builtins, a
-    /// TryFunction, an interface method and every other place are not measured.
+    /// The arguments of `e` that sit in a measured place: a by-value argument of a local procedure of the same object
+    /// without attributes, called on the current instance (`ir::is_same_object_procedure_argument`), and the value
+    /// `List.Add` adds (FvcTemporalIntoNumberPlaces.al `argument`, `list_*`). Other procedures (a codeunit or record
+    /// variable's, a global one, a publisher, a TryFunction), other builtins, an interface method and every other place
+    /// are not measured.
     fn mark_measured_args(&mut self, e: &'a ir::Expr) {
         let args = match e {
             ir::Expr::Call {
-                object, routine, args, ..
-            } if !self.program.objects[*object].routines[*routine]
-                .attributes
-                .iter()
-                .any(|a| a.name.eq_ignore_ascii_case("TryFunction")) =>
+                object,
+                routine,
+                instance,
+                args,
+                ..
+            } if {
+                let callee = &self.program.objects[*object].routines[*routine];
+                ir::is_same_object_procedure_argument(
+                    *object == self.object,
+                    instance.is_none(),
+                    callee.local,
+                    !callee.attributes.is_empty(),
+                )
+            } =>
             {
                 args.as_slice()
             }

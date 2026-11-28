@@ -95,6 +95,19 @@ pub enum PlatformPublisher {
 pub const RAISED_CAPTION_CLASS_EVENTS: [&str; 2] = ["OnResolveCaptionClass", "OnAfterCaptionClassResolve"];
 
 /// Whether `event` (any case) is one of [`RAISED_CAPTION_CLASS_EVENTS`].
+/// An argument handed to a procedure called on the current instance (`same_instance`), of the object that calls it
+/// (`same_object`), declared `local` (`callee_local`) and without attributes (so no TryFunction and no publisher). The
+/// lowering (`TextConstantSite::ArgumentOfSameObjectProcedure`) and the VM compiler (the measured place of a
+/// `FieldRef.Value()` argument, FvcTemporalIntoNumberPlaces.al `argument`) both ask this.
+pub fn is_same_object_procedure_argument(
+    same_object: bool,
+    same_instance: bool,
+    callee_local: bool,
+    callee_has_attributes: bool,
+) -> bool {
+    same_object && same_instance && callee_local && !callee_has_attributes
+}
+
 pub fn is_raised_caption_class_event(event: &str) -> bool {
     RAISED_CAPTION_CLASS_EVENTS
         .iter()

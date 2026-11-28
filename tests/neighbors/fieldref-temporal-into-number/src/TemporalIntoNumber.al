@@ -30,6 +30,11 @@ table 50320 "FT Row"
     }
     keys { key(PK; K) { Clustered = true; } }
 
+    procedure TakeInt(I: Integer): Integer
+    begin
+        exit(I);
+    end;
+
     procedure CurrFieldNoFrom(var FR: FieldRef): Integer
     begin
         CurrFieldNo := FR.Value();
@@ -65,6 +70,8 @@ codeunit 50321 "FT Tests"
     local procedure TakeInt(I: Integer): Integer begin exit(I); end;
     [TryFunction]
     local procedure TryTakeInt(I: Integer) begin end;
+    [IntegrationEvent(false, false)]
+    local procedure OnTake(I: Integer) begin end;
     local procedure RetExit(var FR: FieldRef): Integer begin exit(FR.Value()); end;
     local procedure RetParen(var FR: FieldRef): Integer begin exit((FR.Value())); end;
     local procedure RetNamed(var FR: FieldRef) R: Integer begin R := FR.Value(); end;
@@ -641,5 +648,38 @@ codeunit 50321 "FT Tests"
         FR := Src(RR, 4, CreateDateTime(17530101D, 000001T));
         asserterror X := FR.Value();
         Error('got [%1]', GetLastErrorText());
+    end;
+
+    [Test]
+    procedure Unmeasured_CodeunitVariableCall()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+        Impl: Codeunit "FT Taker Impl";
+    begin
+        FR := Src(RR, 2, 20260115D);
+        Error('got [%1]', Impl.Take(FR.Value()));
+    end;
+
+    [Test]
+    procedure Unmeasured_RecordProcedureCall()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+        Row: Record "FT Row";
+    begin
+        FR := Src(RR, 2, 20260115D);
+        Error('got [%1]', Row.TakeInt(FR.Value()));
+    end;
+
+    [Test]
+    procedure Unmeasured_LocalPublisher()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+    begin
+        FR := Src(RR, 2, 20260115D);
+        OnTake(FR.Value());
+        Error('raised no error');
     end;
 }

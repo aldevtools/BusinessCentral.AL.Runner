@@ -160,11 +160,11 @@ pub fn unmeasured(
 /// FvcTemporalIntoNumberMore.al:162-326 `<Source>_Targets` (1753-01-01, 9999-12-31, a closing date, 08:30:15, 00:00:01
 /// and a DateTime of 1753-01-01; issue 9265, assumption `fieldref-value-temporal-into-number`). Into an Integer,
 /// BigInteger, Decimal, Byte or Char it raises `Unable to convert from Microsoft.Dynamics.Nav.Runtime.Nav<Kind> to
-/// <.NET type>.` (Conversion). A Date or Time into a Duration, Option or Boolean, and a DateTime into a Duration,
-/// converts as the Variant conversion does (`None`). A DateTime into a Boolean raises the Int32 error, into an Option
-/// from BC 28 (`from28`) the Evaluate error of its Format text, before that the Int32 error. The probes measured five
-/// Dates, four Times and three DateTimes; the rule is taken for the whole kind. `unmeasured` ([`unmeasured`]): refused.
-/// `None`: any other value or target, which converts as before.
+/// <.NET type>.` (Conversion). A Date or Time into a Duration, Option or Boolean, and a DateTime into a Duration, takes
+/// the number the Variant conversion gives (`Some(Ok(..))`). A DateTime into a Boolean raises the Int32 error, into an
+/// Option from BC 28 (`from28`) the Evaluate error of its Format text, before that the Int32 error. The probes measured
+/// five Dates, four Times and three DateTimes; the rule is taken for the whole kind. `unmeasured` ([`unmeasured`]):
+/// refused. `None`: any other value or target, which converts as before.
 pub fn temporal_into_number(
     v: &Value,
     t: &RtType,

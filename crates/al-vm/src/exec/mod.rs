@@ -457,8 +457,8 @@ pub(crate) enum FieldValueSite {
     /// A place no probe measured for a Date, Time or DateTime into a number: such a value refuses there
     /// (`fieldref_value_temporal::temporal_into_number`).
     Other,
-    /// A place FvcTemporalIntoNumberPlaces.al measured: an assignment, a by-value argument of a procedure that is no
-    /// TryFunction, `exit`, and `List.Add` (`Compiler::mark_measured`).
+    /// A place FvcTemporalIntoNumberPlaces.al measured: an assignment, `exit`, a by-value argument of a local procedure
+    /// of the same object without attributes on the current instance, and `List.Add` (`Compiler::mark_measured`).
     Measured,
     /// `exit(FR.Value())` into a Text or Code return (`fieldref_value_text::fieldref_value_at_exit`).
     TextExit,
