@@ -81,6 +81,9 @@ fn compile_form(
         } else {
             Vec::new()
         },
+        program,
+        object: o,
+        measured: Vec::new(),
     };
     c.block(&r.body).ok()?;
     c.chunk.temps = c.max - nlocals;
@@ -126,6 +129,12 @@ struct Compiler<'a> {
     /// Per parameter: a `var` Option parameter with members that a call may bind to a value carrying another list or none
     /// (`var_option::may_keep_carried`).
     kept_params: Vec<bool>,
+    /// The program, for the attributes of a called procedure (`mark_measured`).
+    program: &'a ir::Program,
+    /// The object of the routine compiled.
+    object: usize,
+    /// The `FieldRef.Value()` conversions that sit in a place the probes measured (`FieldValueSite::Measured`).
+    measured: Vec<&'a ir::Expr>,
 }
 
 type R<T> = Result<T, ()>;
@@ -494,6 +503,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn expr_into(&mut self, e: &'a ir::Expr, d: u16) -> R<()> {
+        self.mark_measured_args(e);
         use ir::Expr as E;
         let mark = self.next;
         match e {
@@ -541,19 +551,7 @@ impl<'a> Compiler<'a> {
             E::Convert(t, a) if of_rt(t).is_some() && of_rt(t) == self.tys.expr_ty(a) => {
                 self.expr_into(a, d)?;
             }
-            E::Convert(t, a) => {
-                let inner = a;
-                let a = self.expr_any(a)?;
-                self.note_dotnet_result_ty(t, inner);
-                let field_value = is_field_value_conversion(t, inner);
-                self.chunk.types.push(t.clone());
-                let t = (self.chunk.types.len() - 1) as u32;
-                if field_value {
-                    self.emit(Op::convert_field_value(d, a, t, false));
-                } else {
-                    self.emit(Op::Convert { d, a, t });
-                }
-            }
+            E::Convert(t, a) => self.convert_into(e, t, a, d)?,
             E::Call {
                 object,
                 routine,
@@ -1232,6 +1230,7 @@ impl<'a> Compiler<'a> {
                 self.field_value_exit(t, inner)?;
             }
             S::Exit(Some(e)) => {
+                self.mark_measured(e);
                 let a = self.expr_any(e)?;
                 self.emit(Op::RetVal { a });
             }
@@ -1337,6 +1336,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn assign(&mut self, p: &'a ir::Place, e: &'a ir::Expr) -> R<()> {
+        self.mark_measured(e);
         // `S += x` and `S := S + x` on a text variable append in place: the append routine does it.
         if let (ir::Place::Local(_) | ir::Place::Global(_), ir::Expr::Convert(RtType::Text(_), inner)) = (p, e) {
             if let ir::Expr::Binary(ir::BinOp::Add, l, _) = &**inner {
@@ -1395,7 +1395,7 @@ impl<'a> Compiler<'a> {
                     a,
                     t,
                     slot: Some(slot),
-                    at_exit: false,
+                    site: FieldValueSite::Measured,
                 });
                 let pi = self.place(p);
                 self.emit(Op::StoreLocal { i, a: d, p: pi });
@@ -1559,6 +1559,71 @@ fn arg_pure(a: &ir::Arg) -> bool {
 }
 
 impl<'a> Compiler<'a> {
+    /// `e`, the conversion of `inner` into `t`, into register `d`: `Op::ConvertFieldValue` for a `FieldRef.Value()` (at the
+    /// site `mark_measured` gave it), `Op::Convert` for any other value.
+    fn convert_into(&mut self, e: &'a ir::Expr, t: &RtType, inner: &'a ir::Expr, d: u16) -> R<()> {
+        let a = self.expr_any(inner)?;
+        self.note_dotnet_result_ty(t, inner);
+        let field_value = is_field_value_conversion(t, inner);
+        self.chunk.types.push(t.clone());
+        let t = (self.chunk.types.len() - 1) as u32;
+        if field_value {
+            let site = if self.measured.iter().any(|m| std::ptr::eq(*m, e)) {
+                FieldValueSite::Measured
+            } else {
+                FieldValueSite::Other
+            };
+            self.emit(Op::convert_field_value(d, a, t, site));
+        } else {
+            self.emit(Op::Convert { d, a, t });
+        }
+        Ok(())
+    }
+
+    /// `e` sits in a place the probes measured for a `FieldRef.Value()` of a Date, Time or DateTime into a number: the
+    /// value of an assignment or of `exit` (recordref-fieldref/fieldref-value-convert/FvcTemporalIntoNumberPlaces.al
+    /// `<Source>_Places`, corpus PR 1629; issue 9265).
+    fn mark_measured(&mut self, e: &'a ir::Expr) {
+        if matches!(e, ir::Expr::Convert(_, inner) if is_fieldref_value(inner)) {
+            self.measured.push(e);
+        }
+    }
+
+    /// The arguments of `e` that sit in a measured place: a by-value argument of a local procedure of the same object
+    /// without attributes, called on the current instance (`ir::is_same_object_procedure_argument`), and the value
+    /// `List.Add` adds (FvcTemporalIntoNumberPlaces.al `argument`, `list_*`). Other procedures (a codeunit or record
+    /// variable's, a global one, a publisher, a TryFunction), other builtins, an interface method and every other place
+    /// are not measured.
+    fn mark_measured_args(&mut self, e: &'a ir::Expr) {
+        let args = match e {
+            ir::Expr::Call {
+                object,
+                routine,
+                instance,
+                args,
+                ..
+            } if {
+                let callee = &self.program.objects[*object].routines[*routine];
+                ir::is_same_object_procedure_argument(
+                    *object == self.object,
+                    instance.is_none(),
+                    callee.local,
+                    !callee.attributes.is_empty(),
+                )
+            } =>
+            {
+                args.as_slice()
+            }
+            ir::Expr::Builtin { id, args, .. } if *id == al_builtins::builtin_id::ids::LIST_ADD_1 => args.as_slice(),
+            _ => return,
+        };
+        for a in args {
+            if let ir::Arg::Value(v) = a {
+                self.mark_measured(v);
+            }
+        }
+    }
+
     /// `exit(FR.Value())` from a procedure that returns a Text or Code: `Op::ConvertFieldValue` marked as an exit
     /// (al-builtins `fieldref_value_text::fieldref_value_at_exit`, issue 9285).
     fn field_value_exit(&mut self, t: &RtType, inner: &'a ir::Expr) -> R<()> {
@@ -1566,15 +1631,15 @@ impl<'a> Compiler<'a> {
         self.chunk.types.push(t.clone());
         let t = (self.chunk.types.len() - 1) as u32;
         let d = self.alloc()?;
-        self.emit(Op::convert_field_value(d, a, t, true));
+        self.emit(Op::convert_field_value(d, a, t, FieldValueSite::TextExit));
         self.emit(Op::RetVal { a: d });
         Ok(())
     }
 }
 
-/// A conversion of `FieldRef.Value` into a Text, Code or Blob, or into a number (which refuses a Date, Time or DateTime,
-/// `Session::convert_field_value`), which runs `Op::ConvertFieldValue` (as does one into a local Date, Time or DateTime,
-/// `Compiler::assign`).
+/// A conversion of `FieldRef.Value` into a Text, Code or Blob, or into a number (where a Date, Time or DateTime takes
+/// the measured cells in a measured place and refuses elsewhere, `Session::convert_field_value`), which runs
+/// `Op::ConvertFieldValue` (as does one into a local Date, Time or DateTime, `Compiler::assign`).
 fn is_field_value_conversion(t: &RtType, inner: &ir::Expr) -> bool {
     (matches!(t, RtType::Text(_) | RtType::Code(_))
         || matches!(t, RtType::Library(n) if n.eq_ignore_ascii_case("Blob"))

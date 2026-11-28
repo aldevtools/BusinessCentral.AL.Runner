@@ -1295,7 +1295,7 @@ impl Lowerer<'_> {
                         }
                     }
                     // `exit(FR.Value())` from a procedure that returns a number converts as `I := FR.Value()` does
-                    // (al-vm `Op::ConvertFieldValue`, which refuses a Date, Time or DateTime value: issue 9265); the
+                    // (al-vm `Op::ConvertFieldValue`; a Date, Time or DateTime value takes BC's error, issue 9265); the
                     // result then converts into the return type as every exit value does. Into a Text or Code the op
                     // takes the cells of `fieldref_value_text::fieldref_value_at_exit` (issue 9285). The lowered value
                     // is checked, so a parenthesized `exit((FR.Value()))` takes this path too (issue 9305).
