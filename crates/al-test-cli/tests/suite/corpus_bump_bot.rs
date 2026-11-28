@@ -550,7 +550,37 @@ fn commit_refuses_a_list_line_for_a_case_the_base_oracle_had() {
     assert_eq!(commits(&r), 1, "nothing committed");
 }
 
-/// Under `metrics/` a bump writes the not-passing lists only.
+/// ADR-065 amendment 1: a bump moves a strict-order list line of a renamed case to its new key, and the bot commits it
+/// once `al-test-cli --list-changes HEAD` passes (it exits 3 when that list gained a line).
+#[test]
+fn commit_takes_a_moved_strict_list_line_and_refuses_one_list_changes_rejects() {
+    let r = runner();
+    bump_files(&r);
+    put(
+        r.dir.path(),
+        "metrics/29/strict-order-not-run.txt",
+        "# header\n100 NewKey\n",
+    );
+    let o = commit(&r, &r.corpus.c.clone());
+    assert!(o.status.success(), "{}", text(&o));
+    let files = git(r.dir.path(), &["show", "--name-only", "--format=", "HEAD"]);
+    assert!(
+        files.lines().any(|l| l == "metrics/29/strict-order-not-run.txt"),
+        "{files}"
+    );
+    let r = runner();
+    bump_files(&r);
+    put(
+        r.dir.path(),
+        "metrics/29/strict-order-not-run.txt",
+        "# header\n100 Added\n",
+    );
+    let o = commit_with(&r, &r.corpus.c.clone(), 3);
+    assert!(!o.status.success(), "{}", text(&o));
+    assert_eq!(commits(&r), 1, "nothing committed");
+}
+
+/// Under `metrics/` a bump writes the not-passing and strict-order lists only.
 #[test]
 fn commit_refuses_any_other_metrics_change() {
     let r = runner();

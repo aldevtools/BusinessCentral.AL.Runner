@@ -247,3 +247,49 @@ The owner accepted this ADR and the recommended answer to each open question:
 1. A listed case that now passes fails the pull request until `--prune-not-passing` deletes its line.
 2. A new not-passing line (a regression) is shown in the CI job summary and approved by the owner in review, as a removed baseline line is today. No required label.
 3. The coverage maps are no longer committed. Each CI run on main uploads them as an artifact.
+
+## Amendment 1 (owner decision 2026-11-28): corpus bumps follow the rename map; a renamed case that passed must pass
+
+Status: Accepted (owner decision 2026-11-28). Step 1 of the corpus-detach plan: the corpus may move, split, merge,
+rename and renumber tests, and the runner keeps every case.
+
+**Gap.** Section 3 leaves a removed case without a signal. Before this amendment the runner never read the corpus file
+`tests/rename-map.tsv` (append-only, `old_key<TAB>new_key`). A passing case that the corpus renamed, and that then
+failed, came out of the bump as a new case, and `--list-new-cases` gave it a not-passing line without a signal.
+
+**Case key.** A case key is the codeunit id and the test name, as in the oracle (BC's JUnit reports the id) and in the
+lists. The app folder is not part of the key (owner decision 2026-11-28). Corpus codeunit ids are unique across the
+corpus apps (the corpus check `check-object-ids`); the runner relies on that and fails loudly when two apps of one
+major's oracles, or of the corpus sources, hold the same id. When the runner reads the map, it drops the app part of
+both keys, so a move to another app needs no map line. Must-not-compile keys (`mnc/<stem>`) are in no list and are
+skipped.
+
+Citations for people (code comments, assumption entries, docs; step 2 of the plan) name a codeunit by its name and
+the test name, for example `corpus:"LT XRec Nested"/Validate_X`. The runner resolves the name to the id at a pin from
+the corpus sources (`rename_map::CodeunitNames`). Machine files (oracle, not-passing lists, strict-order lists) stay
+keyed by id. A codeunit rename keeps the id; a renumber needs a map line, and `rename_map::translate_named` follows
+both forms (name to id at the old pin, the id through the map, the id to its name at the new pin).
+
+**Reading the map.** As the corpus's own facts check reads it (`.github/scripts/facts.py`): a base key that a head
+oracle of the major still has keeps its key. A gone key goes to its new keys, and through a chain when a new key is
+gone too (one bump can span several corpus pull requests). One old key with several lines is a split; several old keys
+with one new key is a merge. A gone key without a line is a removed case (section 3, unchanged). A new case without a
+source is a new case (section 2, unchanged). The runner invents no mapping.
+
+**Decision.** At a bump (`--list-new-cases REV`) and in `--list-changes REV`, the base lists of each major are carried
+to head keys (`crates/al-test-cli/src/rename_map.rs`, the one owner of key translation; `base_oracle.rs` reads the
+files):
+
+1. A base case that passed (real BC passed it and its list did not hold it) and that reaches a new key, through the map
+   or by an app move, must pass under the new key. If it does not, or real BC fails the new key, the bump is red: an
+   error that names the BC version, the old key and the new key. A merge must pass when any of its old keys passed.
+2. A base case whose map line names a key that no oracle of the major has, and that passed, makes the bump red.
+3. A listed base case whose head keys do not pass moves its line to each head key (a split gets a line per new key).
+   Its old line is stale and pruned as before. It is no new case.
+4. `--list-changes`: a line added for a new key of a case that passed is a regression the owner approves (owner
+   decision 2); a moved line is reported as moved, not as a new case.
+5. A strict-order list line (`metrics/<major>/strict-order-not-run.txt`, ADR-070 decision 5) of a renamed case is
+   rewritten in place to the new keys at the bump, and `--list-changes` does not count it as an added line.
+
+This tightens section 3 for mapped cases and leaves it as it is for cases removed without a map line. It never adds a
+line for a case that passed.

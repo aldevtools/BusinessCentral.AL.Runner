@@ -295,15 +295,28 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
     let oracle_path = args.oracle.clone().unwrap_or_else(|| root.join("oracle/oracle.toml"));
     let cfg = config::OracleFile::parse(&read(&oracle_path)?).map_err(|e| format!("{}: {e}", oracle_path.display()))?;
     let base = al_test_cli::base_oracle::Base::open(root, rev)?;
+    let oracle_dir = oracle_path.parent().unwrap_or(root);
     let mut changes = Vec::new();
+    let mut carries = std::collections::BTreeMap::new();
     for v in &cfg.versions {
+        // ADR-065 amendment 1: the base lists in head keys, through the corpus rename map and app moves.
+        let carry = base.carry(root, &cfg, oracle_dir, v.major, None)?;
         let lists =
             std::iter::once((None, &v.baseline)).chain(v.suites.iter().map(|s| (Some(s.name.as_str()), &s.baseline)));
         for (suite, rel) in lists {
             let now = read_list(&root.join(rel))?;
-            let ids = base.oracle_ids(v.major, suite)?;
-            changes.push(not_passing::list_change(rel, &now, &base.list(rel)?, &ids));
+            let mut ids = base.oracle_ids(v.major, suite)?;
+            let carried = carry.of(suite).cloned().unwrap_or_default();
+            ids.extend(carried.known);
+            changes.push(not_passing::list_change(
+                rel,
+                &now,
+                &base.list(rel)?,
+                &carried.listed,
+                &ids,
+            ));
         }
+        carries.insert(v.major, carry);
     }
     print!("{}", not_passing::render_changes(rev, &changes));
     // ADR-070 decision 5: the strict lists only shrink. Exit 3 when a line was added to one the base revision has.
@@ -311,7 +324,11 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
     for v in &cfg.versions {
         let rel = al_test_cli::strict_not_run::path(v.major);
         let now = read_list(&root.join(&rel))?;
-        let base_list = base.list_opt(&rel)?;
+        // A line the bump moved to a renamed case's new key is not added (ADR-065 amendment 1).
+        let base_list = match (base.list_opt(&rel)?, carries.get(&v.major)) {
+            (Some(l), Some(c)) => Some(c.translate_set(&l)?),
+            (l, _) => l,
+        };
         let added = al_test_cli::strict_not_run::added(base_list.as_ref(), &now);
         if !added.is_empty() {
             grown = true;
@@ -1838,6 +1855,10 @@ fn check_lists(
         Some(rev) => Some(al_test_cli::base_oracle::Base::open(root, rev)?),
         None => None,
     };
+    let carries = match &base {
+        Some(b) => carries(args, root, b, targets)?,
+        None => Default::default(),
+    };
     let mut failed = false;
     let mut writes: Vec<(PathBuf, String, Vec<String>)> = Vec::new();
     for t in targets {
@@ -1846,7 +1867,6 @@ fn check_lists(
         let mut list = not_passing::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut notes = Vec::new();
         if let Some(base) = &base {
-            let base_ids = base.oracle_ids(t.major, t.suite.as_deref())?;
             let c = not_passing::check(&list, t.all, &*t.selected, &*t.recorded);
             if !c.skipped.is_empty() {
                 return Err(format!(
@@ -1855,7 +1875,10 @@ fn check_lists(
                     c.skipped.len()
                 ));
             }
-            let new = not_passing::new_cases(&list, t.all, &base_ids, &*t.recorded);
+            let carry = &carries[&t.major];
+            let known = carry_lines(t, path, carry, &mut list, &mut notes, &mut writes, root)?;
+            failed |= known.1;
+            let new = not_passing::new_cases(&list, t.all, &known.0, &*t.recorded);
             if !new.is_empty() {
                 notes.push(format!(
                     "BC {}: {} new case(s) that the oracle at {} does not have and the runtime does not pass, added to {}",
@@ -1942,6 +1965,82 @@ fn check_lists(
         notes.iter().for_each(|n| println!("{n}"));
     }
     Ok(u8::from(failed))
+}
+
+/// ADR-065 amendment 1: the base lists of each target's major carried to head keys (`rename_map::carry`). The main
+/// app's base list is the path the run checks (`--baseline` may name its own).
+fn carries(
+    args: &Args,
+    root: &Path,
+    base: &al_test_cli::base_oracle::Base,
+    targets: &[Target],
+) -> Result<std::collections::BTreeMap<u16, al_test_cli::rename_map::Carry>, String> {
+    let oracle_path = args.oracle.clone().unwrap_or_else(|| root.join("oracle/oracle.toml"));
+    let cfg = config::OracleFile::parse(&read(&oracle_path)?).map_err(|e| format!("{}: {e}", oracle_path.display()))?;
+    let dir = oracle_path.parent().unwrap_or(root);
+    let mut out = std::collections::BTreeMap::new();
+    for t in targets {
+        if out.contains_key(&t.major) {
+            continue;
+        }
+        let main_list = targets
+            .iter()
+            .find(|x| x.major == t.major && x.suite.is_none())
+            .and_then(|x| x.list_path.as_ref())
+            .and_then(|p| p.strip_prefix(root).ok())
+            .map(|p| p.to_string_lossy().into_owned());
+        out.insert(t.major, base.carry(root, &cfg, dir, t.major, main_list.as_deref())?);
+    }
+    Ok(out)
+}
+
+/// ADR-065 amendment 1 at `--list-new-cases`, for one target: adds the moved lines to `list`, prints each renamed case
+/// that lost its pass (and, for the main app, each passing case the map sends nowhere), and queues the strict list with
+/// its renamed lines moved. Returns the head keys the base cases reached (no new cases) and whether the bump is red.
+#[allow(clippy::too_many_arguments)]
+fn carry_lines(
+    t: &Target,
+    path: &Path,
+    carry: &al_test_cli::rename_map::Carry,
+    list: &mut std::collections::BTreeSet<oracle::CaseId>,
+    notes: &mut Vec<String>,
+    writes: &mut Vec<(PathBuf, String, Vec<String>)>,
+    root: &Path,
+) -> Result<(std::collections::BTreeSet<oracle::CaseId>, bool), String> {
+    use al_test_cli::rename_map;
+    let Some(carried) = carry.of(t.suite.as_deref()) else {
+        return Ok((Default::default(), false));
+    };
+    let lines = rename_map::bump_lines(carried, list, t.all, &*t.recorded);
+    if !lines.moved.is_empty() {
+        notes.push(format!(
+            "BC {}: {} line(s) moved to new keys (the corpus rename map or an app move) in {}",
+            t.label,
+            lines.moved.len(),
+            path.display()
+        ));
+        list.extend(lines.moved);
+    }
+    let mut red = false;
+    for (r, why) in &lines.lost_passes {
+        eprintln!("{}", rename_map::lost_pass_line(&t.label, r, why));
+        red = true;
+    }
+    if t.suite.is_none() {
+        for l in &carry.lost {
+            eprintln!("{}", rename_map::lost_line(&t.label, l));
+            red = true;
+        }
+        // `--list-new-cases` refuses BC's order (`run`), so the strict list is written here only.
+        let strict = root.join(al_test_cli::strict_not_run::path(t.major));
+        if strict.exists() {
+            if let Some(text) = carry.rewrite_list(&read(&strict)?)? {
+                let note = format!("BC {}: renamed lines moved in {}", t.label, strict.display());
+                writes.push((strict, text, vec![note]));
+            }
+        }
+    }
+    Ok((carried.known.clone(), red))
 }
 
 /// The strict list of one target in BC's order (`strict_not_run.rs`, ADR-070 decision 5): the main app's
