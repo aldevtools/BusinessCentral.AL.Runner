@@ -11,7 +11,9 @@ fn every_citation_by_name_resolves_at_the_pinned_corpus() {
         .join("../..")
         .canonicalize()
         .unwrap();
-    let corpus = root.join("corpus");
+    let oracle = std::fs::read_to_string(root.join("oracle/oracle.toml")).unwrap();
+    let cfg = al_test_cli::config::OracleFile::parse(&oracle).unwrap();
+    let corpus = root.join(&cfg.corpus_repo);
     assert!(
         corpus.join("tests").is_dir(),
         "the corpus submodule is not checked out: run `git submodule update --init`"

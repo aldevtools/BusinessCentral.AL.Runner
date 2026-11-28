@@ -467,7 +467,14 @@ impl Ctx<'_> {
                 id: obj.id,
             },
         };
-        let carried = citation::carry(&c, r, self.new, self.map)?.unwrap_or(c);
+        // A codeunit's tests at the pin: the rename map moves a codeunit citation only when it moves all of them.
+        let old_tests: Vec<String> = match &r {
+            Resolved::Object { kind, .. } if kind == "codeunit" => {
+                obj.members.iter().filter(|m| m.test).map(|m| m.name.clone()).collect()
+            }
+            _ => Vec::new(),
+        };
+        let carried = citation::carry(&c, r, &old_tests, self.new, self.map)?.unwrap_or(c);
         let checked = match citation::resolve(&carried, self.new, &BTreeSet::new()) {
             Ok(_) => carried,
             // The cell's literal changed since the pin: cite the test.

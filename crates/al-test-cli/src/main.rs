@@ -121,8 +121,9 @@ fn run() -> Result<ExitCode, String> {
         al_test_cli::host::set_environment(env);
     }
     // The corpus pins that real BC's web address in its CI is http, has a port and the path /BC, and that its host is
-    // not `localhost` (corpus:"LT GetUrl Shape"/QA_GetUrl_Web_NoArgument_Whole#'web alone'); the host name itself is masked there and stays the
-    // host setting of ADR-042. So the corpus tool runs with an address of that shape instead of al-runner's default.
+    // not `localhost` (corpus:"LT GetUrl Shape"/QA_GetUrl_Web_NoArgument_Whole#'web alone'); the host name itself
+    // is masked there and stays the host setting of ADR-042. So the corpus tool runs with an address of that shape
+    // instead of al-runner's default.
     al_test_cli::host::set_server_url(Some(CORPUS_SERVER_URL.into()));
     if let Some(dir) = &args.files_dir {
         al_test_cli::host::set_files_dir(dir.clone());
@@ -229,7 +230,6 @@ fn newest_version<'a>(versions: &[&'a config::VersionEntry]) -> &'a config::Vers
         .expect("at least one version is selected")
 }
 
-/// `--awaiting-assumptions`: the assumptions that wait for a corpus pin, against the pinned corpus (`awaiting.rs`).
 /// `--check-citations` and `--rewrite-citations REV` (ADR-065 amendment 2), against the corpus checkout the oracle
 /// names.
 fn citations(root: &Path, rewrite_from: Option<&str>) -> Result<ExitCode, String> {
@@ -257,6 +257,7 @@ fn citations(root: &Path, rewrite_from: Option<&str>) -> Result<ExitCode, String
     })
 }
 
+/// `--awaiting-assumptions`: the assumptions that wait for a corpus pin, against the pinned corpus (`awaiting.rs`).
 /// Runs the awaited files of the entries whose pin landed, on one version, and fails with one message each.
 fn awaiting_assumptions(
     args: &mut Args,

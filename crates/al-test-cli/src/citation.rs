@@ -159,7 +159,7 @@ fn body(s: &str, status: Status) -> (usize, Result<Option<Citation>, String>) {
     }
     let mut cell = None;
     if s[i..].starts_with('#') {
-        let Some(n) = literal(&s[i + 1..]) else {
+        let Some(n) = objects::literal_len(&s[i + 1..]) else {
             return (i + 1, Err("`#` needs the cell as an AL string literal ('...')".into()));
         };
         cell = Some(s[i + 1..i + 1 + n].to_string());
@@ -192,21 +192,6 @@ fn identifier(s: &str) -> Option<(&str, usize)> {
         .take_while(|c| c.is_ascii_alphanumeric() || *c == b'_')
         .count();
     (n > 0 && !s.as_bytes()[0].is_ascii_digit()).then(|| (&s[..n], n))
-}
-
-/// The length of the AL string literal at the start of `s` (`''` inside it is a quote), on one line.
-pub(crate) fn literal(s: &str) -> Option<usize> {
-    let b = s.as_bytes();
-    (b.first() == Some(&b'\'')).then_some(())?;
-    let mut i = 1;
-    loop {
-        match b.get(i)? {
-            b'\n' => return None,
-            b'\'' if b.get(i + 1) == Some(&b'\'') => i += 2,
-            b'\'' => return Some(i + 1),
-            _ => i += 1,
-        }
-    }
 }
 
 /// One object of the corpus at a pin.
@@ -293,6 +278,17 @@ impl Corpus {
             })
     }
 
+    /// The `[Test]` procedures of codeunit `id` at this pin.
+    fn tests_of(&self, id: u32) -> Vec<String> {
+        self.by_id
+            .get(&("codeunit".to_string(), id))
+            .map(|&o| {
+                let d = &self.objects[o].decl;
+                d.members.iter().filter(|m| m.test).map(|m| m.name.clone()).collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// The name of the object of `kind` and `id` at this pin.
     fn name_of(&self, kind: &str, id: u32) -> Result<String, String> {
         self.by_id
@@ -312,6 +308,37 @@ pub fn resolve(c: &Citation, corpus: &Corpus, pending_prs: &BTreeSet<u32>) -> Re
             )),
         };
     }
+    let (o, members) = lookup(c, corpus)?;
+    match (o.decl.test_codeunit, o.decl.id, members.iter().find(|x| x.test)) {
+        (true, Some(codeunit), Some(t)) => Ok(Resolved::Case(CaseId {
+            codeunit,
+            name: t.name.clone(),
+        })),
+        _ => Ok(Resolved::Object {
+            kind: c.kind.clone(),
+            id: o.decl.id,
+        }),
+    }
+}
+
+/// `c` as it must be written: its object and member in the corpus's spelling, printed by `Display` (no `codeunit:`,
+/// a plain member unquoted), so a search for the printed token finds every citation of it. `None` for a pending
+/// citation; an error when it does not resolve.
+pub fn canonical(c: &Citation, corpus: &Corpus) -> Result<Option<Citation>, String> {
+    if c.status != Status::Pinned {
+        return Ok(None);
+    }
+    let (o, members) = lookup(c, corpus)?;
+    Ok(Some(Citation {
+        object: o.decl.name.clone(),
+        member: members.first().map(|m| m.name.clone()),
+        ..c.clone()
+    }))
+}
+
+/// The one object of `c`'s kind and name at `corpus`, and its members of `c`'s member name (none for an object-level
+/// citation), checked: a cell needs a member whose observations name it (`objects::cells`).
+fn lookup<'a>(c: &Citation, corpus: &'a Corpus) -> Result<(&'a Object, Vec<&'a objects::MemberDecl>), String> {
     let (kind, object) = (&c.kind, &c.object);
     let held = corpus.by_name.get(&(kind.clone(), object.to_lowercase()));
     let o = match held.map(Vec::as_slice) {
@@ -323,10 +350,7 @@ pub fn resolve(c: &Citation, corpus: &Corpus, pending_prs: &BTreeSet<u32>) -> Re
         if c.cell.is_some() {
             return Err("a cell needs a member: name the test that holds it".into());
         }
-        return Ok(Resolved::Object {
-            kind: kind.clone(),
-            id: o.decl.id,
-        });
+        return Ok((o, Vec::new()));
     };
     let members: Vec<_> = o
         .decl
@@ -341,21 +365,12 @@ pub fn resolve(c: &Citation, corpus: &Corpus, pending_prs: &BTreeSet<u32>) -> Re
         let text = &corpus.texts[o.file];
         if !members
             .iter()
-            .any(|x| objects::string_literals(text, x.span.clone()).contains(&cell.as_str()))
+            .any(|x| objects::cells(text, x.span.clone()).contains(&cell.as_str()))
         {
-            return Err(format!("{m} of {kind} \"{object}\" has no literal {cell}"));
+            return Err(format!("{m} of {kind} \"{object}\" has no cell {cell}"));
         }
     }
-    match (o.decl.test_codeunit, o.decl.id, members.iter().find(|x| x.test)) {
-        (true, Some(codeunit), Some(t)) => Ok(Resolved::Case(CaseId {
-            codeunit,
-            name: t.name.clone(),
-        })),
-        _ => Ok(Resolved::Object {
-            kind: kind.clone(),
-            id: o.decl.id,
-        }),
-    }
+    Ok((o, members))
 }
 
 /// `text` with every pinned citation that resolves at `old` rewritten to the same object, member and cell at `new`:
@@ -387,12 +402,23 @@ fn moved(c: &Citation, old: &Corpus, new: &Corpus, map: &RenameMap) -> Result<Op
         return Ok(None);
     }
     let r = resolve(c, old, &BTreeSet::new()).map_err(|e| format!("does not resolve at the old pin: {e}"))?;
-    carry(c, r, new, map)
+    let tests = match &r {
+        Resolved::Object { kind, id: Some(id) } if kind == "codeunit" => old.tests_of(*id),
+        _ => Vec::new(),
+    };
+    carry(c, r, &tests, new, map)
 }
 
-/// `c`, which names `r` at an old pin, at the pin of `new`: a test through `map`, any other member and an object by
+/// `c`, which names `r` at an old pin, at the pin of `new`: a test through `map`, a codeunit (or its member) by its
+/// id unless the map moves its tests (`old_tests`, its tests at the old pin) to another codeunit, any other object by
 /// its kind and id. `None` when it stays as it is (pending, a kind without an id, nothing moved).
-pub fn carry(c: &Citation, r: Resolved, new: &Corpus, map: &RenameMap) -> Result<Option<Citation>, String> {
+pub fn carry(
+    c: &Citation,
+    r: Resolved,
+    old_tests: &[String],
+    new: &Corpus,
+    map: &RenameMap,
+) -> Result<Option<Citation>, String> {
     let mut to = c.clone();
     match r {
         Resolved::Case(key) => {
@@ -414,10 +440,45 @@ pub fn carry(c: &Citation, r: Resolved, new: &Corpus, map: &RenameMap) -> Result
                 }
             }
         }
+        Resolved::Object { kind, id: Some(id) } if kind == "codeunit" => {
+            to.object = new.name_of("codeunit", follow_codeunit(id, old_tests, new, map)?)?
+        }
         Resolved::Object { kind, id: Some(id) } => to.object = new.name_of(&kind, id)?,
         Resolved::Object { id: None, .. } | Resolved::Pending => return Ok(None),
     }
     Ok((to != *c).then_some(to))
+}
+
+/// The id of codeunit `id` at the new pin. When the map moves none of its tests to another codeunit, or some of its
+/// tests (`tests`, at the old pin) are still at `id`, the same id. Otherwise the one codeunit its moved tests go to;
+/// an error when they go to several or nowhere. A renumbered codeunit whose old id another codeunit takes is so
+/// followed by the map, not by the id (review r1 of PR 9432, M4).
+fn follow_codeunit(id: u32, tests: &[String], new: &Corpus, map: &RenameMap) -> Result<u32, String> {
+    if !map.moves_codeunit(id) {
+        return Ok(id);
+    }
+    let mut to: BTreeSet<u32> = BTreeSet::new();
+    for t in tests {
+        let key = CaseId {
+            codeunit: id,
+            name: t.clone(),
+        };
+        to.extend(
+            map.translate(&key, &|k| new.has_case(k))?
+                .keys
+                .iter()
+                .map(|k| k.codeunit),
+        );
+    }
+    if to.contains(&id) {
+        return Ok(id);
+    }
+    match to.into_iter().collect::<Vec<_>>().as_slice() {
+        [one] => Ok(*one),
+        _ => Err(format!(
+            "the rename map moves tests of codeunit {id} to other codeunits, not all to one; cite it by hand"
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -505,7 +566,7 @@ mod tests {
             r(":\"LT Cites\"/Gone")
         );
         assert!(r(":\"LT Missing\"/First").contains("no codeunit is named \"LT Missing\""));
-        assert!(r(":\"LT Cites\"/First#'other'").contains("has no literal 'other'"));
+        assert!(r(":\"LT Cites\"/First#'other'").contains("has no cell 'other'"));
         assert!(r(":\"LT Cites\"#'cell of First'").contains("a cell needs a member"));
     }
 
@@ -566,5 +627,61 @@ mod tests {
         assert_eq!(out, text);
         assert_eq!(notes.len(), 2, "{notes:?}");
         assert!(notes[0].contains("split") && notes[1].contains("removed"), "{notes:?}");
+    }
+
+    // Review r1 of PR 9432, M4: a renumbered codeunit whose old id another codeunit takes is followed by the map.
+    #[test]
+    fn an_object_citation_follows_a_renumber_not_a_reused_id() {
+        let old = corpus(&[("app", src(50100, "LT Old", &["A", "B"]))]);
+        let new = corpus(&[
+            ("app", src(50100, "LT Unrelated", &["Z"])),
+            ("app", src(50200, "LT Old", &["A", "B"])),
+        ]);
+        let map = RenameMap::parse("old_key\tnew_key\napp/50100/A\tapp/50200/A\napp/50100/B\tapp/50200/B\n").unwrap();
+        let text = format!("{} {}", cite(":\"LT Old\""), cite(":\"LT Old\"/Helper"));
+        let (out, notes) = rewrite(&text, &old, &new, &map);
+        assert_eq!(out, text, "{notes:?}");
+        assert!(notes.is_empty(), "{notes:?}");
+        // Its tests split over two codeunits: no codeunit to follow, a note.
+        let split = corpus(&[
+            ("app", src(50100, "LT Unrelated", &["Z"])),
+            ("app", src(50200, "LT Old", &["A"])),
+            ("app", src(50300, "LT Other", &["B"])),
+        ]);
+        let map = RenameMap::parse("old_key\tnew_key\napp/50100/A\tapp/50200/A\napp/50100/B\tapp/50300/B\n").unwrap();
+        let (out, notes) = rewrite(&cite(":\"LT Old\""), &old, &split, &map);
+        assert_eq!(out, cite(":\"LT Old\""));
+        assert!(
+            notes.len() == 1 && notes[0].contains("moves tests of codeunit 50100"),
+            "{notes:?}"
+        );
+    }
+
+    // Review r1 of PR 9432, M2 and L3: a field's trigger is no member; an expected value is no cell.
+    #[test]
+    fn a_field_trigger_or_an_expected_value_does_not_resolve() {
+        let table =
+            "table 50101 \"LT T\"\n{\n    fields { field(1; A; Integer) { trigger OnValidate() begin end; } }\n}\n";
+        let c = corpus(&[("app", src(50100, "LT Cites", &["First"])), ("app", table.to_string())]);
+        let none = BTreeSet::new();
+        assert!(resolve(&one(&cite(":table:\"LT T\"/OnValidate")), &c, &none).is_err());
+        assert!(resolve(&one(&cite(":\"LT Cites\"/First#'x'")), &c, &none).is_err());
+    }
+
+    // Review r1 of PR 9432, L2: a token is written as it prints, with the corpus spelling of its names.
+    #[test]
+    fn a_citation_not_in_its_canonical_form_is_named() {
+        let c = corpus(&[("app", src(50100, "LT Cites", &["First"]))]);
+        for bad in [
+            ":\"lt cites\"/First",
+            ":codeunit:\"LT Cites\"",
+            ":\"LT Cites\"/\"First\"",
+            ":\"LT Cites\"/first",
+        ] {
+            let k = canonical(&one(&cite(bad)), &c).unwrap().unwrap();
+            assert_ne!(k.to_string(), cite(bad), "{bad}");
+        }
+        let good = cite(":\"LT Cites\"/First#'cell of First'");
+        assert_eq!(canonical(&one(&good), &c).unwrap().unwrap().to_string(), good);
     }
 }

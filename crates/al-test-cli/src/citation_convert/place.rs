@@ -5,15 +5,12 @@
 
 use al_testrun::discover::objects::{self, ObjectDecl};
 
-/// Observer methods whose first argument is the cell's name, as the corpus calls them (`Observer.Expect('cell', ..)`).
-const CELL_METHODS: &[&str] = &["Expect", "Observe", "ObserveError", "Ignore"];
 /// A range that spans more than this many tests, and at least half the tests of the codeunit, cites the codeunit.
 const MANY_TESTS: usize = 3;
 
 /// One corpus file at one pin.
 pub struct File<'a> {
     text: &'a str,
-    code: String,
     /// The byte where each line starts (line 1 at index 0).
     starts: Vec<usize>,
     pub objects: Vec<ObjectDecl>,
@@ -36,7 +33,6 @@ impl<'a> File<'a> {
             .collect();
         File {
             text,
-            code: objects::code_text(text),
             starts,
             objects: objects::objects(text),
         }
@@ -128,70 +124,29 @@ impl<'a> File<'a> {
                 None => Err("the file has no object".into()),
             };
         };
-        let obj = &self.objects[o];
-        let header = line_of(obj.span.start);
-        for (k, m) in obj.members.iter().enumerate() {
-            let keyword = line_of(m.span.start);
-            let mut top = keyword;
-            while top - 1 > header && self.leads_member(top - 1) {
-                top -= 1;
-            }
-            let last = line_of(m.span.end.saturating_sub(1)).max(keyword);
-            let bottom = (keyword..=last).rev().find(|&l| self.ends_body(l)).unwrap_or(keyword);
-            if top <= line && line <= bottom {
-                return Ok(Target::Member {
-                    object: o,
-                    member: k,
-                    cell: None,
-                });
-            }
+        // A member's span runs from its lead-in (attributes, comments) to its body's `end;` (`objects::objects`).
+        let member = self.objects[o]
+            .members
+            .iter()
+            .position(|m| line_of(m.span.start) <= line && line <= line_of(m.span.end.saturating_sub(1)));
+        if let Some(member) = member {
+            return Ok(Target::Member {
+                object: o,
+                member,
+                cell: None,
+            });
         }
         Ok(Target::Object(o))
     }
 
-    /// The text and the code (comments and string texts blanked) of line `line`.
-    fn line(&self, line: usize) -> (&str, &str) {
-        let start = self.starts[line - 1];
-        let end = self.starts.get(line).copied().unwrap_or(self.text.len());
-        (&self.text[start..end], &self.code[start..end])
-    }
-
-    /// A line just above a member's keyword that belongs to it: an attribute (`[Test]`) or a comment.
-    fn leads_member(&self, line: usize) -> bool {
-        let (text, code) = self.line(line);
-        let code = code.trim();
-        code.starts_with('[') || (code.is_empty() && !text.trim().is_empty())
-    }
-
-    /// The line ends a member's body: its code holds `end;` (or is `end`).
-    fn ends_body(&self, line: usize) -> bool {
-        let code = self.line(line).1.to_ascii_lowercase();
-        let code = code.trim();
-        code == "end"
-            || code.match_indices("end").any(|(i, _)| {
-                let before = code[..i].bytes().last();
-                !before.is_some_and(|c| c.is_ascii_alphanumeric() || c == b'_')
-                    && code[i + 3..].trim_start().starts_with(';')
-            })
-    }
-
-    /// The cell of line `line`: the first argument of its one observation call, when that is a string literal.
+    /// The cell of line `line`: its one observation whose first argument is a string literal (`objects::cells`).
     fn cell(&self, line: usize) -> Option<String> {
         let start = self.starts[line - 1];
-        let (_, code) = self.line(line);
-        let calls: Vec<usize> = CELL_METHODS
-            .iter()
-            .flat_map(|m| {
-                let call = format!(".{m}(");
-                code.match_indices(call.as_str())
-                    .map(|(i, _)| i + m.len() + 2)
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        let [open] = calls.as_slice() else { return None };
-        let arg = open + code[*open..].len() - code[*open..].trim_start().len();
-        let n = crate::citation::literal(&self.text[start + arg..])?;
-        (n > 2).then(|| self.text[start + arg..start + arg + n].to_string())
+        let end = self.starts.get(line).copied().unwrap_or(self.text.len());
+        match objects::cells(self.text, start..end).as_slice() {
+            [one] if one.len() > 2 => Some(one.to_string()),
+            _ => None,
+        }
     }
 }
 
