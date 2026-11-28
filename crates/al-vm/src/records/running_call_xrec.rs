@@ -49,7 +49,7 @@ const NESTING_PROCEDURES_MEASURED: usize = 3;
 
 /// The refusal when a procedure that shared the trigger's xRec under a Validate the table's own code nested (`nested_by_own_code`)
 /// changed it: real BC keeps one xRec for both Validates, so an assignment shows to the trigger of the outer Validate too
-/// (record/validate/XRecTableProcThroughSubscriber.al:750 `I after x=0/SET/I1`) and a filter in both triggers (:1070
+/// (record/validate/XRecTableProcThroughSubscriber.al:750 `I after x=0/SET/I1`) and a filter in both triggers (:1078
 /// `I filters=Series: F`), where this runner keeps the two triggers' xRecs apart: in every shape `nested_validate_xrec` does not
 /// share.
 pub(crate) const XREC_CHANGED_UNDER_NESTED_VALIDATE: &str = "a change to xRec (an assignment, a filter or another view of it) in a table procedure called through an event subscriber under a Validate that the table's own code nested: real BC shows it to the outer Validate's trigger too, which this runner keeps apart";
@@ -381,7 +381,8 @@ impl Session {
         r.attributes.iter().any(|a| a.name.eq_ignore_ascii_case(name))
     }
 
-    pub(super) fn is_test_codeunit(o: &al_ir::Object) -> bool {
+    /// Whether object `o` is a codeunit with `Subtype = Test`.
+    pub(crate) fn is_test_codeunit(o: &al_ir::Object) -> bool {
         o.kind == ObjKind::Codeunit
             && o.properties
                 .iter()
@@ -546,7 +547,7 @@ impl Session {
     /// the outer Validate's before-image, and the same filters (each xRec takes the record's filters when its Validate starts).
     /// Real BC keeps one xRec for both Validates: what the outer trigger assigns before it nests shows in the inner trigger and
     /// the procedures (:1042), what the inner trigger assigns shows in the outer one (:1056), and a filter the procedure sets
-    /// shows in both triggers (:1070). This runner keeps two, so a difference refuses. An assignment of the value a field
+    /// shows in both triggers (:1078). This runner keeps two, so a difference refuses. An assignment of the value a field
     /// already holds changes nothing either reads.
     fn nested_xrecs_untouched(&self, handle: usize, outer: &Rec, inner: &Rec) -> bool {
         let Some((_, (before, _))) = self.validating.iter().find(|(h, _)| *h == handle) else {

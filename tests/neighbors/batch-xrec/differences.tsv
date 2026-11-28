@@ -14,3 +14,5 @@ NBX T27 ScopeOnPremWithHandler::ScopeOnPremWithHandler_Nested	ASSUMED xrec-table
 # a temporary record, a buffer from Get, a record never inserted, a filter on the record, a filter on xRec before the nested
 # Validate, a third nested Validate, the outer Validate in the test procedure or in a codeunit that is no test codeunit; and
 # [Scope('Cloud')], [Scope('OnPrem')] with another attribute, refused on both.
+# Review round 1, main's copy on both: the helper called by a [TryFunction] of the test codeunit (T32), a [TryFunction] table
+# procedure between the triggers (T33).

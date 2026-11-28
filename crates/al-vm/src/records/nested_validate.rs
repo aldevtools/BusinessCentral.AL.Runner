@@ -431,10 +431,11 @@ impl Session {
     /// trigger reads, what the inner trigger assigns is what the outer trigger reads after, and a filter set on it shows in both
     /// (record/validate/XRecTableProcThroughSubscriber.al:1050, :1064, :1078, :758). Only in the shape those cells measured,
     /// each fact by equality: the outer Validate a `Record.Validate` from a procedure of a test codeunit that has no attribute
-    /// (`ValidateItemAndObserve`, :518-525), whose trigger is a field OnValidate of the table (:104); the inner one a `Record.Validate` from AL code with a value, of another field (:197); between the two
-    /// exactly [`NESTING_PROCEDURES_ASSIGNED`] procedures of the table that are no triggers, called on the trigger's record
-    /// (`CopyFromItem`, `UpdateMode`, :116-118, :190-198); the buffer `AfterInsert` (:498-507); the record and the outer xRec
-    /// with the view no filter, mark, key or sort changed. Any other shape keeps its own copy of the before-image (`None`).
+    /// (`ValidateItemAndObserve`, :518-525), called by the `[Test]` procedure of that codeunit (:1042-1050), whose trigger is a
+    /// field OnValidate of the table (:104); the inner one a `Record.Validate` from AL code with a value, of another field
+    /// (:197); between the two exactly [`NESTING_PROCEDURES_ASSIGNED`] procedures of the table that are no triggers and have no
+    /// attribute, called on the trigger's record (`CopyFromItem`, `UpdateMode`, :116-118, :190-198); the buffer `AfterInsert`
+    /// (:498-507); the record and the outer xRec with the view no filter, mark, key or sort changed. Any other shape keeps its own copy of the before-image (`None`).
     pub(crate) fn nested_validate_xrec(
         &self,
         handle: usize,
@@ -454,13 +455,14 @@ impl Session {
         let table = rec.borrow().table as usize;
         let (o, i) = (outer.depth, self.call_stack.len());
         let outer_field = self.routine_at(o).1.field;
-        let caller = o.checked_sub(1).map(|c| self.routine_at(c));
         let measured = outer.site == from_al
-            && caller.is_some_and(|(ob, r)| Self::is_test_codeunit(ob) && !r.is_trigger && r.attributes.is_empty())
+            && o == self.test_frame_base() + 2
             && o + 1 + NESTING_PROCEDURES_ASSIGNED == i
+            && self.only_test_codeunit_frames(0, i - o)
             && self.field_on_validate_at(table, o)
             && outer_field != Some(pos)
             && self.own_procedures_between(table, o, i)
+            && ((o + 1)..i).all(|d| self.routine_at(d).1.attributes.is_empty())
             && Self::buffer_of_own_insert(&rec.borrow())
             && super::XrecView::of(&rec.borrow()).untouched()
             && super::XrecView::of(&outer.xrec.borrow()).untouched();

@@ -739,3 +739,66 @@ codeunit 50031 "NBX T31 BlankXRec_ProcAssigns"
         Line.Validate(Mode, Line.Mode::Production);
     end;
 }
+
+// Review round 1: the helper that runs the outer Validate is called by a [TryFunction] of the test codeunit, not by the [Test]
+// procedure (the cell's ValidateItemAndObserve is called by the [Test] procedure, XRecTableProcThroughSubscriber.al:1042-1050).
+// Not measured: main's two copies on both binaries.
+codeunit 50032 "NBX T32 OuterAssign_UnderTry"
+{
+    Subtype = Test;
+
+    var
+        Cfg: Codeunit "NBX Cfg";
+        Setup: Codeunit "NBX Setup";
+
+    [Test]
+    procedure OuterAssign_TwoProcs_UnderTestTryFunction()
+    var
+        Line: Record "NBX Line";
+    begin
+        Setup.AfterInsert(Line);
+        if not TryValidateItem(Line) then
+            Error('try failed: %1', GetLastErrorText());
+        Setup.Check('I x=0/NEW/I1;T x=0/OUT/I1;I after x=0/OUT/I1;');
+    end;
+
+    [TryFunction]
+    local procedure TryValidateItem(var Line: Record "NBX Line")
+    begin
+        ValidateItem(Line, 'outer-assign');
+    end;
+
+    local procedure ValidateItem(var Line: Record "NBX Line"; CfgMode: Text)
+    begin
+        Cfg.Set(CfgMode);
+        Line.Validate("Item No.", 'I2');
+    end;
+}
+
+// Review round 1: the first procedure between the triggers is a [TryFunction] of the table (the cell's CopyFromItem and
+// UpdateMode have no attribute, :116-118, :190-198). The inner trigger assigns xRec and raises an error; the outer trigger
+// catches it and reads xRec. Not measured: main's two copies on both binaries.
+codeunit 50033 "NBX T33 InnerAssignErr_TryBetw"
+{
+    Subtype = Test;
+
+    var
+        Cfg: Codeunit "NBX Cfg";
+        Setup: Codeunit "NBX Setup";
+
+    [Test]
+    procedure InnerAssignThenError_TryFunctionBetween()
+    var
+        Line: Record "NBX Line";
+    begin
+        Setup.AfterInsert(Line);
+        ValidateItem(Line, 'inner-assign-error');
+        Setup.Check('I x=0/NEW/I1;T x=0/NEW/I1;I after x=0/INN/I1;');
+    end;
+
+    local procedure ValidateItem(var Line: Record "NBX Line"; CfgMode: Text)
+    begin
+        Cfg.Set(CfgMode);
+        Line.Validate("Item No.", 'I2');
+    end;
+}

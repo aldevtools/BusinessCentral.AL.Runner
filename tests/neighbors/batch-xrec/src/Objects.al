@@ -26,6 +26,11 @@ table 50000 "NBX Line"
                 case Cfg.Get() of
                     'inner-assign':
                         xRec.Series := 'INN';
+                    'inner-assign-error':
+                        begin
+                            xRec.Series := 'INN';
+                            Error('inner stop');
+                        end;
                     'three-level':
                         begin
                             CopyToOther();
@@ -66,6 +71,8 @@ table 50000 "NBX Line"
                         end;
                     'inner-assign', 'three-level', 'event-nested':
                         CopyFromItem();
+                    'inner-assign-error':
+                        if not TryCopyFromItem() then;
                     'direct':
                         begin
                             xRec.Series := 'OUT';
@@ -131,6 +138,12 @@ table 50000 "NBX Line"
     end;
 
     procedure CopyFromItem()
+    begin
+        UpdateMode();
+    end;
+
+    [TryFunction]
+    local procedure TryCopyFromItem()
     begin
         UpdateMode();
     end;
