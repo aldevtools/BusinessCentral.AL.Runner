@@ -88,7 +88,8 @@ impl Session {
     /// earlier BC 28 `#,##0.00###` was a value left by an earlier test).
     ///
     /// A column that states no AutoFormatType takes its field's: a type the runtime does not model is refused (al-runner issue
-    /// 8011); a modelled one keeps the rule above. The column's type, else its field's, is refused while a subscriber could write
+    /// 8011); AutoFormatType 2 gives `#,##0.00###` where `ReportColumn::field_unit_amount_format` says so; any other keeps the
+    /// rule above. The column's type, else its field's, is refused while a subscriber could write
     /// the AutoFormat result (`auto_format_writer`).
     pub(crate) fn decimal_column_formatter(
         &self,
@@ -120,6 +121,13 @@ impl Session {
             return Err(Signal::unsupported(format!(
                 "the decimalformatter of a report column: {why}"
             )));
+        }
+        // A field's AutoFormatType 2 in the shapes al-sema `reports::field_unit_amount_measured` admits: the formatter of a
+        // column's own AutoFormatType 2 (`#,##0.00###`, corpus PR 1652).
+        if c.field_unit_amount_format {
+            al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportColumnFieldUnitAmountFormat);
+            let expr = from_field("AutoFormatExpression");
+            return column_formatter(None, field_type.as_deref(), expr.as_deref(), None);
         }
         of_column(c, from_field("DecimalPlaces").as_deref())
     }

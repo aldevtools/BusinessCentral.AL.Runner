@@ -1,0 +1,4 @@
+# key	entry
+NB Dot Tests::ParentItemDotted_Labels	ASSUMED report-column-dotted-item-qualifier (corpus PR 1652, merged, not yet pinned)
+NB Dot AutoFormat Cap Tests::OwnItemDotted_AutoFormatSubscriberIncludeCaption	REFUSED the decimalformatter of a report column: AutoFormatType 1 while
+NB Dot Unit Cap Tests::UnitAmountField_AutoFormatSubscriber	REFUSED the decimalformatter of a report column: AutoFormatType 2 while
