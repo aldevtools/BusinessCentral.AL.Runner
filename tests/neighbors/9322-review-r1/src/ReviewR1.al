@@ -246,3 +246,24 @@ codeunit 91672 "PZR N TempBlobControl"
         Rep.Measured('x', Converter.ToBase64(InS, true));
     end;
 }
+
+codeunit 91673 "PZR N OtherAscii"
+{
+    Subtype = Test;
+
+    // 100 ASCII bytes other than 'A': inside the entry ("one WriteText of 100 ASCII bytes"), served on BC 28 as the repro.
+    [Test]
+    procedure OtherAsciiContent()
+    var
+        Converter: Codeunit "Base64 Convert";
+        Rep: Codeunit "PZR Report";
+        OutS: OutStream;
+        InS: InStream;
+        Holder: Record "PZR Holder";
+    begin
+        Holder.Data.CreateOutStream(OutS);
+        OutS.WriteText(PadStr('', 100, 'z'));
+        Holder.Data.CreateInStream(InS);
+        Rep.Measured('x', Converter.ToBase64(InS, true));
+    end;
+}
