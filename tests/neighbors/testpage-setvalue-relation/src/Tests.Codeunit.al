@@ -551,7 +551,8 @@ codeunit 70937 "NB TSV Tests"
         Seed();
         RequestCtl := 1;
         RequestTyped := 'mn';
-        Report.Run(Report::"NB TSV Request");
+        Commit();
+        Report.RunModal(Report::"NB TSV Request", true);
         Same(RequestReading, 'MNO');
     end;
 
@@ -562,7 +563,8 @@ codeunit 70937 "NB TSV Tests"
         Seed();
         RequestCtl := 2;
         RequestTyped := 'P1';
-        Report.Run(Report::"NB TSV Request");
+        Commit();
+        Report.RunModal(Report::"NB TSV Request", true);
         Same(RequestReading, 'P1');
     end;
 }
