@@ -1,0 +1,6 @@
+# key	entry
+NB Dot Tests::OwnItemDotted_Labels	PINNED tests/al-language/streams/P138ColCaptionQualified.al:251
+NB Dot Tests::OwnItemDotted_Columns	PINNED tests/al-language/reports/dataset/DatasetDecimalPlacesValueOrigins.al:216
+NB Dot Tests::ParentItemDotted_Labels	PINNED tests/al-language/streams/P138ColCaptionQualified.al:182
+NB Dot Tests::GlobalRecordQualifier_Labels	REFUSED report column GlobalName: IncludeCaption on a column that is not one field
+NB Dot Tests::OwnItemDotted_DecimalFormatter	PINNED tests/al-language/reports/dataset/DatasetDecimalPlacesValueOrigins.al:216
