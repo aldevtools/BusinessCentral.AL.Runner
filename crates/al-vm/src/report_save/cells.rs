@@ -336,7 +336,11 @@ fn unsupported_rows(t: &mut Vec<Cell>) {
             },
             ..base
         };
-        t.push(refuse_statement(cell_key));
+        // The statement of an Excel layout as Pdf or Word has its measured row (`cells_platform_first`); any other statement
+        // shape of those cells finds no row and is refused as not measured.
+        if !(kind == Kind::Excel && matches!(format, Format::Pdf | Format::Word)) {
+            t.push(refuse_statement(cell_key));
+        }
         let file = Key {
             answer: Is(AnswerForm::Used),
             target: Is(Target::File),
