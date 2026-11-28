@@ -27,9 +27,8 @@
 //! PR 1490) for the measured shapes (a dependency app's codeunit of the subscriber's app or one it
 //! depends on, measured global types or Microsoft's 3702/3703, at most two subscribers of different
 //! apps that change different globals), through the entries of corpus PR 1571 for Microsoft's
-//! measured caches, 3702 filled by two subscribers of one app and a load-once memo of the measured
-//! shape (`login_memo.rs`, `partner_memo_once.rs`; each subscriber runs under al-vm's watch of the
-//! `Global Triggers` raises that changed a global); the own subscribers' changes are noted by `own_step` and
+//! measured caches and 3702 filled by two subscribers of one app (`login_memo.rs`; each subscriber
+//! runs under al-vm's watch of the `Global Triggers` raises that changed a global of those codeunits); the own subscribers' changes are noted by `own_step` and
 //! refuse a codeunit a partner subscriber changed too), otherwise marked so that every read of one of
 //! its globals is refused, from any code (al-vm `single_unmeasured.rs`; al-runner issue 8239), the
 //! session language, WorkDate and the bindings refuse the codeunit, session-open code after them that
@@ -69,8 +68,8 @@ struct Change {
     app: Option<u32>,
     /// The globals (index) it changed.
     globals: BTreeSet<usize>,
-    /// It changed one of them inside a raise of a `Global Triggers` event.
-    in_raise: bool,
+    /// It changed each of them outside any `Global Triggers` raise only ([`By::outside_raises_only`]).
+    outside_only: bool,
 }
 
 /// One partner login subscriber's change of a SingleInstance codeunit, as [`kept`] judges it.
@@ -79,22 +78,22 @@ pub(crate) struct By<'a> {
     pub app: u32,
     /// The globals (index) it changed.
     pub globals: &'a BTreeSet<usize>,
-    /// Global -> the lower-case names of the `Global Triggers` events whose outermost raise changed it; a global it changed
-    /// outside any such raise is not here (al-vm `RaiseChanges`).
+    /// Global -> where it changed (al-vm `RaiseChanges`: the `Global Triggers` raises running there, or the empty name
+    /// outside any raise); `None` for a codeunit the watch did not stamp (`login_memo::raise_watched`).
     pub raises: Option<&'a BTreeMap<usize, BTreeSet<String>>>,
 }
 
 impl By<'_> {
-    /// Whether it changed one of the globals inside a raise of a `Global Triggers` event.
-    pub fn in_raise(&self) -> bool {
-        self.raises.is_some_and(|r| !r.is_empty())
-    }
-
-    /// The events whose raise changed global `g`: empty when it changed outside any raise.
+    /// Where global `g` changed; empty for a codeunit the watch did not stamp.
     pub fn raised(&self, g: usize) -> Vec<&str> {
         (self.raises.and_then(|r| r.get(&g)).into_iter().flatten())
             .map(String::as_str)
             .collect()
+    }
+
+    /// Whether the watch stamped the codeunit and each changed global changed outside any raise only.
+    pub fn outside_raises_only(&self) -> bool {
+        self.globals.iter().all(|&g| self.raised(g) == [""])
     }
 }
 
@@ -267,10 +266,11 @@ pub(crate) fn raise(
     // The SingleInstance codeunits each subscriber changed, with the globals it changed, in the order they ran.
     // With the `Global Triggers` events whose raise changed each global (al-vm `RaiseChanges`).
     let mut singles_by: Vec<((usize, usize), Singles, al_vm::RaiseChanges)> = Vec::new();
+    let watched = crate::login_memo::raise_watched(lowered);
     crate::install::call_before_first_test(lowered, session, who, |s| {
         for sub in s.subscriber_order(po, step.event, &step.subscribers)? {
             let at = s.left_stamp();
-            s.watch_global_trigger_changes();
+            s.watch_global_trigger_changes(watched.clone());
             let raised = s.raise_to(po, pr, &[sub]);
             let raises = s.take_global_trigger_changes();
             raised?;
@@ -313,7 +313,7 @@ pub(crate) fn raise(
             earlier.push(Change {
                 app: Some(app),
                 globals: globals.clone(),
-                in_raise: by.in_raise(),
+                outside_only: by.outside_raises_only(),
             });
             match verdict {
                 Kept::Pinned => {}
@@ -359,7 +359,7 @@ pub(crate) fn own_step(
         earlier.push(Change {
             app: None,
             globals,
-            in_raise: false,
+            outside_only: false,
         });
         if partner_before {
             let what = "a subscriber of an app under test changed it after a partner subscriber did";
@@ -401,9 +401,7 @@ enum Kept {
 ///   `partner-login-env-info-pair`, 3702 changed by two subscribers of the same app, IsSandbox() first and IsSaaS() second,
 ///   both outside any `Global Triggers` raise (`login_memo::env_info_pair`, cell E1); `partner-login-microsoft-cache`, a
 ///   Microsoft cache codeunit other than 3702 and 3703 that no subscriber changed before, by id, exactly the changed globals
-///   and the raise each changed in (`login_memo::microsoft_cache_measured`, cells M1 to M4); `partner-login-load-once-memo`,
-///   a codeunit of the subscriber's own app of another publisher with a global of another type, that no subscriber changed
-///   before, of the shape of cell L1 (`partner_memo_once::kept`).
+///   and the raise each changed in (`login_memo::microsoft_cache_measured`, cells M1 to M4).
 fn kept(
     lowered: &Lowered,
     session: &mut Session,
@@ -450,10 +448,10 @@ fn kept(
             Change {
                 app: Some(a),
                 globals: first,
-                in_raise,
+                outside_only,
             },
         ] if *a == sub_app => {
-            let pair = !*in_raise && !by.in_raise();
+            let pair = *outside_only && by.outside_raises_only();
             return if pair && crate::login_memo::env_info_pair(lowered, memo, first, by.globals) {
                 Kept::Again(Assumption::PartnerLoginEnvInfoPair)
             } else {
@@ -487,18 +485,9 @@ fn kept(
     }
     let measured_type =
         |ty: &RtType| matches!(ty, RtType::Boolean | RtType::Integer | RtType::Text(None)) || *ty == list_of_text;
-    let Some(other) = globals.iter().find(|g| !measured_type(&g.ty)) else {
-        return Kept::Assumed(Assumption::PartnerLoginMemoKept);
-    };
-    let once = earlier.is_empty() && memo_app == sub_app;
-    match once.then(|| crate::partner_memo_once::kept(lowered, session, memo, by)) {
-        Some(Ok(())) => Kept::Assumed(Assumption::PartnerLoginLoadOnceMemo),
-        Some(Err(why)) => Kept::Refused(format!(
-            "its global {} is of a type other than Boolean, Integer, Text and List of [Text], and it is not a load-once \
-             memo of the measured shape: {why}",
-            other.name
-        )),
-        None => Kept::Refused(format!(
+    match globals.iter().find(|g| !measured_type(&g.ty)) {
+        None => Kept::Assumed(Assumption::PartnerLoginMemoKept),
+        Some(other) => Kept::Refused(format!(
             "its global {} is of a type other than Boolean, Integer, Text and List of [Text]",
             other.name
         )),

@@ -298,7 +298,6 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `login_replay/` (3 files): What the login replay check's report names: where two states differ, and the parts a new key differs in, never a value. Entry: `differences`, `KeyParts::of`. Files: `difference.rs`, `key_parts.rs`, `rows_digest.rs`
 - `login_start.rs`: Replaying the raised login from a kept start (opt-in). Entry: `replay`.
 - `partner_login.rs`: The partner dependency apps' "System… Entry: `subscribers`.
-- `partner_memo_once.rs`: A partner app's load-once memo filled through the Global Triggers events at login, of the measured shape. Entry: `kept`.
 - `license.rs`: Which BC license a run uses: `--license FILE`. Entry: `LicenseUse`.
 - `isolation.rs`: TestIsolation of the runner codeunit. Entry: `TestIsolation`.
 - `isolation/failed_test.rs`: What a failed test under TestIsolation = Codeunit… Entry: `CodeunitSequences`.

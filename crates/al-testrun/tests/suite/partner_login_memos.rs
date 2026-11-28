@@ -1,13 +1,14 @@
 //! The login memos of al-runner issue 8945: what a partner dependency app's login subscribers left in Microsoft's caches
-//! (stand-ins with the measured global names, in an app published as "Microsoft") and in a partner load-once memo, and
-//! which entry a later test read marks (corpus PR 1571, open: cells M1, M3, E1, L1). Every other shape refuses the read.
+//! (stand-ins with the measured global names, in an app published as "Microsoft"), and which entry a later test read marks
+//! (corpus PR 1571, merged, not yet pinned: cells M1, M3, M4, E1). Every other shape refuses the read.
 
 use al_sema::workspace::AppSource;
 use al_testrun::Outcome;
 use al_testrun::runtime::{CorpusRuntime, Manifest, RunOptions, SuiteRun};
 
 /// The stand-in "Microsoft" app: the login publisher, GlobalTriggerManagement passing the Global Triggers events on, a setup subscriber that turns on every database event (as Microsoft's
-/// Backup Management of the test libraries does), and memos with the globals of 423, 3702 and 9177.
+/// Backup Management of the test libraries does), and memos with the globals of 423 (loaded in the setup ask of table 60805
+/// and on every insert event), 3702, 6153 (asked on the insert event of table 60800) and 9177.
 const MS: &str = r#"
 codeunit 150 "System Initialization" { procedure Raise() begin OnAfterLogin(); end;
     [IntegrationEvent(false, false, false)] procedure OnAfterLogin() begin end; }
@@ -33,8 +34,18 @@ codeunit 423 "Change Log Management" { SingleInstance = true;
     var ChangeLogSetup: Record "Change Log Setup"; ChangeLogSetupRead: Boolean; MonitorSensitiveFieldSetupRead: Boolean;
     procedure Load() begin if ChangeLogSetupRead then exit; if ChangeLogSetup.Get() then; ChangeLogSetupRead := true; MonitorSensitiveFieldSetupRead := true; end;
     procedure IsRead(): Boolean begin exit(ChangeLogSetupRead); end;
+    procedure Reset() begin ChangeLogSetupRead := false; MonitorSensitiveFieldSetupRead := false; end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::GlobalTriggerManagement, 'OnAfterGetDatabaseTableTriggerSetup', '', false, false)]
+    local procedure S(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
+    begin if TableId = 60805 then Load(); end;
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
     local procedure DI(RecRef: RecordRef) begin Load(); end; }
+codeunit 6153 "API Webhook Notification Mgt." { SingleInstance = true;
+    var CachedApiSubscriptionEnabled: Boolean; UseCachedApiSubscriptionEnabled: Boolean;
+    procedure Ask() begin if UseCachedApiSubscriptionEnabled then exit; UseCachedApiSubscriptionEnabled := true; CachedApiSubscriptionEnabled := true; end;
+    procedure Asked(): Boolean begin exit(UseCachedApiSubscriptionEnabled); end;
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
+    local procedure DI(RecRef: RecordRef) begin if RecRef.Number = 60800 then Ask(); end; }
 codeunit 3702 "Environment Information Impl." { SingleInstance = true;
     var IsSaasInitialized: Boolean; IsSaaSConfig: Boolean; IsSandboxConfig: Boolean; IsSandboxInitialized: Boolean;
     procedure IsSaaS(): Boolean begin if not IsSaasInitialized then begin IsSaasInitialized := true; IsSaaSConfig := true; end; exit(IsSaaSConfig); end;
@@ -46,10 +57,9 @@ codeunit 9177 "Application Area Cache" { SingleInstance = true;
     procedure Areas(): Text var T: Text; begin if ApplicationAreaCache.Get('User:', T) then; exit(T); end; }
 "#;
 
-/// The partner app: two login subscribers with bodies `first` and `second` (empty: none), a table they may write, and the
-/// load-once memo of cell L1 reached through a wrapper's events, with `guard` at the start of its write subscriber and
-/// `on_load` after it sets Loaded.
-fn partner(first: &str, second: &str, guard: &str, on_load: &str) -> String {
+/// The partner app: two login subscribers with bodies `first` and `second` (empty: none) and the tables they may write:
+/// PTab (60800), PAsk (60805, whose setup ask loads 423).
+fn partner(first: &str, second: &str) -> String {
     let sub = |id: u32, body: &str| {
         if body.is_empty() {
             return String::new();
@@ -58,36 +68,15 @@ fn partner(first: &str, second: &str, guard: &str, on_load: &str) -> String {
             "codeunit {id} PLogin{id} {{
                 [EventSubscriber(ObjectType::Codeunit, Codeunit::\"System Initialization\", 'OnAfterLogin', '', false, false)]
                 local procedure L() var E: Codeunit \"Environment Information Impl.\"; C: Codeunit \"Change Log Management\";
-                    A: Codeunit \"Application Area Cache\"; P: Record PTab; S: Record \"Change Log Setup\"; begin {body} end; }}"
+                    A: Codeunit \"Application Area Cache\"; W: Codeunit \"API Webhook Notification Mgt.\"; P: Record PTab;
+                    Q: Record PAsk; S: Record \"Change Log Setup\"; begin {body} end; }}"
         )
     };
     format!(
         r#"{}
 {}
 table 60800 PTab {{ fields {{ field(1; K; Integer) {{ }} }} keys {{ key(PK; K) {{ }} }} }}
-table 60803 PSetup {{ fields {{ field(1; "Table Id"; Integer) {{ }} }} keys {{ key(PK; "Table Id") {{ }} }} }}
-table 60804 PSub {{ fields {{ field(1; "Code"; Code[20]) {{ }} field(2; "Company Name"; Text[30]) {{ }} }} keys {{ key(PK; "Code", "Company Name") {{ }} }} }}
-codeunit 60810 PWrapper {{
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::GlobalTriggerManagement, 'OnAfterGetDatabaseTableTriggerSetup', '', false, false)]
-    local procedure S(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
-    begin OnWrapperSetup(TableId); end;
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::GlobalTriggerManagement, 'OnAfterOnDatabaseInsert', '', false, false)]
-    local procedure I(RecRef: RecordRef) begin OnWrapperWrite(RecRef.Number); end;
-    [IntegrationEvent(false, false)] procedure OnWrapperSetup(TableId: Integer) begin end;
-    [IntegrationEvent(false, false)] procedure OnWrapperWrite(TableId: Integer) begin end; }}
-codeunit 60811 PMemo {{ SingleInstance = true;
-    var TempSetup: Record PSetup temporary; TempSub: Record PSub temporary; Checked: Boolean; Activated: Boolean; Loaded: Boolean; LoadTable: Integer;
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::PWrapper, 'OnWrapperSetup', '', false, false)]
-    local procedure WS(TableId: Integer) var Setup: Record PSetup;
-    begin if not Checked then begin Checked := true; Activated := not Setup.IsEmpty(); end; if not Activated then exit; end;
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::PWrapper, 'OnWrapperWrite', '', false, false)]
-    local procedure WW(TableId: Integer)
-    begin {guard} if not Loaded then begin Loaded := true; {on_load} LoadTemps(); end; if not TempSetup.Get(TableId) then exit; end;
-    local procedure LoadTemps() var Setup: Record PSetup;
-    begin TempSetup.DeleteAll(); if Setup.FindSet() then repeat TempSetup := Setup; TempSetup.Insert(); until Setup.Next() = 0;
-        Clear(TempSub); TempSub.SetFilter("Company Name", '=%1', ''); end;
-    procedure IsLoaded(): Boolean begin exit(Loaded and Checked); end;
-    procedure Raw(): Text begin exit(Format(Loaded) + Format(Checked) + Format(Activated) + Format(TempSub.GetFilters())); end; }}
+table 60805 PAsk {{ fields {{ field(1; K; Integer) {{ }} }} keys {{ key(PK; K) {{ }} }} }}
 "#,
         sub(60801, first),
         sub(60802, second)
@@ -100,7 +89,7 @@ fn tests(body: &str) -> String {
         "codeunit 60911 Inst {{ Subtype = Install; trigger OnInstallAppPerCompany() begin end; }}
         codeunit 60951 A {{ Subtype = Test;
             [Test] procedure Read() var E: Codeunit \"Environment Information Impl.\"; C: Codeunit \"Change Log Management\";
-                A: Codeunit \"Application Area Cache\"; M: Codeunit PMemo; begin {body} end; }}"
+                A: Codeunit \"Application Area Cache\"; W: Codeunit \"API Webhook Notification Mgt.\"; begin {body} end; }}"
     )
 }
 
@@ -181,7 +170,7 @@ const READ_423: &str = "if not C.IsRead() then Error('not read');";
 #[test]
 fn application_area_cache_filled_directly_is_kept() {
     let got = run(
-        &partner("A.Fill();", "", "", ""),
+        &partner("A.Fill();", ""),
         "if A.Areas() <> '#Basic' then Error('areas');",
     );
     assert_flagged(got, "partner-login-microsoft-cache");
@@ -190,15 +179,55 @@ fn application_area_cache_filled_directly_is_kept() {
 // Cell M3 (ChangeLog_AfterLogin): 423 loads on the database insert event of the subscriber's write, the setup inactive.
 #[test]
 fn change_log_loaded_on_the_insert_event_is_kept() {
-    let got = run(&partner("P.K := 1; P.Insert();", "", "", ""), READ_423);
+    let got = run(&partner("P.K := 1; P.Insert();", ""), READ_423);
     assert_flagged(got, "partner-login-microsoft-cache");
+}
+
+// Cell M3 in the plain job (LmLoginCacheTests.al:570-581): 423 loads in the setup ask of the login's first write; the test
+// session asks it again after the install sessions did (Y69InstallTriggerSetup.al:134).
+#[test]
+fn change_log_loaded_in_the_setup_ask_is_kept() {
+    let got = run(&partner("Q.K := 1; Q.Insert();", ""), READ_423);
+    assert_flagged(got, "partner-login-microsoft-cache");
+}
+
+// Review of al-runner PR 9028: a cache the setup ask loads, with a test that loads it again and checks it is read. The
+// login loaded it (the ask), so the read is kept, not refused.
+#[test]
+fn change_log_loaded_in_the_ask_then_loaded_by_the_test_is_kept() {
+    let got = run(
+        &partner("Q.K := 1; Q.Insert();", ""),
+        "C.Load(); if not C.IsRead() then Error('not read');",
+    );
+    assert_flagged(got, "partner-login-microsoft-cache");
+}
+
+// Not measured: 423 loaded by a direct call, reset, then loaded again on the insert event (changed outside a raise too).
+#[test]
+fn change_log_loaded_directly_then_on_insert_refuses() {
+    let first = "C.Load(); C.Reset(); P.K := 1; P.Insert();";
+    assert_refused(run(&partner(first, ""), READ_423), "not one of the caches");
+}
+
+// Cell M4 (ApiCache_CountingSubscriber): 6153 asked on the database insert event of the login's first write.
+#[test]
+fn api_cache_asked_on_the_insert_event_is_kept() {
+    let got = run(&partner(WRITE, ""), "if not W.Asked() then Error('api');");
+    assert_flagged(got, "partner-login-microsoft-cache");
+}
+
+// Not measured: 6153 asked by a direct call, outside any Global Triggers raise.
+#[test]
+fn api_cache_asked_outside_a_raise_refuses() {
+    let got = run(&partner("W.Ask();", ""), "if not W.Asked() then Error('api');");
+    assert_refused(got, "not one of the caches");
 }
 
 // Not measured: 423 loaded by a direct call, outside any Global Triggers raise.
 #[test]
 fn change_log_loaded_outside_a_raise_refuses() {
     assert_refused(
-        run(&partner("C.Load();", "", "", ""), READ_423),
+        run(&partner("C.Load();", ""), READ_423),
         "not one of the caches",
     );
 }
@@ -207,7 +236,7 @@ fn change_log_loaded_outside_a_raise_refuses() {
 #[test]
 fn change_log_loaded_with_a_setup_row_refuses() {
     let first = "S.\"Primary Key\" := ''; S.Insert(); P.K := 1; P.Insert();";
-    assert_refused(run(&partner(first, "", "", ""), READ_423), "not one of the caches");
+    assert_refused(run(&partner(first, ""), READ_423), "not one of the caches");
 }
 
 // Cell E1 (EnvInfo_AfterLogin): two subscribers of one app, IsSandbox() first, IsSaaS() second; the reads mark the pair's
@@ -215,7 +244,7 @@ fn change_log_loaded_with_a_setup_row_refuses() {
 #[test]
 fn env_info_split_over_two_subscribers_is_kept() {
     let got = run(
-        &partner("E.IsSandbox();", "E.IsSaaS();", "", ""),
+        &partner("E.IsSandbox();", "E.IsSaaS();"),
         "if not (E.IsSaaS() and E.IsSandbox()) then Error('env');",
     );
     assert_flagged(got, "partner-login-env-info-pair");
@@ -225,165 +254,13 @@ fn env_info_split_over_two_subscribers_is_kept() {
 #[test]
 fn env_info_split_in_the_other_order_refuses() {
     let got = run(
-        &partner("E.IsSaaS();", "E.IsSandbox();", "", ""),
+        &partner("E.IsSaaS();", "E.IsSandbox();"),
         "if not E.IsSaaS() then Error('env');",
     );
     assert_refused(got, "two subscribers of the same app");
 }
 
-const READ_MEMO: &str = "if not M.IsLoaded() then Error('memo');";
 const WRITE: &str = "P.K := 1; P.Insert();";
-
-// Cell L1 (L1Memo_AfterLogin), without the asked table kept: Checked and Loaded true, the sub temp filtered and empty.
-#[test]
-fn load_once_memo_of_the_measured_shape_is_kept() {
-    assert_flagged(
-        run(&partner(WRITE, "", "", ""), READ_MEMO),
-        "partner-login-load-once-memo",
-    );
-}
-
-// L1's own LoadTable: an Integer that holds the asked table, which differs between the kinds of session.
-#[test]
-fn load_once_memo_that_keeps_the_asked_table_refuses() {
-    let got = run(&partner(WRITE, "", "", "LoadTable := TableId;"), READ_MEMO);
-    assert_refused(got, "global LoadTable changed other than measured");
-}
-
-// A guard the probe's memo has not: the company name.
-#[test]
-fn load_once_memo_with_a_company_guard_refuses() {
-    let got = run(&partner(WRITE, "", "if CompanyName() = 'X' then exit;", ""), READ_MEMO);
-    assert_refused(got, "Database.CompanyName");
-}
-
-// Not L1's change set: the setup ask changed no Boolean in this login (Loaded and the temp alone).
-#[test]
-fn load_once_memo_without_a_change_in_the_setup_ask_refuses() {
-    let src = partner(WRITE, "", "", "").replace("Checked := true; ", "");
-    assert_refused(run(&src, READ_MEMO), "0 Boolean in the setup ask");
-}
-
-// Not L1's change set: a second Boolean set in the insert event.
-#[test]
-fn load_once_memo_with_a_second_insert_boolean_refuses() {
-    let src = partner(WRITE, "", "", "Extra := true;").replace("Loaded: Boolean;", "Loaded: Boolean; Extra: Boolean;");
-    assert_refused(run(&src, READ_MEMO), "2 Boolean in the insert event");
-}
-
-const WRAPPER_WRITE: &str = "begin OnWrapperWrite(RecRef.Number); end;";
-const WRAPPER_SETUP: &str = "begin OnWrapperSetup(TableId); end;";
-
-// L1's public readers: one copies a temporary global into a local (RawSetupRows of LmXaLoginCaches.al); the copy reads it.
-#[test]
-fn load_once_memo_with_a_public_reader_that_copies_a_temp_is_kept() {
-    let src = partner(WRITE, "", "", "").replace(
-        "procedure IsLoaded()",
-        "procedure Rows(): Integer var C: Record PSetup temporary; begin C.Copy(TempSetup, true); C.Reset(); exit(C.Count()); end;
-        procedure IsLoaded()",
-    );
-    assert_flagged(run(&src, READ_MEMO), "partner-login-load-once-memo");
-}
-
-// The probe's wrapper passes the trigger's arguments on and does nothing else; a guard in it is not measured.
-#[test]
-fn load_once_memo_behind_a_wrapper_with_a_temporary_guard_refuses() {
-    let src = partner(WRITE, "", "", "").replace(
-        WRAPPER_WRITE,
-        "begin if RecRef.IsTemporary then exit; OnWrapperWrite(RecRef.Number); end;",
-    );
-    assert_refused(run(&src, READ_MEMO), "wrapper");
-}
-
-#[test]
-fn load_once_memo_behind_a_wrapper_with_a_company_guard_refuses() {
-    let src = partner(WRITE, "", "", "").replace(
-        WRAPPER_SETUP,
-        "begin if CompanyName() = 'X' then exit; OnWrapperSetup(TableId); end;",
-    );
-    assert_refused(run(&src, READ_MEMO), "wrapper");
-}
-
-// The memo subscribes to the Global Triggers events itself: no wrapper, not the probe's path.
-#[test]
-fn load_once_memo_subscribed_to_global_triggers_directly_refuses() {
-    let src = partner(WRITE, "", "", "")
-        .replace(
-            "[EventSubscriber(ObjectType::Codeunit, Codeunit::PWrapper, 'OnWrapperWrite', '', false, false)]
-    local procedure WW(TableId: Integer)",
-            "[EventSubscriber(ObjectType::Codeunit, Codeunit::\"Global Triggers\", 'OnDatabaseInsert', '', false, false)]
-    local procedure WW(RecRef: RecordRef)",
-        )
-        .replace("TempSetup.Get(TableId)", "TempSetup.Get(RecRef.Number)");
-    assert_refused(run(&src, READ_MEMO), "wrapper");
-}
-
-// A public procedure the test calls writes a field of a temporary global (not a bare global assignment).
-#[test]
-fn load_once_memo_with_a_public_field_writer_refuses() {
-    let src = partner(WRITE, "", "", "").replace(
-        "procedure IsLoaded()",
-        "procedure SetSub() begin TempSub.\"Company Name\" := 'X'; end;
-        procedure IsLoaded()",
-    );
-    assert_refused(
-        run(&src, "if not M.IsLoaded() then Error('memo'); M.SetSub();"),
-        "changes a global",
-    );
-}
-
-// A public procedure moves a temporary global through a record method.
-#[test]
-fn load_once_memo_with_a_public_record_method_on_a_global_refuses() {
-    let src = partner(WRITE, "", "", "").replace(
-        "procedure IsLoaded()",
-        "procedure ResetSub() begin TempSub.Reset(); end;
-        procedure IsLoaded()",
-    );
-    assert_refused(
-        run(&src, "if not M.IsLoaded() then Error('memo'); M.ResetSub();"),
-        "changes a global",
-    );
-}
-
-// A public procedure reaches the local loader.
-#[test]
-fn load_once_memo_with_a_public_caller_of_the_loader_refuses() {
-    let src = partner(WRITE, "", "", "").replace(
-        "procedure IsLoaded()",
-        "procedure Reload() begin LoadTemps(); end;
-        procedure IsLoaded()",
-    );
-    assert_refused(
-        run(&src, "if not M.IsLoaded() then Error('memo'); M.Reload();"),
-        "changes a global",
-    );
-}
-
-// The loader inserts a row into a real table with its trigger: another object's code runs.
-#[test]
-fn load_once_memo_that_inserts_into_a_real_table_refuses() {
-    let src = partner(WRITE, "", "", "").replace(
-        "Clear(TempSub);",
-        "Setup.\"Table Id\" := 7; Setup.Insert(true); Clear(TempSub);",
-    );
-    assert_refused(run(&src, READ_MEMO), "Insert");
-}
-
-// The wrapper subscribes to the Global Triggers events itself, not to GlobalTriggerManagement's as the probe's does.
-#[test]
-fn load_once_memo_behind_a_wrapper_on_global_triggers_refuses() {
-    let src = partner(WRITE, "", "", "")
-        .replace(
-            "Codeunit::GlobalTriggerManagement, 'OnAfterGetDatabaseTableTriggerSetup'",
-            "Codeunit::\"Global Triggers\", 'GetDatabaseTableTriggerSetup'",
-        )
-        .replace(
-            "Codeunit::GlobalTriggerManagement, 'OnAfterOnDatabaseInsert'",
-            "Codeunit::\"Global Triggers\", 'OnDatabaseInsert'",
-        );
-    assert_refused(run(&src, READ_MEMO), "wrapper");
-}
 
 /// A Global Triggers subscriber of the partner app that calls IsSaaS() on the insert event.
 const SAAS_ON_INSERT: &str = "codeunit 60812 PSaaSOnInsert {
@@ -393,7 +270,7 @@ const SAAS_ON_INSERT: &str = "codeunit 60812 PSaaSOnInsert {
 // E1's pair, but the second change is made inside a Global Triggers raise.
 #[test]
 fn env_info_pair_with_a_change_inside_a_raise_refuses() {
-    let src = partner("E.IsSandbox();", WRITE, "", "") + SAAS_ON_INSERT;
+    let src = partner("E.IsSandbox();", WRITE) + SAAS_ON_INSERT;
     let got = run(&src, "if not (E.IsSaaS() and E.IsSandbox()) then Error('env');");
     assert_refused(got, "two subscribers of the same app");
 }
@@ -404,7 +281,7 @@ fn env_info_changed_by_a_third_subscriber_refuses() {
     let third = "codeunit 60813 PLogin60813 {
         [EventSubscriber(ObjectType::Codeunit, Codeunit::\"System Initialization\", 'OnAfterLogin', '', false, false)]
         local procedure L() var E: Codeunit \"Environment Information Impl.\"; begin E.ForgetSaaS(); end; }";
-    let src = partner("E.IsSandbox();", "E.IsSaaS();", "", "") + third;
+    let src = partner("E.IsSandbox();", "E.IsSaaS();") + third;
     let got = run(&src, "if not (E.IsSaaS() and E.IsSandbox()) then Error('env');");
     assert_refused(got, "subscribers");
 }

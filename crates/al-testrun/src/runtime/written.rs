@@ -2145,11 +2145,36 @@ pub(crate) fn settled_flags(lowered: &Lowered, object: usize) -> Vec<(usize, boo
             seen.insert(*g, None);
         }
     };
+    fn stmts(body: &[Stmt], f: &mut dyn FnMut(&Stmt)) {
+        for s in body {
+            f(s);
+            match s {
+                Stmt::If(_, a, b) => {
+                    stmts(a, f);
+                    stmts(b, f);
+                }
+                Stmt::While(_, b)
+                | Stmt::Repeat(b, _)
+                | Stmt::AssertError(b)
+                | Stmt::For { body: b, .. }
+                | Stmt::Foreach { body: b, .. } => stmts(b, f),
+                Stmt::Case {
+                    branches, otherwise, ..
+                } => {
+                    for (_, b) in branches {
+                        stmts(b, f);
+                    }
+                    stmts(otherwise, f);
+                }
+                _ => {}
+            }
+        }
+    }
     let mut clear_all = false;
     for rt in &obj.routines {
         // One read of each body, kept by nothing (`Body::read`).
         rt.body.read(|body| {
-            al_ir::types::for_each_stmt(body, &mut |s| match s {
+            stmts(body, &mut |s| match s {
                 Stmt::Assign(Place::Global(g), Expr::Const(Const::Boolean(v))) => {
                     let e = seen.entry(*g).or_insert(Some(*v));
                     if *e != Some(*v) {

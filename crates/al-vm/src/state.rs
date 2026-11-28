@@ -707,9 +707,8 @@ pub(crate) struct EventState {
     /// While the subscribers of `GetDatabaseTableTriggerSetup` answer for one table: that table (object index), for the read
     /// they make under a restricted set (permission_trigger_setup.rs).
     pub(crate) db_setup_table: Option<usize>,
-    /// While watched (`Session::watch_global_trigger_changes`): per SingleInstance codeunit and global, the `Global
-    /// Triggers` events whose outermost raise changed it (globaltriggers.rs). `None`: not watched.
-    pub(crate) global_raise_singles: Option<crate::globaltriggers::RaiseChanges>,
+    /// The watch of the `Global Triggers` raises, while one runs (raise_watch.rs). `None`: none runs.
+    pub(crate) raise_watch: Option<Box<crate::raise_watch::RaiseWatch>>,
     /// The trial runs of subscribers whose install order is not known (order_trial.rs).
     pub(crate) trial: crate::order_trial::TrialState,
     /// What the subscribers of `Global Triggers` answered, per table object (globaltriggers.rs).

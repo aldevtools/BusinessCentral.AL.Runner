@@ -20,8 +20,7 @@
 //! and session (AL Runner reads that in BC's `GetTriggersOnTable`); that `Insert(false)` and the
 //! other `RunTrigger = false` writes raise the database events too.
 //!
-//! Entry points: `global_setup`, `global_enabled`, `global_trigger`; `watch_global_trigger_changes` notes, per
-//! SingleInstance codeunit and global, the events whose raise changed it (al-runner issue 8945).
+//! Entry points: `global_setup`, `global_enabled`, `global_trigger`, `end_install_session_setups`.
 
 use crate::Session;
 use crate::dispatch::EventCall;
@@ -30,7 +29,6 @@ use al_builtins::describe::Describe;
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::value::Value;
 use al_data::TableDef;
-use std::collections::{BTreeMap, BTreeSet};
 
 /// What the subscribers of `Global Triggers` answered for one table.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -59,42 +57,17 @@ fn names(list: &[&str]) -> Vec<String> {
     list.iter().map(|n| n.to_string()).collect()
 }
 
-/// SingleInstance codeunit (object index) -> global (index) -> the lower-case names of the `Global Triggers` events whose
-/// outermost raise changed it ([`Session::take_global_trigger_changes`]).
-pub type RaiseChanges = BTreeMap<usize, BTreeMap<usize, BTreeSet<String>>>;
-
 impl Session {
     /// Raises a `Global Triggers` event. While the SQL counters log record methods, its AL code is not logged: it is part
-    /// of the record method that raised it (sqlcount.rs, `SqlCounters::mute_begin`). While watched
-    /// ([`Session::watch_global_trigger_changes`]), the SingleInstance globals the outermost raise changed are noted under
-    /// its event; a raise inside it is not stamped again.
+    /// of the record method that raised it (sqlcount.rs, `SqlCounters::mute_begin`). Its start and end are boundaries of
+    /// the raise watch, when one runs (raise_watch.rs).
     fn raise_global(&mut self, call: &EventCall, args: &mut [Value]) -> Result<(), Signal> {
-        let watched = self.events.global_raise_singles.take();
-        let before = watched.as_ref().map(|_| self.left_stamp());
+        self.raise_watch_boundary(Some(call.event));
         let m = self.sql.mute_begin(self.calls_made);
         let r = self.raise(call, args);
         self.sql.mute_end(m, self.calls_made);
-        if let (Some(mut seen), Some(before)) = (watched, before) {
-            for (o, globals) in before.changed(&self.left_stamp()).singles {
-                let memo = seen.entry(o).or_default();
-                for g in globals {
-                    memo.entry(g).or_default().insert(call.event.to_string());
-                }
-            }
-            self.events.global_raise_singles = Some(seen);
-        }
+        self.raise_watch_boundary(None);
         r
-    }
-
-    /// From now on, notes per SingleInstance codeunit and global the `Global Triggers` events whose raise changes it
-    /// (al-testrun `partner_login::raise`, al-runner issue 8945), until [`Session::take_global_trigger_changes`].
-    pub fn watch_global_trigger_changes(&mut self) {
-        self.events.global_raise_singles = Some(RaiseChanges::new());
-    }
-
-    /// What [`Session::watch_global_trigger_changes`] noted since it began; ends the watch.
-    pub fn take_global_trigger_changes(&mut self) -> RaiseChanges {
-        self.events.global_raise_singles.take().unwrap_or_default()
     }
 
     /// The install sessions ended and the test session follows: what the subscribers answered there is gone, and the test
@@ -314,66 +287,5 @@ impl Session {
             raised?;
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use al_testkit::Built;
-
-    /// A memo the setup ask changes (`Asked`), one an `OnDatabaseInsert` subscriber changes (`Seen`), and one the writer
-    /// changes itself outside any raise (`Direct`).
-    const SRC: &str = r#"
-table 50401 Watched { fields { field(1; "No."; Integer) { } } keys { key(PK; "No.") { } } }
-codeunit 50402 Memo
-{
-    SingleInstance = true;
-    var Asked: Boolean; Seen: Boolean; Direct: Boolean;
-    procedure Ask() begin Asked := true; end;
-    procedure See() begin Seen := true; end;
-    procedure Write() begin Direct := true; end;
-}
-codeunit 50403 GT
-{
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'GetDatabaseTableTriggerSetup', '', false, false)]
-    local procedure Setup(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
-    var M: Codeunit Memo;
-    begin
-        if TableId <> Database::Watched then exit;
-        M.Ask();
-        OnDatabaseInsert := true;
-    end;
-    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Global Triggers", 'OnDatabaseInsert', '', false, false)]
-    local procedure DI(RecRef: RecordRef) var M: Codeunit Memo; begin M.See(); end;
-}
-codeunit 50404 Writer
-{
-    procedure Run() var W: Record Watched; M: Codeunit Memo; begin M.Write(); W."No." := 1; W.Insert(); end;
-}
-"#;
-
-    // al-runner issue 8945: the partner login gate tells a memo the setup ask changed from one a database event changed and
-    // from one changed outside any `Global Triggers` raise.
-    #[test]
-    fn the_watch_notes_each_changed_global_under_the_raise_that_changed_it() {
-        let mut b = Built::from_source(SRC);
-        b.session.watch_global_trigger_changes();
-        b.run_in("Writer", "Run").unwrap();
-        let noted = b.session.take_global_trigger_changes();
-        let (memo, _) = b.routine_in("Memo", "Ask");
-        let by_global: Vec<(usize, Vec<String>)> = (noted.get(&memo).into_iter().flatten())
-            .map(|(g, events)| (*g, events.iter().cloned().collect()))
-            .collect();
-        assert_eq!(
-            by_global,
-            vec![
-                (0, vec!["getdatabasetabletriggersetup".to_string()]),
-                (1, vec!["ondatabaseinsert".to_string()]),
-            ]
-        );
-        assert!(
-            b.session.take_global_trigger_changes().is_empty(),
-            "the take ends the watch"
-        );
     }
 }

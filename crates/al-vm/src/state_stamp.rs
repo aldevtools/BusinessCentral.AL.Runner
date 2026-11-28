@@ -77,7 +77,7 @@ pub struct LeftStamp {
 }
 
 /// One SingleInstance codeunit's instance in a [`LeftStamp`].
-struct Single {
+pub(crate) struct Single {
     /// The fingerprint of each global.
     globals: Vec<crate::single_track::Fp>,
     /// Per global: it holds what a fresh instance of the codeunit holds ([`Session::at_declared`]). Empty when the instance has
@@ -137,30 +137,7 @@ impl LeftStamp {
         } else {
             None
         };
-        let objects: BTreeSet<usize> = self.singles.keys().chain(later.singles.keys()).copied().collect();
-        let singles = objects
-            .into_iter()
-            .filter_map(|o| {
-                let changed = match (self.singles.get(&o), later.singles.get(&o)) {
-                    (Some(x), Some(y)) if x.globals.len() == y.globals.len() => {
-                        // Two values that each hold what a fresh one holds hold the same, also where neither has a
-                        // comparable form (an untouched temporary record, `untouched_temp`).
-                        let both_declared =
-                            |g: usize| x.declared.get(g) == Some(&true) && y.declared.get(g) == Some(&true);
-                        (0..x.globals.len())
-                            .filter(|&g| x.globals[g] != y.globals[g] && !both_declared(g))
-                            .collect()
-                    }
-                    (None, Some(y)) if y.declared.len() == y.globals.len() => {
-                        (0..y.declared.len()).filter(|&g| !y.declared[g]).collect()
-                    }
-                    (Some(x), _) => (0..x.globals.len()).collect(),
-                    (None, Some(y)) => (0..y.globals.len()).collect(),
-                    (None, None) => BTreeSet::new(),
-                };
-                (!changed.is_empty()).then_some((o, changed))
-            })
-            .collect();
+        let singles = singles_changed(&self.singles, &later.singles);
         let declared_form = (later.singles.iter())
             .filter(|(o, y)| y.declared_form && !self.singles.get(o).is_some_and(|x| x.declared_form))
             .map(|(o, _)| *o)
@@ -185,6 +162,38 @@ impl LeftStamp {
     }
 }
 
+/// The SingleInstance codeunits whose instance differs between `before` and `later`, each with the globals that differ
+/// ([`LeftChange::singles`]).
+pub(crate) fn singles_changed(
+    before: &BTreeMap<usize, Single>,
+    later: &BTreeMap<usize, Single>,
+) -> BTreeMap<usize, BTreeSet<usize>> {
+    let objects: BTreeSet<usize> = before.keys().chain(later.keys()).copied().collect();
+    objects
+        .into_iter()
+        .filter_map(|o| {
+            let changed = match (before.get(&o), later.get(&o)) {
+                (Some(x), Some(y)) if x.globals.len() == y.globals.len() => {
+                    // Two values that each hold what a fresh one holds hold the same, also where neither has a
+                    // comparable form (an untouched temporary record, `untouched_temp`).
+                    let both_declared =
+                        |g: usize| x.declared.get(g) == Some(&true) && y.declared.get(g) == Some(&true);
+                    (0..x.globals.len())
+                        .filter(|&g| x.globals[g] != y.globals[g] && !both_declared(g))
+                        .collect()
+                }
+                (None, Some(y)) if y.declared.len() == y.globals.len() => {
+                    (0..y.declared.len()).filter(|&g| !y.declared[g]).collect()
+                }
+                (Some(x), _) => (0..x.globals.len()).collect(),
+                (None, Some(y)) => (0..y.globals.len()).collect(),
+                (None, None) => BTreeSet::new(),
+            };
+            (!changed.is_empty()).then_some((o, changed))
+        })
+        .collect()
+}
+
 impl Session {
     /// Marks the reads of each SingleInstance codeunit of `change` that counted unchanged only through assumption
     /// clear-shared-codeunit ([`LeftChange::declared_form`]), when it carries no mark yet (`mark_single_assumed`).
@@ -196,7 +205,23 @@ impl Session {
 
     /// The state [`LeftStamp`] takes, now.
     pub fn left_stamp(&mut self) -> LeftStamp {
-        let made: Vec<(usize, Rc<RefCell<Instance>>)> = self.singletons.iter().map(|(&o, i)| (o, i.clone())).collect();
+        let singles = self.singles_of(None);
+        let group1 = self.global_group1.signatures();
+        LeftStamp {
+            state: self.state_stamp(),
+            singles,
+            bindings: self.bound_subscriptions(),
+            random: (self.randomized_with_seed, self.unseeded_randomizes, self.random_draws),
+            group1,
+        }
+    }
+
+    /// Each SingleInstance codeunit's instance as a [`LeftStamp`] holds it; with `only`, of those codeunits only.
+    pub(crate) fn singles_of(&mut self, only: Option<&BTreeSet<usize>>) -> BTreeMap<usize, Single> {
+        let made: Vec<(usize, Rc<RefCell<Instance>>)> = (self.singletons.iter())
+            .filter(|(o, _)| only.is_none_or(|set| set.contains(o)))
+            .map(|(&o, i)| (o, i.clone()))
+            .collect();
         let mut singles = BTreeMap::new();
         for (o, inst) in made {
             let engine = self.engine.clone();
@@ -236,14 +261,7 @@ impl Session {
                 },
             );
         }
-        let group1 = self.global_group1.signatures();
-        LeftStamp {
-            state: self.state_stamp(),
-            singles,
-            bindings: self.bound_subscriptions(),
-            random: (self.randomized_with_seed, self.unseeded_randomizes, self.random_draws),
-            group1,
-        }
+        singles
     }
 }
 
@@ -406,38 +424,6 @@ impl Session {
 }
 
 impl Session {
-    /// The value global `g` of the single instance of codeunit `memo` holds, read without the marks a read by name checks.
-    pub fn single_global(&self, memo: usize, g: usize) -> Option<Value> {
-        self.singletons.get(&memo)?.borrow().globals.get(g).cloned()
-    }
-
-    /// The filters of global `g` of the single instance of codeunit `memo`, when it is a temporary record that holds what a
-    /// fresh one holds except for its filters ([`Session::untouched_temp`]: a table nothing wrote, so no row, and nothing
-    /// else shares; [`same_view`] without the filters): al-testrun `partner_memo_once` compares them with the measured
-    /// filter. `None` otherwise.
-    pub fn single_temp_filters_only(&mut self, memo: usize, g: usize) -> Option<Vec<al_builtins::filter::FieldFilter>> {
-        let inst = self.singletons.get(&memo)?.clone();
-        let engine = self.engine.clone();
-        let slot = engine.program.objects.get(memo)?.globals.get(g)?;
-        let fresh = self.slot_defaults(std::slice::from_ref(slot)).pop()?;
-        let held = inst.borrow().globals.get(g)?.clone();
-        let (Value::Record(rc), Value::Record(f)) = (&held, &fresh) else {
-            return None;
-        };
-        let b = f.try_borrow().ok()?;
-        let (mut unfiltered, filters) = {
-            let a = rc.try_borrow().ok()?;
-            (a.clone(), a.filters.clone())
-        };
-        unfiltered.filters.clear();
-        // The variable and the clone `unfiltered` share the table: two sharers.
-        let fresh_but_filters = unfiltered.temporary
-            && b.temporary
-            && same_view(&unfiltered, &b)
-            && self.untouched_temp(rc, &unfiltered, &b, 2);
-        fresh_but_filters.then_some(filters)
-    }
-
     /// Whether `v`, an array of temporary records whose elements share one table, holds what `fresh` holds: no other variable
     /// holds the array, and each element holds what [`Session::untouched_temp`] reads as fresh, its table shared by the
     /// elements only.
@@ -1375,47 +1361,5 @@ codeunit 50113 TempDriver
             changed.get(&at).map(|g| g.iter().copied().collect::<Vec<_>>()),
             Some(vec![0])
         );
-    }
-
-    const FILTER_MEMO: &str = r#"
-table 50120 Sub { fields { field(1; "Code"; Code[20]) { } field(2; "Company Name"; Text[30]) { } } keys { key(PK; "Code", "Company Name") { } } }
-codeunit 50121 FMemo
-{
-    SingleInstance = true;
-    var TempSub: Record Sub temporary;
-    procedure Blank() begin Clear(TempSub); TempSub.SetFilter("Company Name", '=%1', ''); end;
-    procedure Two() begin Blank(); TempSub.SetFilter(Code, '=%1', ''); end;
-    procedure Written() begin Blank(); TempSub.Code := 'A'; TempSub.Insert(); TempSub.Delete(); end;
-    procedure Found() begin TempSub.Code := 'A'; TempSub.Insert(); Blank(); if TempSub.Get('A', '') then; end;
-    procedure Touch() begin end;
-}
-codeunit 50122 FDriver
-{
-    procedure Touch() var M: Codeunit FMemo; begin M.Touch(); end;
-    procedure Blank() var M: Codeunit FMemo; begin M.Blank(); end;
-    procedure Two() var M: Codeunit FMemo; begin M.Two(); end;
-    procedure Written() var M: Codeunit FMemo; begin M.Written(); end;
-    procedure Found() var M: Codeunit FMemo; begin M.Found(); end;
-}
-"#;
-
-    /// What `single_temp_filters_only` gives for FMemo's TempSub after `routine`: the number of filters, or `None`.
-    fn filters_after(routine: &str) -> Option<usize> {
-        let mut b = Built::from_source(FILTER_MEMO);
-        b.run_in("FDriver", routine).unwrap();
-        let (memo, _) = b.routine_in("FMemo", "Touch");
-        b.session.single_temp_filters_only(memo, 0).map(|f| f.len())
-    }
-
-    // Cell L1 of corpus PR 1571 (LmXaLoginCaches.al, LoadTemps of "LT LM XA L1 Memo"): Clear and one filter on an empty temporary record leave the
-    // view of a fresh one except for that filter; a second filter is two, and rows written (even deleted again) or a Get
-    // after a write are not the fresh rest.
-    #[test]
-    fn a_temporary_record_global_fresh_but_its_filters_gives_them() {
-        assert_eq!(filters_after("Touch"), Some(0));
-        assert_eq!(filters_after("Blank"), Some(1));
-        assert_eq!(filters_after("Two"), Some(2));
-        assert_eq!(filters_after("Written"), None);
-        assert_eq!(filters_after("Found"), None);
     }
 }
