@@ -8,7 +8,8 @@ pub(super) const XML_URI: &str = "http://www.w3.org/XML/1998/namespace";
 #[derive(Debug)]
 pub struct XmlCell {
     pub data: XData,
-    pub parent: Option<Weak<RefCell<LibraryValue>>>,
+    /// Held strongly, as BC keeps a node's document alive (`cycles` frees the cycle this makes).
+    pub parent: Option<Handle>,
     /// Set the first time the node gets a parent and never cleared: a node taken off its parent is not a new one
     /// (`never_attached`).
     pub had_parent: bool,
@@ -32,6 +33,9 @@ pub enum XData {
         /// Parsed from `<a></a>`: written with an end tag although empty (xml/TestProbeXmlContracts.al:
         /// WriteTo_EmptyElementFromParsedText); `<a/>` and a created element are written `<a />`.
         open: bool,
+        /// A child was inserted into it (`edit::insert`). IsEmpty answers from `open` only while this is false: an open
+        /// element that got a child is not measured and keeps the answer of an element without children.
+        filled: bool,
     },
     Attribute {
         prefix: String,
@@ -216,23 +220,18 @@ pub(super) fn with<T>(h: &Handle, f: impl FnOnce(&mut XData) -> T) -> T {
 
 pub(super) fn parent_of(h: &Handle) -> Option<Handle> {
     match &*h.borrow() {
-        LibraryValue::Xml(c) => c.parent.as_ref().and_then(Weak::upgrade),
+        LibraryValue::Xml(c) => c.parent.clone(),
         _ => None,
-    }
-}
-
-/// Whether `h` had a parent that no variable references any more.
-pub(super) fn parent_dropped(h: &Handle) -> bool {
-    match &*h.borrow() {
-        LibraryValue::Xml(c) => c.parent.as_ref().is_some_and(|w| w.upgrade().is_none()),
-        _ => false,
     }
 }
 
 pub(super) fn set_parent(child: &Handle, parent: Option<&Handle>) {
     if let LibraryValue::Xml(c) = &mut *child.borrow_mut() {
-        c.parent = parent.map(Rc::downgrade);
+        c.parent = parent.cloned();
         c.had_parent |= parent.is_some();
+    }
+    if parent.is_some() {
+        super::cycles::note(child);
     }
 }
 
@@ -244,8 +243,7 @@ pub(super) fn attribute_without_namespace(h: &Handle) -> bool {
     )
 }
 
-/// Whether `h` was made by a Create (or a copy) and never had a parent: neither attached now nor taken off one, nor left by a
-/// parent no variable references any more.
+/// Whether `h` was made by a Create (or a copy) and never had a parent: neither attached now nor taken off one.
 pub(super) fn never_attached(h: &Handle) -> bool {
     match &*h.borrow() {
         LibraryValue::Xml(c) => c.parent.is_none() && !c.had_parent,
@@ -305,6 +303,7 @@ pub(super) fn deep_clone(h: &Handle) -> Handle {
             attrs,
             children,
             open,
+            filled,
         } => XData::Element {
             prefix: prefix.clone(),
             local: local.clone(),
@@ -312,6 +311,7 @@ pub(super) fn deep_clone(h: &Handle) -> Handle {
             attrs: attrs.iter().map(deep_clone).collect(),
             children: children.iter().map(deep_clone).collect(),
             open: *open,
+            filled: *filled,
         },
         XData::Attribute {
             prefix,

@@ -147,6 +147,7 @@ impl Writer {
                 attrs,
                 children,
                 open,
+                ..
             } => Plan::Element {
                 prefix: prefix.clone(),
                 local: local.clone(),
@@ -428,7 +429,7 @@ pub(super) fn attribute_markup(h: &Handle) -> Option<Result<String, Signal>> {
         local
     } else if ns == XMLNS_URI && prefix == "xmlns" {
         format!("xmlns:{local}")
-    } else if !ns.is_empty() && prefix.is_empty() && parent_of(h).is_none() && !parent_dropped(h) {
+    } else if !ns.is_empty() && prefix.is_empty() && parent_of(h).is_none() {
         format!("p0:{local}")
     } else {
         return Some(unsupported(

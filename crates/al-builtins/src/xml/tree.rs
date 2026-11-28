@@ -4,7 +4,7 @@ use super::*;
 
 // ----- structure
 
-pub(super) fn add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+pub(super) fn add(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     // Add of one node to an unassigned XmlElement raises NotInitialized (xml/XmlElement.al:822 Default_Element_Uninitialized
     // `add`, an XmlText); other arguments are not pinned and stay refused below.
     if unassigned(&r, "XmlElement") && matches!(a, [Value::Library(_, v)] if is_xml(v)) {
@@ -14,6 +14,7 @@ pub(super) fn add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     reject_unassigned_element_content(&h, a, "Add")?;
     // A text given as a string joins the text node it follows; an XmlText node is its own node
     // (xml/TestProbeXmlContracts.al:AdjacentTextNodes_NotMerged).
+    let single_statement = matches!(a, [Value::Library(n, _)] if n.as_str() == "XmlElement") && !c.ret_used();
     let last = a.len().saturating_sub(1);
     for (i, arg) in a.iter().enumerate() {
         // An XmlWriteOptions after a node, given to Add of a document or an element, is accepted and adds nothing
@@ -41,11 +42,35 @@ pub(super) fn add(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
                 continue;
             }
         }
-        let nodes = content_nodes(std::slice::from_ref(arg))?;
+        let nodes: Vec<Handle> = content_nodes(std::slice::from_ref(arg))?
+            .into_iter()
+            .map(|n| self_copy(&h, n, single_statement))
+            .collect();
         reject_declaration_in_document(&h, &nodes)?;
         insert(&h, None, nodes)?;
     }
     Ok(Value::Boolean(true))
+}
+
+/// `E.Add(E)`, one argument typed XmlElement, the result unused, of a [`lone_created_element`] adds a copy of `E` as it
+/// was before the call, with no error (xml/XmlElement.al:455-466 Add_Self_Error: `<a>` then holds `<a />`). An element with a parent is already
+/// copied by `content_nodes`; every other self add is not pinned and keeps `check_fits`'s refusal.
+fn self_copy(container: &Handle, node: Handle, single_statement: bool) -> Handle {
+    if single_statement && Rc::ptr_eq(container, &node) && lone_created_element(&node) {
+        deep_clone(&node)
+    } else {
+        node
+    }
+}
+
+/// The element both pins of a lone element have (xml/XmlElement.al:455 Add_Self_Error, :653 Remove_Root_Lone): made by
+/// `XmlElement.Create(Name)` and never attached; no prefix, no namespace, no attribute, no child.
+fn lone_created_element(h: &Handle) -> bool {
+    never_attached(h)
+        && with(h, |d| {
+            matches!(d, XData::Element { prefix, ns, attrs, children, .. }
+                if prefix.is_empty() && ns.is_empty() && attrs.is_empty() && children.is_empty())
+        })
 }
 
 /// `Add` of an XML declaration to a document raises (a declaration comes with `Create` or `SetDeclaration`:
@@ -238,6 +263,7 @@ pub(super) fn add_before_self(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [V
 
 pub(super) fn remove(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     unassigned_element::check(&r, unassigned_element::Member::Remove, a, c.ret_used())?;
+    let element_receiver = matches!(r.as_deref(), Some(Value::Library(n, _)) if n.as_str() == "XmlElement");
     let h = recv_or_uninit(r, "XmlNode")?;
     // A declaration cannot be removed, from its document or detached; the document keeps it (xml/xml/
     // P104TreeBDecl.al:P104_Remove_InDoc).
@@ -254,10 +280,13 @@ pub(super) fn remove(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) ->
         // A node of these kinds without a parent (DocTypeNode.al:Remove_DetachedDocType, P90*Edit.al:Remove_Detached_Twice).
         // An attribute created alone or already removed from its element, statement form (xml/xml/P97AttrMisc.al:125
         // Remove_Detached `remove`, :98 Remove_Attached `remove_twice`; xml/XmlAttributes.al:422 Attribute_Parent_Remove
-        // `lone_remove`). An attribute whose element is no longer referenced is not one of them (`parent_dropped`).
+        // `lone_remove`).
         // Each pin's attribute has no prefix and no namespace.
-        let lone_attribute = attribute_without_namespace(&h) && !parent_dropped(&h);
-        if (detached_is_invalid(&h) || lone_attribute) && !c.ret_used() {
+        let lone_attribute = attribute_without_namespace(&h);
+        // A [`lone_created_element`] through an XmlElement variable, statement form (xml/XmlElement.al:653-656
+        // Remove_Root_Lone `lone_remove`).
+        let lone_element = element_receiver && lone_created_element(&h);
+        if (detached_is_invalid(&h) || lone_attribute || lone_element) && !c.ret_used() {
             return Err(error(
                 "The requested operation cannot be performed in this context.",
                 "InvalidOperation",
@@ -438,12 +467,7 @@ pub(super) fn get_document(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Valu
     let h = recv_or_uninit(r, "XmlNode")?;
     let root = root_of(&h);
     // BC keeps the document of a node alive after the last document variable is gone and answers Yes (xml/XmlElement.al:349
-    // Navigation_Parent_Document, xml/XmlNodes.al:363 Node_Navigation); the runtime holds parents weakly and cannot answer.
-    if parent_dropped(&root) {
-        return unsupported(
-            "GetDocument of a node whose document is no longer referenced (the runtime does not keep it)",
-        );
-    }
+    // Navigation_Parent_Document, xml/XmlNodes.al:363 Node_Navigation): a node holds its parent strongly (`cycles`).
     // A declaration belongs to no document as far as GetDocument goes (xml/xml/P104TreeBDecl.al:
     // P104_Remove_InDoc `document1`).
     if with(&h, |d| !matches!(d, XData::Declaration { .. })) && with(&root, |d| matches!(d, XData::Document { .. })) {
@@ -458,6 +482,11 @@ pub(super) fn get_document(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Valu
 }
 
 pub(super) fn get_parent(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    // GetParent of an unassigned XmlNode raises NotInitialized naming XmlNode (xml/XmlNodes.al:335 Node_Uninitialized
+    // `parent`, :342-343, the result used); the statement form is not pinned.
+    if unassigned(&r, "XmlNode") && c.ret_used() {
+        return Err(uninitialized("XmlNode"));
+    }
     let h = recv_or_uninit(r, "XmlNode")?;
     match parent_of(&h).filter(|p| with(p, |d| matches!(d, XData::Element { .. }))) {
         Some(p) => {

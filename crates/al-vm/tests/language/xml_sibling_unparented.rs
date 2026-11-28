@@ -48,16 +48,17 @@ fn a_document_raises_invalid_operation_but_an_unassigned_node_argument_first() {
 }
 
 #[test]
-fn an_element_whose_document_is_no_longer_referenced_is_refused() {
-    // xml/XmlElement.al:530: BC keeps the document of a root alive after the local document variable is gone; the
-    // runtime holds parents weakly, so the root would look parentless.
+fn a_root_whose_document_variable_is_gone_keeps_its_document() {
+    // xml/XmlElement.al:521-530 AddAfterSelf_Root_Error: BC keeps the document of a root alive after the local document
+    // variable is gone, so the root is a document's root, not a lone element, and its AddAfterSelf of a comment is the
+    // document's.
     let src = "codeunit 50100 C {
         local procedure Load(var Root: XmlElement) var Doc: XmlDocument; begin XmlDocument.ReadFrom('<a/>', Doc); Doc.GetRoot(Root); end;
-        procedure F(): Text var E: XmlElement; begin Load(E); E.AddAfterSelf(XmlComment.Create('c')); exit('ok'); end; }";
-    let r = al_testkit::run_with(src, "C", "F", vec![]).map(|(v, _)| v);
-    assert!(
-        matches!(&r, Err(al_builtins::native::Signal::Unsupported(m)) if m.contains("no longer referenced")),
-        "{r:?}"
+        procedure F(): Text var E: XmlElement; D: XmlDocument; S: Text; begin Load(E); E.AddAfterSelf(XmlComment.Create('c')); E.GetDocument(D); D.WriteTo(S); exit(S); end; }";
+    let r = al_testkit::run_with(src, "C", "F", vec![]).map(|(v, _)| al_testkit::text(Ok(v)));
+    assert_eq!(
+        r.ok().as_deref(),
+        Some("<?xml version=\"1.0\" encoding=\"utf-16\"?>\r\n<a />\r\n<!--c-->")
     );
 }
 

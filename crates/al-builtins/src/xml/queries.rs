@@ -48,7 +48,7 @@ node_kind!(is_cdata, as_cdata, "XmlCData");
 node_kind!(is_comment, as_comment, "XmlComment");
 node_kind!(is_declaration, as_declaration, "XmlDeclaration");
 node_kind!(is_doctype, as_doctype, "XmlDocumentType");
-node_kind!(is_document, as_document, "XmlDocument");
+node_kind!(is_document_node, as_document, "XmlDocument");
 node_kind!(is_element_node, as_element_node, "XmlElement");
 
 /// An unassigned or cleared XmlNode is no element, and AsXmlElement of it raises a Conversion error (corpus branch
@@ -77,7 +77,19 @@ node_kind!(is_pi, as_pi, "XmlProcessingInstruction");
 
 /// `IsXmlText` is true for a text node only; a CDATA section is not text
 /// (xml/TestXmlRuntimeContracts.al:XmlNode_CDataIsNotText).
+/// An unassigned XmlNode is no text and no document, with no error (xml/XmlNodes.al:331-332 Node_Uninitialized `is_text`,
+/// `is_doc`; IsXmlText also after a SelectSingleNode that found nothing, xml/XmlXPathNamespaces.al:690
+/// SelectSingleNode_Missing_Into_Unassigned). IsXmlElement has its own pin in `is_element`.
+pub(super) fn is_document(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
+    if unassigned(&r, "XmlNode") {
+        return Ok(Value::Boolean(false));
+    }
+    is_document_node(c, r, a)
+}
 pub(super) fn is_text(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
+    if unassigned(&r, "XmlNode") {
+        return Ok(Value::Boolean(false));
+    }
     let h = recv(r)?;
     Ok(Value::Boolean(kind(&h) == "XmlText"))
 }
@@ -111,7 +123,15 @@ pub(super) fn has_elements(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Valu
 
 pub(super) fn is_empty(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     unassigned_element::check(&r, unassigned_element::Member::IsEmpty, a, c.ret_used())?;
-    Ok(Value::Boolean(children_of(&recv(r)?).is_empty()))
+    let h = recv(r)?;
+    // xml/XmlElement.al:692-711 IsEmpty_States: `<a/>` and `<a x="1"/>` are empty, a parsed root `<a></a>` is not. Only
+    // the pin's element answers No: parsed open, no child added later (`filled`), no attribute, no namespace, the root of
+    // its document. Every other one is not measured and answers from its children, as every other node.
+    let parsed_open = with(&h, |d| {
+        matches!(d, XData::Element { open: true, filled: false, attrs, prefix, ns, .. }
+            if attrs.is_empty() && prefix.is_empty() && ns.is_empty())
+    }) && parent_of(&h).is_some_and(|p| with(&p, |d| matches!(d, XData::Document { .. })));
+    Ok(Value::Boolean(!parsed_open && children_of(&h).is_empty()))
 }
 
 pub(super) fn inner_text_fn(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {

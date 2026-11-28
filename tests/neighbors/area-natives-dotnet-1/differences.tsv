@@ -1,0 +1,21 @@
+# key	entry
+# A node holds its parent strongly: a parent reached only through its child's parent link stays alive, for every node kind
+# (one field, XmlCell.parent). Pinned by Child.GetDocument of a root whose document variable is gone.
+XN Xml Node Tests::GetDocument_DocumentVariableGone	PINNED tests/al-language/xml/XmlElement.al:349
+XN Xml Node Tests::GetDocument_ElementVariableAndDocumentGone	PINNED tests/al-language/xml/XmlElement.al:349
+XN Xml Node Tests::SelectSingleNode_AbsoluteFromRoot_DocumentVariableGone	PINNED tests/al-language/xml/XmlElement.al:349
+XN Xml Node Tests::SelectSingleNode_ParentAxisFromChild_ElementVariableGone	PINNED tests/al-language/xml/XmlElement.al:349
+XN Xml Node Tests::AttributeGetParent_ElementVariableGone	PINNED tests/al-language/xml/XmlElement.al:349
+XN Xml Node Tests::AttributeRemove_ElementVariableGone	PINNED tests/al-language/xml/XmlElement.al:349
+XN Xml Node Tests::AddAfterSelf_Comment_RootDocumentVariableGone	PINNED tests/al-language/xml/XmlElement.al:530
+XN Xml Node Tests::AddBeforeSelf_Comment_RootDocumentVariableGone	PINNED tests/al-language/xml/XmlElement.al:532
+# E.Add(E) and Remove of XmlElement.Create(Name) with no content, never attached. Other shapes refuse on both binaries.
+XN Xml Node Tests::SelfAdd_CreatedLone	PINNED tests/al-language/xml/XmlElement.al:460
+XN Xml Node Tests::LoneRemove_CreatedLone	PINNED tests/al-language/xml/XmlElement.al:655
+# Unassigned XmlNode. A cleared XmlNode reads as an unassigned one (UlClearXmlRef.al ClearXmlNode_SecondVariable).
+XN Xml Node Tests::Unassigned_GetParent_ResultUsed	PINNED tests/al-language/xml/XmlNodes.al:335
+XN Xml Node Tests::Unassigned_IsXmlText_IsXmlDocument	PINNED tests/al-language/xml/XmlNodes.al:331
+XN Xml Node Tests::Cleared_IsXmlText	PINNED tests/al-language/xml/xml/UlClearXmlRef.al:120
+# IsEmpty of a parsed root <a></a> without attribute or namespace, no child added. Every other shape keeps main's answer.
+XN Xml Node Tests::IsEmpty_ParsedOpenRoot	PINNED tests/al-language/xml/XmlElement.al:694
+XN Xml Node Tests::IsEmpty_ParsedOpenRoot_DocumentKept	PINNED tests/al-language/xml/XmlElement.al:694

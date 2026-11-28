@@ -58,6 +58,8 @@
 //! - `crates/al-builtins/src/instance_cycles.rs` `static MADE`, `static PRUNE_AT`, `static GUARDS`, `static LIVE`:
 //!   follows, an instance is made by `instance_cycles::shared`, and a thread frees its cycles at its end (`RunEnd`).
 //!   `static PAGE_INSTANCES`: run (a function registered once).
+//! - `crates/al-builtins/src/xml/cycles.rs` `static NOTED`, `static SWEEP_AT`: run, weak handles of XML nodes that got a
+//!   parent and the registry length of the next sweep; a sweep frees only nodes no variable reaches, so AL never sees it.
 //! - `crates/al-data/src/memory.rs` `static STORE_OPS`: follows, `SqlCounters::restore_left` reads it again.
 //! - `crates/al-builtins/src/filter.rs` `static DATE_CONTEXT`, `crates/al-builtins/src/placeholder_output.rs`
 //!   `static UNANSWERED`, `crates/al-builtins/src/stream.rs` `static OBSERVED`, `static OBSERVED_ANY`,

@@ -168,6 +168,9 @@ pub(super) fn insert(container: &Handle, at: Option<usize>, nodes: Vec<Handle>) 
                 });
             }
             _ => with(container, |d| {
+                if let XData::Element { filled, .. } = d {
+                    *filled = true;
+                }
                 if let XData::Document { children, .. } | XData::Element { children, .. } = d {
                     let pos = at.unwrap_or(children.len()).min(children.len());
                     children.insert(pos, n.clone());
@@ -234,13 +237,6 @@ pub(super) fn detached_is_invalid(h: &Handle) -> bool {
 ///   AddAfterSelf_Root_Error `lone_after`, `lone_before`; :601 ReplaceWith_Root_Unparented `lone`); other arguments are
 ///   not pinned.
 pub(super) fn unparented_sibling_error(h: &Handle, args: &[Value]) -> Signal {
-    // A node whose parent was dropped (a document held only by a local variable that went out of scope) still has
-    // that parent on BC, which keeps it alive; the runtime holds parents weakly and cannot answer for it.
-    if parent_dropped(h) {
-        return Signal::Unsupported(
-            "a sibling operation on a node whose parent is no longer referenced (the runtime does not keep it)".into(),
-        );
-    }
     let invalid = || {
         error(
             "The requested operation cannot be performed in this context.",

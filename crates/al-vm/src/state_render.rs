@@ -556,7 +556,7 @@ impl Render<'_> {
         let own = self.node(kind, lv, depth)?;
         let parent = match lv {
             LibraryValue::Json(c) => c.parent.as_ref().and_then(std::rc::Weak::upgrade),
-            LibraryValue::Xml(c) => c.parent.as_ref().and_then(std::rc::Weak::upgrade),
+            LibraryValue::Xml(c) => c.parent.clone(),
             _ => None,
         };
         match parent {
@@ -618,8 +618,9 @@ impl Render<'_> {
                     attrs,
                     children,
                     open,
+                    filled,
                 } => Ok(format!(
-                    "element {} attributes {} children {} open {open}",
+                    "element {} attributes {} children {} open {open} filled {filled}",
                     content(&(prefix, local, ns)),
                     kids(self, attrs)?,
                     kids(self, children)?

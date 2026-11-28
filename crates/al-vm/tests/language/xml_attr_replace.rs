@@ -1,7 +1,7 @@
 //! Attribute edits unmasked by the pinned XML name cells. XmlAttribute.ReplaceWith on an attribute of an element by new attributes
 //! (xml/XmlAttributes.al:463, xml/xml/P97AttrEdit.al:249 `t6`, :294 `t11`): the shapes the pins measured replace in place; their
 //! neighbors keep main's refusal. XmlElement.AddFirst of a new attribute (xml/XmlElement.al:384). XmlAttribute.Remove of an
-//! attribute whose element is no longer referenced keeps main's refusal.
+//! attribute whose element variable is gone removes it from that element.
 
 use al_builtins::native::Signal;
 
@@ -256,15 +256,13 @@ codeunit 69981 G
 }
 "#;
 
-/// The runtime holds parents weakly: an attribute whose element went out of scope is not a lone attribute, and its Remove
-/// keeps main's refusal.
+/// An attribute keeps its element alive after the element's variable is gone (a node holds its parent, as
+/// xml/XmlElement.al:349 Navigation_Parent_Document pins), so its Remove is the Remove of an attached attribute
+/// (xml/xml/P97AttrMisc.al:98 Remove_Attached `remove`): no error.
 #[test]
-fn remove_of_an_attribute_whose_element_is_gone_keeps_the_refusal() {
+fn remove_of_an_attribute_whose_element_variable_is_gone_removes_it() {
     let r = al_testkit::run_in(DROPPED, "G", "RemoveDropped");
-    assert!(
-        matches!(&r, Err(Signal::Unsupported(m)) if m.starts_with("Remove of a node without a parent")),
-        "{r:?}"
-    );
+    assert!(r.is_ok(), "{r:?}");
 }
 
 /// Every pin of Remove on a lone attribute has a plain one (xml/xml/P97AttrMisc.al:98, :125; xml/XmlAttributes.al:422): an

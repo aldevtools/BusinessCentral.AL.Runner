@@ -1,6 +1,6 @@
 //! `GetDocument` of a node whose document no variable references any more (xml/XmlElement.al:349, xml/XmlNodes.al:363):
-//! BC keeps that document alive and answers Yes; the runtime holds parents weakly, so it refuses there. A lone node and a
-//! node of a live document keep their answers.
+//! BC keeps that document alive and answers Yes, as the runtime does (a node holds its parent). A lone node and a node of a
+//! live document keep their answers.
 
 use al_builtins::native::Signal;
 
@@ -13,16 +13,14 @@ fn run(body: &str) -> Result<String, Signal> {
     al_testkit::run_with(&src, "C", "F", vec![]).map(|(v, _)| al_testkit::text(Ok(v)))
 }
 
-fn refused(r: &Result<String, Signal>) -> bool {
-    matches!(r, Err(Signal::Unsupported(m)) if m.contains("no longer referenced"))
-}
-
 #[test]
-fn get_document_of_a_node_whose_document_was_dropped_is_refused() {
-    let r = run("Load(E); exit(Format(E.GetDocument(D)));");
-    assert!(refused(&r), "{r:?}");
-    let r = run("Load(E); E.GetDocument(D); exit('ok');");
-    assert!(refused(&r), "{r:?}");
+fn get_document_of_a_node_whose_document_variable_is_gone_answers_yes() {
+    // xml/XmlElement.al:349-351 `c_doc` Yes, `c_doc_out` the whole document.
+    let r = run("Load(E); E.GetDocument(D); D.WriteTo(S); exit(Format(E.GetDocument(D)) + '|' + S);");
+    assert_eq!(
+        r.ok().as_deref(),
+        Some("Yes|<?xml version=\"1.0\" encoding=\"utf-16\"?>\r\n<a>\r\n  <b />\r\n</a>")
+    );
 }
 
 #[test]

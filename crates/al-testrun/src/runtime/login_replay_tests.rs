@@ -526,14 +526,26 @@ fn every_kind_of_value_the_login_leaves_compares_exactly() {
             (lines.iter()).find(|l| l.starts_with("instance ") && l.contains(&format!(" codeunit {id} globals")));
         line.unwrap_or_else(|| panic!("{id}: {lines:?}")).clone()
     }
-    // The instance line of codeunit `id` with the lines of the shared handles it names (`shared <n>`).
+    // The instance line of codeunit `id` with the lines of the shared handles it names (`shared <n>`), and of the ones
+    // those name in turn (an XML node shares its parent).
     fn held(firsts: &[(crate::login_replay::StartKey, crate::login_replay::LoginState)], k: usize, id: u32) -> String {
-        let line = of(firsts, k, id);
-        let shared = (firsts[k].1.state_lines().lines.iter()).filter(|l| {
-            let n = l.strip_prefix("shared ").and_then(|t| t.split(' ').next());
-            n.is_some_and(|n| line.contains(&format!("shared {n},")) || line.contains(&format!("shared {n}]")))
-        });
-        shared.fold(line.clone(), |all, l| format!("{all}\n{l}"))
+        let lines = &firsts[k].1.state_lines().lines;
+        let mut all = of(firsts, k, id);
+        loop {
+            let more: Vec<&String> = (lines.iter())
+                .filter(|l| {
+                    let n = l.strip_prefix("shared ").and_then(|t| t.split(' ').next());
+                    n.is_some_and(|n| all.contains(&format!("shared {n},")) || all.contains(&format!("shared {n}]")))
+                })
+                .filter(|l| !all.contains(l.as_str()))
+                .collect();
+            if more.is_empty() {
+                return all;
+            }
+            for l in more {
+                all = format!("{all}\n{l}");
+            }
+        }
     }
     // RecordRefs never opened render as that, and an array of them collapses into one run.
     let closed = of(&firsts, 0, 77432);
