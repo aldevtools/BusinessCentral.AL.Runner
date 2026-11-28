@@ -96,6 +96,41 @@ struct Entry {
     worker: WorkerReads,
 }
 
+/// The group 1 entries a session image of the login carries (`login_image/session_parts.rs`, [`Group1Filters::image`]),
+/// each filter as `F`: the image's own form, or a `FieldFilter` on the way in and out.
+pub(crate) struct ImagedEntries<F>(Vec<(u32, ImagedEntry<F>)>);
+
+/// One table's entry in [`ImagedEntries`]: an [`Entry`] with no reader and no pending clear.
+struct ImagedEntry<F> {
+    signature: String,
+    filters: Vec<F>,
+    ends: Ends,
+    setter: Option<VarKind>,
+    worker: WorkerReads,
+}
+
+impl<F> ImagedEntries<F> {
+    /// The entries with each filter through `f`; `None` when `f` gives none for one.
+    pub(crate) fn map<G>(&self, f: impl Fn(&F) -> Option<G>) -> Option<ImagedEntries<G>> {
+        let mut out = Vec::with_capacity(self.0.len());
+        for (t, e) in &self.0 {
+            let filters = e.filters.iter().map(&f).collect::<Option<Vec<G>>>()?;
+            let (signature, ends, setter, worker) = (e.signature.clone(), e.ends, e.setter, e.worker);
+            out.push((
+                *t,
+                ImagedEntry {
+                    signature,
+                    filters,
+                    ends,
+                    setter,
+                    worker,
+                },
+            ));
+        }
+        Some(ImagedEntries(out))
+    }
+}
+
 /// The kinds of variable FilterGroupOtherVariable.al set a group 1 filter with and read it through, each with its own
 /// readers ([`measured_read`]).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -157,8 +192,7 @@ impl Group1Filters {
     /// What a new session holds, every field: no table entry (not even one another record took back, which refuses the
     /// records that still hold filters), no install shape, no worker state (a table whose filter a worker ended still runs
     /// through the assumption) and no read with another record's filters. Stricter than [`Self::is_empty`], which install
-    /// code is held to: a session image of the login (issue 8211) carries none of this state, so a thawn session starts
-    /// from a new session's, and any of it left would be lost.
+    /// code is held to; what a thaw's target holds (`Session::thaw_target_why`): the thaw writes the entries only.
     pub(crate) fn as_new(&self) -> bool {
         let Group1Filters {
             filters,
@@ -176,6 +210,71 @@ impl Group1Filters {
             && worker_ended.is_empty()
             && !worker_alone
             && !sharing
+    }
+
+    /// The entries, for a session image of the login: `None` when the state holds more than entries no record refers to (an
+    /// install shape, a worker's notes, a read with another record's filters, a reader whose FindSet loop still lives, a
+    /// temporary record's clears still to run), which no image takes. An entry's readers that are gone match no record.
+    pub(crate) fn image(&self) -> Option<ImagedEntries<FieldFilter>> {
+        let Group1Filters {
+            filters,
+            shape,
+            worker_kept_aside,
+            worker_filtered,
+            worker_ended,
+            worker_alone,
+            sharing,
+        } = self;
+        let alone = matches!(shape, Group1InstallShape::Off)
+            && worker_kept_aside.is_empty()
+            && worker_filtered.is_empty()
+            && worker_ended.is_empty()
+            && !worker_alone
+            && !sharing;
+        if !alone {
+            return None;
+        }
+        let entry = |(&t, e): (&u32, &Entry)| {
+            let unread =
+                e.find_set_readers.iter().all(|w| w.strong_count() == 0) && e.temporary_not_at_clears.is_none();
+            unread.then(|| {
+                let (signature, filters) = (e.signature.clone(), e.filters.clone());
+                (
+                    t,
+                    ImagedEntry {
+                        signature,
+                        filters,
+                        ends: e.ends,
+                        setter: e.setter,
+                        worker: e.worker,
+                    },
+                )
+            })
+        };
+        filters
+            .by_table
+            .iter()
+            .map(entry)
+            .collect::<Option<Vec<_>>>()
+            .map(ImagedEntries)
+    }
+
+    /// Gives a session that holds a new session's group 1 state (`Session::thaw_target_why`) the entries of `image`.
+    pub(crate) fn give(&mut self, image: &ImagedEntries<FieldFilter>) {
+        self.filters.by_table = (image.0.iter())
+            .map(|(t, e)| {
+                let entry = Entry {
+                    signature: e.signature.clone(),
+                    filters: e.filters.clone(),
+                    ends: e.ends,
+                    setter: e.setter,
+                    find_set_readers: Vec::new(),
+                    temporary_not_at_clears: None,
+                    worker: e.worker,
+                };
+                (*t, entry)
+            })
+            .collect();
     }
 
     /// Some table holds a group 1 filter, or had one another record took back, or a worker runs without the test session's

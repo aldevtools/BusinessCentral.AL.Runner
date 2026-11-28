@@ -18,8 +18,8 @@
 //! - `refuse`: must hold a new session's value (the predicate next to it), else a session image of the login (issue
 //!   8211, `login_image.rs`) is not made ([`Session::image_refused_field`]). Install code that ran in a session of its
 //!   own is held to the same predicates ([`Session::install_refused_field`], [`Session::install_left`]), except those
-//!   marked `[image_only]`, which only the image requires, for the reason next to each. One marked `[image => ...]` holds
-//!   install code to its predicate and the image to the stricter one in the brackets besides.
+//!   marked `[image_only]`, which only the image requires, for the reason next to each. One marked `[install => ...]`
+//!   holds the image to its predicate and install code to the stricter one in the brackets besides.
 //! - `rest`: no code runs and nothing of a call is left (the predicate next to it); [`Session::at_rest_why`] names the
 //!   first that does not hold.
 //! - `own`: made from the engine, the host or the run's session flags before any code runs; each session keeps its own.
@@ -166,6 +166,11 @@ macro_rules! session_fields {
                 // The login replay key holds it in a field of its own (al-testrun `Key::test_codeunit`), not in the
                 // state lines, so the check can compare the logins of two test codeunits.
                 test_object [own_key_field],
+                // The run's one login a Disabled codeunit on the hub carried (`held_login.rs`): set by al-testrun
+                // `open_company` and carried by the baselines; an image keeps the target's own.
+                login_held,
+                // The session's data is what a test codeunit left (`Baseline::codeunit_left`): set by the baseline.
+                codeunit_left,
             }
             counter {
                 // Read only as a difference around one call, never by AL code: `page_run_close.rs`,
@@ -196,6 +201,10 @@ macro_rules! session_fields {
                 events,
                 // The live Temp Blob records; install code is held to `as_new` (`install_left`).
                 temp_blob_impl_fields,
+                // The group 1 entries: the image carries those no record refers to (`Group1Filters::image`), the thaw's
+                // target holds a new session's (`unwritten_fact_why`); install code leaves no table a group 1 filter
+                // (main's rule for it, `install_left`).
+                global_group1,
             }
             fresh {
                 spare_vecs,
@@ -242,10 +251,6 @@ macro_rules! session_fields {
                 scratch_messages => |s: &Session| s.scratch_messages.is_none(),
                 // Noted only under a `[Test]` method (`temp_blob_impl_field.rs`); the image carries none.
                 test_local_blob_fields => |s: &Session| s.test_local_blob_fields.as_new(),
-                // Install code leaves no table a group 1 filter (main's rule for it). The image carries none of the group 1
-                // state, so it requires all of it as new: a taken-back entry and the worker's notes change later calls too.
-                global_group1 [image => |s: &Session| s.global_group1.as_new()]
-                    => |s: &Session| s.global_group1.is_empty(),
                 capture => |s: &Session| s.capture.is_none(),
                 form => |s: &Session| s.form == crate::Form::Plain,
                 debug => |s: &Session| s.debug.is_none(),
@@ -266,7 +271,11 @@ macro_rules! session_fields {
                 // Set only by a test page call (`pages/part_update_left_view.rs`), which install code never makes.
                 test_filter_steps [image_only] => |s: &Session| s.test_filter_steps.is_none(),
                 pages => |s: &Session| crate::install_left::clients::pages_as_new(&s.pages),
-                coverage => |s: &Session| crate::install_left::clients::coverage_as_new(&s.coverage),
+                // The cell tap is report only and set from the run's flags (`observer_tap.rs`): the image takes a login
+                // whose tap recorded nothing, and the thaw's target keeps its own. Install code is held to a tap that is
+                // off besides.
+                coverage [install => |s: &Session| s.coverage.cells.is_none()]
+                    => |s: &Session| crate::install_left::clients::coverage_at_rest(&s.coverage),
                 report => |s: &Session| crate::install_left::clients::report_as_new(&s.report),
             }
             rest {
@@ -275,6 +284,9 @@ macro_rules! session_fields {
                 frames => |s: &Session| s.frames.is_empty(),
                 // Set and cleared around one interface call (`run_iface`): false whenever no call runs.
                 next_interface_call => |s: &Session| !s.next_interface_call,
+                // Set by `run_call` and taken by the callee's frame or cleared after the call: empty whenever no call
+                // runs.
+                next_own_locals => |s: &Session| s.next_own_locals.is_empty(),
                 xp_unlinked_passes => |s: &Session| s.xp_unlinked_passes.is_empty(),
                 xp_link_hidden => |s: &Session| s.xp_link_hidden.is_empty(),
                 call_stack => |s: &Session| s.call_stack.is_empty(),
@@ -300,6 +312,7 @@ macro_rules! session_fields {
                 ext_before_watch => |s: &Session| s.ext_before_watch.borrow().is_empty(),
                 shared_proc_xrec => |s: &Session| s.shared_proc_xrec.is_empty(),
                 iface_frames => |s: &Session| s.iface_frames.is_empty(),
+                run_callers => |s: &Session| s.run_callers.is_empty(),
                 field_error_form => |s: &Session| s.field_error_form.is_none(),
                 error_finals => |s: &Session| s.error_finals.is_none(),
                 var_alias_watch => |s: &Session| s.var_alias_watch.is_empty(),
@@ -385,7 +398,8 @@ macro_rules! session_classes {
         impl Session {
             /// The first field of the `refuse` class, or of the `own` class with a requirement, that does not hold what
             /// the session image of the login requires (`login_image.rs`); `None` when each does. Each predicate of the
-            /// class, those marked `[image_only]` and the stricter ones of `[image => ...]` included.
+            /// class, those marked `[image_only]` included, the install code's stricter ones of `[install => ...]` left
+            /// out.
             pub(crate) fn image_refused_field(&self) -> Option<&'static str> {
                 $(image_check!(self, $r $([$tag $(=> $ip)?])? => $rp);)*
                 $($(
@@ -426,15 +440,15 @@ macro_rules! session_classes {
     };
 }
 
-/// One `refuse` predicate in [`Session::install_refused_field`]: a predicate marked `[image_only]`, and the image's one
-/// of `[image => ...]`, is only type checked.
+/// One `refuse` predicate in [`Session::install_refused_field`]: a predicate marked `[image_only]` is only type checked;
+/// the stricter one of `[install => ...]` is checked after its predicate.
 macro_rules! install_check {
     ($s:expr, $r:ident [image_only] => $rp:expr) => {
         let _: fn(&Session) -> bool = $rp;
     };
-    ($s:expr, $r:ident [image => $ip:expr] => $rp:expr) => {
-        let _: fn(&Session) -> bool = $ip;
+    ($s:expr, $r:ident [install => $ip:expr] => $rp:expr) => {
         install_check!($s, $r => $rp);
+        install_check!($s, $r => $ip);
     };
     ($s:expr, $r:ident => $rp:expr) => {
         let holds: fn(&Session) -> bool = $rp;
@@ -444,15 +458,15 @@ macro_rules! install_check {
     };
 }
 
-/// One `refuse` entry in [`Session::image_refused_field`]: its predicate, and the stricter one of `[image => ...]` after
-/// it.
+/// One `refuse` entry in [`Session::image_refused_field`]: its predicate; the install code's one of `[install => ...]` is
+/// only type checked.
 macro_rules! image_check {
     ($s:expr, $r:ident [image_only] => $rp:expr) => {
         image_check!($s, $r => $rp);
     };
-    ($s:expr, $r:ident [image => $ip:expr] => $rp:expr) => {
+    ($s:expr, $r:ident [install => $ip:expr] => $rp:expr) => {
+        let _: fn(&Session) -> bool = $ip;
         image_check!($s, $r => $rp);
-        image_check!($s, $r => $ip);
     };
     ($s:expr, $r:ident => $rp:expr) => {
         let holds: fn(&Session) -> bool = $rp;

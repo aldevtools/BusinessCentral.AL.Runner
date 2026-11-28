@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 /// The protocol version the sidecar must speak.
-pub const PROTOCOL: u64 = 6;
+pub const PROTOCOL: u64 = 7;
 
 /// Where the sidecar and .NET are found and how a call is bounded.
 #[derive(Debug, Clone)]
@@ -1413,6 +1413,7 @@ fn reply_of(v: Value) -> Result<DotNetReply, DotNetFailure> {
             e[0].as_u64().unwrap_or(0),
             e[1].as_u64().unwrap_or(0) as usize,
             unbase64(e[2].as_str().unwrap_or("")),
+            al_host::dotnet::Rewrite::from_tag(e[3].as_str().unwrap_or("")),
         ));
     }
     fx.overwritten = s["overwritten"]
@@ -1571,6 +1572,7 @@ pub fn encode(v: &DotNetValue) -> Value {
         DotNetValue::InStreamAt { bytes, at } => json!({"t":"ins","v":base64(bytes),"p":at}),
         DotNetValue::OutStream => json!({"t":"outs"}),
         DotNetValue::OutStreamWith(b) => json!({"t":"outs","v":base64(b)}),
+        DotNetValue::OutStreamFresh(b) => json!({"t":"outs","v":base64(b),"fresh":true}),
     }
 }
 

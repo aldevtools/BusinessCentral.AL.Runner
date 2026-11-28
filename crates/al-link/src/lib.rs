@@ -1584,6 +1584,7 @@ mod tests {
             expr_tys: Vec::new(),
             reads_var_max_len: false,
             local: false,
+            internal: false,
         }
     }
 

@@ -23,7 +23,7 @@
 "crates/al-testrun/src/reach.rs::report" = 315
 "crates/al-testrun/src/runtime/corpus.rs::compile_suites_once" = 428
 "crates/al-testrun/src/runtime/corpus.rs::run_compiled_kept" = 831
-"crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 781
+"crates/al-testrun/src/runtime/run.rs::run_codeunit_inner" = 780
 "crates/al-version/src/gates.rs::evidence" = 433
 "crates/al-vm/src/exec/compile.rs::expr_into" = 315
 "crates/al-vm/src/exec/run.rs::run_range" = 338

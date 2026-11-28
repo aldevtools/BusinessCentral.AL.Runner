@@ -63,6 +63,7 @@ pub(super) const REGISTRY: &[(&str, NativeFn)] = &[
     ("System.EvaluateOptionField#1", crate::evaluate::evaluate_option_field),
     ("Blob.LengthSign#1", crate::stream::blob_length_sign),
     ("System.Abs#1", abs),
+    ("System.AbsFieldValue#1", abs_field_value),
     ("System.GetLastErrorText#1", get_last_error_text),
     (
         "System.GetLastErrorText#2",

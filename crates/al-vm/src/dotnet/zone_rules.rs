@@ -15,13 +15,16 @@
 //! `zone_datetime_kind`): `GetUtcOffset` of a zone the host holds reads an AL DateTime as a
 //! UTC moment (assumption `zone-datetime-utc-instant`); a DateTime whose origin is not an AL DateTime, a Date, and any
 //! other `TimeZoneInfo` member with a DateTime or Date argument are refused. The members of a DotNet DateTime that read
-//! its kind are refused too (`datetime_kind_member`, issue 9052): the runner does not track the kind.
+//! its kind are refused too (`datetime_kind_member`, issue 9052): the runner does not track the kind. Three of them give
+//! the same answer for every kind while the service tier's zone is UTC, as the runner's session zone is (al-host), and
+//! are answered here with no .NET call (`datetime_utc_zone_member`, assumption `dotnet-datetime-utc-zone-conversions`).
 //!
 //! Off Windows, the `TimeZoneInfo` checks that need the arguments (a zone passed as an argument,
 //! `GetUtcOffset`) run after the policy (issue 8012).
 
-use super::Target;
 use super::policy::Policy;
+use super::registry::MemberKind;
+use super::{TICKS_PER_MS, Target};
 use crate::Session;
 use crate::hostvalues::{day_number_of_unix_millis, unix_millis_of_datetime};
 use al_builtins::assumptions::{Assumption, assume};
@@ -32,6 +35,9 @@ use al_ir as ir;
 
 const ZONE: &str = "System.TimeZoneInfo";
 const DATE_TIME: &str = "System.DateTime";
+/// 1601-01-01T00:00:00 in .NET ticks, the start of a Windows file time (133182576000000000 is 2023-01-15T12:00:00Z,
+/// DotNetDateTimeKind.al:367).
+const FILE_TIME_EPOCH_TICKS: i64 = 504_911_232_000_000_000;
 
 impl Session {
     /// Whether this call may go to .NET as far as zone data is concerned; `Err` is the refusal reason.
@@ -148,7 +154,8 @@ impl Session {
     /// DotNet DateTime assigned from an AL DateTime the kind Utc (corpus pull request 1582, `kind_2023-01-15T12:00:00Z`:
     /// `ToString('o')` ends in `Z`, `Kind` is `Utc`); the runner keeps only the ticks of any DotNet DateTime and sends kind
     /// Unspecified. `Kind`, `ToUniversalTime`, `ToLocalTime`, `ToFileTime`, `ToBinary` and `ToString` with the round-trip
-    /// format (`o`, `O`) or a format that holds `K` or `z` read the kind. `Err` is the refusal reason.
+    /// format (`o`, `O`) or a format that holds `K` or `z` read the kind. `datetime_utc_zone_member` answers the measured
+    /// calls of three of them first. `Err` is the refusal reason.
     pub(super) fn datetime_kind_member(target: &Target, member: &str, values: &[Value]) -> Result<(), String> {
         let Target::Boxed(DotNetValue::DateTime(_), clr_type) = target else {
             return Ok(());
@@ -169,6 +176,40 @@ impl Session {
             ));
         }
         Ok(())
+    }
+
+    /// `ToUniversalTime()`, `ToLocalTime()` and `ToFileTime()` of a DotNet `System.DateTime` the variable holds, answered
+    /// without .NET (al-runner issues 9052, 9092; assumption `dotnet-datetime-utc-zone-conversions`, corpus pull request 1653,
+    /// tests/al-language-onprem-dotnet/dotnet/datetime-kind/DotNetDateTimeKind.al). The service tier's zone is UTC there
+    /// (Host_TimeZone_Facts :254) and the runner's session zone is always UTC (al-host `HostIdentity::time_zone`; the gate
+    /// does not read it), so the answer is the same for every kind: the probe's touniversal,
+    /// tolocal and tofiletime steps give the same moment for kind Utc (Origin_AlParam :367), Local (Origin_CtorLocal :457,
+    /// Now :280) and Unspecified (Origin_CtorUnspecified :421). The result DateTime goes back to AL as every .NET DateTime
+    /// does, without its kind. `None`: not one of these calls, or `ToFileTime` of a moment before 1601 (.NET raises there;
+    /// not measured), or the form without parentheses (`MemberKind::Get`; the probe calls with parentheses only), which keeps main's refusal (`datetime_kind_member`).
+    pub(super) fn datetime_utc_zone_member(
+        target: &Target,
+        kind: MemberKind,
+        member: &str,
+        values: &[Value],
+    ) -> Option<Value> {
+        let (Target::Boxed(DotNetValue::DateTime(ticks), clr_type), MemberKind::Call, []) = (target, kind, values)
+        else {
+            return None;
+        };
+        if !clr_type.eq_ignore_ascii_case(DATE_TIME) {
+            return None;
+        }
+        let answer = if member.eq_ignore_ascii_case("ToUniversalTime") || member.eq_ignore_ascii_case("ToLocalTime") {
+            // The same moment, read back as `wire_to_value` reads a .NET DateTime.
+            Value::DateTime(ticks.div_euclid(TICKS_PER_MS) + 1)
+        } else if member.eq_ignore_ascii_case("ToFileTime") && *ticks >= FILE_TIME_EPOCH_TICKS {
+            Value::BigInteger(ticks - FILE_TIME_EPOCH_TICKS)
+        } else {
+            return None;
+        };
+        assume(Assumption::DotnetDatetimeUtcZoneConversions);
+        Some(answer)
     }
 
     /// The year of the session clock, the one `CurrentDateTime` reads (no read: the clock does not move).

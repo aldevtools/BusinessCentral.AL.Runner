@@ -646,6 +646,24 @@ fn another_skipped_install_list_is_another_key() {
     );
 }
 
+// A login reads `SessionId()` and may write it into a row or a SingleInstance global: a session with another id (a
+// runner 130450 session after the held login, runtime/held_login.rs `own_session_id`) is another key.
+#[test]
+fn another_session_id_is_another_key() {
+    let (engine, _) = compiled();
+    let key_in = |id: Option<i32>| {
+        let host = al_host::Host::default().with_identity_overrides(al_host::IdentityOverrides {
+            session_id: id,
+            ..Default::default()
+        });
+        let mut session = al_vm::Session::with_host(engine.clone(), host);
+        session.commit_transaction();
+        Key::of(&mut session, Default::default(), SessionFlags::default(), &[]).expect("a key")
+    };
+    assert_eq!(key_in(Some(1001)), key_in(Some(1001)), "GUARD");
+    assert_ne!(key_in(None), key_in(Some(1001)));
+}
+
 /// [`OPAQUE_INSIDE`]'s holder kept from a codeunit's `OnRun`: run before the login, it leaves a SingleInstance global
 /// with no comparable form.
 const OPAQUE_BEFORE: &str = r#"

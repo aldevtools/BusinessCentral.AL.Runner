@@ -121,6 +121,10 @@ codeunit 50100 Keeper
     begin
         R.Get(5); R.CalcFields(Data); R.Data.CreateInStream(I, TextEncoding::UTF16); I.Read(T); exit(T);
     end;
+    // What a "System Initialization".OnAfterLogin subscriber of the corpus does in each session (G1sXaInstall.al:116-124,
+    // G1sInstallSessionTests.al:87-105): a group 1 filter through a local record, which the session keeps.
+    procedure SetGroup1() var R: Record Row; begin R.FilterGroup(1); R.SetFilter(Id, '>=3'); end;
+    procedure CountGroup1(): Text var R: Record Row; begin exit(Format(R.Count())); end;
     procedure ReadAccent(): Text begin Rec.SetRange(Name, 'é'); T1.SetRange(Name, 'é'); exit(Format(Rec.Count()) + '|' + Format(T1.Count())); end;
 }
 // "CLS SI Arr" of ClearSharedCodeunitTempArrayShare.al (SIArrNever_ :736): a SingleInstance codeunit whose global array of
@@ -715,6 +719,40 @@ fn a_handle_held_outside_the_globals_refuses() {
         .unwrap_or_else(|why| panic!("{}", why.reason()));
 }
 
+// The run's one login on the TestRunnerHub sets a group 1 filter in the corpus (al-testrun runtime/held_login.rs `thaw_held`): the image
+// carries it, and a later session reads it as the login's session does (here: the read another record's filter makes is
+// refused in both, FilterGroupOtherVariable.al measures no Count).
+#[test]
+fn a_group_1_filter_the_login_set_comes_back() {
+    let mut f = fx();
+    f.run("FillDatabase");
+    f.run("SetGroup1");
+    let mut twin = round_trip(&mut f.session);
+    let ours = outcome(&mut f.session, f.keeper, "CountGroup1");
+    let group1 = |s: &mut Session| s.state_lines().lines.into_iter().find(|l| l.starts_with("group1 "));
+    assert_ne!(
+        group1(&mut twin),
+        group1(&mut new_session(&f.session)),
+        "the twin holds the entry"
+    );
+    assert_eq!(outcome(&mut twin, f.keeper, "CountGroup1"), ours);
+}
+
+// What the image does not take of the group 1 state refuses it (an install shape here), and a session with a group 1
+// entry is no thaw target: the thaw writes the entries only.
+#[test]
+fn group_1_state_beyond_plain_entries_refuses_the_image_and_the_target() {
+    let mut f = fx();
+    f.session
+        .set_group1_install_shape(crate::group1_sessions::Group1InstallShape::InstallTrigger((
+            f.keeper, 0,
+        )));
+    assert_eq!(refused(&mut f), NotImaged::Field("global_group1"));
+    let mut g = fx();
+    g.run("SetGroup1");
+    assert_eq!(g.session.thaw_target_why(), Some("global_group1"));
+}
+
 #[test]
 fn a_session_that_is_not_at_rest_or_holds_refused_state_says_which() {
     let mut f = fx();
@@ -1062,6 +1100,29 @@ fn thaw_target_why_names_what_keeps_a_session_from_a_start() {
         s.thaw_target_why().is_some(),
         "a store watch keeps a session from a start"
     );
+}
+
+// The cell tap (`--junit`, `--cell-report`) is report only and set from the run's flags: a login whose tap recorded
+// nothing is imaged, a target with the tap on takes the image and keeps its own tap. A tap that recorded a cell still
+// refuses the image, and install code is still held to a tap that is off (`install_left`).
+#[test]
+fn a_cell_tap_that_recorded_nothing_is_imaged_and_the_target_keeps_its_own() {
+    let mut f = fx();
+    f.run("FillDatabase");
+    f.session.enable_cell_tap();
+    let image = image(&mut f.session);
+    let mut target = new_session(&f.session);
+    target.enable_cell_tap();
+    assert_eq!(target.thaw_target_why(), None);
+    target
+        .thaw_login_image(&image)
+        .expect("a target with the tap on takes the image");
+    assert!(target.coverage.cells.is_some(), "the target keeps its tap");
+    assert_eq!(target.install_refused_field(), Some("coverage"));
+    let mut g = fx();
+    g.session.enable_cell_tap();
+    g.session.coverage.cells.as_mut().expect("on").record.expected = 1;
+    assert_eq!(refused(&mut g), NotImaged::Field("coverage"));
 }
 
 // A record node's vectors (its field values, its filters) count in the image's kept bytes, so the number is no longer a

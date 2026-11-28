@@ -30,7 +30,7 @@ fn variant_error(target: &str, code: &str) -> Result<Value, Signal> {
 
 /// The number a Date, Time or DateTime stands for in a number slot, by the probe's values (Variant_DefinedDates_A..D,
 /// Variant_Times_A, Variant_DateTimes_A).
-fn temporal_number(v: &Value) -> Option<i64> {
+pub(crate) fn temporal_number(v: &Value) -> Option<i64> {
     match v {
         Value::Date(n, closing) if *n > 0 => Some(2 * i64::from(*n) + 731 + i64::from(*closing)),
         Value::Time(x) if *x > 0 => Some(*x),
