@@ -652,11 +652,19 @@ fn commit_takes_rewritten_citation_lines_and_refuses_other_code_changes() {
     let token = |name: &str| format!("{}:\"{name}\"/A", "corpus");
     let r = runner();
     let p = r.dir.path();
-    put(p, "crates/x/src/a.rs", &format!("fn a() {{}}\n// pinned ({})\n", token("LT Old")));
+    put(
+        p,
+        "crates/x/src/a.rs",
+        &format!("fn a() {{}}\n// pinned ({})\n", token("LT Old")),
+    );
     git(p, &["add", "-A"]);
     git(p, &["commit", "-qm", "cite"]);
     bump_files(&r);
-    put(p, "crates/x/src/a.rs", &format!("fn a() {{}}\n// pinned ({})\n", token("LT New")));
+    put(
+        p,
+        "crates/x/src/a.rs",
+        &format!("fn a() {{}}\n// pinned ({})\n", token("LT New")),
+    );
     let o = commit(&r, &r.corpus.c.clone());
     assert!(o.status.success(), "{}", text(&o));
     let files = git(p, &["show", "--name-only", "--format=", "HEAD"]);
