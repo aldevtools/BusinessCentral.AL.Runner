@@ -6,6 +6,12 @@
 //! `CheckResult`, `Res`, `Roots`, the checker state and the entry points; `lean_left_out` (the
 //! workspace objects a lean compile of a selection leaves out, `Roots::lean`, `LEFT_OUT`). Entry
 //! points: `check_with`, `Checker`, `CheckResult`, `Res`, `Roots`.
+//!
+//! Files: `mod.rs` (this), `object.rs` (the statement walk), `infer.rs` (expression types), `calls.rs` (overloads,
+//! AL0666), `member.rs`, `protected_member.rs`, `fit.rs` (argument fit), `conv.rs` (the implicit-conversion matrix),
+//! `field_enum.rs`, `enum_overload.rs`, `blank_member.rs`, `variant_args.rs`, `diag_index.rs`, `posmap.rs`,
+//! `demand.rs` and `demand/` (demand-driven compile), `tdd.rs` and `tdd_decl.rs` (`--tdd`), `recordref_record_arg.rs`
+//! (a RecordRef as a run call's record), `joker_compound.rs` (compound assignment of a FieldRef value), `tests.rs`.
 
 use crate::members::{MemberTable, ProcSig};
 use crate::types::Ty;
