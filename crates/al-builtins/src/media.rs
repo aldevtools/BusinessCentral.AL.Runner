@@ -38,6 +38,9 @@ pub struct MediaObject {
     pub pending: Option<std::sync::Arc<str>>,
     /// The `ImportStream` call that made this media; `None` for a media an ImportFile made.
     pub stream_call: Option<StreamCall>,
+    /// The import stored the Guided Experience icon of a logo of open corpus PR 1594 (`measured_logo_icon`): its Tenant Media
+    /// row rests on assumption `app-logo-jpeg-sizes`, and the content of a [`MeasuredJpegLogo::Sized`] one on no answer.
+    pub logo_icon: Option<MeasuredJpegLogo>,
 }
 
 /// An `ImportStream` call: the arguments it was given and whether it went into a Media field that held no media (`false` for an
@@ -160,9 +163,94 @@ fn coded_data_then_end(rest: &[u8]) -> bool {
             .all(|(k, &x)| x != 0xFF || coded.get(k + 1) == Some(&0))
 }
 
-/// Whether a JPEG's APP0 segment is the JFIF header of the logos of open corpus PR 1594 (tests/al-language-xapp-g, -h, -j,
+/// A JPEG app logo file of open corpus PR 1594 (tests/al-language-onprem/session-system/UsAppLogoJpegSizes.al; al-runner issue
+/// 9111), which [`measured_jpeg_logo`] recognizes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeasuredJpegLogo {
+    /// Fixture E's 8 x 8 baseline logo (tests/al-language-xapp-e/logo.jpg). Its Published Application logo is pinned
+    /// (UsAppLogoJpeg.al:82-120); its Guided Experience icon is measured by the probe only (UsLogo_GuidedExperienceIcon_Jpeg8x8_AppE).
+    Fixture8x8,
+    /// One of the logos of fixtures G, H, J and K, width by height: measured by the probe only, as a Published Application logo
+    /// and as a Guided Experience icon.
+    Sized(i32, i32),
+}
+
+impl MeasuredJpegLogo {
+    /// Width and height of the picture.
+    pub fn size(self) -> (i32, i32) {
+        match self {
+            MeasuredJpegLogo::Fixture8x8 => (8, 8),
+            MeasuredJpegLogo::Sized(w, h) => (w, h),
+        }
+    }
+}
+
+/// The sizes of the baseline logos of open corpus PR 1594 (UsLogo_Jpeg535x534_AppG, UsLogo_Jpeg16x8_AppH,
+/// UsLogo_Jpeg400x300_AppJ), width by height.
+const PROBED_BASELINE_SIZES: [(i32, i32); 3] = [(535, 534), (16, 8), (400, 300)];
+
+/// The size of the progressive logo of open corpus PR 1594 (UsLogo_JpegProgressive535x534_AppK).
+const PROBED_PROGRESSIVE_SIZE: (i32, i32) = (535, 534);
+
+/// Which logo of open corpus PR 1594 `b` is built as, on a major the probe measured on Windows BC
+/// ([`al_version::app_logo_jpeg_sizes_measured`]: 27 and 29): the probe's JFIF header by equality, then a baseline walk
+/// ([`jfif_logo_size`]) of 8 x 8 (fixture E) or of one of the baseline sizes, or a progressive walk ([`jfif_progressive_logo_size`])
+/// of the progressive size. `None` for every other file and major (BC 28: only BC on Linux ran the probe, whose Mime Type
+/// differs from Windows on 27.5).
+pub fn measured_jpeg_logo(b: &[u8], target: Option<&al_version::Target>) -> Option<MeasuredJpegLogo> {
+    if !al_version::app_logo_jpeg_sizes_measured(target) || !jfif_header_of_measured_logos(b) {
+        return None;
+    }
+    match (jfif_logo_size(b), jfif_progressive_logo_size(b)) {
+        (Some((8, 8)), None) => Some(MeasuredJpegLogo::Fixture8x8),
+        (Some((w, h)), None) if PROBED_BASELINE_SIZES.contains(&(w, h)) => Some(MeasuredJpegLogo::Sized(w, h)),
+        (None, Some(PROBED_PROGRESSIVE_SIZE)) => Some(MeasuredJpegLogo::Sized(PROBED_PROGRESSIVE_SIZE.0, PROBED_PROGRESSIVE_SIZE.1)),
+        _ => None,
+    }
+}
+
+/// The Guided Experience icon of a logo of open corpus PR 1594: what `GuidedExperienceImpl.InsertGuidedExperienceItem` stores
+/// with `Icon.ImportStream(IconInStream, ExtensionId)` (two arguments, the app id as a Guid, into the Icon of a new item) when the
+/// stream holds such a logo (UsAppLogoJpegSizes.al UsLogo_GuidedExperienceIcon_*: Height and Width of the picture on every
+/// host, Mime Type image/jpeg on Windows BC 27.5 and 29.0). `description_is_guid`: the second argument was a Guid.
+fn measured_logo_icon(c: &dyn Ctx, bytes: &[u8], call: StreamCall, description_is_guid: bool) -> Option<MeasuredJpegLogo> {
+    let icon_call = StreamCall {
+        args: 2,
+        into_empty_media: true,
+    };
+    (call == icon_call && description_is_guid)
+        .then(|| c.measured_jpeg_logo(bytes))
+        .flatten()
+}
+
+/// The mark on the Tenant Media Content of the icon of a [`MeasuredJpegLogo::Sized`] logo: Windows BC 27.5 and 29.0 store the
+/// file with 3 bytes of the JFIF header rewritten (density units 0 -> 1, densities 1 -> 0), BC on Linux 29.0 stores it unchanged
+/// (UsAppLogoJpegSizes.al:20-23, observed, not asserted), so any look at the bytes is refused.
+pub const LOGO_ICON_CONTENT: &str = "the Tenant Media Content of the Guided Experience icon of a JPEG logo";
+
+/// The refusal of a look at stored Tenant Media content a media mark names: an imported PNG, a .jpg holding a PNG, the icon of a
+/// JPEG logo. `None` for every other mark.
+pub(crate) fn stored_content_refusal(mark: &str) -> Option<Signal> {
+    let why = match mark {
+        crate::stream::MEDIA_PNG_STORED_REENCODED => {
+            "the stored Tenant Media content of an imported PNG (BC re-encodes it; UsAppLogo.al and W7Media.al do not pin the bytes)"
+        }
+        crate::stream::MEDIA_JPG_HOLDING_PNG => {
+            "the stored content of a .jpg file holding a PNG that Media.ImportFile read (BC re-encodes it; ReMediaJpgHoldingPng.al:108 \
+             does not pin the bytes)"
+        }
+        LOGO_ICON_CONTENT => {
+            "the stored Tenant Media content of the Guided Experience icon of a JPEG logo (Windows BC rewrites 3 bytes of the JFIF \
+             header, BC on Linux keeps them: open corpus PR 1594 does not pin the bytes)"
+        }
+        _ => return None,
+    };
+    Some(Signal::Unsupported(why.into()))
+}
+
+/// Whether a JPEG's APP0 segment is the JFIF header of the logos of open corpus PR 1594 (tests/al-language-xapp-e, -g, -h, -j,
 /// -k/logo.jpg), each byte by equality: length 16, "JFIF\0", version 1.01, density units 0, density 1 x 1, no thumbnail.
-pub fn jfif_header_of_measured_logos(b: &[u8]) -> bool {
+fn jfif_header_of_measured_logos(b: &[u8]) -> bool {
     b.get(2..20)
         == Some(
             &[
@@ -316,7 +404,14 @@ fn import_object(c: &mut dyn Ctx, a: &[Value], empty_media: bool) -> Result<Opti
     } else {
         mime
     };
-    let (width, height) = size.unwrap_or((0, 0));
+    let logo_icon = match &pending {
+        None => measured_logo_icon(c, &bytes, stream_call, matches!(a.get(1), Some(Value::Guid(_)))),
+        _ => None,
+    };
+    let (mime, (width, height)) = match logo_icon {
+        Some(logo) => ("image/jpeg".to_string(), logo.size()),
+        None => (mime, size.unwrap_or((0, 0))),
+    };
     store(c)?.objects.borrow_mut().insert(
         id,
         MediaObject {
@@ -329,6 +424,7 @@ fn import_object(c: &mut dyn Ctx, a: &[Value], empty_media: bool) -> Result<Opti
             height,
             pending,
             stream_call: Some(stream_call),
+            logo_icon,
         },
     );
     Ok(Some(id))
@@ -650,6 +746,7 @@ fn import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
             height,
             pending,
             stream_call: None,
+            logo_icon: None,
         },
     );
     if let Some(slot) = r {
@@ -722,6 +819,7 @@ fn set_import_file(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> O
             height,
             pending: word.map(|_| crate::stream::MEDIA_DOCX_REZIPPED.into()),
             stream_call: None,
+            logo_icon: None,
         },
     );
     media.sets.borrow_mut().entry(set).or_default().push(member);

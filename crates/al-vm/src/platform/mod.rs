@@ -512,6 +512,8 @@ impl Providers {
                     blob.borrow_mut().render_pending = Some(mark.clone());
                 } else if al_builtins::media::jpg_holding_png(o) {
                     blob.borrow_mut().render_pending = Some(al_builtins::stream::MEDIA_JPG_HOLDING_PNG.into());
+                } else if let Some(al_builtins::media::MeasuredJpegLogo::Sized(..)) = o.logo_icon {
+                    blob.borrow_mut().render_pending = Some(al_builtins::media::LOGO_ICON_CONTENT.into());
                 } else if al_builtins::media::png_size(&o.bytes).is_some() {
                     // BC stores an imported PNG re-encoded (onprem session-system/UsAppLogo.al:7, the Icon of an app's logo; types/W7Media.al:141-145):
                     // a look at the bytes is refused.
@@ -544,7 +546,11 @@ impl Providers {
                 {
                     row[p] = Value::Text(self.ident.company.clone().into());
                 }
-                mat::Entry::ok(row)
+                // The icon of a logo of open corpus PR 1594: its Mime Type, Height and Width (`media::measured_jpeg_logo`).
+                match o.logo_icon {
+                    Some(_) => mat::Entry::ok(row).assuming(al_builtins::assumptions::Assumption::AppLogoJpegSizes),
+                    None => mat::Entry::ok(row),
+                }
             })
             .collect()
     }

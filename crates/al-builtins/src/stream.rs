@@ -284,18 +284,8 @@ pub fn render_pending_error(report: &str) -> Signal {
             "the bytes Media.ExportStream gives on a major that re-encodes an imported PNG (not pinned)".into(),
         );
     }
-    if report == MEDIA_PNG_STORED_REENCODED {
-        return Signal::Unsupported(
-            "the stored Tenant Media content of an imported PNG (BC re-encodes it; UsAppLogo.al and W7Media.al do not pin the bytes)"
-                .into(),
-        );
-    }
-    if report == MEDIA_JPG_HOLDING_PNG {
-        return Signal::Unsupported(
-            "the stored content of a .jpg file holding a PNG that Media.ImportFile read (BC re-encodes it; ReMediaJpgHoldingPng.al:108 \
-             does not pin the bytes)"
-                .into(),
-        );
+    if let Some(refusal) = crate::media::stored_content_refusal(report) {
+        return refusal;
     }
     if report == WORKBOOK_OPEN {
         return Signal::Unsupported(
