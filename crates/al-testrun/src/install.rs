@@ -1293,6 +1293,15 @@ impl CompanyOpenWrites {
             .or(partner)
     }
 
+    /// Why an OnRun that touched `hits` is refused after the session answered its own id (`id_read`): the first table of
+    /// `HeldReads::id_tables` it touched.
+    pub fn id_read_hit(&self, hits: &BTreeSet<u32>, lowered: &Lowered, id_read: bool) -> Option<String> {
+        let held = self.held.as_ref().filter(|_| id_read)?;
+        hits.iter()
+            .filter(|t| held.id_tables.contains(t))
+            .find_map(|&t| self.touched(t, lowered, id_read))
+    }
+
     /// Why a test that read or wrote table `t` while it ran is not run: `None` when `t` is not watched (a table of
     /// `HeldReads::id_tables` without `id_read`, see [`CompanyOpenWrites::watch_hit`]).
     pub fn touched(&self, t: u32, lowered: &Lowered, id_read: bool) -> Option<String> {

@@ -766,15 +766,7 @@ fn run_codeunit_inner(
             (partner.after_on_run(&hits, lowered)).map_err(|why| on_run_refused(format!("OnRun: {why}")))?;
             // An OnRun that combined the session's own id with what an earlier runner 130450 session wrote
             // (`later_own_reads`): what it left is not known.
-            let id_read = session.own_id_read();
-            if let Some(why) = (hits.iter()).find_map(|&t| {
-                company_open.touched(t, lowered, id_read).filter(|_| {
-                    company_open
-                        .held
-                        .as_ref()
-                        .is_some_and(|held| id_read && held.id_tables.contains(&t))
-                })
-            }) {
+            if let Some(why) = company_open.id_read_hit(&hits, lowered, session.own_id_read()) {
                 return Err(on_run_refused(format!("OnRun: {why}")));
             }
             match ran {
