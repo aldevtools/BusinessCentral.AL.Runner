@@ -3,11 +3,11 @@
 //!
 //! A Blob whose stored content the record never loaded (a read without CalcFields, or a copy of such a record) shows
 //! HasValue true and empty text in BC (streams/BlobCopyStates.al:1216 by value, :1332 Copy, :34 a temporary row;
-//! record/PnABlobAssignRename.al:93 an assignment). The open corpus probe (pull request 1631,
-//! record/lt-blob-field-assign/BlobInsertUnloaded.al, 31 tests measured on BC 29.0; its CI runs codeunit 73781 on BC
-//! 27.5, 28.5 and 29.0 and asserts codeunit 73782 on BC 28.5 and 29.0) measured that Insert and Modify never write such
-//! a Blob. Until it is pinned the rule runs through the assumption `blob-never-loaded-not-stored`, marked only where it
-//! changes what is stored or read.
+//! record/PnABlobAssignRename.al:93 an assignment). The corpus probe of pull request 1631 (merged, not pinned yet:
+//! record/lt-blob-field-assign/BlobInsertUnloaded.al, 31 tests, measured on a local Business Central and on every
+//! supported major by the corpus CI) measured that Insert and Modify never write such a Blob. Until it is pinned the
+//! rule runs through the assumption `blob-never-loaded-not-stored`, marked only where it changes what is stored or
+//! read.
 
 use super::*;
 

@@ -1,7 +1,7 @@
 //! A Blob whose stored content the record never loaded (a read without `CalcFields`, or a copy of such a record) and
-//! that no stream wrote since is never written by Insert or Modify (issue 9286). The open corpus probe (pull request
-//! 1631, record/lt-blob-field-assign/BlobInsertUnloaded.al, 31 tests measured on BC 29.0; its CI runs codeunit 73781 on
-//! BC 27.5, 28.5 and 29.0 and asserts codeunit 73782 on BC 28.5 and 29.0) gives the readings: codeunit 73781 the Insert
+//! that no stream wrote since is never written by Insert or Modify (issue 9286). The corpus probe of pull request 1631
+//! (merged, not pinned yet: record/lt-blob-field-assign/BlobInsertUnloaded.al, 31 tests, measured on a local Business
+//! Central and on every supported major by the corpus CI) gives the readings: codeunit 73781 the Insert
 //! shapes, Insert(true), temporary tables and a Modify onto another row; codeunit 73782 a Modify of the key it was read
 //! under, a stale buffer, Insert then Modify, database to temporary and back, a field assignment (also into another
 //! table), CalcFields right after the Insert, another company's source (also without switching back) and a row another

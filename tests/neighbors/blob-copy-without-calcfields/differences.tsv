@@ -1,7 +1,7 @@
 # key	entry
 # Main stored the content of a Blob that was never loaded (or wrote it over the row on Modify); head writes none, through
-# the open assumption: corpus PR 1631, 31 tests measured on BC 29.0; codeunit 73781 (20) green in its CI on BC 27.5, 28.5
-# and 29.0, codeunit 73782 (11) asserted on BC 28.5 and 29.0 (issue 9286).
+# the assumption: corpus PR 1631 (merged, not pinned yet), 31 tests measured on a local Business Central and on every
+# supported major by the corpus CI (issue 9286).
 NB BI Case 01::Assign_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al C01)
 NB BI Case 07::SameVariable_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al C02)
 NB BI Case 08::SameVariable_NoCalc_DeleteInsert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al C03)
