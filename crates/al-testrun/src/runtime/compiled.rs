@@ -77,7 +77,7 @@ pub struct StrictAfter {
 #[derive(Debug, Clone, Default)]
 pub struct RunOptions {
     /// Codeunits that run again with `strict_order` after the run, over the same compile (no second compile). `None`
-    /// or empty `only`: no second run.
+    /// or empty `only`: no second run. A run with `strict_order` runs nothing again (`CorpusRuntime::run_then_strict`).
     pub strict_after: Option<StrictAfter>,
     /// The test runner (ADR-066). Default: al-runner's own.
     pub test_runner: TestRunner,
@@ -251,10 +251,6 @@ pub struct RunOptions {
     /// hint (`TestResult::order_hint`). Within one codeunit BC's order is always kept, and Disabled isolation and OnRun
     /// writers still carry their rows.
     pub strict_order: bool,
-    /// Stability mode with the dimension `isolation.singleInstance` (ADR-058 amendment 1, decision 2): each codeunit
-    /// of a strict walk that read a carried SingleInstance value also runs once with fresh single instances, from the
-    /// same database start (`ChainReport::carried`). Outcomes of the run itself do not change.
-    pub single_fresh_check: bool,
     /// `al-runner test --test-suites FILE` (ADR-066 amendment 6, al-runner issue 6924): each suite is a BC session of
     /// its own for order dependence, the codeunits in the suite's order. No SingleInstance link, serial re-run or
     /// chain crosses a suite; a codeunit in no suite is a session of its own. `None`: the whole run is one session.

@@ -335,11 +335,7 @@ impl Session {
         let engine = self.engine.clone();
         let first = self.frames[base];
         let o = &engine.program.objects[first];
-        let test_codeunit = o.kind == al_ir::ObjKind::Codeunit
-            && o.properties
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("Subtype") && v.trim().eq_ignore_ascii_case("Test"));
-        test_codeunit
+        Self::is_test_codeunit(o)
             && (skip != 0 || first == by)
             && (base..end).all(|i| {
                 let f = &self.call_stack[i];

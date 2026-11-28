@@ -108,6 +108,24 @@ pub(crate) fn table_digest<'a>(
     Ok(h.finish())
 }
 
+/// Per (company, table object), the digest of the committed rows of each of `tables` that holds a row in `store`
+/// ([`table_digest`], by reference): whether the rows the run's one login wrote are as it left them (al-testrun
+/// `runtime/held_login.rs` `login_rows_as_held`).
+pub(crate) fn committed_tables_digest(
+    store: &al_data::memory::MemStore,
+    tables: &std::collections::BTreeSet<u32>,
+) -> Result<std::collections::BTreeMap<(String, u32), LinesDigest>, NoByteForm> {
+    (store.committed_rows())
+        .filter(|t| tables.contains(&t.object) && !t.is_empty())
+        .map(|t| {
+            Ok((
+                (t.company.to_string(), t.object),
+                table_digest(t.company, t.object, t.len(), t.rows())?,
+            ))
+        })
+        .collect()
+}
+
 /// The digest of every row `store` holds now, the uncommitted changes included (the key's `uncommitted` part), table after
 /// table in the store's order; a table entry without rows is left out. It reads the rows through
 /// `MemStore::export_current`, a copy of every table of the store, not by reference as the committed part does. It runs

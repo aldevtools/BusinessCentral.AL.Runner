@@ -1,0 +1,4 @@
+# key	entry
+# Against main, which holds #9325: only the parenthesized Date exit into an Integer differs, which this branch (issue 9265)
+# gives BC's conversion error where main refuses.
+FY Tests::Paren_Date_IntoInteger	ASSUMED fieldref-value-temporal-into-number (corpus PR 1629, merged at 778b8fc1; issues 9265 and 9305)

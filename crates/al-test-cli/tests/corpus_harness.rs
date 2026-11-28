@@ -457,6 +457,9 @@ fn commit_oracle(root: &Path) {
     if root.join("not-passing.txt").exists() {
         git(&["add", "not-passing.txt"]);
     }
+    if root.join("metrics").exists() {
+        git(&["add", "metrics"]);
+    }
     git(&["commit", "-q", "-m", "base"]);
 }
 
@@ -533,6 +536,331 @@ fn list_changes_tells_accepted_regressions_from_new_cases() {
     let (code, md) = changes("");
     assert_eq!(code, 0, "{md}");
     assert!(md.contains("No list changed."), "{md}");
+}
+
+/// The base oracle of the rename-map tests: `FailsOnPurpose` was called `WasFailing` on the old pin.
+const ORACLE_OLD_NAME: &str = r#"<?xml version='1.0' encoding='utf-8'?>
+<testsuites name="DEFAULT" tests="2" failures="0" errors="0" skipped="0">
+  <testsuite name="Codeunit 60900" tests="2" failures="0" errors="0" skipped="0">
+    <testcase classname="Codeunit 60900" name="Passes" time="0.001" />
+    <testcase classname="Codeunit 60900" name="WasFailing" time="0.001" />
+  </testsuite>
+</testsuites>
+"#;
+
+/// A fixture root after a corpus pin move: the base revision (HEAD) has [`ORACLE_OLD_NAME`] and the list `base_list`,
+/// the corpus checkout has the fixture's oracle and a rename map with `map_lines` (none: no map file).
+fn renamed_root(map_lines: &[&str], base_list: &str) -> tempfile::TempDir {
+    let lines: Vec<String> = map_lines.iter().map(|l| l.to_string()).collect();
+    let root = fake_root(move |corpus| {
+        if !lines.is_empty() {
+            std::fs::write(
+                corpus.join("tests/rename-map.tsv"),
+                format!("# map\nold_key\tnew_key\n{}\n", lines.join("\n")),
+            )
+            .unwrap();
+        }
+    });
+    let junit = root.path().join("oracle/27/junit.xml");
+    let bumped = std::fs::read_to_string(&junit).unwrap();
+    std::fs::write(&junit, ORACLE_OLD_NAME).unwrap();
+    std::fs::write(root.path().join("not-passing.txt"), base_list).unwrap();
+    commit_oracle(root.path());
+    std::fs::write(&junit, bumped).unwrap();
+    root
+}
+
+const RENAME: &str = "app/60900/WasFailing\tapp/60900/FailsOnPurpose";
+
+// ADR-065 amendment 1 (owner decision 2026-11-28): a case that passed on the old pin and that the rename map sends to a
+// new key must pass under it; a bump that would list it is red and names the old key, the new key and the version.
+#[test]
+fn a_renamed_case_that_passed_and_now_fails_makes_the_bump_red() {
+    let root = renamed_root(&[RENAME], "");
+    let (code, _, err) = run_fixture(root.path(), "", &["--list-new-cases", "HEAD"]);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("BC 27.5: renamed or moved case lost its pass (ADR-065 amendment 1): old key 60900 WasFailing -> new key 60900 FailsOnPurpose: fail:"),
+        "{err}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("not-passing.txt")).unwrap(),
+        ""
+    );
+    // A line to a key no oracle has loses the passing case: red too.
+    let root = renamed_root(&["app/60900/WasFailing\tapp/60900/Nowhere"], "");
+    let (code, _, err) = run_fixture(root.path(), "", &["--list-new-cases", "HEAD"]);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("the rename map sends the passing case 60900 WasFailing to 60900 Nowhere"),
+        "{err}"
+    );
+    // Neighbor: without a map line the old case was removed and the new one is new (ADR-065 section 3), as before.
+    let root = renamed_root(&[], "");
+    let (code, _, err) = run_fixture(root.path(), "", &["--list-new-cases", "HEAD"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("not-passing.txt"))
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>(),
+        ["60900 FailsOnPurpose"]
+    );
+}
+
+// ADR-065 amendment 1: the line of a listed case the map renames moves to the new key, once.
+#[test]
+fn a_renamed_listed_case_keeps_its_line_moved_not_duplicated() {
+    let root = renamed_root(&[RENAME], "60900 WasFailing\n");
+    let (code, _, err) = run_fixture(
+        root.path(),
+        "60900 WasFailing\n",
+        &["--list-new-cases", "HEAD", "--prune-not-passing"],
+    );
+    assert_eq!(code, 0, "{err}");
+    let list = std::fs::read_to_string(root.path().join("not-passing.txt")).unwrap();
+    assert_eq!(
+        list.lines().filter(|l| !l.starts_with('#')).collect::<Vec<_>>(),
+        ["60900 FailsOnPurpose"],
+        "{list}"
+    );
+}
+
+/// `--list-changes HEAD` on a renamed root whose oracle.toml names `not-passing.txt`, with the list `list`.
+fn renamed_changes(root: &Path, list: &str) -> (i32, String) {
+    std::fs::write(root.join("not-passing.txt"), list).unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
+        .arg("--root")
+        .arg(root)
+        .args(["--list-changes", "HEAD"])
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&o.stdout).to_string() + &String::from_utf8_lossy(&o.stderr),
+    )
+}
+
+fn renamed_root_named_list(base_list: &str, strict: Option<&str>) -> tempfile::TempDir {
+    renamed_root_named_list_with(RENAME, base_list, strict)
+}
+
+/// [`renamed_root_named_list`] with the map line `map_line`.
+fn renamed_root_named_list_with(map_line: &str, base_list: &str, strict: Option<&str>) -> tempfile::TempDir {
+    let root = fake_root(|corpus| {
+        std::fs::write(
+            corpus.join("tests/rename-map.tsv"),
+            format!("old_key\tnew_key\n{map_line}\n"),
+        )
+        .unwrap();
+    });
+    let toml = root.path().join("oracle/oracle.toml");
+    let t = std::fs::read_to_string(&toml)
+        .unwrap()
+        .replace("metrics/27/not-passing.txt", "not-passing.txt");
+    std::fs::write(&toml, t).unwrap();
+    if let Some(strict) = strict {
+        std::fs::create_dir_all(root.path().join("metrics/27")).unwrap();
+        std::fs::write(root.path().join("metrics/27/strict-order-not-run.txt"), strict).unwrap();
+    }
+    let junit = root.path().join("oracle/27/junit.xml");
+    let bumped = std::fs::read_to_string(&junit).unwrap();
+    std::fs::write(&junit, ORACLE_OLD_NAME).unwrap();
+    std::fs::write(root.path().join("not-passing.txt"), base_list).unwrap();
+    commit_oracle(root.path());
+    std::fs::write(&junit, bumped).unwrap();
+    root
+}
+
+// ADR-065 amendment 1 and owner decision 2: against the base, a line for the new key of a renamed case that passed is a
+// regression the owner approves; a moved line of a listed case is neither a new case nor a regression.
+#[test]
+fn list_changes_reads_a_renamed_case_under_its_old_key() {
+    let root = renamed_root_named_list("", None);
+    let (code, md) = renamed_changes(root.path(), "60900 FailsOnPurpose\n");
+    assert_eq!(code, 1, "{md}");
+    assert!(md.contains("Regressions accepted by this pull request (1)"), "{md}");
+    let root = renamed_root_named_list("60900 WasFailing\n", None);
+    let (code, md) = renamed_changes(root.path(), "60900 FailsOnPurpose\n");
+    assert_eq!(code, 0, "{md}");
+    assert!(
+        !md.contains("New cases listed") && md.contains("Lines moved to new keys (1)"),
+        "{md}"
+    );
+}
+
+// ADR-065 amendment 1, item 2: a passing case the map sends to a key no oracle of the version has makes `--list-changes`
+// red with its own exit code (4), so PR CI and the bump bot's commit step stop; a listed case sent there does not.
+#[test]
+fn list_changes_is_red_when_the_map_sends_a_passing_case_nowhere() {
+    let root = renamed_root_named_list_with("app/60900/WasFailing\tapp/60900/Nowhere", "", None);
+    let (code, md) = renamed_changes(root.path(), "");
+    assert_eq!(code, 4, "{md}");
+    assert!(
+        md.contains("the rename map sends the passing case 60900 WasFailing to 60900 Nowhere"),
+        "{md}"
+    );
+    let root = renamed_root_named_list_with("app/60900/WasFailing\tapp/60900/Nowhere", "60900 WasFailing\n", None);
+    let (code, md) = renamed_changes(root.path(), "");
+    assert_eq!(code, 0, "{md}");
+    assert!(!md.contains("sends the passing case"), "{md}");
+}
+
+// ADR-065 amendment 1 and ADR-070 decision 5: a bump rewrites a strict-list line the map renames in place, and
+// `--list-changes` does not count the moved line as added (that list only shrinks).
+#[test]
+fn a_bump_moves_a_renamed_strict_list_line_and_list_changes_accepts_it() {
+    let strict = "# header\n\n# reason\n60900 WasFailing\n";
+    let root = renamed_root_named_list("60900 WasFailing\n", Some(strict));
+    let o = Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
+        .arg("--root")
+        .arg(root.path())
+        .args([
+            "--no-deps",
+            "--bc-version",
+            "27",
+            "--list-new-cases",
+            "HEAD",
+            "--prune-not-passing",
+        ])
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    assert_eq!(o.status.code(), Some(0), "{err}");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("metrics/27/strict-order-not-run.txt")).unwrap(),
+        "# header\n\n# reason\n60900 FailsOnPurpose\n"
+    );
+    let now = std::fs::read_to_string(root.path().join("not-passing.txt")).unwrap();
+    let (code, md) = renamed_changes(root.path(), &now);
+    assert_eq!(code, 0, "{md}");
+}
+
+/// Runs the CLI on a fixture root in BC's order (`AL_STRICT_ORDER_ALL=1`, ADR-070 decision 5) against the default list
+/// `list` and the strict list `strict` (`metrics/27/strict-order-not-run.txt`), with `extra` flags. Returns the exit
+/// code and standard error.
+fn run_strict(root: &Path, list: &str, strict: &str, extra: &[&str]) -> (i32, String) {
+    let base = root.join("not-passing.txt");
+    std::fs::write(&base, list).unwrap();
+    std::fs::create_dir_all(root.join("metrics/27")).unwrap();
+    std::fs::write(root.join("metrics/27/strict-order-not-run.txt"), strict).unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
+        .env("AL_STRICT_ORDER_ALL", "1")
+        .arg("--root")
+        .arg(root)
+        .args(["--no-deps", "--bc-version", "27", "--baseline"])
+        .arg(&base)
+        .args(extra)
+        .output()
+        .unwrap();
+    (
+        o.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&o.stderr).to_string(),
+    )
+}
+
+// ADR-070 decision 5 (orchestrator decision of 2026-11-23): the whole corpus in BC's order holds the default lists plus
+// the strict list. The strict list excuses a case that is not run, never one that fails.
+#[test]
+fn in_bcs_order_an_unlisted_failure_fails_the_run_and_the_strict_list_does_not_excuse_it() {
+    let root = root_with_a_failing_test();
+    let (code, err) = run_strict(root.path(), "60900 FailsOnPurpose\n", "", &[]);
+    assert_eq!(code, 0, "{err}");
+    let (code, err) = run_strict(root.path(), "", "", &[]);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("60900 FailsOnPurpose  [fail: the harness fixture fails on purpose]"),
+        "{err}"
+    );
+    let (code, err) = run_strict(root.path(), "", "# not run: x\n60900 FailsOnPurpose\n", &[]);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("60900 FailsOnPurpose  [fail: the harness fixture fails on purpose]"),
+        "{err}"
+    );
+}
+
+// A default line whose case passes in BC's order belongs to the default run: printed, never stale, never pruned. A strict
+// line whose case passes is stale; `--prune-not-passing` deletes it from the strict list alone and keeps the comments.
+#[test]
+fn in_bcs_order_only_the_strict_list_has_stale_lines_and_pruning_never_writes_a_default_list() {
+    let root = root_with_a_failing_test();
+    let default = "60900 FailsOnPurpose\n60900 Passes\n";
+    let (code, err) = run_strict(root.path(), default, "", &[]);
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        err.contains("of the default not-passing list pass in BC's order") && err.contains("60900 Passes"),
+        "{err}"
+    );
+    let strict = "# header\n\n# not run: a reason\n60900 Passes\n";
+    let (code, err) = run_strict(root.path(), "60900 FailsOnPurpose\n", strict, &[]);
+    assert_eq!(code, 1, "{err}");
+    assert!(
+        err.contains("strict-order-not-run.txt") && err.contains("60900 Passes  [passes]"),
+        "{err}"
+    );
+    assert!(err.contains("AL_STRICT_ORDER_ALL=1 al-test-cli"), "{err}");
+    let (code, err) = run_strict(root.path(), default, strict, &["--prune-not-passing"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("not-passing.txt")).unwrap(),
+        default
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("metrics/27/strict-order-not-run.txt")).unwrap(),
+        "# header\n"
+    );
+    let (code, err) = run_strict(root.path(), default, "", &["--list-new-cases", "HEAD"]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("AL_STRICT_ORDER_ALL"), "{err}");
+}
+
+// The strict list only shrinks: `--list-changes` exits 3 on a line added against a base branch that has the file, and
+// takes a base without the file as the change that seeds it.
+#[test]
+fn list_changes_refuses_a_line_added_to_the_strict_list() {
+    let root = root_with_a_failing_test();
+    let toml = root.path().join("oracle/oracle.toml");
+    let t = std::fs::read_to_string(&toml)
+        .unwrap()
+        .replace("metrics/27/not-passing.txt", "not-passing.txt");
+    std::fs::write(&toml, t).unwrap();
+    std::fs::write(root.path().join("not-passing.txt"), "").unwrap();
+    let strict = root.path().join("metrics/27/strict-order-not-run.txt");
+    std::fs::create_dir_all(strict.parent().unwrap()).unwrap();
+    let changes = |text: &str| {
+        std::fs::write(&strict, text).unwrap();
+        let o = Command::new(env!("CARGO_BIN_EXE_al-test-cli"))
+            .arg("--root")
+            .arg(root.path())
+            .args(["--list-changes", "HEAD"])
+            .output()
+            .unwrap();
+        (
+            o.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&o.stdout).to_string(),
+        )
+    };
+    // The base has no strict list yet: seeding it is no addition.
+    let seed = |root: &Path| {
+        let _ = std::fs::remove_dir_all(root.join("metrics"));
+        commit_oracle(root);
+        std::fs::create_dir_all(root.join("metrics/27")).unwrap();
+    };
+    seed(root.path());
+    let (code, md) = changes("60900 FailsOnPurpose\n");
+    assert_eq!(code, 0, "{md}");
+    std::fs::remove_dir_all(root.path().join(".git")).unwrap();
+    commit_oracle(root.path());
+    let (code, md) = changes("60900 FailsOnPurpose\n60900 Passes\n");
+    assert_eq!(code, 3, "{md}");
+    assert!(
+        md.contains("strict-order-not-run.txt") && md.contains("60900 Passes"),
+        "{md}"
+    );
+    let (code, md) = changes("");
+    assert_eq!(code, 0, "{md}");
 }
 
 /// The corpus app depends on corpus apps next to it (corpus `tests/al-language/app.json`: the internals fixture and the
@@ -1038,7 +1366,10 @@ fn all_versions_runs_each_oracle_writes_per_version_files_and_compares() {
     // not measured on main alone; CI on the train is the check.
     // Exact runner frames by routing (CallstackRunnerFrames.al, corpus pin c4efa9eb) add the eight
     // CallstackRunnerFrames_Plain_* cases of 69950: a codeunit without handlers has no runner frames from BC 28 on.
-    assert!(out.contains("runtime: 57 case(s) differ between versions"), "{out}");
+    // Branch batch-carried-state makes it 47: the ten RqIsolationModes.al cases of 88512-88515 pass on BC 28 and 29 too.
+    // An OnRun now joins the chain by what its reach inserts (the 130450 codeunits 60161-60194 call ALTFixtureCleanup), so
+    // the last carry before 88512 is a 130450 one; the hub leg runs before the 130450 leg (RqIsolationModes.al:12).
+    assert!(out.contains("runtime: 47 case(s) differ between versions"), "{out}");
     assert!(out.contains("71500 Get_Uses_Primary_Key_Not_Current_Key: 27"), "{out}");
 }
 

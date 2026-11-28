@@ -236,6 +236,8 @@ pub(crate) enum Op {
         t: u32,
         /// The slot of a Date, Time or DateTime variable that takes the value (`fieldref_value_temporal`); None otherwise.
         slot: Option<al_builtins::fieldref_value_temporal::TemporalSlot>,
+        /// Where the value goes (`FieldValueSite`).
+        site: FieldValueSite,
     },
     Jump {
         t: u32,
@@ -436,6 +438,32 @@ pub(crate) enum Op {
     RaiseContinue,
 }
 
+impl Op {
+    /// `Op::ConvertFieldValue` of a value that goes into no Date, Time or DateTime variable.
+    fn convert_field_value(d: u16, a: u16, t: u32, site: FieldValueSite) -> Op {
+        Op::ConvertFieldValue {
+            d,
+            a,
+            t,
+            slot: None,
+            site,
+        }
+    }
+}
+
+/// Where the value of an `Op::ConvertFieldValue` goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FieldValueSite {
+    /// A place no probe measured for a Date, Time or DateTime into a number: such a value refuses there
+    /// (`fieldref_value_temporal::temporal_into_number`).
+    Other,
+    /// A place FvcTemporalIntoNumberPlaces.al measured: an assignment, `exit`, a by-value argument of a local procedure
+    /// of the same object without attributes on the current instance, and `List.Add` (`Compiler::mark_measured`).
+    Measured,
+    /// `exit(FR.Value())` into a Text or Code return (`fieldref_value_text::fieldref_value_at_exit`).
+    TextExit,
+}
+
 pub(crate) struct CallSite {
     pub object: usize,
     pub routine: usize,
@@ -448,6 +476,9 @@ pub(crate) struct CallSite {
     /// (`blob_transfer::FieldRead`), by argument index: a Blob among them moves into a by-value Variant parameter as
     /// `Session::call_field_reads` says. Empty for almost every call.
     pub field_reads: Box<[(u16, crate::blob_transfer::FieldRead)]>,
+    /// The by-value arguments that are a plain local Record variable of the calling routine (not a parameter), by
+    /// argument index (`records::Session::own_local_args`). Empty for almost every call.
+    pub local_values: Box<[u16]>,
 }
 
 /// How `Op::SingleWrite` writes its global.

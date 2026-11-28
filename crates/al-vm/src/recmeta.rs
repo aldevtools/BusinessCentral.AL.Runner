@@ -1674,6 +1674,8 @@ impl Session {
         for (dp, v) in updates {
             r.fields[dp] = v;
         }
+        // Another record's fields went into the buffer, which keeps its row version (but below).
+        self.note_fields_from_other_record(rec, &mut r);
         // The row version taken with the key is a copy of a field: the buffer neither read nor wrote that row, so the
         // Modify after a failed Insert keeps its raise (corpus PR 1523,
         // record/crud/TestRecordFailedInsertMovedKey.al:844 R8).

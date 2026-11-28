@@ -443,12 +443,6 @@ impl TestResult {
         }
     }
 
-    /// `o` in place of the test's outcome; `skipped_by_option` stays only when `o` is the outcome it was set with.
-    pub(crate) fn take_outcome(&mut self, o: Outcome) {
-        self.skipped_by_option &= self.outcome == o;
-        self.outcome = o;
-    }
-
     /// Whether the test is a refusal: not run, and not left out by a stop option (`skipped_by_option`). What "Top
     /// refusals" and `--refusal-detail` rank.
     pub fn is_refusal(&self) -> bool {
@@ -747,10 +741,6 @@ pub(crate) struct Unit {
     watch: bool,
     /// See `Scratch::singles_past_stop`.
     singles_past_stop: bool,
-    /// ADR-066 amendment 12, decision 3: by default its tests can take NumberSequence numbers but it is not in the
-    /// carry chain for that (`ChainWhy::TestsTakeNumbers` without `--strict-order`): it is on the numbers list when
-    /// it comes after another such codeunit (`order_hint::numbers_order`).
-    takes_numbers: bool,
     /// See `Scratch::numbers_unmeasured`.
     numbers_unmeasured: Option<Arc<str>>,
     /// The driver whose behavior the unit models (ADR-074, `discovery.rs`).
@@ -866,6 +856,19 @@ pub(crate) struct Scratch {
     pub(crate) unfinished_at: Vec<(u32, String)>,
     /// ADR-066 amendment 12, decision 2: the hint of each failed test (`TestResult::order_hint`), set by the lane.
     pub(crate) order_hints: Vec<(String, OrderHint)>,
+    /// ADR-070 decision 3: the number sequences (company, name) each test took numbers from (`""`: OnRun and the
+    /// runner steps outside a test), for the numbers hint (`order_hint::note_taken`).
+    pub(crate) numbers_taken: Vec<(String, BTreeSet<(String, String)>)>,
+    /// ADR-070 decision 3, the default carry chain's walk (`chain_walk.rs`): the place in the walk's list of carries of
+    /// the carry this run started from (a member: the member before it in its suite; a codeunit outside the chain run
+    /// again from a carry: that carry, `corpus.rs`), and of the carry this member left. The numbers a member took reach
+    /// every run started from its carry or a later one of its suite (`numbers_taken.rs`), so the numbers hint leaves
+    /// such a pair out (`order_hint::hint_numbers`).
+    pub(crate) carry_from: Option<usize>,
+    pub(crate) carry_at: Option<usize>,
+    /// Each test that began, with the number `Session::single_test_begins` gave it (watched codeunits only; ADR-070
+    /// decision 4: which SingleInstance reads count for a passing test).
+    pub(crate) test_numbers: Vec<(u32, String)>,
 }
 
 /// How the tests of a codeunit ended (`Scratch::note_ended`).
@@ -922,6 +925,10 @@ impl Scratch {
             test_panicked: Default::default(),
             unfinished_at: Default::default(),
             order_hints: Default::default(),
+            numbers_taken: Default::default(),
+            carry_from: None,
+            carry_at: None,
+            test_numbers: Default::default(),
         }
     }
 
@@ -1201,7 +1208,6 @@ fn scratch_unit(
         run_seed: opts.run_seed,
         runner: None,
         watch: false,
-        takes_numbers: false,
         numbers_unmeasured: None,
         singles_past_stop: false,
         driver: opts.test_driver,
@@ -1341,6 +1347,9 @@ mod discovery;
 mod group1_sessions_tests;
 mod grow;
 mod handlers;
+mod held_login;
+#[cfg(test)]
+mod held_login_tests;
 #[cfg(test)]
 mod hub_sequence_tests;
 mod install_once;
@@ -1407,7 +1416,7 @@ pub use self::discovery::TestDriver;
 use self::grow::{Grow, GrowKept};
 pub use self::grow::{KeptCompile, fresh_pass_compile};
 use self::handlers::*;
-pub use self::order_hint::{NumbersOrder, OrderHint};
+pub use self::order_hint::{NumbersTaken, OrderHint, TakenAfter};
 pub use self::run::*;
 pub use self::single_fresh::{CarriedCodeunit, CarriedRead};
 pub use self::single_lane::LaneReport;

@@ -25,6 +25,7 @@ name: CI
 #   - Nightly set. Those four comparisons, the compile cache steps and the affected selection differential run
 #     only on the nightly schedule, on manual dispatch and when release-tag.yml calls this workflow
 #     (env NIGHTLY_SET below). Not on a pull request, a push to main or a push to a corpus-bump/** branch.
+#     ADR-070 decision 5 adds the whole corpus in BC's order (`AL_STRICT_ORDER_ALL=1`) to the set.
 #   - A push to main that comes from a merged pull request skips `test`, `licenses`, `portable` and
 #     `release-tests`, but only when the job `merge-check` proves the pull request already tested exactly this
 #     tree: the newest successful pull_request run of the pull request's head commit uploaded the artifact
@@ -630,6 +631,17 @@ jobs:
           tools/cache_vs_uncached.sh compare . || status=1
           exit $status
 
+      # ADR-070 decision 5: the corpus is the oracle for BC, and BC runs in strict order, so the whole corpus must also
+      # hold its not-passing lists when every pass runs in BC's order (`AL_STRICT_ORDER_ALL=1`, the internal switch of
+      # `al-test-cli` that sets `--strict-order` on every pass). Latest major only. It fails on a case that does not pass
+      # and is on no list; a case the default run passes and this run does not run yet may be on the shrink-only
+      # `metrics/29/strict-order-not-run.txt` (`strict_not_run.rs`).
+      - name: Corpus in BC's order (whole corpus with --strict-order)
+        if: env.NIGHTLY_SET == 'true'
+        run: |
+          AL_STRICT_ORDER_ALL=1 ./target/release/al-test-cli --bc-version 29 --require-dotnet \
+            --junit strict-all-junit.xml
+
       # The job summary, from the files the two steps above write. It runs even when one of them
       # failed, so a regression still shows its numbers.
       - name: Comparisons that run nightly only
@@ -638,7 +650,7 @@ jobs:
           {
             echo "## Comparisons that run nightly only"
             echo
-            echo "Owner decision, 2026-11-04: the demand-driven against eager compile, the runs that compile every pass from source, the compile cache against the uncached run, the install baseline rule, the perf budgets and the affected selection differential run on the nightly schedule, on manual dispatch and before a numbered release. Not on a pull request or a push."
+            echo "Owner decision, 2026-11-04: the demand-driven against eager compile, the runs that compile every pass from source, the compile cache against the uncached run, the install baseline rule, the perf budgets, the affected selection differential and the whole corpus in BC's order (ADR-070 decision 5) run on the nightly schedule, on manual dispatch and before a numbered release. Not on a pull request or a push."
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       # ADR-065, owner decision 2: how this pull request changes the not-passing lists against the base branch. A line
@@ -654,6 +666,12 @@ jobs:
           cat list-changes.md
           if [ "$status" = 1 ]; then
             echo "::warning::this pull request adds a not-passing line for a case the base oracle had (a regression); it needs the owner's OK"
+          elif [ "$status" = 3 ]; then
+            echo "::error::this pull request adds a line to metrics/<major>/strict-order-not-run.txt, which may only shrink (ADR-070 decision 5)"
+            exit 1
+          elif [ "$status" = 4 ]; then
+            echo "::error::the corpus rename map sends a case that passed on the base branch to a key no oracle has (ADR-065 amendment 1)"
+            exit 1
           elif [ "$status" != 0 ]; then
             echo "::error::al-test-cli --list-changes failed"
             exit 1

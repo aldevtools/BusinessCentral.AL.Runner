@@ -222,6 +222,10 @@ The report has a section "Order dependence (SingleInstance state)" with two part
   outcome in both runs. Fix the test so that it sets up what it reads. For a cache
   in a dependency app you cannot change the code, but your test can still set up
   the state it reads.
+- **Other flips in the default isolated run.** A flip under the dimension whose
+  codeunit read no carried SingleInstance value. Its reason is "took numbers from
+  sequence S after test codeunit X" when the default run gave the test a numbers
+  hint, else "cause not known".
 - **Reads carried state, outcome unchanged.** Test codeunits that read such a value
   and keep their outcome. "checked" means the run had a `fresh` variant; "not
   checked" means it did not. This part is in every stability run, also with the
@@ -231,16 +235,13 @@ The report has a section "Order dependence (SingleInstance state)" with two part
   another message"). A test stopped by the time limit in either run is "not
   compared (time limit)".
 
-Which codeunits are checked: only those whose first read of a SingleInstance global
-got a value an earlier codeunit left, where that value differs from what a fresh
-instance holds. Every other codeunit keeps its base result in the `fresh` variant.
-A member of the chain that runs one after the other runs once more, from the same
-database start, with fresh SingleInstance state; what that run leaves is dropped.
-A codeunit outside that chain costs no extra run: its parallel run already started
-fresh. When the config names this dimension, the base variant replays every such
-codeunit in Business Central's order, so the result in Business Central's order is known for every such
-codeunit. To run this check alone, use a config with only
-`{"isolation.singleInstance": ["carried", "fresh"]}`.
+How it is checked (ADR-070 decision 7): two plain runs. The `fresh` variant is the
+default run (every test codeunit starts with fresh SingleInstance state and the
+install code's NumberSequence values, nothing runs again); every other variant runs
+in Business Central's order (`--strict-order`). Every test of the `fresh` variant
+is compared with the base variant, so a flip can have any cause; the reason says
+which one is known. Nothing runs twice. To run this check alone, use a config with
+only `{"isolation.singleInstance": ["carried", "fresh"]}`.
 
 ### With matrix axes
 
@@ -286,23 +287,29 @@ al-runner test ./MyApp ./MyApp.Test --stability my-config.json --stability-repla
 ```
 
 Add `--filter` to repeat one test. The result is the same as in the full run, because
-the runtime is deterministic.
+the runtime is deterministic. The replay runs in the order its variant had: the
+`fresh` value of `isolation.singleInstance` in the default isolated order, every
+other variant in Business Central's order, whatever `--strict-order` says.
 
 ## Exit codes and output
 
 - Exit 1 when a test changes between pass and fail. `--stability-allow-flips` keeps
   the exit code of the base variant, for reports only.
 - `--junit FILE` writes one test suite per variant. The variant's values are its
-  properties. A flipped test fails with `outcome changed from pass under <id>`. Under
+  properties, with `orderMode`: `isolated` for the `fresh` value of
+  `isolation.singleInstance`, `bc` for every other variant. A flipped test fails with `outcome changed from pass under <id>`. Under
   `isolation.singleInstance` the message adds the reason in one line ("reads Flag of
-  My Cache (app My App) that My Setter Test (50100) left"). In the base variant's
+  My Cache (app My App) that My Setter Test (50100) left", "took numbers from
+  sequence S after test codeunit X", or "cause not known"). In the base variant's
   test suite, each test of a codeunit in `readsCarried` has the property
   `singleInstanceCarried` with the same line.
 - `--output-json FILE` adds a `stability` object with the variants, the flips, the
   summary and `readsCarried`. A flip under `isolation.singleInstance` has a `reason`
   (`kind`: `passesOnlyAfterEarlierCodeunits` or `failsOnlyAfterEarlierCodeunits`;
   `reads`: the SingleInstance codeunit with `app`, `publisher` and `dependencyApp`,
-  the `global` and its `lastWriter`).
+  the `global` and its `lastWriter`; `isolation` when it read carried globals). A
+  flip whose codeunit read none has `reads: []` and `cause`: the numbers it took or
+  "cause not known".
 
 ## Limits
 
