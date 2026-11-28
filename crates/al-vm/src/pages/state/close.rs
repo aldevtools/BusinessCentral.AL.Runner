@@ -1,12 +1,9 @@
-//! How the last close of a page ended (`CloseOutcome`: an error or a false answer of
-//! OnQueryClosePage, a save that failed at `TestPage.Close()`, what a `TestPage.Close()` in a modal
-//! handler left for `RunModal`), with transitions named after what happened and questions named after
-//! what the caller needs (al-runner issue 7685). Entry points: `CloseOutcome`, field
-//! `PageState::close`.
+//! How the last close of a page ended (`CloseOutcome`, al-runner issue 7685): the answer of OnQueryClosePage, a save that
+//! failed at `TestPage.Close()`, and what a `TestPage.Close()` inside the handler of a modal run left for `RunModal`, with
+//! transitions named after what happened and questions named after what the caller needs. The corpus citations are at the
+//! callers in `pages/open/close.rs`, `pages/rows.rs` (`answer_page`) and `pages/close_save_failed.rs`. Entry points:
+//! `CloseOutcome`, field `PageState::close`.
 #![deny(clippy::wildcard_enum_match_arm)]
-//! How the last close of a page ended: the answer of OnQueryClosePage, a save that failed at `TestPage.Close()`, and what a
-//! `TestPage.Close()` inside the handler of a modal run left for `RunModal`. The corpus citations are at the callers in
-//! `pages/open/close.rs`, `pages/rows.rs` (`answer_page`) and `pages/close_save_failed.rs`.
 
 /// What the last close of a page left. Every field starts false (`Default`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -34,9 +31,8 @@ impl CloseOutcome {
         self.error = false;
     }
 
-    /// OnQueryClosePage raised an error, shown as a message (or a Confirm no handler took): the close is refused. A veto stays
-    /// as it was: `close_started` cleared it, but the trigger that raised may have closed the page itself in between, so
-    /// `error` and `vetoed` are two flags, not one state.
+    /// OnQueryClosePage raised an error, shown as a message (or a Confirm no handler took): the close is refused. Only `error`
+    /// changes; `vetoed` keeps what `close_started` or the last answer left.
     pub fn refused_by_error(&mut self) {
         self.error = true;
     }

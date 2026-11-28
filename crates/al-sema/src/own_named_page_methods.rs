@@ -70,10 +70,10 @@ pub(crate) fn save_record_refusal(
 
 // ---- Caption ----
 //
-// BC 29.0 (local run of corpus PR 1456, pages/lifecycle/CurrPageCaptionOwn*.al): beside page procedures named Caption,
-// every `CurrPage.Caption` form is the platform method; a bare or page-variable call with one argument is the platform
-// setter; a call without arguments names the own parameterless procedure the code sees, and the platform getter where it
-// sees none. Compile facts: must-not-compile 3210-3215 of that PR.
+// BC 27, 28 and 29 (corpus PR 1456, pinned: pages/lifecycle/CurrPageCaptionOwn*.al): beside page procedures named
+// Caption, every `CurrPage.Caption` form is the platform method; a bare or page-variable call with one argument is the
+// platform setter; a call without arguments names the own parameterless procedure the code sees, and the platform getter
+// where it sees none. Compile facts: must-not-compile 3210-3215 of that PR.
 
 /// How a site names `Caption`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -175,18 +175,18 @@ pub(crate) enum CaptionGate {
 
 /// The lowering's gate for `Caption` named through `receiver` at `node` (the call, or the member or name read or
 /// assigned) in the code of `code_obj`, on page `page`. `platform` is whether the checker named the platform method;
-/// `proc` the procedure it named instead, as (declaring object, offset of its routine node).
+/// `proc` the procedure it named instead, as (declaring object, offset of its routine node); `local` whether it named a
+/// variable of the routine's scope.
 pub(crate) fn caption_gate(
     ws: &Workspace,
     code_obj: usize,
     page: usize,
     receiver: CaptionReceiver,
     node: &SyntaxNode,
-    platform: bool,
-    proc: Option<(usize, usize)>,
+    (platform, proc, local): (bool, Option<(usize, usize)>, bool),
 ) -> CaptionGate {
     let own = own_captions(ws, page);
-    if own.is_empty() {
+    if own.is_empty() || (receiver == CaptionReceiver::Bare && local && routine_declares_caption(node)) {
         return CaptionGate::Keep;
     }
     let unseen_proc = receiver == CaptionReceiver::Bare
@@ -231,6 +231,17 @@ fn names_parameterless_own_without_argument(
         None => !assign_target,
     };
     parameterless_own && no_argument
+}
+
+/// Whether the routine that holds `node` declares a parameter or a local variable named Caption: the bare name is that
+/// variable, as a local or a parameter named like a procedure is (codeunits/procedures/AssignIsCallRule.al:658-677,
+/// al-runner issue 9505). A named return value is not one of them: no cell measures it.
+fn routine_declares_caption(node: &SyntaxNode) -> bool {
+    let Some(r) = node.ancestors().find_map(ast::Routine::cast) else {
+        return false;
+    };
+    let caption = |n: &str| n.eq_ignore_ascii_case("Caption");
+    r.params().any(|p| caption(&p.name())) || r.local_var_decls().any(|d| d.names().iter().any(|n| caption(n)))
 }
 
 fn refusal(node: &SyntaxNode) -> String {

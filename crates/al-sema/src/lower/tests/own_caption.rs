@@ -285,3 +285,70 @@ fn assert_caption_refusal(src: &str) {
         "{src}\n{r:?}"
     );
 }
+
+/// al-runner issue 9505: a local variable or a parameter named `Caption` beside an own `Caption(): Text` is the variable,
+/// read and written, as a local or a parameter named like a procedure is in a codeunit
+/// (codeunits/procedures/AssignIsCallRule.al:658-677). The gate keeps the checker's resolution, as main did before the gate.
+#[test]
+fn a_local_or_parameter_named_caption_beside_an_own_caption_is_the_variable() {
+    let own = "procedure Caption(): Text begin exit('Own'); end;";
+    let src = format!(
+        "{ROW}\n{}",
+        card(
+            "P",
+            "procedure Loc(): Text var Caption: Text; begin Caption := 'Loc'; S := Caption; exit(Caption); end; \
+             procedure Par(Caption: Text): Text begin Caption := Caption + 'P'; exit(Caption); end;",
+            own
+        )
+    );
+    let (ws, l) = lower_src(&src);
+    no_refusals(&l);
+    for r in ["Loc", "Par"] {
+        let b = body(&ws, &l, "P", r);
+        assert!(
+            !b.contains("Page.Caption") && !b.contains("Call {") && !b.contains(MARK),
+            "{r}: {b}"
+        );
+    }
+}
+
+/// A source-table field, a page global and a named return value called `Caption` beside an own `Caption(): Text` keep
+/// the gate's refusal: no cell measures which one BC names there.
+#[test]
+fn a_field_global_or_return_value_named_caption_beside_an_own_caption_refuses() {
+    let own = "procedure Caption(): Text begin exit('Own'); end;";
+    let field_row = "table 50100 T { fields { field(1; No; Code[20]) { } field(2; Caption; Text[30]) { } } }";
+    let (_, l) = lower_src(&format!(
+        "{field_row}\n{}",
+        card("P", "trigger OnOpenPage() begin Caption := 'Fld'; end;", own)
+    ));
+    let r: Vec<String> = l
+        .unsupported
+        .iter()
+        .flatten()
+        .flatten()
+        .map(|r| format!("{r:?}"))
+        .collect();
+    let bodies: Vec<String> = l
+        .program
+        .objects
+        .iter()
+        .flat_map(|o| &o.routines)
+        .map(|r| format!("{:?}", r.body))
+        .collect();
+    assert!(
+        r.iter()
+            .chain(&bodies)
+            .any(|r| r.contains("beside a page procedure named Caption")),
+        "{r:?}"
+    );
+    assert_caption_refusal(&format!(
+        "page 50100 P {{ PageType = Card; SourceTable = T; Caption = 'Static'; var S: Text; Caption: Text; \
+         trigger OnOpenPage() begin Caption := 'Glob'; end; {own} }}"
+    ));
+    assert_caption_refusal(&card(
+        "P",
+        "procedure Ret() Caption: Text begin Caption := 'Ret'; end;",
+        own,
+    ));
+}

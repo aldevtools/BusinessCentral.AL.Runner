@@ -1,0 +1,4 @@
+# key	entry
+# al-runner issue 9505: a local or a parameter named Caption beside an own Caption(): Text is the variable (main refused it at the Caption gate)
+NCap Tests::LocalNamedCaption_IsTheVariable	PINNED tests/al-language/codeunits/procedures/AssignIsCallRule.al:669
+NCap Tests::ParameterNamedCaption_IsTheVariable	PINNED tests/al-language/codeunits/procedures/AssignIsCallRule.al:671
