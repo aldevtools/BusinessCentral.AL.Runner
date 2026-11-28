@@ -119,4 +119,58 @@ codeunit 97160 "NBX Tests"
             Error('SaveAs answered true');
         Check(GetLastErrorCode() + '/' + GetLastErrorText(), NoLayout(Report::"NBX No Layout Rpt"));
     end;
+
+    [Test]
+    procedure OwnRdlcExcelProperties_ExtWord_PdfBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBX Own Props Rpt", 1, ReportFormat::Pdf, 'false ' + NoLayout(Report::"NBX Own Props Rpt"));
+    end;
+
+    [Test]
+    procedure OwnWordLayoutProperty_ExtWord_WordStatement_NotMeasured()
+    begin
+        Statement(Report::"NBX Own Word Prop Rpt", 1, ReportFormat::Word, 'raised ' + NoLayout(Report::"NBX Own Word Prop Rpt"));
+    end;
+
+    [Test]
+    procedure OwnRenderingWordNoDefault_ExtWord_PdfBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBX Own Rendering Rpt", 1, ReportFormat::Pdf, 'false ' + NoLayout(Report::"NBX Own Rendering Rpt"));
+    end;
+
+    [Test]
+    procedure ExtWordWithRequestPageTrigger_PdfBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBX Ext Page Rpt", 0, ReportFormat::Pdf, 'false ' + NoLayout(Report::"NBX Ext Page Rpt"));
+    end;
+
+    [Test]
+    procedure ExtWordPlusRequestPageOnlyExt_OnPreReportError_XmlBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBX Two Ext Page Rpt", 1, ReportFormat::Xml, 'false Dialog/X1');
+    end;
+
+    [Test]
+    procedure ExtWordWithOnPreReport_PdfBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBX Ext Trigger Rpt", 1, ReportFormat::Pdf, 'false ' + NoLayout(Report::"NBX Ext Trigger Rpt"));
+    end;
+
+    [Test]
+    procedure ExtWordWithLabels_PdfBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBX Ext Labels Rpt", 1, ReportFormat::Pdf, 'false ' + NoLayout(Report::"NBX Ext Labels Rpt"));
+    end;
+
+    [Test]
+    procedure ExtTwoWordLayouts_PdfBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBX Ext Two Layouts Rpt", 1, ReportFormat::Pdf, 'false ' + NoLayout(Report::"NBX Ext Two Layouts Rpt"));
+    end;
+
+    [Test]
+    procedure TwoExtensions_PdfBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBX Two Ext Rpt", 1, ReportFormat::Pdf, 'false ' + NoLayout(Report::"NBX Two Ext Rpt"));
+    end;
 }

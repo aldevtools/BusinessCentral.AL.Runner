@@ -37,7 +37,14 @@ pub(crate) fn report_facts(program: &al_ir::Program, schema: &Schema) -> ReportF
     let extensions = match report.extensions.as_slice() {
         [] => Extensions::None,
         [e] if adds_columns_only(program, *e) => Extensions::OneAddingColumns,
-        [e] if adds_nothing_to_the_run(program, *e) && report.extension_layouts == ["word"] => {
+        // The report has no layout of its own: no rendering section, no layout property, no DefaultLayout naming a kind
+        // (SaveAsTriggerErrors.al "SAE No Layout Rpt").
+        [e] if adds_nothing_to_the_run(program, *e)
+            && report.extension_layouts == ["word"]
+            && report.layout == al_ir::ReportLayout::None
+            && report.rendering_layouts.is_empty()
+            && report.layout_properties.is_empty() =>
+        {
             Extensions::OneAddingWordLayout
         }
         _ => Extensions::Other,

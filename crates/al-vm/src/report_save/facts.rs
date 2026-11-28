@@ -93,7 +93,7 @@ pub(crate) enum Extensions {
     /// Exactly one, which only adds columns (no trigger, data item, label or `modify`).
     OneAddingColumns,
     /// Exactly one, which only adds one layout of Type Word in its `rendering` section (no column, trigger, data item, label
-    /// or `modify`).
+    /// or `modify`), to a report with no layout of its own (no rendering section, no layout property, `ReportLayout::None`).
     OneAddingWordLayout,
     Other,
 }

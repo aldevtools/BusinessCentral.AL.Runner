@@ -223,13 +223,7 @@ impl Session {
             (Kind::Excel, Extensions::None) => own_layout && call.format == "Xml",
             // No layout of its own; the extension's Word layout is not the default ("SAE No Layout Rpt", SaveAs_NoLayoutExtWord_*:
             // as Pdf and Word ReportNoLayout comes first, `cells_platform_first`).
-            (Kind::Other, Extensions::OneAddingWordLayout) => {
-                let own = schema.report();
-                own.layout == ir::ReportLayout::None
-                    && own.rendering_layouts.is_empty()
-                    && own.layout_properties.is_empty()
-                    && call.format == "Xml"
-            }
+            (Kind::Other, Extensions::OneAddingWordLayout) => call.format == "Xml",
             _ => false,
         };
         session && report && shape

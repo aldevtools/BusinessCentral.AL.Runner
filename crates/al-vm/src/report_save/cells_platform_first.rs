@@ -1,11 +1,15 @@
 //! The rows of the save table where the platform's own check of a `Report.SaveAs` comes before any trigger (corpus pull
 //! request 1579, merged, not yet pinned; assumption `saveas-platform-error-before-triggers`, issue 8486; the
 //! processing-only answers with the answer used are pinned by streams/PnH6SaveAs.al). The probe's reports
-//! (reports/layouts-saveas/SaveAsTriggerErrors.al) have one data item over Integer, no report extension, one layout at
-//! most ("SAE No Layout Rpt" none, its extension one Word layout), no OnInitReport and no request page, and are saved by `Report.SaveAs(Id, '', Format, OutStream)` with no
-//! layout selection row, as a statement inside `Codeunit.Run` and in the Boolean form; each test runs the control and
-//! an error in OnPreReport, OnAfterGetRecord, OnPreDataItem and OnPostReport, and no error site is reached. Measured
-//! the same on every supported major.
+//! (reports/layouts-saveas/SaveAsTriggerErrors.al) have one data item over Integer, no OnInitReport and no request
+//! page, and are saved by `Report.SaveAs(Id, '', Format, OutStream)` with no layout selection row, as a statement inside
+//! `Codeunit.Run` and in the Boolean form; each test runs the control and an error in OnPreReport, OnAfterGetRecord,
+//! OnPreDataItem and OnPostReport, and no error site is reached. Measured the same on every supported major.
+//!
+//! - "SAE Excel Rpt": one Excel layout, no report extension.
+//! - "SAE Processing Rpt": processing-only, no layout, no report extension.
+//! - "SAE No Layout Rpt": no layout of its own; one report extension, "SAE No Layout Word Ext", adds one Word layout
+//!   and nothing else.
 
 use super::Format;
 use super::cell::K::Is;
