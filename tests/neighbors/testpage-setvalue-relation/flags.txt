@@ -1,0 +1,3 @@
+# Each test runs in isolation: a refusal on main would otherwise stop the later tests of the codeunit.
+--isolation
+test
