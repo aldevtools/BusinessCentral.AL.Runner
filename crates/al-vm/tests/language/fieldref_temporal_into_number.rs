@@ -7,7 +7,13 @@
 //! (types/date-time/Y62UndefinedDate.al:292,295).
 
 const SRC: &str = r#"
-table 50716 TemporalRow { fields { field(1; K; Integer) { } field(2; D; Date) { } field(3; T; Time) { } field(4; Dt; DateTime) { } field(5; IntT; Integer) { } } keys { key(PK; K) { } } }
+table 50716 TemporalRow
+{
+    fields { field(1; K; Integer) { } field(2; D; Date) { } field(3; T; Time) { } field(4; Dt; DateTime) { } field(5; IntT; Integer) { } }
+    keys { key(PK; K) { } }
+    procedure Take(I: Integer): Text begin exit(Format(I)); end;
+}
+codeunit 50769 TakerImpl { procedure Take(I: Integer): Text begin exit(Format(I)); end; }
 codeunit 50768 C {
     var GlobalInt: Integer;
     local procedure Source(var RR: RecordRef; var FR: FieldRef; Src: Text)
@@ -86,11 +92,18 @@ codeunit 50768 C {
     end;
     [TryFunction]
     local procedure TryTakeInt(I: Integer) begin end;
+    procedure GlobalTake(I: Integer): Text begin exit(Format(I)); end;
+    [IntegrationEvent(false, false)]
+    local procedure OnTake(I: Integer) begin end;
     [TryFunction]
     local procedure TryOther(var FR: FieldRef; Place: Text; var Result: Text)
-    var LI: List of [Integer]; D: Dictionary of [Integer, Integer]; Ok: Boolean;
+    var LI: List of [Integer]; D: Dictionary of [Integer, Integer]; Ok: Boolean; Impl: Codeunit TakerImpl; Row: Record TemporalRow;
     begin
         case Place of
+            'codeunit_variable': Result := Impl.Take(FR.Value());
+            'record_procedure': Result := Row.Take(FR.Value());
+            'local_publisher': OnTake(FR.Value());
+            'global_same_object': Result := GlobalTake(FR.Value());
             'list_contains': Result := Format(LI.Contains(FR.Value()));
             'list_indexof': Result := Format(LI.IndexOf(FR.Value()));
             'list_insert': LI.Insert(1, FR.Value());
@@ -259,8 +272,9 @@ fn refusal(r: Result<al_builtins::value::Value, al_builtins::native::Signal>) ->
     }
 }
 
-/// Places the probes did not measure keep the refusal (review of the 9265 change): builtins other than List.Add and an
-/// argument of a TryFunction.
+/// Places the probes did not measure keep the refusal (review of the 9265 change): builtins other than List.Add, an
+/// argument of a TryFunction, and of any procedure but a local one of the same object without attributes on the current
+/// instance (a codeunit variable's, a record variable's, a publisher's, a global procedure of the same object).
 #[test]
 fn a_temporal_fieldref_value_in_a_place_the_corpus_does_not_measure_refuses() {
     for place in [
@@ -270,6 +284,10 @@ fn a_temporal_fieldref_value_in_a_place_the_corpus_does_not_measure_refuses() {
         "dict_add",
         "dict_containskey",
         "try_argument",
+        "codeunit_variable",
+        "record_procedure",
+        "local_publisher",
+        "global_same_object",
     ] {
         let args = vec![
             al_builtins::value::Value::Text("date1".into()),
@@ -318,4 +336,37 @@ fn on_the_oldest_major_a_datetime_into_an_option_raises_the_int32_error() {
     let got = al_testkit::text(s.call(oi, ri, inst, arg).map(|(v, _)| v));
     let int = err("DateTime", "System.Int32");
     assert_eq!(got, targets("DateTime", "ok: P739996DT12H0M0.001S", &int, &int));
+}
+
+/// On a major the corpus does not cover no cell is measured: the conversion refuses.
+#[test]
+fn on_a_major_the_corpus_does_not_cover_a_temporal_fieldref_value_into_a_number_refuses() {
+    let target = al_version::Target::for_bc(al_version::BcVersion::parse("30.0").unwrap());
+    let apps = vec![al_sema::workspace::AppSource {
+        id: "a".into(),
+        name: "a".into(),
+        dependencies: vec![],
+        files: vec![("f.al".into(), SRC.into())],
+    }];
+    let (ws, l) = al_sema::lower::compile_for(apps, &Default::default(), &target);
+    assert!(ws.diagnostics.is_empty(), "{:?}", ws.diagnostics);
+    let blocked: Vec<Vec<Option<String>>> = l
+        .unsupported
+        .iter()
+        .map(|o| o.iter().map(|r| r.first().map(|r| r.to_string())).collect())
+        .collect();
+    let oi = l.program.objects.iter().position(|o| o.name == "C").unwrap();
+    let ri = l.program.objects[oi]
+        .routines
+        .iter()
+        .position(|r| r.name == "German")
+        .unwrap();
+    let engine = al_vm::Engine::with_target(l.program, blocked, Some(target));
+    let mut s = al_vm::Session::new(engine);
+    let inst = s.instance(oi);
+    let why = refusal(
+        s.call(oi, ri, inst, vec![al_builtins::value::Value::Text("date1".into())])
+            .map(|(v, _)| v),
+    );
+    assert!(why.contains("on a major the corpus does not cover"), "{why}");
 }
