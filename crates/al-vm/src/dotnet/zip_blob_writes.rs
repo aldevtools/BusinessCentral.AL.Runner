@@ -158,8 +158,8 @@ pub(crate) fn unstamp_out_stream(v: &Value) {
 /// that read).
 pub(crate) fn note_element_stream(state: &mut super::DotNetState, v: &Value) {
     if let Value::Library(al_builtins::library_kind::LibraryKind::OutStream, h) = v {
-        let cells = &mut state.element_streams;
-        if !cells.iter().any(|w| std::ptr::eq(w.as_ptr(), Rc::as_ptr(h))) {
+        if !noted_element_stream(state, h) {
+            let cells = &mut state.element_streams;
             cells.retain(|w| w.strong_count() > 0);
             cells.push(Rc::downgrade(h));
         }
@@ -172,11 +172,18 @@ pub(super) fn stamp_of(
     h: &Rc<std::cell::RefCell<al_builtins::value::LibraryValue>>,
     opened_at: Option<u32>,
 ) -> Option<u32> {
-    let in_array = state
+    opened_at.filter(|_| !noted_element_stream(state, h))
+}
+
+/// Whether [`note_element_stream`] noted the OutStream cell `h`.
+fn noted_element_stream(
+    state: &super::DotNetState,
+    h: &Rc<std::cell::RefCell<al_builtins::value::LibraryValue>>,
+) -> bool {
+    state
         .element_streams
         .iter()
-        .any(|w| std::ptr::eq(w.as_ptr(), Rc::as_ptr(h)));
-    if in_array { None } else { opened_at }
+        .any(|w| std::ptr::eq(w.as_ptr(), Rc::as_ptr(h)))
 }
 
 /// Part 2's Blob: no read or Insert gave the record that Blob. Read when the bridge is made: a Clear in place gives the
