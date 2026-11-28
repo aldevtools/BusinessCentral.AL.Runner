@@ -321,3 +321,113 @@ codeunit 69483 "AfW Sub"
     let inst = s.instance(ci);
     refused(s.call(ci, ri, inst, vec![]).map(|(v, _)| v));
 }
+
+/// A child column over its parent's AutoFormatType 1 field in the layout of assumption `report-column-parent-field-format`
+/// (corpus PR 1652, DataItemNamesDottedQualifier.al at cf6884b9: parent Amt no. 4 :33, child Price no. 4 :55, columns :113,
+/// :128, :130), with subscriber `sub`. `without_own_column` drops the parent's own column `DAmt` from the lowered report, so the
+/// child column is the first one over the field. Returns the column line and whether the run went through the assumption.
+fn parent_amt_column(
+    sub: &str,
+    without_own_column: bool,
+) -> (Result<al_builtins::value::Value, al_builtins::native::Signal>, bool) {
+    let src = format!(
+        r#"
+table 69490 "AfW P"
+{{
+    fields {{ field(1; Id; Integer) {{ Caption = 'Id cap'; }} field(2; Name; Text[30]) {{ Caption = 'Name cap'; }} field(3; Qty; Decimal) {{ Caption = 'Qty cap'; DecimalPlaces = 0 : 3; }} field(4; Amt; Decimal) {{ Caption = 'Amt cap'; AutoFormatType = 1; }} field(5; B; Blob) {{ }} }}
+    keys {{ key(PK; Id) {{ Clustered = true; }} }}
+}}
+table 69491 "AfW K"
+{{
+    fields {{ field(1; Id; Integer) {{ Caption = 'Kid Id cap'; }} field(2; RowId; Integer) {{ }} field(3; Note; Text[30]) {{ Caption = 'Note cap'; }} field(4; Price; Decimal) {{ Caption = 'Price cap'; DecimalPlaces = 0 : 4; }} }}
+    keys {{ key(PK; Id) {{ Clustered = true; }} }}
+}}
+report 69492 "AfW Parent"
+{{
+    UsageCategory = None;
+    dataset
+    {{
+        dataitem(PRow; "AfW P")
+        {{
+            column(DAmt; PRow.Amt) {{ IncludeCaption = true; }}
+            dataitem(Kid; "AfW K")
+            {{
+                DataItemLink = RowId = field(Id);
+                column(CParentAmt; PRow.Amt) {{ IncludeCaption = true; }}
+                column(CPrice; Kid.Price) {{ IncludeCaption = true; }}
+            }}
+        }}
+    }}
+}}
+{sub}
+codeunit 69493 C
+{{
+    procedure ParentAmt(): Text
+    var
+        P: Record "AfW P";
+        K: Record "AfW K";
+        Tmp: Record "AfW P" temporary;
+        OutS: OutStream;
+        InS: InStream;
+        Line: Text;
+    begin
+        P.Id := 1;
+        P.Amt := 1234.5;
+        P.Insert();
+        K.Id := 1;
+        K.RowId := 1;
+        K.Price := 0.5;
+        K.Insert();
+        Tmp.B.CreateOutStream(OutS);
+        Report.SaveAs(Report::"AfW Parent", '', ReportFormat::Xml, OutS);
+        Tmp.B.CreateInStream(InS);
+        while not InS.EOS() do begin
+            InS.ReadText(Line);
+            if Line.Contains('<Column name="CParentAmt"') then
+                exit(Line.Trim());
+        end;
+    end;
+}}
+"#
+    );
+    use al_builtins::assumptions::{Assumption, clear_hits, take_hits};
+    let mut l = al_testkit::compile(&src);
+    if without_own_column {
+        let program = std::sync::Arc::make_mut(&mut l.program);
+        let report = program.objects.iter_mut().find(|o| o.name == "AfW Parent").unwrap();
+        report.report.as_mut().unwrap().items[0]
+            .columns
+            .retain(|c| c.name != "DAmt");
+    }
+    clear_hits();
+    let r = al_testkit::Built::new(l).run_in("C", "ParentAmt");
+    (r, take_hits().contains(&Assumption::ReportColumnParentFieldFormat))
+}
+
+/// The parent column's AutoFormatType 1 field with a writer outside Microsoft's apps keeps main's rule (`#,##0.00`), not flagged and
+/// not refused: main took no AutoFormatType for another item's field. In the measured layout the parent's own column `DAmt`
+/// over the field refuses first, as on main; without it the child column alone shows the rule. Without a writer the assumption
+/// serves the column.
+#[test]
+fn a_writer_leaves_the_parent_field_column_on_mains_rule() {
+    let (r, flagged) = parent_amt_column("", false);
+    assert_eq!(
+        (al_testkit::text(r).as_str(), flagged),
+        (
+            "<Column name=\"CParentAmt\" decimalformatter=\"#,##0.####\">1234.5</Column>",
+            true
+        )
+    );
+    let (r, flagged) = parent_amt_column(WRITER, true);
+    assert_eq!(
+        (al_testkit::text(r).as_str(), flagged),
+        (
+            "<Column name=\"CParentAmt\" decimalformatter=\"#,##0.00\">1234.5</Column>",
+            false
+        )
+    );
+    let (r, flagged) = parent_amt_column(WRITER, false);
+    assert!(!flagged);
+    let e = format!("{r:?}");
+    assert!(e.contains("Unsupported") && e.contains("AfW Sub"), "{e}");
+}

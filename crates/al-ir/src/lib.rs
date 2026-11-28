@@ -840,10 +840,31 @@ pub struct ReportColumn {
     pub places_table: Option<usize>,
     #[serde(default)]
     pub places_field: Option<usize>,
-    /// The column takes the `decimalformatter` of its field's AutoFormatType 2 (al-sema `reports::field_unit_amount_measured`,
-    /// assumption `report-column-field-unit-amount-format`).
+    /// The rule of a column shape a probe measures beyond the rules above (al-sema `reports/column_source.rs`).
     #[serde(default)]
-    pub field_unit_amount_format: bool,
+    pub measured_field: MeasuredField,
+}
+
+/// How a report column reads its field in a shape a probe measures where the general rules of [`ReportColumn`] do not give
+/// BC's answer. Each variant is set by one gate in al-sema `reports/column_source.rs` and read by al-vm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum MeasuredField {
+    /// The general rules.
+    #[default]
+    None,
+    /// The `decimalformatter` of the field's AutoFormatType 2, `#,##0.00###` (`field_unit_amount_measured`, assumption
+    /// `report-column-field-unit-amount-format`).
+    UnitAmount,
+    /// A field with AutoFormatType 1 beside DecimalPlaces: from BC 28 the `decimalformatter` of AutoFormatType 1, `#,##0.00`;
+    /// before, that of DecimalPlaces. `assumed`: the column runs through the assumption `report-column-field-amount-places-format`
+    /// (`amount_places_measured`); else it is the pinned bare column (`amount_places_pinned`).
+    AmountOverPlaces { assumed: bool },
+    /// A Decimal field of the direct parent data item (`places_table`, `places_field`): its DecimalPlaces, `#,##0.####` for
+    /// AutoFormatType 1 (`parent_field_measured`, assumption `report-column-parent-field-format`).
+    ParentField,
+    /// An Option field written `Item.Field`: the OptionCaption, as a bare Option field shows (`option_caption_measured`,
+    /// assumption `report-column-qualified-option-caption`).
+    OptionCaption,
 }
 
 /// The syntax tree of a report column's source expression, as written: parentheses, operators, indexes and calls with an

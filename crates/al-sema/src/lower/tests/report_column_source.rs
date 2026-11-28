@@ -180,7 +180,7 @@ fn a_unit_amount_field_marks_its_measured_columns() {
         ));
         let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
         let c = &l.program.objects[oi].report.as_ref().unwrap().items[0].columns[0];
-        assert_eq!(c.field_unit_amount_format, want, "{column}");
+        assert_eq!(c.measured_field == al_ir::MeasuredField::UnitAmount, want, "{column}");
     }
 }
 
@@ -414,4 +414,23 @@ fn an_undotted_qualifier_is_not_flagged() {
     assert_eq!(columns[0].1, Some(0));
     assert_eq!(columns[1].1, Some(2));
     assert!(assumes.is_empty(), "{assumes:?}");
+}
+
+/// The qualified Option column takes the OptionCaption only when no tableextension changes the field's caption (DataItemNamesDottedQualifier.al
+/// :356 at cf6884b9 has no extension): a `modify` that sets OptionCaption or OptionCaptionML keeps main's answer.
+#[test]
+fn an_option_caption_changed_by_a_tableextension_keeps_mains_answer() {
+    let report =
+        "report 50100 R { dataset { dataitem(Undotted; T) { column(K; Undotted.Kind) { IncludeCaption = true; } } } }";
+    let kind = |ext: &str| {
+        let (ws, l) = lower_src(&format!("{TABLE}\n{ext}\n{report}"));
+        let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
+        l.program.objects[oi].report.as_ref().unwrap().items[0].columns[0].measured_field
+            == al_ir::MeasuredField::OptionCaption
+    };
+    assert!(kind(""));
+    for property in ["OptionCaption = ' ,X cap';", "OptionCaptionML = ENU = ' ,X cap';"] {
+        let ext = format!("tableextension 50101 X extends T {{ fields {{ modify(Kind) {{ {property} }} }} }}");
+        assert!(!kind(&ext), "{property}");
+    }
 }

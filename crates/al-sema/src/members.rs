@@ -24,6 +24,8 @@ pub struct FieldInfo {
     pub declared_in: Option<usize>,
     /// A `modify` block of a table extension sets `Caption` or `CaptionML` of the field.
     pub caption_modified: bool,
+    /// A `modify` block of a table extension sets `OptionCaption` or `OptionCaptionML` of the field.
+    pub option_caption_modified: bool,
     /// The `InitValue` property as written.
     pub init_value: Option<String>,
     pub auto_increment: bool,
@@ -238,6 +240,9 @@ fn merged_members(ws: &Workspace, i: usize) -> Members {
                 for (k, v) in props {
                     if k.eq_ignore_ascii_case("Caption") || k.eq_ignore_ascii_case("CaptionML") {
                         field.caption_modified = true;
+                    }
+                    if k.eq_ignore_ascii_case("OptionCaption") || k.eq_ignore_ascii_case("OptionCaptionML") {
+                        field.option_caption_modified = true;
                     }
                     // A modify block that sets TableRelation gives the field a relation (record/ table extension: misc/
                     // lt-object-properties-runtime-effect/TableExtModifyTableRelation.al: Validate of the field finds the related table, and
@@ -471,6 +476,7 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                     properties: f.properties().map(|p| (p.name(), p.value_text())).collect(),
                     relation_scopes: Vec::new(),
                     caption_modified: false,
+                    option_caption_modified: false,
                 });
             }
         } else if name == "value" {
@@ -536,6 +542,7 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                 },
                 relation_scopes: Vec::new(),
                 caption_modified: false,
+                option_caption_modified: false,
             });
         }
         if ws.user_name_fields() {
@@ -560,6 +567,7 @@ fn own_members(ws: &Workspace, i: usize) -> Members {
                     ],
                     relation_scopes: Vec::new(),
                     caption_modified: false,
+                    option_caption_modified: false,
                 });
             }
         }
@@ -596,8 +604,8 @@ fn proc_sig(r: &al_syntax::ast::Routine, declared_in: usize) -> ProcSig {
 
 /// The `Interface = Codeunit` pairs of an implementation property (`I = C, J = D`).
 fn push_impls(m: &mut Members, slot: ImplSlot, value: &str, declared_in: usize) {
-    for pair in split_outside_quotes(value, ',') {
-        let sides = split_outside_quotes(&pair, '=');
+    for pair in crate::scan::split_names(value, ',') {
+        let sides = crate::scan::split_names(pair, '=');
         if let [interface, codeunit] = sides.as_slice() {
             m.enum_impls.push(EnumImpl {
                 slot: slot.clone(),
@@ -609,25 +617,9 @@ fn push_impls(m: &mut Members, slot: ImplSlot, value: &str, declared_in: usize) 
     }
 }
 
-fn split_outside_quotes(text: &str, sep: char) -> Vec<String> {
-    let mut out = vec![String::new()];
-    let mut in_quote = false;
-    for c in text.chars() {
-        match c {
-            '"' => {
-                in_quote = !in_quote;
-                out.last_mut().expect("non-empty").push(c);
-            }
-            c if c == sep && !in_quote => out.push(String::new()),
-            c => out.last_mut().expect("non-empty").push(c),
-        }
-    }
-    out
-}
-
 /// `Ns."Some Name"` as the parts of an object reference.
 pub(crate) fn name_parts(text: &str) -> Vec<String> {
-    split_outside_quotes(text.trim(), '.')
+    crate::scan::split_names(text.trim(), '.')
         .into_iter()
         .map(|p| p.trim().trim_matches('"').to_string())
         .collect()

@@ -12,8 +12,16 @@ enum Quotes {
     Double,
 }
 
-/// The byte ranges of the pieces of `text` split at `sep` outside quotes and parentheses; every piece, empty ones too.
-fn split_ranges(text: &str, sep: char, quotes: Quotes) -> Vec<(usize, usize)> {
+/// Whether parentheses hide separators.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Parens {
+    Hide,
+    Count,
+}
+
+/// The byte ranges of the pieces of `text` split at `sep` outside quotes (and, with `Parens::Hide`, parentheses); every piece,
+/// empty ones too.
+fn split_ranges(text: &str, sep: char, quotes: Quotes, parens: Parens) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let (mut depth, mut start) = (0i32, 0usize);
     let mut quote: Option<char> = None;
@@ -23,8 +31,8 @@ fn split_ranges(text: &str, sep: char, quotes: Quotes) -> Vec<(usize, usize)> {
             (Some(_), _) => {}
             (None, '"') => quote = Some(c),
             (None, '\'') if quotes == Quotes::Both => quote = Some(c),
-            (None, '(') => depth += 1,
-            (None, ')') => depth -= 1,
+            (None, '(') if parens == Parens::Hide => depth += 1,
+            (None, ')') if parens == Parens::Hide => depth -= 1,
             (None, c) if c == sep && depth == 0 => {
                 out.push((start, i));
                 start = i + c.len_utf8();
@@ -38,7 +46,7 @@ fn split_ranges(text: &str, sep: char, quotes: Quotes) -> Vec<(usize, usize)> {
 
 /// SubPageLink and RunPageLink: quotes of both kinds, each part trimmed, empty parts dropped.
 pub(crate) fn split_trimmed(text: &str, sep: char) -> Vec<String> {
-    split_ranges(text, sep, Quotes::Both)
+    split_ranges(text, sep, Quotes::Both, Parens::Hide)
         .into_iter()
         .map(|(a, b)| text[a..b].trim().to_string())
         .filter(|s| !s.is_empty())
@@ -48,7 +56,7 @@ pub(crate) fn split_trimmed(text: &str, sep: char) -> Vec<String> {
 /// Query properties (DataItemLink, OrderBy, filters): quotes of both kinds, parts as written, empty middle parts kept,
 /// a blank last part dropped.
 pub(crate) fn split_query(text: &str, sep: char) -> Vec<String> {
-    let mut ranges = split_ranges(text, sep, Quotes::Both);
+    let mut ranges = split_ranges(text, sep, Quotes::Both, Parens::Hide);
     if let Some(&(a, b)) = ranges.last() {
         if text[a..b].trim().is_empty() {
             ranges.pop();
@@ -59,15 +67,24 @@ pub(crate) fn split_query(text: &str, sep: char) -> Vec<String> {
 
 /// Report and xmlport links: double quotes only, parts as written, empty parts kept.
 pub(crate) fn split_double(text: &str, sep: char) -> Vec<String> {
-    split_ranges(text, sep, Quotes::Double)
+    split_ranges(text, sep, Quotes::Double, Parens::Hide)
         .into_iter()
         .map(|(a, b)| text[a..b].to_string())
         .collect()
 }
 
+/// Names (`Item."Field"`, a report column source, `Interface = Codeunit` of an enum value): double quotes only, parentheses not
+/// counted, the parts as slices of `text`, as written, empty parts kept.
+pub(crate) fn split_names(text: &str, sep: char) -> Vec<&str> {
+    split_ranges(text, sep, Quotes::Double, Parens::Count)
+        .into_iter()
+        .map(|(a, b)| &text[a..b])
+        .collect()
+}
+
 /// TableRelation: quotes of both kinds, the parts as slices of `text`, as written, empty parts kept.
 pub(crate) fn split_slices(text: &str, sep: char) -> Vec<&str> {
-    split_ranges(text, sep, Quotes::Both)
+    split_ranges(text, sep, Quotes::Both, Parens::Hide)
         .into_iter()
         .map(|(a, b)| &text[a..b])
         .collect()
@@ -231,6 +248,41 @@ mod tests {
         out
     }
 
+    /// members.rs `split_outside_quotes` (enum implementation pairs and object names).
+    fn legacy_members_split_outside_quotes(text: &str, sep: char) -> Vec<String> {
+        let mut out = vec![String::new()];
+        let mut in_quote = false;
+        for c in text.chars() {
+            match c {
+                '"' => {
+                    in_quote = !in_quote;
+                    out.last_mut().expect("non-empty").push(c);
+                }
+                c if c == sep && !in_quote => out.push(String::new()),
+                c => out.last_mut().expect("non-empty").push(c),
+            }
+        }
+        out
+    }
+
+    /// reports.rs `split_outside_quotes` (report column sources, split at dots).
+    fn legacy_reports_split_outside_quotes(s: &str, sep: char) -> Vec<&str> {
+        let mut out = Vec::new();
+        let (mut start, mut quoted) = (0, false);
+        for (i, c) in s.char_indices() {
+            match c {
+                '"' => quoted = !quoted,
+                c if c == sep && !quoted => {
+                    out.push(&s[start..i]);
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        out.push(&s[start..]);
+        out
+    }
+
     fn legacy_split_commas(s: &str) -> Vec<&str> {
         let mut out = Vec::new();
         let (mut depth, mut start, mut quote) = (0i32, 0usize, None::<char>);
@@ -278,13 +330,17 @@ mod tests {
     /// Every text of up to `len` characters over an alphabet that exercises the scanners: both quotes, parentheses,
     /// both separators, a space, a letter, a non-ASCII character.
     fn texts(len: usize) -> Vec<String> {
-        const A: [char; 9] = ['"', '\'', '(', ')', ',', '=', ' ', 'a', 'é'];
+        texts_of(&['"', '\'', '(', ')', ',', '=', ' ', 'a', 'é'], len)
+    }
+
+    /// Every text of up to `len` characters of alphabet `a`.
+    fn texts_of(a: &[char], len: usize) -> Vec<String> {
         let mut all = vec![String::new()];
         let mut layer = vec![String::new()];
         for _ in 0..len {
             let mut next = Vec::new();
             for s in &layer {
-                for c in A {
+                for &c in a {
                     let mut t = s.clone();
                     t.push(c);
                     next.push(t);
@@ -303,8 +359,35 @@ mod tests {
                 assert_eq!(split_trimmed(&t, sep), legacy_pages_split_top(&t, sep), "pages {t:?}");
                 assert_eq!(split_query(&t, sep), legacy_query_split_top(&t, sep), "query {t:?}");
                 assert_eq!(split_double(&t, sep), legacy_split_double(&t, sep), "double {t:?}");
+                assert_eq!(
+                    split_names(&t, sep),
+                    legacy_members_split_outside_quotes(&t, sep),
+                    "members {t:?}"
+                );
+                assert_eq!(
+                    split_names(&t, sep),
+                    legacy_reports_split_outside_quotes(&t, sep),
+                    "reports {t:?}"
+                );
             }
             assert_eq!(split_slices(&t, ','), legacy_split_commas(&t), "slices {t:?}");
+        }
+    }
+
+    /// The dot, the one separator the two replaced name splitters were called with (column sources, dotted object names).
+    #[test]
+    fn the_name_splitter_gives_what_both_replaced_splitters_gave_at_dots() {
+        for t in texts_of(&['"', '.', '(', ')', ' ', 'a', 'é'], 7) {
+            assert_eq!(
+                split_names(&t, '.'),
+                legacy_members_split_outside_quotes(&t, '.'),
+                "members {t:?}"
+            );
+            assert_eq!(
+                split_names(&t, '.'),
+                legacy_reports_split_outside_quotes(&t, '.'),
+                "reports {t:?}"
+            );
         }
     }
 

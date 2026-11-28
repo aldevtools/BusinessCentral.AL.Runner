@@ -3729,10 +3729,10 @@ impl Session {
                     None => n.to_string(),
                 }
             }
-            // An Option field shows its OptionCaption (`Beta cap`), the way Format(Opt) does; its OptionCaptionML the caption
-            // of the session language (XTablePropsTests.al:741-785, `Plain` shows `Zwei` in 1031).
-            Value::Option(n, _) if t.is_some() && c.field.is_some() => {
-                let (t, pos) = (t.as_ref().expect("checked"), c.field.expect("checked"));
+            // An Option field (`blob_column::option_field`) shows its OptionCaption (`Beta cap`), the way Format(Opt) does;
+            // its OptionCaptionML the caption of the session language (XTablePropsTests.al:741-785, `Plain` shows `Zwei` in 1031).
+            Value::Option(n, _) if blob_column::option_field(&t, c).is_some() => {
+                let (t, pos) = blob_column::shown_option_field(&t, c).expect("checked");
                 match self.members_of_field_in(t, pos, true)? {
                     Some((enum_field, members)) => match members.iter().find(|(ord, _, _)| ord == n) {
                         Some((_, name, caption)) => {
