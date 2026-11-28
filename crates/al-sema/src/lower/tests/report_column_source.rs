@@ -276,7 +276,10 @@ fn a_child_outside_the_probes_shape_turns_the_dotted_columns_off() {
         ("dataitem(\"C. D\"; T) { DataItemLink = K = field(K);", true),
         ("dataitem(Kid; T) { DataItemLink = K = field(K);", false),
         ("dataitem(\"C. D\"; T) {", false),
-        ("dataitem(\"C. D\"; T) { DataItemLink = K = field(K), Name = field(Name);", false),
+        (
+            "dataitem(\"C. D\"; T) { DataItemLink = K = field(K), Name = field(Name);",
+            false,
+        ),
         ("dataitem(\"C. D\"; T) { DataItemLink = K = const(1);", false),
     ] {
         let (ws, l) = lower_src(&format!(
