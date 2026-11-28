@@ -162,7 +162,7 @@ impl<'a> Checker<'a> {
     }
 
     /// The resolution the checker stored for `node`.
-    fn res_at(&self, sc: &Scope, node: &SyntaxNode) -> Option<&Res> {
+    pub(crate) fn res_at(&self, sc: &Scope, node: &SyntaxNode) -> Option<&Res> {
         let r = node.text_range();
         self.resolutions
             .get(&(sc.file, r.start().into(), r.end().into()))
@@ -470,9 +470,11 @@ impl<'a> Checker<'a> {
         let name = name_of(&callee);
         let own = self.members[sc.self_obj].procedures_named(&name);
         // A TryFunction returns a Boolean without declaring one (corpus errors/error-texts/ErTTryBasics.al:81).
-        let try_function = self.ws.object_ast(sc.self_obj).routines().any(|r| {
-            r.name().eq_ignore_ascii_case(&name) && r.attributes().any(|a| a.name().eq_ignore_ascii_case("TryFunction"))
-        });
+        let try_function = self
+            .ws
+            .object_ast(sc.self_obj)
+            .routines()
+            .any(|r| r.name().eq_ignore_ascii_case(&name) && is_try_function(&r));
         if try_function || own.is_empty() || own.iter().any(|p| p.ret.is_some()) || sc_has_var(sc, &name.to_lowercase())
         {
             return;
@@ -495,17 +497,19 @@ impl<'a> Checker<'a> {
                 self.types.get(&(sc.file, r.start().into(), r.end().into())),
                 Some(Ty::Object(ObjKind::Page, _))
             );
-        let Some(&Res::Proc { object, offset }) = self.res_at(sc, rhs) else {
+        let Some(&Res::Proc { object, offset }) = self.res_at(sc, rhs).filter(|_| page_local) else {
             return;
         };
         let no_result = self.members[object]
             .procedure_at(offset)
             .is_some_and(|p| p.ret.is_none());
-        let try_function = self.ws.object_ast(object).routines().any(|r| {
-            usize::from(r.syntax().text_range().start()) == offset
-                && r.attributes().any(|a| a.name().eq_ignore_ascii_case("TryFunction"))
-        });
-        if page_local && no_result && !try_function {
+        let try_function = || {
+            self.ws
+                .object_ast(object)
+                .routines()
+                .any(|r| usize::from(r.syntax().text_range().start()) == offset && is_try_function(&r))
+        };
+        if no_result && !try_function() {
             self.diag(
                 sc,
                 rhs,
@@ -2259,6 +2263,11 @@ fn alc_param_type(t: &Ty) -> Option<String> {
         Ty::Array(d, e) if d.len() == 1 => format!("array[{}] of {}", d[0], alc_param_type(e)?),
         _ => return None,
     })
+}
+
+/// Whether the routine carries the `[TryFunction]` attribute.
+fn is_try_function(r: &ast::Routine) -> bool {
+    r.attributes().any(|a| a.name().eq_ignore_ascii_case("TryFunction"))
 }
 
 /// Whether `recv` is the bare name `CurrPage` and no variable of that name hides it.
