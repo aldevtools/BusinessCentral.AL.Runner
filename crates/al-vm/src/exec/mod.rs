@@ -448,8 +448,8 @@ pub(crate) struct CallSite {
     /// (`blob_transfer::FieldRead`), by argument index: a Blob among them moves into a by-value Variant parameter as
     /// `Session::call_field_reads` says. Empty for almost every call.
     pub field_reads: Box<[(u16, crate::blob_transfer::FieldRead)]>,
-    /// The by-value arguments that are a plain local variable of the calling routine (not a parameter), by argument
-    /// index (`records::Session::own_local_args`). Empty for almost every call.
+    /// The by-value arguments that are a plain local Record variable of the calling routine (not a parameter), by
+    /// argument index (`records::Session::own_local_args`). Empty for almost every call.
     pub local_values: Box<[u16]>,
 }
 

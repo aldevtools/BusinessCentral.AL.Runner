@@ -18,7 +18,8 @@
 //! report-procedure`, corpus PR 1450, which also covers a FlowField key with a SetLoadFields before a
 //! read handed from a codeunit), or a procedure of a table or table extension called without a receiver from a
 //! procedure of the same object with a plain local record of the table (`Proc(Local)`, al-runner issue 8596, assumption
-//! `by-value-own-table-local-copy`, corpus PR 1578; `own_local_args`, set by `exec/run.rs` `run_call`)
+//! `by-value-own-table-local-copy`, corpus PRs 1578 and 1638: the default view for the view facts
+//! `own_table_view_measured` names; `own_local_args`, set by `exec/run.rs` `run_call`)
 //! (`measured_callee`, which names the assumption, from the call's
 //! `ByValueCall`: callee, instance, and `Dispatch` direct, subscriber or interface), the view of a
 //! fresh record (`primary_view`) when every filter is in group -1, 0, 2 or 4 (or is the data item's
@@ -70,7 +71,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// The `RecordState::unpinned_buffer` reason of a by-value copy whose view [`Session::by_value_view`] does not decide.
-pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields and a read before the hand-off other than from a codeunit to a codeunit's procedure with every filter in group 0, ascending and without marks or an ad hoc key, or with the row cleared, initialized or changed since the read, a SetAutoCalcFields outside the measured shape or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit, of a report procedure called from other than the report, a codeunit or a page, a key on a FlowField with a filter, another order, marks, or a SetLoadFields before a read other than handed from a codeunit to a codeunit's or a report's procedure, or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or Proc(Local) of a local record from a procedure of the same table or table extension, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
+pub(crate) const BY_VALUE_VIEW: &str = "a record handed by value whose view the probe did not measure (a filter in filter group 1 or in a group other than -1, 0, 2 and 4, the caller standing in a group other than 0 and 2, a field sorted descending by SetAscending, a SetLoadFields and a read before the hand-off other than from a codeunit to a codeunit's procedure with every filter in group 0, ascending and without marks or an ad hoc key, or with the row cleared, initialized or changed since the read, a SetAutoCalcFields outside the measured shape or ReadIsolation on the record, a call through an interface, a parameter of an object other than a codeunit, of a report procedure called from other than the report, a codeunit or a page, a key on a FlowField with a filter, another order, marks, or a SetLoadFields before a read other than handed from a codeunit to a codeunit's or a report's procedure, or of a table procedure other than Row.Proc(Row) or Buffer.Proc(Entry) of another table from a codeunit or a third table, or Proc(Local) of a local record from a procedure of the same table or table extension with view facts other than corpus PRs 1578 and 1638 measure, or an event subscriber's parameter whose publisher parameter is a by-value Record, other than in the one cell record/filters/ByValueRecordView.al:286-308 and :964-978 measures): what the copy's view holds is not pinned";
 
 /// The `RecordState::unpinned_buffer` reason of the copy an event subscriber's parameter gets in the cell
 /// record/filters/ByValueRecordView.al:286-308 measures ([`subscriber_view`]): the subscriber reads GetFilters and Count of it
@@ -509,8 +510,10 @@ impl Session {
     ///   called without a receiver from a procedure of the same object with a plain local record as argument `index`:
     ///   `CalleeT(Item, Op)` from `CallerT` (:53-71) and `CalleeX(Item, Op)` from `CallerX` (:134-152), cells :163-303
     ///   (`before op: No.=A1 Net=60 Count=2 ... GetFilters=[] ... FilterGroup()=0` after a caller view of a FlowFilter
-    ///   or a Normal-field filter) ([`Session::own_local_args`]). Rec, xRec, a global or a parameter as the argument, a
-    ///   call on another record, from a trigger or from another object are not measured.
+    ///   or a Normal-field filter) ([`Session::own_local_args`]), and with the other view facts corpus PR 1638
+    ///   (record/filters/ByValueOwnTableViewFacts.al, open) measures ([`Session::own_table_view_measured`]); the copy
+    ///   gets the default view. Rec, xRec, a global or a parameter as the argument, a call on another record, from a
+    ///   trigger or from another object, and the view facts no cell measures are not measured.
     fn measured_callee(&self, call: &ByValueCall, param: &RtType, source: &Rec, index: usize) -> Option<Evidence> {
         let objects = &self.engine.program.objects;
         let callee = &objects[call.callee];
@@ -528,7 +531,9 @@ impl Session {
             _ => false,
         };
         match (call.dispatch, callee.kind) {
-            (Dispatch::Direct, ObjKind::Table | ObjKind::TableExtension) if own_table && call.own_local(index) => {
+            (Dispatch::Direct, ObjKind::Table | ObjKind::TableExtension)
+                if own_table && call.own_local(index) && self.own_table_view_measured(&source.borrow()) =>
+            {
                 Some(Evidence::Assumed(Assumption::ByValueOwnTableLocalCopy))
             }
             (Dispatch::Direct, ObjKind::Codeunit) => Some(Evidence::Pinned),
@@ -548,6 +553,36 @@ impl Session {
             .then_some(Evidence::Pinned),
             _ => None,
         }
+    }
+
+    /// Whether corpus PR 1578 (record/filters/ByValueOwnTableLocalCopy.al:163-303) and corpus PR 1638
+    /// (record/filters/ByValueOwnTableViewFacts.al, open) measure the view facts of `s`, a local record handed by value
+    /// from a procedure of its own table or table extension to a procedure of the same object (issue 8596). In every
+    /// cell the copy has the default view ([`primary_view`]: `FilterGroup()=0 CurrentKey=No. Ascending=Yes
+    /// MarkedOnly=No ... g0=[] g2=[] g-1=[]`, Net without the caller's FlowFilters, Count over every row) and the
+    /// caller keeps its own. Measured, each fact in a table and a table extension cell: one filter on a Normal field or
+    /// a FlowFilter (PR 1578), two Normal-field filters (:683), two FlowFilters and CalcFields before the hand-off
+    /// (:323), a global callee (:359), a filter in group 2 (:395) or -1 (:431), the caller standing in group 2 (:467),
+    /// a declared secondary key with and without a filter (:503, :539), Ascending false (:575), marks with MarkedOnly
+    /// on (:611). Not measured, so the call keeps main's answer: a filter in group 1 or 3 to 7 or on a FlowField, the
+    /// caller in another group, an ad hoc key, a field sorted descending by SetAscending, marks with MarkedOnly off,
+    /// SetAutoCalcFields or ReadIsolation ([`plain_state`]), and a SetLoadFields, which the cell :647 cannot tell apart
+    /// (AreFieldsLoaded reads Yes in the caller too).
+    fn own_table_view_measured(&self, s: &RecordState) -> bool {
+        let fields = self.engine.program.objects[s.table as usize]
+            .table
+            .as_ref()
+            .map(|t| &t.fields);
+        let measured_field = |i: usize| fields.and_then(|f| f.get(i)).is_some_and(|f| f.stored || f.flow_filter);
+        s.filters
+            .iter()
+            .all(|f| matches!(f.group, -1 | 0 | 2) && measured_field(f.field))
+            && matches!(s.filter_group, 0 | 2)
+            && s.adhoc.is_none()
+            && s.field_descending == 0
+            && (s.marks.is_empty() || s.marked_only)
+            && s.load.request.is_none()
+            && plain_state(s)
     }
 
     /// Gives `copy`, the by-value copy of `source` for a parameter of type `param` of the procedure of `call`, the view BC
@@ -672,6 +707,12 @@ impl Session {
                 c.key = 0;
                 c.adhoc = None;
                 c.unpinned_buffer = None;
+            }
+            // A local record handed from its own table's or extension's procedure (`own_table_view_measured`): the
+            // default view, whatever view facts the caller set (corpus PR 1578 and PR 1638, issue 8596).
+            None if measured == Some(Evidence::Assumed(Assumption::ByValueOwnTableLocalCopy)) => {
+                primary_view(&mut c);
+                c.view_assumption = Some(Assumption::ByValueOwnTableLocalCopy);
             }
             Some(FLOWFIELD_KEY) if plain_view && no_filter && pinned_key && !load_pending => {
                 c.key = 0;

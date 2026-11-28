@@ -1531,16 +1531,18 @@ impl<'a> Compiler<'a> {
             .collect()
     }
 
-    /// The by-value arguments of a call that are a plain local of this routine, not a parameter
-    /// (`CallSite::local_values`). A record argument is lowered into its parameter's type (`Convert(Record,
-    /// Load(Local))`).
+    /// The by-value arguments of a call that are a plain local Record variable of this routine, not a parameter
+    /// (`CallSite::local_values`): the lowering hands one into its parameter's type as `Convert(Record, Load(Local))`.
     fn local_values(&self, args: &'a [ir::Arg]) -> Box<[u16]> {
-        let local = |e: &ir::Expr| matches!(e, ir::Expr::Load(ir::Place::Local(slot)) if *slot >= self.params);
         args.iter()
             .enumerate()
             .filter_map(|(i, a)| match a {
-                ir::Arg::Value(ir::Expr::Convert(RtType::Record(..), e)) if local(e) => u16::try_from(i).ok(),
-                ir::Arg::Value(e) if local(e) => u16::try_from(i).ok(),
+                ir::Arg::Value(ir::Expr::Convert(RtType::Record(..), e))
+                    if matches!(&**e, ir::Expr::Load(ir::Place::Local(slot))
+                        if *slot >= self.params && matches!(self.locals_ty.get(*slot), Some(RtType::Record(..)))) =>
+                {
+                    u16::try_from(i).ok()
+                }
                 _ => None,
             })
             .collect()
