@@ -12,7 +12,6 @@ DRN All Row Tests::AllRowCode_True_Descending	ASSUMED delete-all-row-code-scan-o
 DRN All Row Tests::AllRowCode_False_Descending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
 DRN All Row Tests::AllRowCode_Temporary_Descending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
 DRN Neighbors Writes::SubscriberOnlyTemporaryDescending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
-DRN Neighbors Writes::RowCodeReadsTableDescending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
 DRN Neighbors Writes::ChangeCompanyDescending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
 # The next four rows differ only in the transaction-type assumption ids main carries. On main the test before them in
 # codeunit DRO Probe is refused mid-run, so the transaction type it left is not known, and the next test's writes carry

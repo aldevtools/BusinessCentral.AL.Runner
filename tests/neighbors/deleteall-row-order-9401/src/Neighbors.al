@@ -141,6 +141,7 @@ codeunit 94017 "DRN Ctl"
     var
         Other: Record "DRN Row";
         OtherTable: Record "DRN Other";
+        RowSum: Record "DRN Row Sum";
     begin
         Add('T' + Format(Id));
         case Mode of
@@ -203,6 +204,15 @@ codeunit 94017 "DRN Ctl"
                 end;
             'read-count':
                 Add('c' + Format(Other.Count()));
+            'read-get':
+                Add('g' + Format(Other.Get(Id)));
+            'read-flow':
+                begin
+                    RowSum.CalcFields(Rows);
+                    Add('f' + Format(RowSum.Rows));
+                end;
+            'read-other-table':
+                Add('o' + Format(OtherTable.Count()));
         end;
     end;
 }

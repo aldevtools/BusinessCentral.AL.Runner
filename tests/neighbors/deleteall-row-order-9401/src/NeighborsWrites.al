@@ -187,7 +187,7 @@ codeunit 94024 "DRN Neighbors Writes"
         Assert.AreEqual('B3,B2,B1', Ctl.Take(), 'order');
     end;
 
-    // Row code reads the table: each row's OnDelete runs before its own delete, after the rows before it are gone.
+    // Row code reads the table (Count): not measured, refused with main's text (records/delete_all_order.rs).
     [Test]
     procedure RowCodeReadsTableDescending()
     var

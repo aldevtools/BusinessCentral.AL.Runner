@@ -83,6 +83,9 @@ impl Session {
         self.table_op_checks(&t, rec, method, args)?;
         // The impact trace, and a subscriber whose install order is not known run once under watch (order_trial.rs).
         self.note_table_op(t.object, method.writes(), rec.borrow().temporary)?;
+        if Self::is_read_call(method) || matches!(method, RecordOp::CountApprox | RecordOp::LoadFields) {
+            self.note_row_code_read();
+        }
         if matches!(
             method,
             RecordOp::Find

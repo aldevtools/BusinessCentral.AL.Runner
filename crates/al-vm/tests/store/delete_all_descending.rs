@@ -1,6 +1,7 @@
 //! `DeleteAll(true)` with OnDelete over a record sorted descending runs the trigger in the scan order (assumption
-//! delete-all-row-code-scan-order, corpus PR 1659, al-runner issue 9401). Row code that writes a row of the same table
-//! (inside the filter or outside it, the row being deleted too), commits or raises an error is not measured: the run
+//! delete-all-row-code-scan-order, corpus PR 1659, al-runner issue 9401). Row code that reads any table (a record
+//! operation or a FlowField), writes a row of the table (inside the filter or outside it, the row being deleted too),
+//! commits or raises an error is not measured: the run
 //! refuses with main's text, and the refused run carries no assumption id (records/delete_all_order.rs).
 
 use al_builtins::assumptions::Assumption;
@@ -10,7 +11,7 @@ use al_testkit::text;
 const SRC: &str = r#"
 table 69990 "DAD Row" { fields { field(1; Id; Integer) { } field(2; Name; Text[30]) { } } keys { key(PK; Id) { } }
     trigger OnDelete()
-    var Ctl: Codeunit Ctl; R: Record "DAD Row";
+    var Ctl: Codeunit Ctl; R: Record "DAD Row"; S: Record "DAD Sum";
     begin
         Ctl.Add(Format(Id));
         if Id <> 3 then exit;
@@ -23,9 +24,14 @@ table 69990 "DAD Row" { fields { field(1; Id; Integer) { } field(2; Name; Text[3
             'insertoutside': begin R.Id := 10; R.Insert(false); end;
             'self': begin Rec.Name := 'x'; Rec.Modify(false); end;
             'commit': Commit();
+            'get': if R.Get(1) then;
+            'count': Ctl.Add(Format(R.Count()));
+            'flow': begin S.CalcFields(Rows); Ctl.Add(Format(S.Rows)); end;
+            'other': if S.Get(1) then;
         end;
     end;
 }
+table 69994 "DAD Sum" { fields { field(1; Id; Integer) { } field(2; Rows; Integer) { FieldClass = FlowField; CalcFormula = count("DAD Row"); } } keys { key(PK; Id) { } } }
 table 69993 "DAD Temp Row" { TableType = Temporary; fields { field(1; Id; Integer) { } } keys { key(PK; Id) { } }
     trigger OnDelete() var Ctl: Codeunit Ctl; begin Ctl.Add(Format(Id)); end;
 }
@@ -114,6 +120,11 @@ codeunit 69992 C
     procedure Modifies(): Text begin exit(Run('modify')); end;
     procedure Inserts(): Text begin exit(Run('insert')); end;
     procedure Errors(): Text begin exit(Run('error')); end;
+    procedure Reads(): Text begin exit(RunFiltered('get', false)); end;
+    procedure Counts(): Text begin exit(RunFiltered('count', false)); end;
+    procedure TempReads(): Text begin exit(RunFiltered('get', true)); end;
+    procedure ReadsThroughFlowField(): Text begin exit(RunFiltered('flow', false)); end;
+    procedure ReadsOtherTable(): Text begin exit(RunFiltered('other', false)); end;
 }
 "#;
 
@@ -133,7 +144,7 @@ const MAIN_REFUSAL: &str = "DeleteAll with delete events, database triggers or O
                             sorted descending: the order of the row code is not pinned";
 
 #[test]
-fn descending_delete_all_refuses_row_code_that_writes_the_table_commits_or_errors() {
+fn descending_delete_all_refuses_row_code_that_reads_or_writes_the_table_commits_or_errors() {
     let mut wrong = Vec::new();
     for routine in [
         "Deletes",
@@ -147,6 +158,11 @@ fn descending_delete_all_refuses_row_code_that_writes_the_table_commits_or_error
         "Commits",
         "TableTypeTemporary",
         "OtherCompany",
+        "Reads",
+        "Counts",
+        "TempReads",
+        "ReadsThroughFlowField",
+        "ReadsOtherTable",
     ] {
         al_builtins::assumptions::take_hits();
         let r = al_testkit::run_in(SRC, "C", routine);

@@ -3,15 +3,20 @@
 //! then the next row (al-runner issue 9401; assumption `delete-all-row-code-scan-order`, corpus PR 1659).
 //!
 //! `scan_order_measured` is the one predicate for the record and table facts the probe measured; everything else keeps
-//! main's refusal. While it runs, the row code of each row may write no row of the table but the row's own Delete, and
-//! may not commit, roll back or raise an error (none of that is measured): else the run refuses with main's text, and
-//! the assumption is noted only for a run that got to its end. With no other write to the table, the rows found at the
-//! start are the rows a live cursor would find.
+//! main's refusal. While it runs, the row code of each row may read no row of any table (a record read, or a read
+//! without a record operation: a FlowField, a query, a TableRelation, `Session::note_row_code_read`), may write no
+//! row of the table but the row's own Delete, and may not commit, roll back or raise an error (none of that is measured): else
+//! the run refuses with main's text, and the assumption is noted only for a run that got to its end. With no other
+//! write to the table, the rows found at the start are the rows a live cursor would find.
 //!
 //! Entry point: `Session::delete_all_in_scan_order`, called by `delete_all_selected` (delete_all.rs).
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
+
+/// Per running row of a descending DeleteAll, innermost last, whether its row code read the rows of a table
+/// (`Session::row_code_reads`). Empty outside such a row.
+pub(crate) type RowCodeReads = RefCell<Vec<bool>>;
 
 /// Main's refusal, kept for every shape the probe did not measure.
 const UNMEASURED: &str = "DeleteAll with delete events, database triggers or OnDelete over two or more rows of a record sorted \
@@ -54,11 +59,12 @@ impl Session {
     /// `run` false the events (RunTrigger No) and OnDatabaseDelete only (DeleteAllRowCodeOrder.al:543-547, :610-613), the
     /// same sequence as one Delete (:566-567), then the next row. The rows go in the scan order: `Ascending(false)` reverses
     /// the primary key inside equal key values too, the `SetAscending` of the key field only that field (:345-349); with a
-    /// filter, MarkedOnly, a temporary record and a RecordRef alike (:301-307, :394-399). The probe's row code writes no
-    /// row of the table and does not commit; a write to another table is measured on corpus master
-    /// (record/crud/RecordPathsUnpinned.al:41-47, :195-241). So once a row's code wrote a row of the table (the row itself,
-    /// one it has still to visit or one outside the filter), committed or rolled back, or raised an error, the run refuses
-    /// with main's text, and the assumption is noted only for a run that got to its end.
+    /// filter, MarkedOnly, a temporary record and a RecordRef alike (:301-307, :394-399). The probe's row code reads no
+    /// row of any table (it logs to a SingleInstance codeunit and reads the field values of its own row), writes no row of
+    /// the table and does not commit; a write to another table is measured on corpus master
+    /// (record/crud/RecordPathsUnpinned.al:41-47, :195-241). So once a row's code read a row of any table, wrote one of the table (the
+    /// row itself, one it has still to visit or one outside the filter), committed or rolled back, or raised an error, the
+    /// run refuses with main's text, and the assumption is noted only for a run that got to its end.
     /// `rows` are the rows the caller's forward scan found: the record's order for `SetAscending`, the reverse of it for
     /// `Ascending(false)`.
     pub(super) fn delete_all_in_scan_order(
@@ -79,16 +85,28 @@ impl Session {
         for row in rows {
             let mark = self.tx.write_log_mark();
             let temp_writes = self.temp_table_writes(rec)?;
-            match self.delete_row(t, &super::delete_all::row_record(rec, row, &shared), run) {
+            self.row_code_reads.borrow_mut().push(false);
+            let deleted = self.delete_row(t, &super::delete_all::row_record(rec, row, &shared), run);
+            let read = self.row_code_reads.borrow_mut().pop().unwrap_or(false);
+            match deleted {
                 Err(Signal::Error(_)) => return unsupported(UNMEASURED),
                 other => other?,
             };
-            if !self.wrote_only_its_delete(t, rec, mark, temp_writes)? {
+            if read || !self.wrote_only_its_delete(t, rec, mark, temp_writes)? {
                 return unsupported(UNMEASURED);
             }
         }
         assume(Assumption::DeleteAllRowCodeScanOrder);
         Ok(Value::Null)
+    }
+
+    /// Notes a read of the rows of a table (any table and company, temporary or not) for every running descending
+    /// DeleteAll row: a record read (`record_op_inner`) or a read without a record operation (`note_indirect_read`).
+    pub(crate) fn note_row_code_read(&self) {
+        self.row_code_reads
+            .borrow_mut()
+            .iter_mut()
+            .for_each(|read| *read = true);
     }
 
     /// The writes the temporary table of `rec` took so far (its own store); 0 for a database record.

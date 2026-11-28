@@ -25,7 +25,7 @@ mod blob_filter;
 mod boolean_filter_error;
 mod delete_all;
 mod delete_all_flow;
-mod delete_all_order;
+pub(crate) mod delete_all_order;
 mod empty_find_origin;
 mod filter_error;
 mod flowfield_key;

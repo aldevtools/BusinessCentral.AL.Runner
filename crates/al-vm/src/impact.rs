@@ -113,6 +113,7 @@ impl crate::Session {
     /// A table read without a record operation on it ([`Touches::indirect_reads`]).
     #[inline]
     pub(crate) fn note_indirect_read(&self, table: u32) {
+        self.note_row_code_read();
         if !self.coverage.impact_on {
             return;
         }
