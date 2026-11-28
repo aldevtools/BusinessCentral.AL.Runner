@@ -16,6 +16,8 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
+use crate::{Frame, Session};
+
 /// A buffer a stream was opened on, without keeping it alive (compared by address), its
 /// [`al_builtins::stream::BlobBuf::content_edits`] right after the call (a `Clear` of the field empties the same buffer in place,
 /// al-builtins `native::values`, `blob_clears_in_place`, and moves that count on, as every write does), and whether the call
@@ -29,8 +31,6 @@ type BufMark = (std::sync::Weak<BlobCell>, u32, bool);
 fn opened_without_encoding(args: &[ir::Arg]) -> bool {
     args.len() == 1
 }
-
-use crate::{Frame, Session};
 
 /// The records and field positions noted so far; a record no longer alive is dropped at the next note.
 #[derive(Default)]
@@ -132,9 +132,10 @@ impl TestLocalBlobFields {
     }
 
     /// Whether `b` is now the field of a noted live record on which the method opened one OutStream and one InStream,
-    /// both on `b` itself and both without an encoding argument, and nothing edited `b` since but the one `WriteText` between the two calls (its edit count one
-    /// past the OutStream's, the same as the InStream's; `stream_line_breaks::measured_line_break_stream` reads that the
-    /// history since the buffer was made or cleared is that one CreateOutStream and that one WriteText).
+    /// both on `b` itself and both without an encoding argument, and nothing edited `b` since but the one `WriteText`
+    /// between the two calls (its edit count one past the OutStream's, the same as the InStream's;
+    /// `stream_line_breaks::measured_line_break_stream` reads that the history since the buffer was made or cleared is that
+    /// one CreateOutStream and that one WriteText).
     pub(crate) fn holds(&self, b: &BlobRef) -> bool {
         let edits = b.borrow().content_edits;
         let only_on_b =
