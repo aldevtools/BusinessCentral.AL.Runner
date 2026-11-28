@@ -115,6 +115,20 @@ pub fn passing_in_both_line(file: &str) -> String {
     )
 }
 
+/// ADR-070 decision 5, reverse direction (al-runner issue 8943): the note after a default-list case that passes in
+/// BC's order, ` (<file name>)`, with `, not on metrics/strict-order-files.txt` when the list lacks its file: a case
+/// that passes only in BC's order may belong on the list. Empty when `index` has no such codeunit.
+pub fn default_passing_file(files: &[String], index: &CorpusIndex, codeunit: u32) -> String {
+    let Some(name) = index.codeunits.get(&codeunit).and_then(|cu| cu.file.file_name()) else {
+        return String::new();
+    };
+    let name = name.to_string_lossy();
+    match codeunits(files, index, [codeunit]).is_empty() {
+        true => format!(" ({name}, not on {LIST})"),
+        false => format!(" ({name})"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +236,16 @@ mod tests {
         // The reader passes in both orders too: it and its writer are reported.
         let default_all = |_: &CaseId| Some(Outcome::Pass);
         assert_eq!(passing_in_both(&list, &ix, &all, &default_all, &strict), ["a/Setter.al", "a/Reader.al", "a/Lone.al"]);
+    }
+
+    /// Al-runner issue 8943, reverse direction: a default-list case that passes in BC's order names its file and
+    /// whether the list has it.
+    #[test]
+    fn a_default_passing_case_names_its_file_and_whether_it_is_listed() {
+        let ix = index_of(&[(1, "a/Listed.al"), (2, "a/Unlisted.al")]);
+        let files = parse("a/Listed.al").files;
+        assert_eq!(default_passing_file(&files, &ix, 1), " (Listed.al)");
+        assert_eq!(default_passing_file(&files, &ix, 2), " (Unlisted.al, not on metrics/strict-order-files.txt)");
+        assert_eq!(default_passing_file(&files, &ix, 3), "");
     }
 }

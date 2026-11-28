@@ -1757,7 +1757,7 @@ fn run_version_inner(
         cases: &cases,
         all: &all_cases,
         recorded: Box::new(|c| rt.first_recorded(c)),
-        area_of: Box::new(|cu| index.area_of(cu).map(str::to_string)),
+        index,
         selected: Box::new(|c| match &explained {
             Some((_, e)) => *c == e.id,
             None => !args.select.is_active() || args.select.matches(c, index),
@@ -1780,7 +1780,7 @@ fn run_version_inner(
             cases: suite_cases,
             all: suite_all,
             recorded: Box::new(|c| rt.recorded_in(&suite.name, c)),
-            area_of: Box::new(|cu| suite_index.area_of(cu).map(str::to_string)),
+            index: suite_index,
             selected: Box::new(|c| match &explained {
                 Some((_, e)) => *c == e.id,
                 None => !args.select.is_active() || args.select.matches(c, suite_index),
@@ -1792,7 +1792,7 @@ fn run_version_inner(
             let in_scope = |id: &oracle::CaseId| {
                 args.top_refusals_area
                     .as_ref()
-                    .is_none_or(|a| (t.area_of)(id.codeunit).is_some_and(|x| x.eq_ignore_ascii_case(a)))
+                    .is_none_or(|a| t.index.area_of(id.codeunit).is_some_and(|x| x.eq_ignore_ascii_case(a)))
             };
             let outcome = |c: &oracle::CaseId| {
                 (t.recorded)(c).unwrap_or_else(|| {
@@ -1850,7 +1850,8 @@ struct Target<'a> {
     all: &'a [oracle::OracleCase],
     /// The outcome the run recorded, `None` when it recorded none.
     recorded: Box<Recorded<'a>>,
-    area_of: Box<dyn Fn(u32) -> Option<String> + 'a>,
+    /// The corpus index of the app (areas and files of its codeunits).
+    index: &'a corpus::CorpusIndex,
     /// Whether the selection picks a case (every case when nothing is selected).
     selected: Box<dyn Fn(&oracle::CaseId) -> bool + 'a>,
 }
@@ -1918,7 +1919,7 @@ fn check_lists(
         if args.baseline_diff {
             println!(
                 "\n{}",
-                not_passing::render_diff(&format!("BC {}", t.label), c, &*t.area_of)
+                not_passing::render_diff(&format!("BC {}", t.label), c, &|cu| t.index.area_of(cu).map(str::to_string))
             );
         }
         if args.no_ratchet {
@@ -1984,6 +1985,8 @@ struct StrictList {
     path: PathBuf,
     text: String,
     check: al_test_cli::strict_not_run::StrictCheck,
+    /// The files of `metrics/strict-order-files.txt`, for the note on a default-list case that passes here.
+    files: Vec<String>,
 }
 
 impl StrictList {
@@ -1995,7 +1998,13 @@ impl StrictList {
         };
         let strict = not_passing::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         let check = al_test_cli::strict_not_run::check(list, &strict, t.all, &*t.selected, &*t.recorded);
-        Ok(StrictList { path, text, check })
+        let files = al_test_cli::strict_order::load(root)?.files;
+        Ok(StrictList {
+            path,
+            text,
+            check,
+            files,
+        })
     }
 
     /// The lists a case may be on, for the regression line.
@@ -2015,7 +2024,10 @@ impl StrictList {
                 t.label,
                 passing.len()
             );
-            passing.iter().for_each(|x| eprintln!("  {} {}", x.codeunit, x.name));
+            for x in passing {
+                let file = al_test_cli::strict_order::default_passing_file(&self.files, t.index, x.codeunit);
+                eprintln!("  {} {}{file}", x.codeunit, x.name);
+            }
         }
     }
 }
@@ -2265,6 +2277,7 @@ mod tests {
             },
             bc_failed: false,
         }];
+        let index = corpus::CorpusIndex::default();
         let target = |path: &Path| Target {
             label: "27.5".into(),
             major: 27,
@@ -2273,7 +2286,7 @@ mod tests {
             cases: &all,
             all: &all,
             recorded: Box::new(|_| Some(report::Outcome::Pass)),
-            area_of: Box::new(|_| None),
+            index: &index,
             selected: Box::new(|_| true),
         };
         let args = Args {
