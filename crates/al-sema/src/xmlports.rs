@@ -1332,11 +1332,7 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         // xmlports/shapes-properties/QrXpContainerOccurs.al TS_Linked_Unbounded_* and TS_RootOnce_* (were assumptions
         // `xmlport-linked-max-unbounded`, `xmlport-root-min-occurs-once`). A port whose Namespaces no element uses rests on one
         // (`measured_shapes::unused_prefixes`); al-vm reads it to know the port's import.
-        assumes: if layout.unused_prefixes {
-            vec![al_builtins::assumptions::Assumption::XmlportUnusedNamespacePrefix]
-        } else {
-            Vec::new()
-        },
+        assumes: measured_shapes::unused_prefixes_assumes(layout),
         request_page: layout.request_page,
     }
 }
@@ -1618,7 +1614,7 @@ mod tests {
                 leaf.to_string(),
             ),
             (
-                format!("Direction = Export; Encoding = UTF8; Namespaces = \"\" = 'urn:e', xsd = 'urn:xsd';"),
+                "Direction = Export; Encoding = UTF8; Namespaces = \"\" = 'urn:e', xsd = 'urn:xsd';".to_string(),
                 leaf.to_string(),
             ),
             (

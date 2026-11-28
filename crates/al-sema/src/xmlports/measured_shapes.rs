@@ -283,6 +283,15 @@ pub(super) fn unused_prefixes(layout: &Layout) -> bool {
             })
 }
 
+/// The port's assumption when it is such a cell (`ir::XmlPort::assumes`; al-vm reads it to know the port's import).
+pub(super) fn unused_prefixes_assumes(layout: &Layout) -> Vec<al_builtins::assumptions::Assumption> {
+    layout
+        .unused_prefixes
+        .then_some(al_builtins::assumptions::Assumption::XmlportUnusedNamespacePrefix)
+        .into_iter()
+        .collect()
+}
+
 fn ns_port_properties(layout: &Layout, default: NsDefault, encoding: &str, direction: &str) -> bool {
     let mut required = vec![("direction", direction), ("encoding", encoding)];
     let (udn, dn) = match default {
