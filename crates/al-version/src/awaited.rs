@@ -31,6 +31,14 @@ pub fn web_service_session_measured(target: Option<&Target>) -> bool {
     matches!(target.map(|t| t.bc.major), Some(28))
 }
 
+/// Whether `Base64Convert.ToBase64(InStream, true)` of a temporary table's own Blob field is measured on the target's major:
+/// the reporter of al-runner issue 9322 ran the repro on BC 28.4 (a CR LF at position 77, 138 characters, as the Temp Blob
+/// stream of tests/al-language/streams/Base64LineBreaks.al:120-134 gives). `true` on 28 only; the probe that measures 27, 28
+/// and 29 is still to come (assumption `base64-line-breaks-temporary-table-blob`, al-builtins `stream_line_breaks`).
+pub fn temporary_table_blob_line_breaks_measured(target: Option<&Target>) -> bool {
+    matches!(target.map(|t| t.bc.major), Some(28))
+}
+
 /// Whether `target` is a minor the HTTP probe of corpus PR 1424 measured: `HttpHeaders.Contains('')`
 /// (tests/al-language/http/HttpHeaders.al:531, :558, :579) and `HttpContent.WriteFrom(InStream)` after the Content-Type
 /// changed (tests/al-language/http/content/HttpContent.al:717-793). The writer ran it on local 27.5, 28.5 and 29.1 hosts
