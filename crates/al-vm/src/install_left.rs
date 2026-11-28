@@ -103,8 +103,8 @@ impl Session {
             install_without_client: _,
             // Carried: `Baseline::company_built`.
             company_built: _,
-            // Carried: `Baseline::login_held`.
-            login_held: _,
+            // Carried: `Baseline::held_logins`.
+            held_logins: _,
             // Carried: `Baseline::codeunit_left`.
             codeunit_left: _,
             demo_written: _,
@@ -171,6 +171,7 @@ impl Session {
             plain_proc_xrec: _,
             ext_xrec_triggers: _,
             ext_before_watch: _,
+            row_code_unmeasured: _,
             shared_proc_xrec: _,
             iface_frames: _,
             run_callers: _,

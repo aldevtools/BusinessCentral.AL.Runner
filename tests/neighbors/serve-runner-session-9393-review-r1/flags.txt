@@ -1,0 +1,3 @@
+--isolation
+required
+--strict-order

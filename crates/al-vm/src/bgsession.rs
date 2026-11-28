@@ -94,6 +94,7 @@ impl Session {
                 if let Value::Record(c) = &copy
                     && let Some(to) = c.borrow().temp_id.as_ref().map(|t| t.id())
                 {
+                    self.note_row_code_read();
                     let rows = self.store_for(&rc)?.clone();
                     self.temps.insert(to, rows);
                 }
@@ -103,9 +104,7 @@ impl Session {
                 return refuse(&format!("a {} handed to the session", crate::value_kind(&other)));
             }
         };
-        self.note_own_id_read();
-        self.sessions_started += 1;
-        let id = self.session_id().saturating_add(self.sessions_started);
+        let id = self.next_background_session_id();
         let tx = TxState {
             committed_row_version: self.tx.committed_row_version,
             ..TxState::fresh()
@@ -182,6 +181,25 @@ impl Session {
             Ok(_) | Err(Signal::Error(_)) => refuse("an error in the new session"),
             Err(other) => Err(other),
         }
+    }
+
+    /// The id of the next session this session starts (`StartSession`, a page background task's worker): its own id plus
+    /// a count of the sessions it started. What the probes measure is only that the id is positive and not the starting
+    /// session's (codeunits/run-onrun/RqIsolationModes.al:113; pages/background-tasks/PbtChildSession.al:209-229); the
+    /// numbering is the runner's. In the session runner 130450 runs its codeunits in after the held login, each codeunit
+    /// is a new `Session` with the same id (`OwnLogin`), so the count is that session's, kept on the held login all of
+    /// them start from (`HeldLogin::own_session_starts`): no two of its started sessions share an id.
+    pub(crate) fn next_background_session_id(&mut self) -> i32 {
+        self.sessions_started += 1;
+        let count = match (self.own_login(), self.held_logins.hub.as_deref()) {
+            (Some(_), Some(hub)) => {
+                hub.own_session_starts
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    + 1
+            }
+            _ => self.sessions_started,
+        };
+        self.session_id().saturating_add(count)
     }
 
     /// A read of session state a new session sets up for itself, in a session `StartSession` started: refused, as no

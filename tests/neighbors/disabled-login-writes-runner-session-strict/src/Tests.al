@@ -60,7 +60,7 @@ codeunit 52620 "RS P1 Runner"
             Error('no Active Session row for SessionId() %1', SessionId());
     end;
 
-    // The hub session's id seen from this session: whether BC still has the hub session is not measured.
+    // The hub session is not active from this session (corpus PR 1657, LgnRunnerSessions.al:439).
     [Test]
     procedure P1_HubSessionActive()
     var
@@ -93,13 +93,13 @@ codeunit 52621 "RS P2 Runner"
         Lib.Equal(1, Lib.OwnRows(), 'login rows of this session');
     end;
 
-    // Whether two codeunits runner 130450 runs share one session is not measured: the runner gives each its own.
+    // Two codeunits runner 130450 runs share one session (corpus PR 1657, LgnRunnerSessions.al:488).
     [Test]
-    procedure P2_OtherSessionThanP1()
+    procedure P2_SameSessionAsP1()
     var
         Lib: Codeunit "RS Lib";
     begin
-        if Lib.Mark('P1') = SessionId() then
-            Error('same session as P1: %1', SessionId());
+        if Lib.Mark('P1') <> SessionId() then
+            Error('another session than P1: %1', SessionId());
     end;
 }
