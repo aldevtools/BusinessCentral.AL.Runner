@@ -222,11 +222,12 @@ impl Walker<'_> {
 }
 
 impl Maker<'_> {
-    /// The library value of `n`, every handle it names made already.
-    pub(crate) fn library(&self, n: &LibraryNode) -> LibraryValue {
+    /// The library value of `n`, every handle it names made already; `None` where a record it names is not one (noted as
+    /// broken, `Maker::record_handle`).
+    pub(crate) fn library(&self, n: &LibraryNode) -> Option<LibraryValue> {
         use LibraryNode as N;
         use LibraryValue as L;
-        match n {
+        Some(match n {
             N::Empty => L::Empty,
             N::ClearedStream => L::ClearedStream,
             N::XmlNodeOfUnassignedElement => L::XmlNodeOfUnassignedElement,
@@ -248,12 +249,12 @@ impl Maker<'_> {
                 name: name.clone(),
                 key: self.values(key),
             },
-            N::RecordRef(r) => L::RecordRef(self.record_handle(*r)),
-            N::FieldRef(r, p) => L::FieldRef(self.record_handle(*r), *p),
-            N::KeyFieldRef(r, p) => L::KeyFieldRef(self.record_handle(*r), *p),
-            N::KeyRef(r, k) => L::KeyRef(self.record_handle(*r), *k),
+            N::RecordRef(r) => L::RecordRef(self.record_handle(*r)?),
+            N::FieldRef(r, p) => L::FieldRef(self.record_handle(*r)?, *p),
+            N::KeyFieldRef(r, p) => L::KeyFieldRef(self.record_handle(*r)?, *p),
+            N::KeyRef(r, k) => L::KeyRef(self.record_handle(*r)?, *k),
             N::UserNameFieldRef { rec, no, value } => L::UserNameFieldRef {
-                rec: self.record_handle(*rec),
+                rec: self.record_handle(*rec)?,
                 no: *no,
                 value: value.clone(),
             },
@@ -278,7 +279,7 @@ impl Maker<'_> {
                     unindented: *unindented,
                 },
             },
-        }
+        })
     }
 
     fn error_info(&self, e: &ErrorInfoNode) -> ErrorInfoState {

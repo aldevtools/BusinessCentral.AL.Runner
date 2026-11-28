@@ -471,6 +471,8 @@ pub(crate) fn tx_not_as_new(tx: &crate::state::TxState) -> Option<&'static str> 
         lock_timeout_duration: _,
         committed_row_version: _,
         commit_counter: _,
+        // Read only against the counts a record's version entry noted (`version_entry.rs`), and no record outlives the
+        // install code: any value.
         write_counts: _,
         ended: _,
         rolled_back: _,

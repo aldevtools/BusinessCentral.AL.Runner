@@ -1236,6 +1236,107 @@ fn a_thaw_onto_a_store_without_the_tables_the_login_changed_refuses() {
     assert_eq!((lines_without_sql(&mut target), table_rows(&mut target, f.row)), before);
 }
 
+/// The image's own data, broken one way per entry: an xRec chain that is a cycle, a set that is the xRec set of two
+/// sets, a singleton that names a node of another kind, and one that names no node.
+fn broken_images(f: &mut Fx) -> Vec<(LoginImage, &'static str)> {
+    use arena::{Node, NodeId};
+    let kinds: [&'static str; 4] = ["xRec cycle", "xRec of two", "kind", "range"];
+    (kinds.into_iter())
+        .map(|how| {
+            let mut image = image(&mut f.session);
+            assert!(
+                !image.singletons.is_empty(),
+                "the image holds a SingleInstance codeunit"
+            );
+            let nodes = &mut image.arena.nodes;
+            let next = |nodes: &Vec<Node>, k: u32| NodeId(nodes.len() as u32 + k);
+            match how {
+                "xRec cycle" => {
+                    let (a, b) = (next(nodes, 0), next(nodes, 1));
+                    nodes.push(Node::Globals {
+                        instances: Vec::new(),
+                        xrec: Some(b),
+                    });
+                    nodes.push(Node::Globals {
+                        instances: Vec::new(),
+                        xrec: Some(a),
+                    });
+                }
+                "xRec of two" => {
+                    let child = next(nodes, 0);
+                    nodes.push(Node::Globals {
+                        instances: Vec::new(),
+                        xrec: None,
+                    });
+                    nodes.push(Node::Globals {
+                        instances: Vec::new(),
+                        xrec: Some(child),
+                    });
+                    nodes.push(Node::Globals {
+                        instances: Vec::new(),
+                        xrec: Some(child),
+                    });
+                }
+                "kind" => {
+                    let array = next(nodes, 0);
+                    nodes.push(Node::Array(Vec::new()));
+                    image.singletons[0].1 = array;
+                }
+                _ => image.singletons[0].1 = next(nodes, 5),
+            }
+            (image, how)
+        })
+        .collect()
+}
+
+// An image whose own data is broken (its arena, issue 9016) is not thawn: the thaw answers `NotThawed::Image` before it
+// changes anything, so the replay's target runs its login instead of a test thread panicking; the same target then takes
+// an image that is whole.
+#[test]
+fn a_thaw_of_an_image_with_broken_data_refuses_and_leaves_the_target_as_it_was() {
+    let mut f = fx();
+    f.run("FillDatabase");
+    f.run("FillCollections");
+    for (broken, how) in broken_images(&mut f) {
+        let mut target = new_session(&f.session);
+        let rows = |s: &mut Session| format!("{:?}", s.store_mut().export_committed());
+        let before = (lines_without_sql(&mut target), rows(&mut target), target.temps.len());
+        assert!(
+            matches!(target.thaw_login_image(&broken), Err(NotThawed::Image(_))),
+            "{how}"
+        );
+        assert_eq!(
+            (lines_without_sql(&mut target), rows(&mut target), target.temps.len()),
+            before,
+            "{how}"
+        );
+        let whole = image(&mut f.session);
+        target
+            .thaw_login_image(&whole)
+            .unwrap_or_else(|why| panic!("{how}: {}", why.reason()));
+        assert_eq!(
+            lines_without_sql(&mut target),
+            lines_without_sql(&mut f.session),
+            "{how}"
+        );
+    }
+}
+
+// An image that marks emptied a table the target holds no entry for (its own rows broken, issue 9016) is not thawn: the
+// thaw answers `NotThawed::Rows` before it changes anything.
+#[test]
+fn a_thaw_of_an_image_that_marks_emptied_a_table_with_no_entry_refuses() {
+    let mut f = fx();
+    f.run("FillDatabase");
+    let mut broken = image(&mut f.session);
+    broken.rows.plant_emptied(("No such company".into(), 50199));
+    let mut target = new_session(&f.session);
+    let rows = |s: &mut Session| format!("{:?}", s.store_mut().export_committed());
+    let before = (lines_without_sql(&mut target), rows(&mut target));
+    assert_eq!(target.thaw_login_image(&broken), Err(NotThawed::Rows));
+    assert_eq!((lines_without_sql(&mut target), rows(&mut target)), before);
+}
+
 // A Commit at a type other than Update keeps the type and marks it `commit-keeps-transaction-type`
 // (`Session::keep_type_at_commit`). Code that reads CurrentTransactionType before the first test method starts is flagged
 // through that mark, so the twin must carry it.
