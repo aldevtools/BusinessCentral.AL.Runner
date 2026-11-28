@@ -737,6 +737,7 @@ mod tests {
             singles: vec![3],
             opened: Box::new(()),
             own_session_starts: Default::default(),
+            ran_on: None,
         }));
         b.held_logins.runner = b.held_logins.hub.clone();
         assert!(

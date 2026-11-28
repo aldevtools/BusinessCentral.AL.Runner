@@ -3,13 +3,13 @@
 //! starts from what another codeunit left keeps, and what a test of a held session may not read (`held_reads`), and how each session logs in (`login_plan`). The
 //! neighbor apps `tests/neighbors/disabled-login-writes*` run the same shapes end to end.
 use super::held_login::{
-    HeldOpened, LoginPlan, carried_company_open, first_login, held_reads, login_plan, login_rows_as_held,
-    own_session_id, runs_own_login,
+    HeldOpened, LoginPlan, RunnerLoginRows, carried_company_open, first_login, held_reads, login_plan,
+    login_rows_as_held, own_session_id, runner_login_data, runs_own_login,
 };
 use super::*;
 use crate::install::CompanyOpenWrites;
 
-const SRC: &str = "table 50100 \"Login Row\" { fields { field(1; No; Integer) { } } keys { key(PK; No) { } } }
+const SRC: &str = "table 50100 \"Login Row\" { fields { field(1; No; Integer) { } field(2; V; Integer) { } } keys { key(PK; No) { } } }
     table 50101 Other { fields { field(1; No; Integer) { } } keys { key(PK; No) { } } }
     codeunit 50102 Memo { SingleInstance = true; var N: Integer; procedure Get(): Integer begin exit(N); end; }
     codeunit 50103 T { Subtype = Test;
@@ -44,6 +44,7 @@ fn held_in(l: &al_sema::lower::Lowered, session: &mut Session) -> al_vm::HeldLog
         singles: vec![object(l, "Memo")],
         opened: Box::new(opened),
         own_session_starts: Default::default(),
+        ran_on: None,
     }
 }
 
@@ -138,21 +139,31 @@ fn every_runner_130450_codeunit_after_the_held_login_answers_one_session_id() {
 }
 
 // A later codeunit of the session runner 130450 runs its codeunits in after the held login, whose login an earlier one
-// ran (corpus PR 1657, LgnRunnerSessions.al:424, :433), refuses nothing: with the image thawed or not, and with the login
-// rows as that login left them or changed by an earlier codeunit of the session. Main ran these shapes too (review of PR
-// 9426, round 1, findings H2 and H3).
+// ran (corpus PR 1657, LgnRunnerSessions.al:424, :433), refuses no reader of the login rows or of the SingleInstance
+// codeunits: with the image thawed or not, with the login rows as that login left them or changed by an earlier codeunit
+// of the session, and with or without the data that login ran on kept to run it again on (`ran_on`). Without the image
+// and without that data (a row with no bytes form) the login runs again on the current data, main's answer (main ran
+// these shapes too; not measured, :790 measures the kept shape).
 #[test]
-fn a_later_runner_130450_codeunit_refuses_nothing() {
+fn a_later_runner_130450_codeunit_refuses_no_reader_of_its_login() {
     let (l, engine) = super::tests::engine_for(SRC);
-    let runner = held_in(&l, &mut with_login_row(&l, &engine));
+    let mut session = with_login_row(&l, &engine);
+    let data = session.capture_baseline();
+    let mut runner = held_in(&l, &mut session);
     for (thawed, rows_as_held) in [(true, true), (false, true), (true, false), (false, false)] {
-        let wrote = CompanyOpenWrites {
-            held: held_reads(&runner, true, thawed, rows_as_held),
-            ..Default::default()
-        };
-        assert!(wrote.held.is_none(), "thawed {thawed}, rows as held {rows_as_held}");
-        let r = refusals(&l, &engine, &wrote);
-        assert_eq!((&r[0], &r[1], &r[2]), (&None, &None, &None), "{r:?}");
+        for kept in [false, true] {
+            runner.ran_on = kept.then(|| data.freeze().expect("plain rows"));
+            let wrote = CompanyOpenWrites {
+                held: held_reads(&runner, true, thawed, rows_as_held),
+                ..Default::default()
+            };
+            let r = refusals(&l, &engine, &wrote);
+            assert_eq!(
+                (&r[0], &r[1], &r[2]),
+                (&None, &None, &None),
+                "thawed {thawed}, kept {kept}: {r:?}"
+            );
+        }
     }
 }
 
@@ -184,7 +195,7 @@ fn each_session_takes_the_login_plan_of_its_place_in_the_run() {
         login_wrote(&l),
         al_builtins::assumptions::HitBits::default(),
     );
-    session.hold_runner_login(Err("none".into()), Box::new(opened));
+    session.hold_runner_login(Err("none".into()), Box::new(opened), None);
     assert!(matches!(
         login_plan(&session, true, true, TestIsolation::Function),
         LoginPlan::Shared { runner: true, .. }
@@ -257,4 +268,126 @@ fn a_hub_codeunit_after_a_disabled_codeunit_changed_the_login_rows_refuses_their
         assert_eq!(r[1], None);
         assert_eq!(r[2].is_some(), !thawed, "{r:?}");
     }
+}
+
+/// A session holding one `Login Row` row as the runner session's login left it, with that login held
+/// (`Session::hold_runner_login`), and the rows before OnRun (`RunnerLoginRows::before_on_run`).
+fn runner_session(l: &al_sema::lower::Lowered, engine: &std::sync::Arc<al_vm::Engine>) -> (Session, RunnerLoginRows) {
+    runner_session_wrote(l, engine, login_wrote(l))
+}
+
+/// [`runner_session`] whose login wrote the tables of `wrote`.
+fn runner_session_wrote(
+    l: &al_sema::lower::Lowered,
+    engine: &std::sync::Arc<al_vm::Engine>,
+    wrote: CompanyOpenWrites,
+) -> (Session, RunnerLoginRows) {
+    let mut session = with_login_row(l, engine);
+    let opened = HeldOpened::of(&mut session, wrote, Default::default());
+    session.hold_runner_login(Err("none".into()), Box::new(opened), None);
+    let rows = RunnerLoginRows::before_on_run(&mut session, true).expect("the runner session's rows");
+    (session, rows)
+}
+
+/// One write of OnRun: table (object index), key, and "insert", "modify" or "delete".
+type Write<'a> = (usize, i32, &'a str);
+
+/// What OnRun does in the tests below: an insert, a modify or a delete of a row of `table` (key `no`), committed.
+fn write(engine: &al_vm::Engine, session: &mut Session, table: usize, no: i32, op: &str) {
+    use al_data::Store;
+    let def = engine.tables[table].clone().expect("a table");
+    let cx = al_data::AccessContext {
+        company: session.access_company().into(),
+        user: session.user_id().into(),
+    };
+    // The modify sets the second field of a login row to 1; every other row has 0 there.
+    let v = i32::from(op == "modify");
+    let row: Vec<_> = (0..def.fields.len())
+        .map(|f| al_builtins::value::Value::Integer(if f == 0 { no } else { v }))
+        .collect();
+    let store = session.store_mut();
+    let done = match op {
+        "insert" => store.insert(&cx, &def, row).map(|_| ()),
+        "delete" => store.delete(&cx, &def, &row[..1]).map(|_| ()),
+        _ => store.modify(&cx, &def, row).map(|_| ()),
+    };
+    assert!(done.is_ok(), "{op}");
+    session.commit_transaction();
+}
+
+// Corpus PR 1657, LgnRunnerSessions.al:839, :877 (OnRun insert), :878, :918 (insert and Commit): the rows a codeunit of
+// the runner session inserts in OnRun into the table that session's login wrote are gone in the later codeunits. Every
+// other OnRun keeps main's answer (not measured): a modify or delete of a login row, an insert into another table (also
+// next to an insert into the login table), a change of a number sequence or isolated storage, and an OnRun that changed
+// nothing. Outside the runner session nothing is taken.
+#[test]
+fn only_inserts_into_the_runner_logins_tables_are_rolled_back() {
+    let (l, engine) = super::tests::engine_for(SRC);
+    let (login_row, other) = (object(&l, "Login Row"), object(&l, "Other"));
+    let cases: [(&[Write], bool, bool); 7] = [
+        (&[(login_row, 5, "insert")], false, true),
+        (&[(login_row, 5, "insert")], true, false),
+        (&[(login_row, 0, "modify")], false, false),
+        (&[(login_row, 0, "delete")], false, false),
+        (&[(other, 5, "insert")], false, false),
+        (&[(login_row, 5, "insert"), (other, 5, "insert")], false, false),
+        (&[], false, false),
+    ];
+    for (writes, storage, rolled_back) in cases {
+        let (mut session, rows) = runner_session(&l, &engine);
+        let from = session.store_mut().change_counter();
+        for &(table, no, op) in writes {
+            write(&engine, &mut session, table, no, op);
+        }
+        let changed = session.store_mut().tables_changed_since(from);
+        assert_eq!(
+            rows.onrun_rolled_back(&mut session, &changed, storage),
+            rolled_back,
+            "{writes:?} {storage}"
+        );
+    }
+    // A login that wrote two tables: an insert into one of them is the measured shape; an insert into both keeps main's
+    // answer (not measured: the probe's OnRun inserts into one table, LgnRunnerSessions.al codeunits 87455, 87456).
+    let mut two = login_wrote(&l);
+    two.login_tables.insert(other as u32);
+    let both: [(&[Write], bool); 2] = [
+        (&[(login_row, 5, "insert")], true),
+        (&[(login_row, 5, "insert"), (other, 5, "insert")], false),
+    ];
+    for (writes, rolled_back) in both {
+        let (mut session, rows) = runner_session_wrote(&l, &engine, two.clone());
+        let from = session.store_mut().change_counter();
+        for &(table, no, op) in writes {
+            write(&engine, &mut session, table, no, op);
+        }
+        let changed = session.store_mut().tables_changed_since(from);
+        assert_eq!(
+            rows.onrun_rolled_back(&mut session, &changed, false),
+            rolled_back,
+            "two login tables: {writes:?}"
+        );
+    }
+    let (mut session, _) = runner_session(&l, &engine);
+    assert!(RunnerLoginRows::before_on_run(&mut session, false).is_none());
+    assert!(RunnerLoginRows::before_on_run(&mut with_login_row(&l, &engine), true).is_none());
+}
+
+// Corpus PR 1657, LgnRunnerSessions.al:790: without an image, a later codeunit of the runner session runs the login again on
+// the data that session's one login ran on; outside that session, or with an image, no data is taken.
+#[test]
+fn only_the_runner_login_without_an_image_keeps_its_data() {
+    let (l, engine) = super::tests::engine_for(SRC);
+    let held_runner = |image: Result<al_vm::LoginImage, String>| {
+        let mut session = with_login_row(&l, &engine);
+        let ran_on = Some(session.capture_baseline());
+        let opened = HeldOpened::of(&mut session, login_wrote(&l), Default::default());
+        session.hold_runner_login(image, Box::new(opened), ran_on);
+        session.runner_login().expect("held")
+    };
+    let none = held_runner(Err("none".into()));
+    assert!(runner_login_data(&none, true).is_some());
+    assert!(runner_login_data(&none, false).is_none());
+    let session = with_login_row(&l, &engine);
+    let image = session.login_image(&session.login_base()).expect("an image");
+    assert!(runner_login_data(&held_runner(Ok(image)), true).is_none());
 }

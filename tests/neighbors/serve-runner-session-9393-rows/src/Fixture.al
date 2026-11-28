@@ -1,4 +1,4 @@
-// Runner issue 9393, review of PR 9426, round 1, finding H2: a runner 130450 codeunit after the held login whose OnRun
+// Runner issue 9393, review of PR 9426, round 1, finding H2 (expectations fixed by corpus PR 1657, 1d9af7cd): a runner 130450 codeunit after the held login whose OnRun
 // inserts a row into the login's table, and a later one that reads it. The login does not read SessionId(), so main ran
 // the readers (main refused readers only after an id read). Same tables and login as tests/neighbors/serve-runner-session-9393.
 // Codeunits in id order: hub H (Disabled), runner X (before W), W (OnRun inserts the marker row), Y (after W).
@@ -11,6 +11,8 @@ table 53900 "SRS Login Row"
         field(1; "Entry No."; Integer) { AutoIncrement = true; }
         field(2; "User Logins"; Integer) { }
         field(3; "Session Id"; Integer) { }
+        // The SessionId() of the runner codeunit whose OnRun wrote the row (0 for a login row).
+        field(4; "Writer Session"; Integer) { }
     }
 
     keys
