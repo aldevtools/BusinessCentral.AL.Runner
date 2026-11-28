@@ -1880,6 +1880,11 @@ pub struct Slot {
     /// A global declared `Label` (with or without properties) or `TextConst`: one al-sema `shared::label_text` gives a text.
     #[serde(default)]
     pub label: bool,
+    /// A local variable declared `Record X temporary`. `ty` cannot tell it apart from a local of a `TableType = Temporary`
+    /// table declared without `temporary`: both lower to a temporary record (al-sema `convert`). Read by al-vm
+    /// `temp_blob_impl_field` (assumption `base-convert-line-breaks-temporary-table-blob` measures the record without it).
+    #[serde(default)]
+    pub declared_temporary: bool,
 }
 
 impl Slot {
@@ -1894,6 +1899,7 @@ impl Slot {
             comment_label: false,
             locked_label: false,
             label: false,
+            declared_temporary: false,
         }
     }
 }

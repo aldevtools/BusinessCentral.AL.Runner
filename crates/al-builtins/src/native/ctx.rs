@@ -143,6 +143,11 @@ pub trait Ctx: FormatCtx {
     fn http_probe_1424_measured(&self) -> bool {
         false
     }
+    /// `media::measured_jpeg_logo` for the run's target: which logo of open corpus PR 1594 `bytes` is, on a major it measured.
+    /// A context other than a session knows none.
+    fn measured_jpeg_logo(&self, _bytes: &[u8]) -> Option<crate::media::MeasuredJpegLogo> {
+        None
+    }
     /// Record methods (`Record.Insert`, ...) need the store, triggers and
     /// table metadata: the VM implements them. `method` is the catalog name.
     fn record(
@@ -510,6 +515,16 @@ pub trait Ctx: FormatCtx {
     /// Whether `b` is the Blob field of the temporary record a live instance of System Application's "Temp Blob Impl." holds
     /// now, the field that codeunit's CreateInStream or CreateOutStream opened a stream on (al-vm `temp_blob_impl_field`).
     fn held_by_temp_blob_impl(&self, _b: &crate::stream::BlobRef) -> bool {
+        false
+    }
+    /// Whether `b` is the Blob field of a live record of a `TableType = Temporary` table in a local variable of a `[Test]`
+    /// method, the field a CreateInStream or CreateOutStream of that method opened a stream on (al-vm
+    /// `temp_blob_impl_field`).
+    fn held_by_temporary_table_test_local(&self, _b: &crate::stream::BlobRef) -> bool {
+        false
+    }
+    /// `al_version::temporary_table_blob_line_breaks_measured` for the run's target. Without a target nothing is measured.
+    fn temporary_table_blob_line_breaks_measured(&self) -> bool {
         false
     }
     /// The app name and object name of the AL routine that made the current call.
