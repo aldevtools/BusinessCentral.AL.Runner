@@ -77,7 +77,9 @@ codeunit 52620 "R5 F Memo 130450"
     end;
 }
 
-// As F, but its test reads the table the login wrote: refused (the login rows of other sessions are not measured).
+// As F, but its test counts the rows of the table the login wrote: the hub session's row A left alone, the row of F's
+// session and its own. 3 is the runner's answer under assumption hub-login-later-runners; BC's count is not measured
+// (a hub row left alone, and the row of another session runner 130450 ran).
 codeunit 52621 "R5 G Login Rows 130450"
 {
     Subtype = Test;
@@ -96,6 +98,6 @@ codeunit 52621 "R5 G Login Rows 130450"
         Row: Record "DLW Login Row";
         Assert: Codeunit "DLW Assert";
     begin
-        Assert.Equal(1, Row.Count(), 'login rows');
+        Assert.Equal(3, Row.Count(), 'login rows');
     end;
 }

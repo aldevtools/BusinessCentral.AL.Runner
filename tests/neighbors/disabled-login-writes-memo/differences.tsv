@@ -4,6 +4,6 @@ R5 C Codeunit After Disabled::C_MemoOfTheOneLogin	ASSUMED hub-disabled-login-onc
 R5 A Disabled::A_MemoThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	29
 R5 C Codeunit After Disabled::C_MemoOfTheOneLogin	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:546, :471; SingleInstance state lasts for the session: TestCuP7BReader.al:24-37; cell 10 measures it)	29
 R5 F Memo 130450::F_ReadsTheMemo	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:608)	28
-R5 G Login Rows 130450::G_ReadsTheLoginRows	REFUSED an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's one login wrote, and which login rows of other sessions	28
 R5 F Memo 130450::F_ReadsTheMemo	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:608)	29
-R5 G Login Rows 130450::G_ReadsTheLoginRows	REFUSED an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's one login wrote, and which login rows of other sessions	29
+R5 G Login Rows 130450::G_ReadsTheLoginRows	ASSUMED hub-login-later-runners (corpus PR 1644: LgnHeldLoginRunners.al:656; the hub's login row left alone and the row of another runner-130450 session are not measured)	28
+R5 G Login Rows 130450::G_ReadsTheLoginRows	ASSUMED hub-login-later-runners (corpus PR 1644: LgnHeldLoginRunners.al:656; the hub's login row left alone and the row of another runner-130450 session are not measured)	29

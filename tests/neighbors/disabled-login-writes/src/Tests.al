@@ -111,7 +111,9 @@ codeunit 52615 "DLW F Runner 130450"
         Assert: Codeunit "DLW Assert";
     begin
         Assert.Equal(1, Data.Count(), 'rows A left');
-        Assert.Equal(0, Row.Count(), 'login rows');
+        // D deleted every login row of the hub session; this session's own login wrote one (corpus PR 1644,
+        // LgnHeldLoginRunners.al:608, :656, :697).
+        Assert.Equal(1, Row.Count(), 'login rows');
     end;
 }
 

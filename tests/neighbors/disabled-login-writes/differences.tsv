@@ -9,3 +9,5 @@ DLW B Disabled After Disabled::B_NoSecondLoginRow	ASSUMED hub-disabled-login-onc
 DLW C Codeunit After Disabled::C_NoSecondLoginRow	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:546)	29
 DLW D Disabled Deletes::D1_DeleteLoginRows	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:612)	29
 DLW D Disabled Deletes::D2_StayGone	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:612)	29
+DLW F Runner 130450::F_RunnerCodeunitAfterDisabled	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:608, :656, :697)	28
+DLW F Runner 130450::F_RunnerCodeunitAfterDisabled	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:608, :656, :697)	29
