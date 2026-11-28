@@ -47,12 +47,7 @@ pub(super) fn thaw_held(
 ) -> Option<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits)> {
     let opened = held_opened(held)?;
     session.thaw_held_login(held).ok()?;
-    Some((
-        opened.wrote.clone(),
-        opened
-            .hits
-            .with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce),
-    ))
+    Some(opened.taken())
 }
 
 /// What the runner noted when the held login's session opened the company (`open_company`, `Session::hold_login`).
@@ -72,6 +67,16 @@ pub(super) struct HeldOpened {
 type RowsDigest = std::collections::BTreeMap<(String, u32), crate::login_replay::LinesDigest>;
 
 impl HeldOpened {
+    /// What a session that takes this login in place of a second one notes of it: its writes, and its marks with
+    /// `hub-disabled-login-once`.
+    fn taken(&self) -> (crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits) {
+        (
+            self.wrote.clone(),
+            self.hits
+                .with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce),
+        )
+    }
+
     /// What `open_company` noted of the login that `session` just ran, and the rows it left.
     pub(super) fn of(
         session: &mut Session,
@@ -141,12 +146,7 @@ pub(super) fn kept_singles(
     moved_in: bool,
 ) -> Option<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits)> {
     let opened = held_opened(held).filter(|_| own_login && moved_in)?;
-    Some((
-        opened.wrote.clone(),
-        opened
-            .hits
-            .with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce),
-    ))
+    Some(opened.taken())
 }
 
 /// What a test of a session that starts from a login it shares (`held`, see [`thaw_held`]) may not read: the tables that

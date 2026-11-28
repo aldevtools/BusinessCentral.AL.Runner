@@ -60,11 +60,7 @@ impl Session {
         if self.login_held.is_some() {
             return;
         }
-        self.login_held = Some(Arc::new(HeldLogin {
-            image,
-            singles: self.single_instances(),
-            opened,
-        }));
+        self.login_held = Some(self.held_now(image, opened));
     }
 
     /// The session runner 130450 runs its codeunits in after the held login ran its own login, the first of those
@@ -80,11 +76,20 @@ impl Session {
         if self.runner_login.is_some() {
             return;
         }
-        self.runner_login = Some(Arc::new(HeldLogin {
+        self.runner_login = Some(self.held_now(image, opened));
+    }
+
+    /// The login the session just ran, with its image and the SingleInstance codeunits it holds now.
+    fn held_now(
+        &self,
+        image: Result<LoginImage, String>,
+        opened: Box<dyn std::any::Any + Send + Sync>,
+    ) -> Arc<HeldLogin> {
+        Arc::new(HeldLogin {
             image,
             singles: self.single_instances(),
             opened,
-        }));
+        })
     }
 
     /// See [`Session::hold_runner_login`].
