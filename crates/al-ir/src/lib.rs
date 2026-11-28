@@ -827,6 +827,10 @@ pub struct ReportColumn {
     pub places_table: Option<usize>,
     #[serde(default)]
     pub places_field: Option<usize>,
+    /// The column takes the `decimalformatter` of its field's AutoFormatType 2 (al-sema `reports::field_unit_amount_measured`,
+    /// assumption `report-column-field-unit-amount-format`).
+    #[serde(default)]
+    pub field_unit_amount_format: bool,
 }
 
 /// The syntax tree of a report column's source expression, as written: parentheses, operators, indexes and calls with an

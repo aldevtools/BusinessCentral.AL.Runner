@@ -1152,25 +1152,31 @@ impl<'a> Owner<'a> {
                     let [qualifier, member] = parts.as_slice() else {
                         return None;
                     };
-                    let qualifier = crate::scan::unquote_double(qualifier);
+                    let (qualifier, member) = (
+                        crate::scan::unquote_double(qualifier),
+                        crate::scan::unquote_double(member),
+                    );
+                    let fields = &self.members[t].fields;
                     if qualifier.contains('.') {
-                        let member = crate::scan::unquote_double(member);
-                        let pos = self.members[t].fields.iter().position(|f| f.name == member)?;
-                        let measured = self.report_itself
-                            && qualifier == item
-                            && dotted_qualifier_measured(&self.members[t].fields[pos], t, &c);
+                        let pos = fields.iter().position(|f| f.name == member)?;
+                        let measured =
+                            self.report_itself && qualifier == item && dotted_qualifier_measured(&fields[pos], t, &c);
                         self.dotted_served.set(self.dotted_served.get() || measured);
-                        return measured.then_some(pos);
+                        return measured.then_some((pos, true));
                     }
                     if !qualifier.eq_ignore_ascii_case(&item) {
                         return None;
                     }
-                    let member = crate::scan::unquote_double(member);
-                    self.members[t]
-                        .fields
-                        .iter()
-                        .position(|f| f.name.eq_ignore_ascii_case(&member))
+                    let pos = fields.iter().position(|f| f.name.eq_ignore_ascii_case(&member))?;
+                    Some((pos, qualifier == item && fields[pos].name == member))
                 });
+                // Written with the names as declared, over an AutoFormatType 2 field (`field_unit_amount_measured`).
+                let field_unit_amount_format = self.report_itself
+                    && field.is_none()
+                    && item_field.is_some_and(|(pos, exact)| {
+                        exact && table.is_some_and(|t| field_unit_amount_measured(&self.members[t].fields[pos], t, &c))
+                    });
+                let item_field = item_field.map(|(pos, _)| pos);
                 // The field whose DecimalPlaces decide the `decimalformatter`: the bare field, `Item.Field` of the own item, or
                 // `Global.Field` of a global Record variable of the object (reports/dataset/DatasetDecimalPlacesValueOrigins.al:241
                 // `Row.D05`, :365 `RecLiteral.D05`). A field of another data item keeps the default.
@@ -1200,6 +1206,7 @@ impl<'a> Owner<'a> {
                         .unwrap_or_default(),
                     places_table: places.map(|p| p.0),
                     places_field: places.map(|p| p.1),
+                    field_unit_amount_format,
                 }
             })
             .collect()
@@ -1231,38 +1238,16 @@ fn source_syntax(r: &ast::Routine) -> ir::SourceSyntax {
     }
 }
 
-/// Whether column `column` over field `f` of table `t`, written with its data item's dotted name (`"Dq. Row".Qty`, the name
-/// in the item's own case), is a shape corpus PR 1652 measures (assumption `report-column-dotted-item-qualifier`;
-/// tests/al-language/reports/dataset/DataItemNamesDottedQualifier.al at 1751a6b0): a normal field the table itself declares,
-/// whose caption no tableextension changes, with no CaptionML and no AutoFormatExpression (:30-39); a Text field with a Caption
-/// (:32, `Name`); a Decimal field with or without Caption, with DecimalPlaces and no AutoFormatType (:33, :38, :39), or with
-/// AutoFormatType 1 and no DecimalPlaces (:35);
-/// a column that states exactly IncludeCaption = true (:75-81, labels :224, values :236) or exactly DecimalPlaces over a
-/// Decimal field (:82, :236). Every other dotted shape keeps main's answer (no field).
-fn dotted_qualifier_measured(f: &crate::members::FieldInfo, t: usize, column: &ast::Section) -> bool {
-    let prop = |name: &str| {
-        f.properties
-            .iter()
-            .find(|(n, _)| n.eq_ignore_ascii_case(name))
-            .map(|(_, v)| v.trim())
-    };
-    let field = f.class == crate::members::FieldClass::Normal
-        && f.declared_in == Some(t)
-        && !f.caption_modified
-        && prop("CaptionML").is_none()
-        && prop("AutoFormatExpression").is_none();
-    let text = matches!(f.ty, crate::types::Ty::Text(_))
-        && prop("Caption").is_some()
-        && prop("DecimalPlaces").is_none()
-        && prop("AutoFormatType").is_none();
-    // AutoFormatType 2 (:37, `#,##0.00###`) and AutoFormatType 1 with DecimalPlaces (:38, `#,##0.00` on BC 28 and 29) are
-    // measured too, but the field formatter of al-vm `column_formatter.rs` answers them by DecimalPlaces (also for an undotted
-    // qualifier), so they keep main's answer.
-    let decimal = f.ty == crate::types::Ty::Decimal
-        && matches!(
-            (prop("AutoFormatType"), prop("DecimalPlaces")),
-            (None, _) | (Some("1"), None)
-        );
+/// The shape of the properties column `column` states: none, exactly `IncludeCaption = true`, exactly `DecimalPlaces`, or
+/// anything else (`None`).
+#[derive(Clone, Copy, PartialEq)]
+enum ColumnShape {
+    NoProperty,
+    IncludeCaption,
+    DecimalPlaces,
+}
+
+fn column_shape(column: &ast::Section) -> Option<ColumnShape> {
     let stated: Vec<(String, String)> = column
         .properties()
         .map(|p| {
@@ -1272,12 +1257,96 @@ fn dotted_qualifier_measured(f: &crate::members::FieldInfo, t: usize, column: &a
             )
         })
         .collect();
-    let column_shape = match stated.as_slice() {
-        [(name, value)] if name == "includecaption" => value == "true",
-        [(name, _)] if name == "decimalplaces" => decimal,
+    match stated.as_slice() {
+        [] => Some(ColumnShape::NoProperty),
+        [(name, value)] if name == "includecaption" && value == "true" => Some(ColumnShape::IncludeCaption),
+        [(name, _)] if name == "decimalplaces" => Some(ColumnShape::DecimalPlaces),
+        _ => None,
+    }
+}
+
+/// Property `name` of field `f` as written, trimmed; DecimalPlaces without blanks (`0 : 5` is `0:5`).
+fn field_prop(f: &crate::members::FieldInfo, name: &str) -> Option<String> {
+    let v = f
+        .properties
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))?
+        .1
+        .trim();
+    Some(if name.eq_ignore_ascii_case("DecimalPlaces") {
+        v.split_whitespace().collect()
+    } else {
+        v.to_string()
+    })
+}
+
+/// A normal field table `t` declares itself, whose caption no tableextension changes and that states no CaptionML: the
+/// field facts every cell of DataItemNamesDottedQualifier.al shares (:30-37, :348-359 at cf6884b9).
+fn plain_own_field(f: &crate::members::FieldInfo, t: usize) -> bool {
+    f.class == crate::members::FieldClass::Normal
+        && f.declared_in == Some(t)
+        && !f.caption_modified
+        && field_prop(f, "CaptionML").is_none()
+}
+
+/// Whether column `column` over field `f` of table `t`, written with its data item's dotted name (`"Dq. Row".Qty`, the name
+/// in the item's own case), is a shape corpus PR 1652 measures (assumption `report-column-dotted-item-qualifier`;
+/// tests/al-language/reports/dataset/DataItemNamesDottedQualifier.al at cf6884b9; labels :224, :565-567, values :236,
+/// :596-633). [`plain_own_field`], and by type:
+/// - Text with a Caption (:31, :351), Date, Enum or Option with a Caption (:352, :348, :356), Code or Integer with or
+///   without one (:349, :357, :350, :358), no DecimalPlaces, AutoFormatType or AutoFormatExpression, a column that states
+///   exactly IncludeCaption = true (:75, :383-393);
+/// - Decimal, with or without a Caption, by (AutoFormatType, AutoFormatExpression, DecimalPlaces): (none, none, any) under
+///   IncludeCaption or a column DecimalPlaces (:32, :36, :37, :76, :80-82); (1, none, none) (:33, :77) and (0, none, none)
+///   (:359, :394) under IncludeCaption; (0, none, 0:5) and (1, '', none) under IncludeCaption or no property (:353, :355,
+///   :388, :390, :396, :397); AutoFormatType 2 only where [`field_unit_amount_measured`] holds.
+///
+/// Every other dotted shape keeps main's answer (no field).
+fn dotted_qualifier_measured(f: &crate::members::FieldInfo, t: usize, column: &ast::Section) -> bool {
+    use crate::types::Ty;
+    use ColumnShape::*;
+    let Some(shape) = column_shape(column) else {
+        return false;
+    };
+    let p = |name: &str| field_prop(f, name);
+    let captioned = p("Caption").is_some();
+    let formats = (p("AutoFormatType"), p("AutoFormatExpression"), p("DecimalPlaces"));
+    let typed = match &f.ty {
+        Ty::Text(_) | Ty::Date | Ty::Enum(_) | Ty::Option(_) => {
+            captioned && formats == (None, None, None) && shape == IncludeCaption
+        }
+        Ty::Code(_) | Ty::Integer => formats == (None, None, None) && shape == IncludeCaption,
+        Ty::Decimal => match (formats.0.as_deref(), formats.1.as_deref(), formats.2.as_deref()) {
+            (None, None, _) => matches!(shape, IncludeCaption | DecimalPlaces),
+            // Only where the field formatter answers AutoFormatType 2 as BC does.
+            (Some("2"), _, _) => field_unit_amount_measured(f, t, column),
+            (Some("1" | "0"), None, None) => shape == IncludeCaption,
+            (Some("0"), None, Some("0:5")) | (Some("1"), Some("''"), None) => {
+                matches!(shape, IncludeCaption | NoProperty)
+            }
+            _ => false,
+        },
         _ => false,
     };
-    field && (text || decimal) && column_shape
+    plain_own_field(f, t) && typed
+}
+
+/// Whether column `column` over field `f` of its own data item's table `t`, written `Item.Field` with the item's and the field's
+/// names as declared, takes the `decimalformatter` of the field's AutoFormatType 2 (`#,##0.00###`, as a column's own
+/// AutoFormatType 2 does: al-vm `column_formatter.rs`): assumption `report-column-field-unit-amount-format`, corpus PR 1652
+/// (DataItemNamesDottedQualifier.al at cf6884b9): [`plain_own_field`] with a Caption, Decimal, AutoFormatType 2, no
+/// AutoFormatExpression (:34, columns :78 and :114, lines :236 and :286) or AutoFormatExpression '' (:354, columns :389 and
+/// :426, lines :630 and :692), no DecimalPlaces; a column of the report itself that states exactly IncludeCaption = true.
+/// Every other column over such a field keeps the formatter of DecimalPlaces.
+fn field_unit_amount_measured(f: &crate::members::FieldInfo, t: usize, column: &ast::Section) -> bool {
+    let p = |name: &str| field_prop(f, name);
+    plain_own_field(f, t)
+        && f.ty == crate::types::Ty::Decimal
+        && p("Caption").is_some()
+        && p("AutoFormatType").as_deref() == Some("2")
+        && matches!(p("AutoFormatExpression").as_deref(), None | Some("''"))
+        && p("DecimalPlaces").is_none()
+        && column_shape(column) == Some(ColumnShape::IncludeCaption)
 }
 
 /// `s` split at each dot outside double quotes.

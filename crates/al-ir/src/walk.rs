@@ -1195,6 +1195,7 @@ fn walk_report_column<V: RefVisitor>(c: &mut ReportColumn, table: TableOf, v: &m
         source_syntax: _,
         places_table,
         places_field,
+        field_unit_amount_format: _,
     } = c;
     field_opt(v, field, table);
     field_opt(v, places_field, TableOf::object(*places_table));

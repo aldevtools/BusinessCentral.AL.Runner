@@ -9,6 +9,7 @@ table 50933 "NB Dot Fmt"
         field(3; AmountUnm; Decimal) { AutoFormatType = 50733; }
         field(4; Pic; Media) { }
         field(5; Data; Blob) { }
+        field(6; UnitAf; Decimal) { Caption = 'Unit cap'; AutoFormatType = 2; }
     }
     keys
     {
@@ -271,6 +272,50 @@ codeunit 50939 "NB Dot AutoFormat Cap Tests"
         Row.Insert();
         Got := Lib.Lines(Report::"NB Dot AutoFormat Cap", '<Column ');
         if not Got.StartsWith('[<Column name="QualAfCap"') then
+            Error('got %1', Got);
+    end;
+}
+
+// The measured AutoFormatType 2 shape (IncludeCaption over a field with AutoFormatType 2 and a Caption) while a subscriber
+// outside Microsoft's apps writes the AutoFormat result: the subscriber rule of al-vm auto_format_writer.rs runs before the
+// field formatter of report-column-field-unit-amount-format, so head refuses as main does (main: no field for the dotted name;
+// the format for the undotted one).
+report 50940 "NB Dot Unit Cap"
+{
+    ProcessingOnly = false;
+    DefaultLayout = RDLC;
+    UseRequestPage = false;
+
+    dataset
+    {
+        dataitem("Dot. Fmt"; "NB Dot Fmt")
+        {
+            column(QualUnitCap; "Dot. Fmt".UnitAf) { IncludeCaption = true; }
+        }
+        dataitem(Fmt; "NB Dot Fmt")
+        {
+            column(PlainUnitCap; Fmt.UnitAf) { IncludeCaption = true; }
+        }
+    }
+}
+
+codeunit 50940 "NB Dot Unit Cap Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    [Test]
+    procedure UnitAmountField_AutoFormatSubscriber()
+    var
+        Lib: Codeunit "NB Dot Lib";
+        Row: Record "NB Dot Fmt";
+        Got: Text;
+    begin
+        Row := Lib.Seed();
+        Row.UnitAf := 1.23456;
+        Row.Insert();
+        Got := Lib.Lines(Report::"NB Dot Unit Cap", '<Column ');
+        if not Got.StartsWith('[<Column name="QualUnitCap"') then
             Error('got %1', Got);
     end;
 }

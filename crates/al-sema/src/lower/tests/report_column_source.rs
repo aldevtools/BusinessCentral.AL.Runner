@@ -20,7 +20,24 @@ const TABLE: &str = "table 50100 T { fields {
     field(12; Expr; Decimal) { AutoFormatType = 1; AutoFormatExpression = ''; }
     field(13; Pic; Media) { }
     field(14; Ml; Text[30]) { CaptionML = ENU = 'Ml cap'; }
-} keys { key(PK; K) { } } }";
+    field(15; St; Enum E) { Caption = 'St cap'; }
+    field(16; Kind; Option) { Caption = 'Kind cap'; OptionMembers = \" \",Open; OptionCaption = ' ,Open cap'; }
+    field(17; Due; Date) { Caption = 'Due cap'; }
+    field(18; Bin; Code[10]) { }
+    field(19; Seq; Integer) { }
+    field(20; Q5; Decimal) { AutoFormatType = 0; Caption = 'Q5 cap'; DecimalPlaces = 0 : 5; }
+    field(21; UnitExpr; Decimal) { AutoFormatType = 2; AutoFormatExpression = ''; Caption = 'UnitExpr cap'; }
+    field(22; Zero; Decimal) { AutoFormatType = 0; }
+    field(23; StNoCap; Enum E) { }
+    field(24; DueNoCap; Date) { }
+    field(25; Flag; Boolean) { Caption = 'Flag cap'; }
+    field(26; Q3Zero; Decimal) { AutoFormatType = 0; DecimalPlaces = 0 : 3; }
+    field(27; ZeroExpr; Decimal) { AutoFormatType = 0; AutoFormatExpression = ''; }
+    field(28; UnitCur; Decimal) { AutoFormatType = 2; AutoFormatExpression = 'USD'; }
+    field(29; KindNoCap; Option) { OptionMembers = A,B; }
+    field(30; UnitNoCap; Decimal) { AutoFormatType = 2; }
+} keys { key(PK; K) { } } }
+enum 50100 E { value(0; A) { Caption = 'A cap'; } value(3; B) { Caption = 'B cap'; } }";
 
 /// The (item field, report assumptions) of each column of the first data item of report R.
 fn lowered(report: &str) -> (Vec<(String, Option<usize>)>, Vec<Assumption>) {
@@ -73,19 +90,104 @@ fn the_measured_dotted_shapes_resolve_through_the_assumption() {
     }
 }
 
+/// The measured cells of part 2 (DataItemNamesDottedQualifier.al:383-400 at cf6884b9, labels :565-567, columns :596-633):
+/// Code, Integer, Text, Date, Enum and Option fields with IncludeCaption; Decimal AutoFormatType 0 with DecimalPlaces 0:5 or
+/// alone, AutoFormatType 2 and 1 with AutoFormatExpression ''; a column without property over AutoFormatType 0 + DecimalPlaces
+/// 0:5 and over AutoFormatType 1 + AutoFormatExpression ''.
+#[test]
+fn the_measured_typed_dotted_shapes_resolve_through_the_assumption() {
+    let (columns, assumes) = lowered(
+        "report 50100 R { dataset { dataitem(\"Dq. Line\"; T) {
+    column(LStatus; \"Dq. Line\".St) { IncludeCaption = true; }
+    column(LOrderNo; \"Dq. Line\".Code1) { IncludeCaption = true; }
+    column(LLineNo; \"Dq. Line\".K) { IncludeCaption = true; }
+    column(LDescription; \"Dq. Line\".Name) { IncludeCaption = true; }
+    column(LStartingDate; \"Dq. Line\".Due) { IncludeCaption = true; }
+    column(LQuantity; \"Dq. Line\".Q5) { IncludeCaption = true; }
+    column(LUnitCost; \"Dq. Line\".UnitExpr) { IncludeCaption = true; }
+    column(LCostAmount; \"Dq. Line\".Expr) { IncludeCaption = true; }
+    column(LKind; \"Dq. Line\".Kind) { IncludeCaption = true; }
+    column(LBinCode; \"Dq. Line\".Bin) { IncludeCaption = true; }
+    column(LSeq; \"Dq. Line\".Seq) { IncludeCaption = true; }
+    column(LZeroFmt; \"Dq. Line\".Zero) { IncludeCaption = true; }
+    column(LQuantityNoProp; \"Dq. Line\".Q5) { }
+    column(LCostAmountNoProp; \"Dq. Line\".Expr) { }
+    column(DUnit; \"Dq. Line\".Unit) { IncludeCaption = true; }
+} } }",
+    );
+    let want = [14, 8, 0, 1, 16, 19, 20, 11, 15, 17, 18, 21, 19, 11, 4];
+    for ((name, field), pos) in columns.iter().zip(want) {
+        assert_eq!(*field, Some(pos), "{name}");
+    }
+    assert_eq!(columns.len(), want.len());
+    assert_eq!(assumes, [Assumption::ReportColumnDottedItemQualifier]);
+}
+
+/// AutoFormatType 2 on the field, with no AutoFormatExpression or with '' (:34 and :354 at cf6884b9, columns :236 and :630,
+/// undotted :692): the column takes the formatter of AutoFormatType 2 through assumption
+/// `report-column-field-unit-amount-format`, dotted or not; every other shape keeps main's formatter.
+#[test]
+fn a_unit_amount_field_marks_its_measured_columns() {
+    let (ws, l) = lower_src(&format!(
+        "{TABLE}
+report 50100 R {{ dataset {{ dataitem(\"Dq. Line\"; T) {{
+    column(DUnit; \"Dq. Line\".Unit) {{ IncludeCaption = true; }}
+    column(LUnitCost; \"Dq. Line\".UnitExpr) {{ IncludeCaption = true; }}
+    column(NoProperty; \"Dq. Line\".UnitExpr) {{ }}
+    column(Bare; UnitExpr) {{ IncludeCaption = true; }}
+    column(Currency; \"Dq. Line\".UnitCur) {{ IncludeCaption = true; }}
+    column(Amount; \"Dq. Line\".Expr) {{ IncludeCaption = true; }}
+}}
+dataitem(Undotted; T) {{
+    column(ULUnitCost; Undotted.UnitExpr) {{ IncludeCaption = true; }}
+    column(OtherCase; undotted.UnitExpr) {{ IncludeCaption = true; }}
+    column(FieldOtherCase; Undotted.unitexpr) {{ IncludeCaption = true; }}
+}} }} }}"
+    ));
+    let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
+    let items = &l.program.objects[oi].report.as_ref().unwrap().items;
+    let marks: Vec<_> = items
+        .iter()
+        .flat_map(|i| i.columns.iter())
+        .map(|c| (c.name.as_str(), c.field_unit_amount_format))
+        .collect();
+    assert_eq!(
+        marks,
+        [
+            ("DUnit", true),
+            ("LUnitCost", true),
+            ("NoProperty", false),
+            ("Bare", false),
+            ("Currency", false),
+            ("Amount", false),
+            ("ULUnitCost", true),
+            ("OtherCase", false),
+            ("FieldOtherCase", false),
+        ]
+    );
+}
+
 /// Dotted shapes the probe does not measure keep main's answer: no field, no assumption.
 #[test]
 fn an_unmeasured_dotted_shape_keeps_mains_answer() {
     let (columns, assumes) = lowered(
         "report 50100 R { dataset { dataitem(\"A. B\"; T) {
-    column(IntField; \"A. B\".K) { IncludeCaption = true; }
-    column(CodeField; \"A. B\".Code1) { IncludeCaption = true; }
+    column(EnumNoCaption; \"A. B\".StNoCap) { IncludeCaption = true; }
+    column(DateNoCaption; \"A. B\".DueNoCap) { IncludeCaption = true; }
+    column(OptionNoCaption; \"A. B\".KindNoCap) { IncludeCaption = true; }
+    column(BooleanField; \"A. B\".Flag) { IncludeCaption = true; }
+    column(ZeroOtherPlaces; \"A. B\".Q3Zero) { IncludeCaption = true; }
+    column(ZeroWithExpression; \"A. B\".ZeroExpr) { IncludeCaption = true; }
+    column(UnitCurrency; \"A. B\".UnitCur) { IncludeCaption = true; }
+    column(UnitNoCaption; \"A. B\".UnitNoCap) { IncludeCaption = true; }
+    column(CodeNoProperty; \"A. B\".Code1) { }
+    column(EnumNoProperty; \"A. B\".St) { }
+    column(UnitNoProperty; \"A. B\".UnitExpr) { }
+    column(PlacesOverZero; \"A. B\".Q5) { DecimalPlaces = 4 : 4; }
     column(TextNoCaption; \"A. B\".Bare) { IncludeCaption = true; }
     column(TextCaptionMl; \"A. B\".Ml) { IncludeCaption = true; }
     column(Unmodelled; \"A. B\".Unm) { IncludeCaption = true; }
-    column(WithExpression; \"A. B\".Expr) { IncludeCaption = true; }
     column(MediaField; \"A. B\".Pic) { IncludeCaption = true; }
-    column(UnitAmountType; \"A. B\".Unit) { IncludeCaption = true; }
     column(AmountTypeWithPlaces; \"A. B\".AmtPlaces) { IncludeCaption = true; }
     column(NoProperty; \"A. B\".Qty) { }
     column(BothProperties; \"A. B\".Qty) { IncludeCaption = true; DecimalPlaces = 4 : 4; }

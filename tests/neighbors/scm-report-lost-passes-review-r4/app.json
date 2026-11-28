@@ -1,0 +1,13 @@
+{
+  "id": "b1c6f7a2-5d3e-4f80-9a1b-933000000004",
+  "name": "Neighbors report column dotted item qualifier review r4",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 50970, "to": 51019 }
+  ],
+  "dependencies": []
+}
