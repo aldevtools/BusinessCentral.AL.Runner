@@ -1507,7 +1507,7 @@ impl Session {
             self.temp_blob_attach_open(*open);
         }
         if result.is_ok() {
-            self.note_temp_blob_impl_field(site.id, site.receiver_arg.as_ref(), f);
+            self.note_temp_blob_impl_field(site.id, site.receiver_arg.as_ref(), &site.args, f);
         }
         if let (Some(row), Some(ir::Arg::Ref(p)), Ok(_)) = (copy_array_row_back, site.args.first(), &result) {
             self.write(p, row, f)?;

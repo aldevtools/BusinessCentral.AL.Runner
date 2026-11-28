@@ -16,10 +16,19 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
-/// A buffer a stream was opened on, without keeping it alive (compared by address), and its
-/// [`al_builtins::stream::BlobBuf::content_edits`] right after the call: a `Clear` of the field empties the same buffer in place
-/// (al-builtins `native::values`, `blob_clears_in_place`) and moves that count on, as every write does.
-type BufMark = (std::sync::Weak<BlobCell>, u32);
+/// A buffer a stream was opened on, without keeping it alive (compared by address), its
+/// [`al_builtins::stream::BlobBuf::content_edits`] right after the call (a `Clear` of the field empties the same buffer in place,
+/// al-builtins `native::values`, `blob_clears_in_place`, and moves that count on, as every write does), and whether the call
+/// gave no encoding argument ([`opened_without_encoding`]).
+type BufMark = (std::sync::Weak<BlobCell>, u32, bool);
+
+/// Whether a `Blob.CreateOutStream(var OutStream [, TextEncoding])` or `Blob.CreateInStream(var InStream [, TextEncoding])`
+/// call gave only its stream argument (`args`, the receiver apart). Both forms are one builtin and an explicit
+/// `TextEncoding::MSDos` resolves to the default encoding, so the call site's arguments are the only place that tells them
+/// apart; the repro of issue 9322 omits the encoding on both opens (tests/neighbors/9322/src/Repro.al).
+fn opened_without_encoding(args: &[ir::Arg]) -> bool {
+    args.len() == 1
+}
 
 use crate::{Frame, Session};
 
@@ -81,15 +90,16 @@ struct Opened {
 const KEPT_CALLS: usize = 2;
 
 impl Opened {
-    /// Notes a `CreateOutStream` (`out`) or `CreateInStream` call that left the field holding `buf`.
-    fn note_call(&mut self, out: bool, buf: &BlobRef) {
+    /// Notes a `CreateOutStream` (`out`) or `CreateInStream` call that left the field holding `buf`, given no encoding
+    /// argument or one (`no_encoding`).
+    fn note_call(&mut self, out: bool, buf: &BlobRef, no_encoding: bool) {
         let calls = if out {
             &mut self.out_streams
         } else {
             &mut self.in_streams
         };
         if calls.len() < KEPT_CALLS {
-            calls.push((Arc::downgrade(buf), buf.borrow().content_edits));
+            calls.push((Arc::downgrade(buf), buf.borrow().content_edits, no_encoding));
         }
     }
 }
@@ -100,7 +110,7 @@ impl TestLocalBlobFields {
         self.0.is_empty()
     }
 
-    fn note(&mut self, rec: &Rc<RefCell<RecordState>>, pos: usize, id: BuiltinId) {
+    fn note(&mut self, rec: &Rc<RefCell<RecordState>>, pos: usize, id: BuiltinId, no_encoding: bool) {
         self.0.retain(|(w, _, _)| w.strong_count() > 0);
         let i = match self
             .0
@@ -116,17 +126,19 @@ impl TestLocalBlobFields {
         let Some(Value::Blob(buf)) = rec.borrow().fields.get(pos).cloned() else {
             return;
         };
-        self.0[i].2.note_call(id == ids::BLOB_CREATEOUTSTREAM_1, &buf);
+        self.0[i]
+            .2
+            .note_call(id == ids::BLOB_CREATEOUTSTREAM_1, &buf, no_encoding);
     }
 
     /// Whether `b` is now the field of a noted live record on which the method opened one OutStream and one InStream,
-    /// both on `b` itself, and nothing edited `b` since but the one `WriteText` between the two calls (its edit count one
+    /// both on `b` itself and both without an encoding argument, and nothing edited `b` since but the one `WriteText` between the two calls (its edit count one
     /// past the OutStream's, the same as the InStream's; `stream_line_breaks::measured_line_break_stream` reads that the
     /// history since the buffer was made or cleared is that one CreateOutStream and that one WriteText).
     pub(crate) fn holds(&self, b: &BlobRef) -> bool {
         let edits = b.borrow().content_edits;
         let only_on_b =
-            |calls: &[BufMark], at: u32| matches!(calls, [(w, e)] if w.as_ptr() == Arc::as_ptr(b) && *e == at);
+            |calls: &[BufMark], at: u32| matches!(calls, [(w, e, true)] if w.as_ptr() == Arc::as_ptr(b) && *e == at);
         (self.0.iter()).any(|(w, pos, opened)| {
             only_on_b(&opened.out_streams, edits.wrapping_sub(1))
                 && only_on_b(&opened.in_streams, edits)
@@ -145,8 +157,14 @@ fn holds_field(w: &Weak<RefCell<RecordState>>, pos: usize, b: &BlobRef) -> bool 
 impl Session {
     /// After a `Blob.CreateInStream` or `Blob.CreateOutStream` call ran: notes the field when the call is one of
     /// "Temp Blob Impl." on a field of a temporary record, or one of a `[Test]` method on a field of a local record of a
-    /// `TableType = Temporary` table.
-    pub(crate) fn note_temp_blob_impl_field(&mut self, id: BuiltinId, receiver: Option<&ir::Arg>, f: &mut Frame) {
+    /// `TableType = Temporary` table. `args` are the call's arguments, the receiver apart.
+    pub(crate) fn note_temp_blob_impl_field(
+        &mut self,
+        id: BuiltinId,
+        receiver: Option<&ir::Arg>,
+        args: &[ir::Arg],
+        f: &mut Frame,
+    ) {
         if !matches!(id, ids::BLOB_CREATEINSTREAM_1 | ids::BLOB_CREATEOUTSTREAM_1) {
             return;
         }
@@ -173,7 +191,8 @@ impl Session {
             && rc.borrow().temporary
             && self.engine.object_facts[rc.borrow().table as usize].table_type == Some(ir::TableType::Temporary)
         {
-            self.test_local_blob_fields.note(&rc, *pos, id);
+            self.test_local_blob_fields
+                .note(&rc, *pos, id, opened_without_encoding(args));
         }
     }
 }
@@ -187,8 +206,8 @@ mod tests {
     fn opened_keeps_two_calls_per_list() {
         let mut opened = Opened::default();
         for _ in 0..5 {
-            opened.note_call(true, &al_builtins::stream::new_blob());
-            opened.note_call(false, &al_builtins::stream::new_blob());
+            opened.note_call(true, &al_builtins::stream::new_blob(), true);
+            opened.note_call(false, &al_builtins::stream::new_blob(), true);
         }
         assert_eq!(
             (opened.out_streams.len(), opened.in_streams.len()),
