@@ -2,13 +2,14 @@
 //! (`ArgFacts::of`), for every assumption of `consistent_marks.rs` (`guarded-run-consistent-end`, `-fail`, `-page`,
 //! `-page-view`, `-two-key`): where its table stands among the marks, whether the run kept its filters, and what the
 //! argument itself did to the marks. It also names the argument shapes those entries serve that no corpus cell measures
-//! yet, which run through `guarded-run-consistent-arg` (al-runner issues 9151, 9157, 9184): `end_measured` and
-//! `fail_awaits_probe`.
+//! yet, which run through `guarded-run-consistent-arg` (al-runner issues 9151, 9157, 9184): `end_measured`,
+//! `fail_awaits_probe` and `assume_if_lifted`.
 //!
 //! Entry point: `ArgFacts::of` (by `Session::guarded_run_end_marks`).
 
 use super::page_args::PageArgShape;
 use super::{ArgFilter, ArgRecord, ConsistentMark, MarkState, RunArg, RunEnd};
+use al_builtins::assumptions::{Assumption, assume};
 use al_builtins::value::RecordState;
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
@@ -50,11 +51,20 @@ pub(super) struct ArgFacts {
     /// The argument's `Consistent(true)` released a mark another variable set (`MarkState::ReleasedByAnother`, also when a
     /// third variable then marked it again).
     pub(super) releases: bool,
+    /// The argument set, released or marked again a mark that a `Consistent(true)` then lifted during the run
+    /// (`RunStart::lifted`). No corpus cell of these entries has the argument call `Consistent` on a mark that is lifted.
+    pub(super) lifted_by_arg: bool,
 }
 
 impl ArgFacts {
-    /// The argument `arg` (`record` its Record) of a run that ends with the marks `marks`.
-    pub(super) fn of(arg: RunArg, record: Option<&ArgRecord>, marks: &[ConsistentMark]) -> ArgFacts {
+    /// The argument `arg` (`record` its Record) of a run that ends with the marks `marks`, and during which the marks
+    /// `lifted` were lifted.
+    pub(super) fn of(
+        arg: RunArg,
+        record: Option<&ArgRecord>,
+        marks: &[ConsistentMark],
+        lifted: &[ConsistentMark],
+    ) -> ArgFacts {
         let is_arg = |w: &Weak<RefCell<RecordState>>| {
             record.is_some_and(|a| w.upgrade().is_some_and(|b| Rc::ptr_eq(&b, &a.rec)))
         };
@@ -92,6 +102,9 @@ impl ArgFacts {
                 .iter()
                 .all(|m| m.by_database && !is_arg(&m.by) && !is_arg(&m.again_by)),
             releases: marks.iter().any(|m| is_arg(&m.released_by)),
+            lifted_by_arg: lifted
+                .iter()
+                .any(|m| is_arg(&m.by) || is_arg(&m.released_by) || is_arg(&m.again_by)),
         }
     }
 
@@ -107,7 +120,8 @@ impl ArgFacts {
     /// Whether a corpus cell measures this argument in an end of `guarded-run-consistent-end` (a run that starts with the
     /// marks `before` and ends with the marks `after` as `end`; `page_view` is `Session::page_view_arg`); every other end
     /// shape it takes runs through `guarded-run-consistent-arg` too. Measured with a record argument the run leaves as it
-    /// was, each mark set by a database variable other than the argument, by these lists of mark states:
+    /// was, each mark set by a database variable other than the argument, no lifted mark the argument touched
+    /// (`lifted_by_arg`), by these lists of mark states:
     /// - without a filter: no mark at the start, then one held mark (ConsistentGuardedRunEnd.al
     ///   GuardedRunIdRec_InnerStartsStateAndFails :415, GuardedRunInstanceRec_InnerStartsStateAndFails :484) or two
     ///   (ConsistentGuardedRunRecFiltered.al RecZ_NoFilter_StartX_MarkYByA_Fails :466) and a run that fails with code
@@ -145,6 +159,7 @@ impl ArgFacts {
         let filtered = start.is_empty() && states == [M, M] && matches!(end, Failed("Dialog") | Succeeded);
         self.kept
             && self.database_set
+            && !self.lifted_by_arg
             && match filter {
                 ArgFilter::None => unfiltered,
                 ArgFilter::Measured { .. } => filtered,
@@ -158,9 +173,19 @@ impl ArgFacts {
     /// Whether an end `fail_probe_end` takes runs through `guarded-run-consistent-arg` too: the argument set the first mark
     /// and a database variable the second (corpus PR 1590 measures it only after the run modified the argument, step
     /// `modrec`, which the session does not track; al-runner issue 9157), or the argument released a mark (every cell
-    /// releases through another variable, step `txb`; al-runner issue 9184).
+    /// releases through another variable, step `txb`; al-runner issue 9184), or it set, released or marked again a mark that
+    /// was then lifted (`lifted_by_arg`).
     pub(super) fn fail_awaits_probe(&self) -> bool {
-        self.sets == ArgMarks::FirstThenDatabase || self.releases
+        self.sets == ArgMarks::FirstThenDatabase || self.releases || self.lifted_by_arg
+    }
+
+    /// An end of `guarded-run-consistent-page`, `-page-view` or `-two-key` runs through `guarded-run-consistent-arg` too
+    /// when the argument set, released or marked again a mark that was then lifted (`lifted_by_arg`): no cell of corpus PR
+    /// 1600, 1616 or 1622 has the argument call `Consistent`.
+    pub(super) fn assume_if_lifted(&self) {
+        if self.lifted_by_arg {
+            assume(Assumption::GuardedRunConsistentArg);
+        }
     }
 
     /// The run left the argument as it was, and the argument set, released and marked again no mark: every cell of corpus

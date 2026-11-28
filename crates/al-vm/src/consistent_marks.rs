@@ -220,6 +220,8 @@ pub(crate) struct RunStart<'a> {
     pub(crate) marks_dropped_inside: bool,
     /// A guarded run started inside this one (`GuardedBody::runs_inside`).
     pub(crate) runs_inside: bool,
+    /// The marks a `Consistent(true)` lifted while the run ran (`GuardedBody::lifted`).
+    pub(crate) lifted: &'a [ConsistentMark],
     /// The frames below the run: the caller of `Codeunit.Run` is at index `caller_frame - 1` of `Session::frames`.
     pub(crate) caller_frame: usize,
 }
@@ -385,9 +387,7 @@ impl Session {
         let is = |w: &Weak<RefCell<RecordState>>| w.upgrade().is_some_and(|b| Rc::ptr_eq(&b, rec));
         let (same, releaser, again) = (is(&mark.by), is(&mark.released_by), is(&mark.again_by));
         match (mark.state, same, consistent) {
-            (MarkState::Marked, true, true) => {
-                self.tx.open.inconsistent.remove(i);
-            }
+            (MarkState::Marked, true, true) => self.lift_mark(i),
             (MarkState::Marked, true, false) => {}
             (MarkState::Marked, false, true) if !temporary => {
                 mark.state = MarkState::ReleasedByAnother;
@@ -407,11 +407,19 @@ impl Session {
             // (ConsistentGuardedRunEnd.al Commit_FalseOnOneVariable_TrueOnAnother_ThenTrueOnFirst).
             (MarkState::ReleasedByAnother, true, true) if !temporary => {
                 assume(Assumption::GuardedRunConsistentEnd);
-                self.tx.open.inconsistent.remove(i);
+                self.lift_mark(i);
             }
             _ => mark.state = MarkState::Unmeasured,
         }
         Ok(())
+    }
+
+    /// `Consistent(true)` lifts the mark at index `i`: each guarded run that is running keeps it (`GuardedBody::lifted`).
+    fn lift_mark(&mut self, i: usize) {
+        let mark = self.tx.open.inconsistent.remove(i);
+        for body in &mut self.tx.guarded_bodies {
+            body.lifted.push(mark.clone());
+        }
     }
 
     /// The marks of the open transaction (table, state), which a guarded `Codeunit.Run` takes as it starts and as it ends.
@@ -458,9 +466,10 @@ impl Session {
         if before.is_empty() && after.is_empty() {
             return Ok(None);
         }
-        let facts = ArgFacts::of(arg, start.arg_record, &self.tx.open.inconsistent);
+        let facts = ArgFacts::of(arg, start.arg_record, &self.tx.open.inconsistent, start.lifted);
         let page_view = self.page_view_arg(&start, &facts);
         if let Some(r) = self.page_view_run_end(&start, page_view, end, &after, top_level, no_commit) {
+            facts.assume_if_lifted();
             return Ok(r);
         }
         let caller_unchanged =
@@ -524,6 +533,7 @@ impl Session {
             .flatten();
         if let Some(entry) = page_end {
             assume(entry);
+            facts.assume_if_lifted();
             return Ok(None);
         }
         Err(Signal::unsupported(format!(

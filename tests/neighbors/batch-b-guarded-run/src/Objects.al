@@ -257,7 +257,13 @@ codeunit 98114 "GB Inner V"
         NoX: Record "GB X";
         NoY: Record "GB Y";
         NoZ: Record "GB Z";
+        Mode: Codeunit "GB Mode";
     begin
+        // 'direct-lift': the page's Rec marks its own table and lifts that mark again before the steps.
+        if Mode.GetExtra() = 'direct-lift' then begin
+            Rec.Consistent(false);
+            Rec.Consistent(true);
+        end;
         Steps.DoSteps(NoX, NoY, NoZ, 'v');
     end;
 }
@@ -273,7 +279,7 @@ codeunit 98115 "GB Run"
         Ok: Boolean;
     begin
         R.Copy(PageRec);
-        if Mode.GetExtra() = 'direct' then
+        if Mode.GetExtra() in ['direct', 'direct-lift'] then
             Ok := Codeunit.Run(Codeunit::"GB Inner V", PageRec)
         else
             Ok := Codeunit.Run(Codeunit::"GB Inner V", R);

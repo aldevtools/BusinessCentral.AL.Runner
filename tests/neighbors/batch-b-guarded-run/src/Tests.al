@@ -492,4 +492,46 @@ codeunit 98110 "GB Tests"
     begin
         Returns('z', 'key', 'ftmp,fya,err', 'Dialog');
     end;
+
+    // ---- round 2 of review: a mark the argument set or released, then lifted during the run ----
+
+    [Test]
+    procedure RecX_MarkXByA_TrueXByRec_TrueXByA_MarkYByA_Fails()
+    begin
+        // The end arm: X released by the argument, then lifted by its setter; only Y is left.
+        Returns('x', '', 'fxa,trec,txa,fya,err', 'Dialog');
+    end;
+
+    [Test]
+    procedure RecZ_MarkRec_TrueRec_MarkYByA_Fails()
+    begin
+        // The end arm: the argument marks Z and lifts it again; only Y is left.
+        Returns('z', '', 'frec,trec,fya,err', 'Dialog');
+    end;
+
+    [Test]
+    procedure RecX_MarkXByA_TrueXByRec_TrueXByA_MarkWByA_MarkYByA_MarkYByC_Fails()
+    begin
+        // The fail arm (held, then marked again by another variable) after the lifted release.
+        Returns('x', '', 'fxa,trec,txa,fwa,fya,fyc,err', 'Dialog');
+    end;
+
+    [Test]
+    procedure RecZKey_MarkRec_TrueRec_StartX_TrueXByB_MarkYByA_Fails()
+    begin
+        // The page arm (Key, released then held) after the argument marked and lifted Z.
+        Returns('z', 'key', 'frec,trec,startx,txb,fya,err', 'Dialog');
+    end;
+
+    [Test]
+    procedure PageList_DirectLift_StartX_Ends()
+    begin
+        // The page view arm: the page's Rec marks and lifts its table, then the run marks X and ends.
+        Initialize('startx');
+        Mode.SetExtra('direct-lift');
+        Mode.SetResult('');
+        asserterror PageThenEnd('list');
+        if GetLastErrorCode() <> 'TestWrapped:CSide' then
+            Error('got %1 (%2)', GetLastErrorText(), GetLastErrorCode());
+    end;
 }

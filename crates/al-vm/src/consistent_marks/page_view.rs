@@ -58,7 +58,8 @@ impl Session {
         })));
     }
 
-    /// The argument of the guarded run `start` (`facts` as it ends) in the cells' page view shape (:675-:1200): the
+    /// The argument of the guarded run `start` (`facts` as it ends) in the cells' page view shape (Page_OrderDirect_Fails
+    /// :1125, Page_OrderCardDirect_Fails :1170; the copy cells :675-:1110 are the ones this gate leaves out): the
     /// database Rec of a List or Document page without an extension itself, opened with OpenView, whose view filter is
     /// still the one the page set, run from that page's OnAction through one codeunit method (`run_by_action_method`), with
     /// no guarded run started inside, the argument left as it was, its table named by no mark and every mark set by a
