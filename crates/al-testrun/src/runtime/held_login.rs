@@ -97,8 +97,7 @@ impl HeldOpened {
 /// LgnRunnerSessions.al:790 one login row at the session's first login, where a login on the current data counts 2; :791 the
 /// SecretText it set is kept; :789 one login call). `None`: not that session, or the login left an image.
 pub(super) fn runner_login_data(held: &al_vm::HeldLogin, runner: bool) -> Option<&al_vm::SharedBaseline> {
-    runner.then_some(())?;
-    held.ran_on.as_ref()
+    held.ran_on.as_ref().filter(|_| runner)
 }
 
 /// The tables a login wrote: those its dependency apps' login code wrote, and those the apps under test's own login
