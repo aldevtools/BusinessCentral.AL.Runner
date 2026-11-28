@@ -220,22 +220,46 @@ fn a_later_runner_130450_codeunit_refuses_only_tests_that_combine_its_id_with_ea
     let held = held(&l);
     let (login_row, other) = (object(&l, "Login Row") as u32, object(&l, "Other") as u32);
     let wrote = CompanyOpenWrites {
-        held: Some(later_own_reads(&held, &login_wrote(&l), None, true, vec![object(&l, "Memo")])),
+        held: Some(later_own_reads(
+            &held,
+            &login_wrote(&l),
+            None,
+            true,
+            vec![object(&l, "Memo")],
+        )),
         ..Default::default()
     };
     let r = refusals(&l, &engine, &wrote);
-    assert!(r[0].as_ref().is_some_and(|w| w.contains("answered its own session id")), "{r:?}");
+    assert!(
+        r[0].as_ref().is_some_and(|w| w.contains("answered its own session id")),
+        "{r:?}"
+    );
     assert_eq!(r[1], None);
     assert!(r[2].is_some(), "{r:?}");
     let leak = [other].into();
     let wrote = CompanyOpenWrites {
-        held: Some(later_own_reads(&held, &login_wrote(&l), Some(&leak), false, vec![object(&l, "Memo")])),
+        held: Some(later_own_reads(
+            &held,
+            &login_wrote(&l),
+            Some(&leak),
+            false,
+            vec![object(&l, "Memo")],
+        )),
         ..Default::default()
     };
     let r = refusals(&l, &engine, &wrote);
     assert_eq!((&r[0], &r[1], &r[2]), (&None, &None, &None), "{r:?}");
-    for (t, id_read, refused) in [(login_row, true, true), (login_row, false, false), (other, true, true), (other, false, false)] {
+    for (t, id_read, refused) in [
+        (login_row, true, true),
+        (login_row, false, false),
+        (other, true, true),
+        (other, false, false),
+    ] {
         let hit = wrote.watch_hit(&[t].into(), true, id_read);
-        assert_eq!(hit.and_then(|t| wrote.touched(t, &l, id_read)).is_some(), refused, "{t} {id_read}");
+        assert_eq!(
+            hit.and_then(|t| wrote.touched(t, &l, id_read)).is_some(),
+            refused,
+            "{t} {id_read}"
+        );
     }
 }

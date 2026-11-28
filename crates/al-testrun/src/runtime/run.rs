@@ -4,8 +4,8 @@
 //! `run_codeunit_core`.
 use super::al_runner::run_unit;
 use super::held_login::{
-    self, carried_company_open, first_login, held_reads, in_own_session, later_runner_marks, login_once_on_hub,
-    later_own_reads, login_rows_as_held, own_session_id, thaw_held,
+    self, carried_company_open, first_login, held_reads, in_own_session, later_own_reads, later_runner_marks,
+    login_once_on_hub, login_rows_as_held, own_session_id, thaw_held,
 };
 use super::written::{
     self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,
@@ -254,16 +254,18 @@ fn open_company(
     let rows_as_held = held
         .as_deref()
         .is_some_and(|h| !own_login && login_rows_as_held(h, isolation, session));
-    wrote.held = held.as_deref().and_then(|h| match steps.own_session.filter(al_vm::OwnLogin::after_another) {
-        Some(_) => Some(later_own_reads(
-            h,
-            &wrote,
-            scratch.leak.as_deref(),
-            session.own_id_read(),
-            session.single_instances(),
-        )),
-        None => held_reads(h, own_login, thaws, rows_as_held),
-    });
+    wrote.held = held
+        .as_deref()
+        .and_then(|h| match steps.own_session.filter(al_vm::OwnLogin::after_another) {
+            Some(_) => Some(later_own_reads(
+                h,
+                &wrote,
+                scratch.leak.as_deref(),
+                session.own_id_read(),
+                session.single_instances(),
+            )),
+            None => held_reads(h, own_login, thaws, rows_as_held),
+        });
     let hits = later_runner_marks(held.is_some(), scratch.hub_leg, isolation, hits);
     // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
     // a `WorkDate(d)` of the test still wins.
@@ -765,9 +767,14 @@ fn run_codeunit_inner(
             // An OnRun that combined the session's own id with what an earlier runner 130450 session wrote
             // (`later_own_reads`): what it left is not known.
             let id_read = session.own_id_read();
-            if let Some(why) = (hits.iter()).find_map(|&t| company_open.touched(t, lowered, id_read).filter(|_| {
-                company_open.held.as_ref().is_some_and(|held| id_read && held.id_tables.contains(&t))
-            })) {
+            if let Some(why) = (hits.iter()).find_map(|&t| {
+                company_open.touched(t, lowered, id_read).filter(|_| {
+                    company_open
+                        .held
+                        .as_ref()
+                        .is_some_and(|held| id_read && held.id_tables.contains(&t))
+                })
+            }) {
                 return Err(on_run_refused(format!("OnRun: {why}")));
             }
             match ran {

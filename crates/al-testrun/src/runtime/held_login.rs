@@ -165,7 +165,11 @@ pub(super) fn later_own_reads(
     singles: Vec<usize>,
 ) -> crate::install::HeldReads {
     let mut tables = written(wrote);
-    tables.extend(held_opened(held).map(|opened| written(&opened.wrote)).unwrap_or_default());
+    tables.extend(
+        held_opened(held)
+            .map(|opened| written(&opened.wrote))
+            .unwrap_or_default(),
+    );
     tables.extend(leak.into_iter().flatten().copied());
     const WHY: &str = "a codeunit that runner 130450 runs after another one after the held login answered its own \
                        session id, and whether the two share one session is not measured (assumption \

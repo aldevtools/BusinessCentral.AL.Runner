@@ -1259,7 +1259,11 @@ impl CompanyOpenWrites {
     /// `own_login`, and those of `partner_login`.
     pub fn watched(&self) -> BTreeSet<u32> {
         let mut out = self.tables.clone();
-        out.extend(self.held.iter().flat_map(|held| held.tables.iter().chain(&held.id_tables).copied()));
+        out.extend(
+            self.held
+                .iter()
+                .flat_map(|held| held.tables.iter().chain(&held.id_tables).copied()),
+        );
         out.extend(self.watched_login.iter().flat_map(|(t, _)| t.iter().copied()));
         out.extend(self.own_login.iter().copied());
         out.extend(self.partner_login.watched());
