@@ -96,9 +96,6 @@ pub struct ChainReport {
     pub singles_kept: usize,
     /// Of `singles_kept`, those that read first a global an earlier member of their BC session wrote.
     pub singles_read_carried: usize,
-    /// ADR-066 amendment 12, decision 3 (default run only): the test codeunits whose tests can take numbers after an
-    /// earlier codeunit of their BC session that can take some too.
-    pub numbers_order: Vec<super::NumbersOrder>,
     /// ADR-074: the test codeunits (suite, id) whose OnRun raised in BcContainerHelper's discovery pass. They get no
     /// method rows; the run still calls their OnRun (`discovery.rs`).
     pub discovery_raised: Vec<(usize, u32)>,
@@ -111,9 +108,6 @@ pub struct ChainReport {
     /// sequences or isolated storage).
     pub discovery_wrote: Vec<(usize, u32, std::collections::BTreeSet<u32>, bool)>,
 }
-
-/// The most `number order:` lines the run output prints before it prints one summary line.
-pub const NUMBERS_LINES_MAX: usize = 5;
 
 impl ChainReport {
     /// Adds what another walk found (the sequential strict run's BC sessions each report on their own thread).
@@ -129,36 +123,10 @@ impl ChainReport {
         self.discovery_wrote.extend(other.discovery_wrote);
     }
 
-    /// ADR-066 amendment 12, decision 3: the numbers list, one line per codeunit. The run output prints it with or
-    /// without `--timings`.
-    pub fn numbers_lines(&self) -> Vec<String> {
-        self.numbers_order.iter().map(|n| n.line()).collect()
-    }
-
-    /// The order lines the run output prints with or without `--timings`: the numbers list.
+    /// The order line the run output prints with or without `--timings` (ADR-070 decision 4): how many passing tests
+    /// read SingleInstance state an earlier codeunit would have left differently on BC. None when there are none.
     pub fn run_output_lines(&self) -> Vec<String> {
-        self.numbers_summary()
-    }
-
-    /// The numbers list for the run output: one line per codeunit up to [`NUMBERS_LINES_MAX`], else one summary line
-    /// (`--timings` and the JUnit property `numberSequenceOrder` keep the detail). Diagnostics only (ADR-009).
-    pub fn numbers_summary(&self) -> Vec<String> {
-        let n = self.numbers_order.len();
-        if n <= NUMBERS_LINES_MAX {
-            return self.numbers_lines();
-        }
-        vec![format!(
-            "number order: {n} test codeunits take or read NumberSequence numbers after another test codeunit took some on BC; \
-             --timings lists them, the JUnit property numberSequenceOrder marks their tests, --strict-order chains the numbers as on BC"
-        )]
-    }
-
-    /// The text for the tests of codeunit `codeunit` of run `suite` when it is on the numbers list.
-    pub fn numbers_text(&self, suite: usize, codeunit: u32) -> Option<String> {
-        self.numbers_order
-            .iter()
-            .find(|n| n.suite == suite && n.codeunit == codeunit)
-            .map(|n| n.text())
+        self.single_lane.passing_line().into_iter().collect()
     }
 
     /// The `--timings` lines: the codeunits of the chain and their time, by reason.
@@ -172,7 +140,6 @@ impl ChainReport {
             self.reruns.len(),
             total(&mut self.reruns.iter().map(|m| &m.took)),
         )];
-        out.extend(self.numbers_lines());
         if self.singles_kept > 0 {
             out.push(format!(
                 "carry chain: {} members ran with the SingleInstance state of the members before them (ADR-066 amendment 8); {} of them read first a global an earlier member wrote",
@@ -313,36 +280,14 @@ fn onrun_writes(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> Op
 /// such a codeunit joins the carry chain as one whose OnRun writes (`numbers_taken.rs`). Counted only through what the
 /// tests are known to write, as for OnRun.
 fn tests_take_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
-    use super::written::state;
-    tests_reach_has(engine, lowered, oi, false, &|f| {
+    use super::written::{ReachIndex, state, union_reach_has};
+    let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
+    // One walk of the tests' joined reach (with their handler functions): a walk per test went over their shared reach
+    // once per test (11 % of the full corpus run with Microsoft's apps).
+    let roots = super::handlers::unit_roots(lowered, oi, false);
+    union_reach_has(&engine.events, lowered, &index, &roots, &|f| {
         f.state_writes & state::NUMBER_SEQUENCE != 0
     })
-}
-
-/// Whether the tests or the OnRun trigger of test codeunit `oi` can read a number sequence (any `NumberSequence` call,
-/// `written.rs`), for the numbers list of a default run.
-pub(super) fn reads_numbers(engine: &Arc<al_vm::Engine>, lowered: &Lowered, oi: usize) -> bool {
-    use super::written::state;
-    tests_reach_has(engine, lowered, oi, true, &|f| {
-        f.state_reads & state::NUMBER_SEQUENCE != 0
-    })
-}
-
-/// Whether the joined reach of the tests of test codeunit `oi` and their handler functions, and of its OnRun trigger when
-/// `onrun`, has `fact`.
-fn tests_reach_has(
-    engine: &Arc<al_vm::Engine>,
-    lowered: &Lowered,
-    oi: usize,
-    onrun: bool,
-    fact: &dyn Fn(&super::written::ReachFacts) -> bool,
-) -> bool {
-    use super::written::{ReachIndex, union_reach_has};
-    let index = engine.derived(|| ReachIndex::new(&engine.events, lowered));
-    // One walk of the tests' joined reach: a walk per test went over their shared reach once per test (11 % of the
-    // full corpus run with Microsoft's apps).
-    let roots = super::handlers::unit_roots(lowered, oi, onrun);
-    union_reach_has(&engine.events, lowered, &index, &roots, fact)
 }
 
 #[cfg(test)]
@@ -358,29 +303,6 @@ mod tests {
             took: Duration::from_millis(ms),
             left: id == 2,
         }
-    }
-
-    #[test]
-    fn a_long_numbers_list_is_one_summary_line_in_the_run_output() {
-        let order = |n: usize| ChainReport {
-            numbers_order: (0..n as u32)
-                .map(|i| super::super::NumbersOrder {
-                    suite: 0,
-                    codeunit: i,
-                    name: format!("C{i}"),
-                    after: (i + 1, "X".into()),
-                    reads_only: false,
-                })
-                .collect(),
-            ..Default::default()
-        };
-        assert_eq!(order(NUMBERS_LINES_MAX).run_output_lines().len(), NUMBERS_LINES_MAX);
-        let long = order(NUMBERS_LINES_MAX + 1);
-        let out = long.run_output_lines();
-        assert_eq!(out.len(), 1, "{out:?}");
-        assert!(out[0].contains(&format!("number order: {} test codeunits", NUMBERS_LINES_MAX + 1)));
-        // `--timings` keeps the detail.
-        assert_eq!(long.numbers_lines().len(), NUMBERS_LINES_MAX + 1);
     }
 
     #[test]

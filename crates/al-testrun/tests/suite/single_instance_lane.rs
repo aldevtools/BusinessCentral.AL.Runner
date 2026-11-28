@@ -393,18 +393,19 @@ codeunit 60712 "Chain Fresh Bystander"
 }
 "#;
 
-fn fresh_opts() -> RunOptions {
+fn strict_opts() -> RunOptions {
     RunOptions {
         required_isolation: true,
-        single_fresh_check: true,
         strict_order: true,
         ..Default::default()
     }
 }
 
+/// ADR-070 decision 7: nothing runs again; the walk names the global and its writer, and the `fresh` variant of a
+/// stability run (the default isolated run) gives the reader its fresh outcome.
 #[test]
-fn a_chain_member_that_reads_a_carried_value_runs_again_fresh_and_names_the_global_and_its_writer() {
-    let rt = runtime_opts(CHAIN_PAIR, STATE, &fresh_opts());
+fn a_chain_member_that_reads_a_carried_value_names_the_global_and_its_writer() {
+    let rt = runtime_opts(CHAIN_PAIR, STATE, &strict_opts());
     // The base result stays BC's order.
     assert!(passed(&rt, "FreshReadsTheFlag"), "{:?}", rt.results());
     let carried: Vec<_> = rt.single_carried().collect();
@@ -421,40 +422,21 @@ fn a_chain_member_that_reads_a_carried_value_runs_again_fresh_and_names_the_glob
         (50451, "Lane State", "Flag")
     );
     assert_eq!(r.last_writer, Some((60710, "Chain Fresh Setter".to_string())));
-    let fresh = c.fresh.as_ref().expect("checked");
-    assert!(
-        matches!(&fresh[..], [(t, Outcome::Fail(m))] if t == "FreshReadsTheFlag" && m.contains("flag is []")),
-        "{fresh:?}"
-    );
-}
-
-#[test]
-fn without_the_check_a_suspect_is_listed_but_not_run_again() {
-    let opts = RunOptions {
-        strict_order: true,
-        required_isolation: true,
+    let fresh = al_testrun::stability::Perturb {
+        single_fresh: true,
         ..Default::default()
     };
-    let rt = runtime_opts(CHAIN_PAIR, STATE, &opts);
-    let carried: Vec<_> = rt.single_carried().collect();
-    assert_eq!(carried.len(), 1, "{carried:?}");
-    assert!(carried[0].fresh.is_none());
-}
-
-#[test]
-fn a_chain_member_rerun_hands_nothing_on() {
-    // The reader's fresh run sets nothing, so a later member that checks the flag still sees what the setter left.
-    let src = format!(
-        "{CHAIN_PAIR}{}",
-        chain_checker(60713, "RequiredTestIsolation = Disabled;", "left", "left")
+    let rts = variants_of(CHAIN_PAIR, &[fresh]);
+    assert!(
+        matches!(outcome_of(&rts[0], "FreshReadsTheFlag"), Outcome::Fail(m) if m.contains("flag is []")),
+        "{:?}",
+        rts[0].results()
     );
-    let rt = runtime_opts(&src, STATE, &fresh_opts());
-    assert!(passed(&rt, "Reports60713"), "{:?}", rt.results());
 }
 
 #[test]
-fn a_plain_dependent_codeunit_is_a_walk_member_and_runs_again_fresh() {
-    let rt = runtime_opts(DEPENDENT_PAIR, STATE, &fresh_opts());
+fn a_plain_dependent_codeunit_is_a_walk_member_and_is_listed() {
+    let rt = runtime_opts(DEPENDENT_PAIR, STATE, &strict_opts());
     assert!(passed(&rt, "ReadsTheFlag"), "{:?}", rt.results());
     let carried: Vec<_> = rt.single_carried().collect();
     assert_eq!(carried.len(), 1, "{carried:?}");
@@ -470,11 +452,6 @@ fn a_plain_dependent_codeunit_is_a_walk_member_and_runs_again_fresh() {
             .as_ref()
             .is_some_and(|w| w.1.contains("Lane Setter")),
         "{c:?}"
-    );
-    let fresh = c.fresh.as_ref().expect("checked");
-    assert!(
-        matches!(&fresh[..], [(t, Outcome::Fail(_))] if t == "ReadsTheFlag"),
-        "{fresh:?}"
     );
 }
 
@@ -502,10 +479,9 @@ fn outcome_of<'a>(rt: &'a CorpusRuntime, test: &str) -> &'a Outcome {
     &rt.results().iter().find(|r| r.test == test).expect("ran").outcome
 }
 
-/// ADR-058 amendment 1, decisions 2 and 3: the `fresh` variant is formed from the base variant's run: a suspect takes
-/// its fresh outcome, every other codeunit its base outcome.
+/// ADR-070 decision 7: the `fresh` variant is a plain default (isolated) run, the base variant a plain run in BC's order.
 #[test]
-fn the_fresh_variant_takes_each_suspects_fresh_outcome_and_every_other_base_outcome() {
+fn the_fresh_variant_is_a_plain_default_run_and_the_base_variant_a_strict_run() {
     let base = al_testrun::stability::Perturb::default();
     let fresh = al_testrun::stability::Perturb {
         single_fresh: true,
@@ -525,8 +501,11 @@ fn the_fresh_variant_takes_each_suspects_fresh_outcome_and_every_other_base_outc
     assert!(matches!(outcome_of(&rts[1], "FreshReadsTheFlag"), Outcome::Fail(_)));
     assert!(matches!(outcome_of(&rts[1], "ReadsTheFlag"), Outcome::Fail(_)));
     assert_eq!(outcome_of(&rts[1], "FreshUsesNothing"), &Outcome::Pass);
-    // The base variant ran with the check, so its list holds the fresh outcomes ("checked").
-    assert!(rts[0].single_carried().all(|c| c.fresh.is_some()));
+    let plain = RunOptions {
+        required_isolation: true,
+        ..Default::default()
+    };
+    assert_eq!(outcomes(&rts[1]), outcomes(&runtime_opts(&src, STATE, &plain)));
 }
 
 /// Codeunits outside the carry chain and in it whose outcome or message depends on the SingleInstance state that

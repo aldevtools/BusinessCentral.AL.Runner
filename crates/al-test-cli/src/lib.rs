@@ -31,6 +31,7 @@ pub mod refusal_keys;
 pub mod report;
 pub mod runner;
 pub mod select;
+pub mod strict_not_run;
 pub mod strict_order;
 pub mod windows_language;
 pub mod work;
