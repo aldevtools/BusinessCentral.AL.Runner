@@ -1,0 +1,13 @@
+{
+  "id": "4b8e2f6a-9c3d-4e21-8a7f-940900000002",
+  "name": "Neighbors serve-internal-errortext-9409-onprem",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 77420, "to": 77421 }
+  ],
+  "dependencies": []
+}

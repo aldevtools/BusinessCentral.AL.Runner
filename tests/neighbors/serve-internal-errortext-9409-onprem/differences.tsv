@@ -1,0 +1,3 @@
+# key	entry
+NB EIT Last Error Object::Measured_ObjectMessage_Braced	ASSUMED errorinfo-internal-text (corpus PR 1666; GetLastErrorText bare, GetLastErrorObject keeps the braced id)
+NB EIT Last Error Object::CollectedLeave_ObjectMessage_Braced	ASSUMED errorinfo-internal-text (corpus PR 1666; GetLastErrorText bare, GetLastErrorObject keeps the braced id)

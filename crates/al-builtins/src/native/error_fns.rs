@@ -101,7 +101,8 @@ pub(super) fn get_last_error_object(
             ));
         }
     };
-    let mut state = vec![Value::Text(e.message.into()), Value::Text(e.call_stack.into())];
+    let message = e.exception_message.unwrap_or(e.message);
+    let mut state = vec![Value::Text(message.into()), Value::Text(e.call_stack.into())];
     if e.exception == ExceptionKind::DotNetInvoke {
         state.push(Value::Text(e.code.into()));
     }

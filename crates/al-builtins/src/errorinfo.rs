@@ -383,7 +383,7 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let Some(info @ Value::Library(_, cell)) = a.first() else {
         return unsupported(format!("Error with {} as an ErrorInfo", a.first().describe()));
     };
-    let (message, internal, collectible, measured) = match &*cell.borrow() {
+    let (message, internal, collectible, shape_measured) = match &*cell.borrow() {
         LibraryValue::ErrorInfo(s) => (
             s.message.clone(),
             s.error_type == Some(1),
@@ -392,6 +392,7 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         ),
         _ => return unsupported("Error with an ErrorInfo nobody created"),
     };
+    let measured = measured_contexts(c, cell, shape_measured);
     // An internal error hides its message behind a fixed text and a correlation id (session/
     // TestProbeSessionMiscContracts.al:ErrorInfo_ErrorClientAndInternal; the id changes from run to run). Collected, its Message
     // is that text with a line break before the id (errors/PnBErrorsCollections.al:329-358 `internal message`).
@@ -405,8 +406,8 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
                 set_message_of(
                     &copy,
                     &format!(
-                        "{INTERNAL_ERROR_TEXT}\r\nCorrelation ID: {}",
-                        shown_id(braced, measured)
+                        "{INTERNAL_ERROR_TEXT}{COLLECTED_ID_LABEL}{}",
+                        shown_id(braced, measured.collected)
                     ),
                 );
                 copy
@@ -414,16 +415,20 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
             None => info.clone(),
         };
         if c.collect_error(&collected) {
-            assume_measured(measured);
+            assume_measured(measured.collected);
             return Ok(Value::Null);
         }
     }
     // Raised, a collectible one is measured only inside a collecting scope (the return above).
-    let measured = matches!((measured, collectible), (true, false));
+    let measured = matches!((measured.raised, collectible), (true, false));
     assume_measured(measured);
-    let message = match &braced {
-        Some(braced) => format!("{INTERNAL_ERROR_TEXT}\\Correlation ID: {}", shown_id(braced, measured)),
-        None => message,
+    // GetLastErrorObject was not measured (assumption `errorinfo-internal-text`): its Message keeps main's braced id.
+    let (message, exception_message) = match &braced {
+        Some(braced) => (
+            raised_text(shown_id(braced, measured)),
+            measured.then(|| raised_text(braced)),
+        ),
+        None => (message, None),
     };
     // The flag's text for any classification, the default one, custom dimensions included (P86LastError.al:54, :88-104,
     // :121, :145, :169).
@@ -431,8 +436,26 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         message,
         code: "Dialog".into(),
         origin: crate::native::ErrorOrigin::Redacted(crate::native::PERSONAL_DATA_REMOVED.into()),
+        exception_message,
         ..Default::default()
     })))
+}
+
+/// Where an Internal `ErrorInfo` of a measured shape shows the measured id (assumption `errorinfo-internal-text`, corpus PR
+/// 1666 ErrorInfoInternalText.al:144-160, :339-389): never collected before (no collected call stack), and collected with
+/// exactly one collecting scope open that holds no error yet, or raised while no collecting scope holds an error.
+struct Measured {
+    collected: bool,
+    raised: bool,
+}
+
+fn measured_contexts(c: &dyn Ctx, cell: &Rc<RefCell<LibraryValue>>, shape_measured: bool) -> Measured {
+    let (open, held) = c.error_scopes_open_and_held();
+    let never_collected = callstack_of(cell).is_none();
+    Measured {
+        collected: matches!((shape_measured, never_collected, open, held), (true, true, 1, 0)),
+        raised: matches!((shape_measured, never_collected, held), (true, true, 0)),
+    }
 }
 
 /// Whether an `ErrorInfo` is an Internal one of a shape the probe measured (assumption `errorinfo-internal-text`, corpus PR
@@ -464,6 +487,14 @@ fn shown_id(braced: &str, measured: bool) -> &str {
     }
 }
 
+/// What comes between the generic text and the correlation id in the Message of a collected Internal error.
+const COLLECTED_ID_LABEL: &str = "\r\nCorrelation ID: ";
+
+/// The text an Internal error raises: the generic text, a backslash and its correlation id.
+fn raised_text(id: &str) -> String {
+    format!("{INTERNAL_ERROR_TEXT}\\Correlation ID: {id}")
+}
+
 /// Marks a measured Internal error as running through the assumption, where it is collected or raised.
 fn assume_measured(measured: bool) {
     if measured {
@@ -487,6 +518,23 @@ pub fn copy_of(v: &Value) -> Option<Value> {
         put_callstack(&copy, stack);
     }
     Some(Value::Library(name.clone(), copy))
+}
+
+/// The texts of the error a collecting scope raises when it ends holding one Internal error, from its collected Message: the
+/// raised text has a backslash where the collected Message has a line break (errors/PnBErrorsCollections.al:360-375
+/// RO_CollectedErrorInfo_Internal_NotCleared_ScopeExit; corpus PR 1666 ErrorInfoInternalText.al:365-389). The second text is
+/// the Message of the exception `GetLastErrorObject` answers where it is not the raised text: GetLastErrorObject was not
+/// measured (assumption `errorinfo-internal-text`), so it keeps the braced id where the collected Message has the 36
+/// character measured one.
+pub fn internal_scope_end_texts(collected: &str) -> (String, Option<String>) {
+    let measured_id = collected
+        .strip_prefix(INTERNAL_ERROR_TEXT)
+        .and_then(|rest| rest.strip_prefix(COLLECTED_ID_LABEL))
+        .filter(|id| id.len() == 36);
+    (
+        collected.replace("\r\n", "\\"),
+        measured_id.map(|id| raised_text(&format!("{{{id}}}"))),
+    )
 }
 
 /// Whether an `ErrorInfo` value has ErrorType Internal.
