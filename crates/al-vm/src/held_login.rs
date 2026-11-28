@@ -21,6 +21,9 @@ pub struct HeldLogin {
     /// What the runner noted of the opening and the assumption marks it relied on (al-testrun `CompanyOpenWrites`,
     /// `HitBits`): a session that thaws the image takes them in place of its own login's.
     pub opened: Box<dyn std::any::Any + Send + Sync>,
+    /// The background sessions that the session runner 130450 runs its codeunits in after this login ([`OwnLogin`])
+    /// started, over all those codeunits, each a new `Session`: their ids stay apart (`Session::next_background_session_id`).
+    pub own_session_starts: std::sync::atomic::AtomicI32,
 }
 
 /// The logins whose writes a session's data holds, each with its image: the run's one login on the hub (`hub`,
@@ -98,6 +101,7 @@ impl Session {
             image,
             singles: self.single_instances(),
             opened,
+            own_session_starts: Default::default(),
         })
     }
 
@@ -250,6 +254,40 @@ codeunit 50100 Probe
             answer(in_own(false, "Stop", vec![Integer(99999)])),
             answer(Ok(Boolean(false)))
         );
+    }
+
+    // Two codeunits runner 130450 runs in its one session after the held login: each is a new `Session`, on the data the
+    // codeunit before left. The background sessions they start take ids no other background session of that session took,
+    // so a worker that keys a row on its `SessionId()` does not collide. The numbering itself is not pinned: only that each
+    // id is positive and not the starting session's (codeunits/run-onrun/RqIsolationModes.al:113;
+    // pages/background-tasks/PbtChildSession.al:209-229).
+    #[test]
+    fn background_sessions_of_two_runner_codeunits_take_distinct_ids() {
+        let l = al_testkit::compile("codeunit 50100 Worker { trigger OnRun() begin end; }");
+        let engine = Engine::new(l.program.clone(), al_testkit::blocked(&l));
+        let own = OwnLogin::after(1);
+        let in_own = |s: &mut Session| {
+            s.session_id_override = Some(own.id);
+            s.set_own_login(Some(own));
+        };
+        let mut first = Session::new(engine.clone());
+        first.hold_login(Err("none".into()), Box::new(()));
+        in_own(&mut first);
+        let a = first
+            .start_background_session(50100, None, None, None)
+            .expect("first start");
+        let left = first.capture_baseline();
+        let mut second = Session::new(engine);
+        second.restore_baseline(&left);
+        in_own(&mut second);
+        let b = second
+            .start_background_session(50100, None, None, None)
+            .expect("second start");
+        assert_ne!(
+            a, b,
+            "the second codeunit's first background session took the first one's id"
+        );
+        assert!(a > 0 && b > 0 && a != own.id && b != own.id);
     }
 
     // The marks the login left on number sequences stay after its writes are undone; the restore alone drops them.

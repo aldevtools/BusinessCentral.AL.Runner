@@ -207,8 +207,7 @@ impl Session {
     /// Its count of caught errors is its own too: a PageHandler whose worker caught an error closes the page as one that
     /// caught nothing (BgTaskWorkerSessionShapes.al:191, :198, :205).
     fn bg_enter_child_session(&mut self) -> ChildParked {
-        self.sessions_started += 1;
-        let id = self.session_id().saturating_add(self.sessions_started);
+        let id = self.next_background_session_id();
         let last_error = std::mem::take(&mut self.last_error);
         let collecting = self.collect_error_if_collecting();
         if let Some(w) = self.pages.bg_worker.as_mut() {

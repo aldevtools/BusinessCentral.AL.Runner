@@ -43,6 +43,7 @@ fn held_in(l: &al_sema::lower::Lowered, session: &mut Session) -> al_vm::HeldLog
         image: Err("none".into()),
         singles: vec![object(l, "Memo")],
         opened: Box::new(opened),
+        own_session_starts: Default::default(),
     }
 }
 
