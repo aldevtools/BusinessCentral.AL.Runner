@@ -223,6 +223,18 @@ fn citing_line<'t>(text: &'t str, c: &old::OldCite) -> &'t str {
     &text[start..end]
 }
 
+/// An old citation's replacement `new` after the prose `before`, without repeating the prose: `corpus File.al:3` gives
+/// `corpus:"X"`, not `corpus corpus:"X"`, and `header of File.al:1` drops the token's own `the file header of`.
+/// Returns the bytes at the end of `before` to drop, and the text.
+fn spliced<'n>(before: &str, new: &'n str) -> (usize, &'n str) {
+    let lower = before.to_ascii_lowercase();
+    match new.strip_prefix("the file header of ") {
+        Some(token) if lower.ends_with("header of ") => (0, token),
+        _ if lower.ends_with("corpus ") && new.starts_with("corpus:") => ("corpus ".len(), new),
+        _ => (0, new),
+    }
+}
+
 /// The quoted names of a citing line: AL literals as written (`'cell'`) and the text in backticks without its double
 /// quotes (`` `"First Test"` `` gives `First Test`).
 fn quotes(line: &str) -> Vec<String> {
@@ -328,10 +340,11 @@ impl Ctx<'_> {
             };
             match &results[k] {
                 Ok((new, class)) if !held => {
-                    out.push_str(&text[last..c.at.start]);
+                    let (drop, new) = spliced(&text[last..c.at.start], new);
+                    out.push_str(&text[last..c.at.start - drop]);
                     out.push_str(new);
                     last = c.at.end;
-                    row.new = Some(new.clone());
+                    row.new = Some(new.to_string());
                     row.class = *class;
                 }
                 Ok(_) => row.note = "another citation of its group needs a hand fix".into(),
@@ -537,6 +550,20 @@ pub fn summary(rows: &[Row]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_prose_in_front_of_a_citation_is_not_repeated() {
+        assert_eq!(spliced("rows of corpus ", "corpus:\"X\""), (7, "corpus:\"X\""));
+        assert_eq!(
+            spliced("(header of ", "the file header of corpus:\"X\""),
+            (0, "corpus:\"X\"")
+        );
+        assert_eq!(
+            spliced("(see ", "the file header of corpus:\"X\""),
+            (0, "the file header of corpus:\"X\"")
+        );
+        assert_eq!(spliced("(see ", "corpus:\"X\""), (0, "corpus:\"X\""));
+    }
 
     #[test]
     fn a_citing_line_quotes_cells_and_names() {
