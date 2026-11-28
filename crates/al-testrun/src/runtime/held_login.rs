@@ -198,8 +198,8 @@ pub(super) fn own_session_id(
 }
 
 /// `host` with the session id of [`own_session_id`]: `SessionId()`, the Session and Active Session rows and the ids of
-/// the background sessions it starts all follow it. `None`: `host` as it is. The session made on it is then told
-/// (al-vm `Session::set_own_login`), so its readers refuse what is not measured of it.
+/// the background sessions it starts all follow it. `None`: `host` as it is. The session made on it is told too
+/// (run.rs `session_from`, al-vm `Session::set_own_login`), so its readers refuse what is not measured of it.
 pub(super) fn in_own_session(host: al_host::Host, own: Option<al_vm::OwnLogin>) -> al_host::Host {
     match own {
         Some(own) => host.with_identity_overrides(al_host::IdentityOverrides {

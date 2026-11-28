@@ -572,26 +572,10 @@ fn run_codeunit_inner(
     let host = session_host(scratch);
     let held = baseline.and_then(|b| b.login_held.as_deref());
     let own_session = own_session_id(held, scratch.hub_leg, isolation, execute, host.identity.session_id());
-    let (mut session, moved) = new_session(engine, in_own_session(host, own_session), baseline, execute);
-    session.set_own_login(own_session);
+    let (mut session, moved) = new_session(engine, host, own_session, baseline, execute);
     set_up_session(&mut session, scratch, observe.is_some());
     let covering = crate::coverage::enabled();
-    let is_on_run = |r: usize| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun");
-    let tests: Vec<usize> = (0..obj.routines.len())
-        .filter(|&r| {
-            if execute {
-                return is_on_run(r);
-            }
-            obj.routines[r]
-                .attributes
-                .iter()
-                .any(|a| a.name.eq_ignore_ascii_case("Test"))
-                // `--run-selected-only`: a test that is not selected does not run (issue 5611).
-                && scratch.run_only.as_ref().is_none_or(|keep| {
-                    keep.contains(&(obj.id.unwrap_or(0), obj.routines[r].name.to_lowercase()))
-                })
-        })
-        .collect();
+    let tests = test_routines(obj, scratch, execute);
     // `order.methods` of a stability run (ADR-058): the test methods in another order.
     let tests: Vec<usize> = perturb
         .method_order
@@ -1697,10 +1681,32 @@ fn ends_of(unfinished: &[Unfinished], test_panicked: bool) -> super::Ends {
     }
 }
 
+/// The routines of `obj` a run calls: its OnRun trigger for a scratch run (`execute`), else its test methods, those
+/// `--run-selected-only` keeps (issue 5611).
+fn test_routines(obj: &al_ir::Object, scratch: &Scratch, execute: bool) -> Vec<usize> {
+    let is_on_run = |r: usize| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun");
+    (0..obj.routines.len())
+        .filter(|&r| {
+            if execute {
+                return is_on_run(r);
+            }
+            obj.routines[r]
+                .attributes
+                .iter()
+                .any(|a| a.name.eq_ignore_ascii_case("Test"))
+                && scratch
+                    .run_only
+                    .as_ref()
+                    .is_none_or(|keep| keep.contains(&(obj.id.unwrap_or(0), obj.routines[r].name.to_lowercase())))
+        })
+        .collect()
+}
+
 /// A codeunit's session from the install baseline; in the lane with the single instances of the codeunit before.
 fn new_session(
     engine: &Arc<Engine>,
     host: al_host::Host,
+    own: Option<al_vm::OwnLogin>,
     baseline: Option<&al_vm::Baseline>,
     execute: bool,
 ) -> (Session, Option<al_vm::single_track::MovedSingles>) {
@@ -1710,17 +1716,20 @@ fn new_session(
     } else {
         LANE_SINGLES.with(|c| c.borrow_mut().as_mut().and_then(Option::take))
     };
-    (session_from(engine, host, baseline, moved.as_ref()), moved)
+    (session_from(engine, host, own, baseline, moved.as_ref()), moved)
 }
 
-/// A session on `baseline`; the temporary tables of the single instances `moved` keep their ids.
+/// A session on `baseline`, in the session of its own `own` names (`in_own_session`); the temporary tables of the single
+/// instances `moved` keep their ids.
 fn session_from(
     engine: &Arc<Engine>,
     host: al_host::Host,
+    own: Option<al_vm::OwnLogin>,
     baseline: Option<&al_vm::Baseline>,
     moved: Option<&al_vm::single_track::MovedSingles>,
 ) -> Session {
-    let mut session = Session::with_host(engine.clone(), host);
+    let mut session = Session::with_host(engine.clone(), in_own_session(host, own));
+    session.set_own_login(own);
     if let Some(b) = baseline {
         session.restore_baseline(b);
     }
@@ -1823,9 +1832,7 @@ impl Steps<'_> {
         baseline: Option<&al_vm::Baseline>,
         moved: Option<&al_vm::single_track::MovedSingles>,
     ) -> Session {
-        let host = in_own_session(session_host(scratch), self.own_session);
-        let mut session = session_from(self.engine, host, baseline, moved);
-        session.set_own_login(self.own_session);
+        let mut session = session_from(self.engine, session_host(scratch), self.own_session, baseline, moved);
         set_up_session(&mut session, scratch, self.observed);
         session
     }
