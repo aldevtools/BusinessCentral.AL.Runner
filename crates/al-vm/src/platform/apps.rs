@@ -174,9 +174,14 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
             };
             // Logo (20): blank (null MediaId, no Media row) for an app whose app.json declares no logo (onprem
             // session-system/PZPublishedApplicationColumns.al:162-163); the media id of a logo [`served_logo`] serves; else unknown.
-            match served_logo(a, assumed) {
+            // A logo served by an assumption marks every read of the row ([`Entry::assuming_in`], the Logo column).
+            let mut logo_assumed = None;
+            match served_logo(a, assumed, p.engine().target.as_ref()) {
                 Logo::None => {}
-                Logo::Picture { .. } => r[pos(t, 20)] = Value::Guid(ids::logo_media_id(id)),
+                Logo::Picture { assumed, .. } => {
+                    r[pos(t, 20)] = Value::Guid(ids::logo_media_id(id));
+                    logo_assumed = assumed;
+                }
                 Logo::Unknown(whose) => r[pos(t, 20)] = super::unknown(t, 20, &whose),
             }
             // The columns the row fills above, and those whose default the corpus pins for every app (13, 30, 31). The others (Brief, the links, Blob, the source and build columns of
@@ -188,9 +193,10 @@ pub(super) fn published_application_rows(p: &Providers, t: &TableDef) -> Vec<Ent
                 }
             }
             let entry = Entry::ok(r);
-            Some(match assumed {
-                Some(x) => entry.assuming(x),
-                None => entry,
+            Some(match (assumed, logo_assumed) {
+                (Some(x), _) => entry.assuming(x),
+                (None, Some(x)) => entry.assuming_in(x, vec![pos(t, 20)]),
+                (None, None) => entry,
             })
         })
         .collect::<Vec<_>>();
@@ -239,26 +245,25 @@ pub(super) fn published_application_listing(
 /// `image/png`, the picture's height and width, and every other column empty (Description, Company Name, Expiration Date,
 /// File Name, Security Token, Creating User; Prohibit Cache No): onprem session-system/UsAppLogo.al:110-116 (a 1 x 1 PNG of
 /// 67 bytes) and :140-145 (a 300 x 300 PNG of 90393 bytes, same SHA-256). A JPEG logo [`served_logo`] serves has the same
-/// row, its Mime Type `image/png` before BC 29 and `image/jpeg` from BC 29 (al-language-onprem/session-system/UsAppLogoJpeg.al:113-117,
-/// an 8 x 8 JPEG of 307 bytes).
+/// row, with the Mime Type [`served_logo`] gives it; the row of a logo served by an assumption marks it.
 pub(super) fn logo_media_row(p: &Providers, t: &TableDef, media_id: [u8; 16]) -> Option<Entry> {
     let engine = p.engine();
-    let (bytes, (width, height), jpeg) = engine
+    let (bytes, (width, height), mime, assumed) = engine
         .program
         .apps
         .iter()
         .filter(|a| al_builtins::ops::parse_guid(&a.id).is_some_and(|id| ids::logo_media_id(id) == media_id))
         .find_map(
-            |a| match served_logo(a, route(a, engine.dependencies_published_global).1) {
-                Logo::Picture { bytes, size, jpeg } => Some((bytes, size, jpeg)),
+            |a| match served_logo(a, route(a, engine.dependencies_published_global).1, engine.target.as_ref()) {
+                Logo::Picture {
+                    bytes,
+                    size,
+                    mime,
+                    assumed,
+                } => Some((bytes, size, mime, assumed)),
                 Logo::None | Logo::Unknown(_) => None,
             },
         )?;
-    let mime = if jpeg && al_version::gate_on(engine.target.as_ref(), al_version::Gate::ProbedValuesDifferFrom29) {
-        "image/jpeg"
-    } else {
-        "image/png"
-    };
     let field = |name: &str| t.fields.iter().position(|f| f.name.eq_ignore_ascii_case(name));
     let mut r = blank(t);
     r[pos(t, 1)] = Value::Guid(media_id);
@@ -270,7 +275,10 @@ pub(super) fn logo_media_row(p: &Providers, t: &TableDef, media_id: [u8; 16]) ->
     r[field("Mime Type")?] = Value::Text(mime.into());
     r[field("Height")?] = Value::Integer(height);
     r[field("Width")?] = Value::Integer(width);
-    Some(Entry::ok(r))
+    Some(match assumed {
+        Some(x) => Entry::ok(r).assuming(x),
+        None => Entry::ok(r),
+    })
 }
 
 #[cfg(test)]
@@ -284,11 +292,13 @@ thread_local! {
 enum Logo<'a> {
     /// The manifest declares no logo.
     None,
-    /// A picture with a media id and a Media row: its bytes, size and whether it is a JPEG.
+    /// A picture with a media id and a Media row: its bytes, size, the Mime Type of the Media row, and the assumption it
+    /// rests on (`None`: pinned).
     Picture {
         bytes: &'a [u8],
         size: (i32, i32),
-        jpeg: bool,
+        mime: &'static str,
+        assumed: Option<al_builtins::assumptions::Assumption>,
     },
     /// Not pinned: why.
     Unknown(String),
@@ -297,24 +307,57 @@ enum Logo<'a> {
 /// The size of the measured JPEG logo, width by height (UsAppLogoJpeg.al:113-117 `Height=8;Width=8`).
 const MEASURED_JPEG_SIZE: (i32, i32) = (8, 8);
 
-/// A PNG logo is served (onprem session-system/UsAppLogo.al:108-117 UsLogo_TinyPng_AppD, :140-146 UsLogo_BigPng_AppC). A JPEG
-/// built as the measured one ([`al_builtins::media::jfif_logo_size`]) of the measured size, 8 x 8, is served the same
-/// (UsAppLogoJpeg.al:82-120, cross-app fixture E's logo.jpg) on a row that rests on no assumption (the fixture's row rests on
-/// none). Every other logo, a JPEG on a row that rests on an assumption, and an app whose manifest was not read, are not pinned.
-fn served_logo(a: &al_ir::AppInfo, row_assumed: Option<al_builtins::assumptions::Assumption>) -> Logo<'_> {
+/// The sizes of the baseline JPEG logos of open corpus PR 1594 (UsAppLogoJpegSizes.al UsLogo_Jpeg535x534_AppG,
+/// UsLogo_Jpeg16x8_AppH, UsLogo_Jpeg400x300_AppJ), width by height.
+const ASSUMED_BASELINE_SIZES: [(i32, i32); 3] = [(535, 534), (16, 8), (400, 300)];
+
+/// The size of the progressive JPEG logo of open corpus PR 1594 (UsAppLogoJpegSizes.al UsLogo_JpegProgressive535x534_AppK).
+const ASSUMED_PROGRESSIVE_SIZE: (i32, i32) = (535, 534);
+
+/// A PNG logo is served (onprem session-system/UsAppLogo.al:108-117 UsLogo_TinyPng_AppD, :140-146 UsLogo_BigPng_AppC), Mime
+/// Type `image/png`. A JPEG built as the measured one ([`al_builtins::media::jfif_logo_size`]) of the measured size, 8 x 8, is
+/// served the same (UsAppLogoJpeg.al:82-120, cross-app fixture E's logo.jpg) on a row that rests on no assumption (the
+/// fixture's row rests on none), Mime Type `image/png` before BC 29 and `image/jpeg` from BC 29 (UsAppLogoJpeg.al:113-117).
+/// The logos of open corpus PR 1594 are served by assumption `app-logo-jpeg-sizes` ([`assumed_jpeg_logo`]). Every other logo,
+/// a JPEG on a row that rests on an assumption, and an app whose manifest was not read, are not pinned.
+fn served_logo<'a>(
+    a: &'a al_ir::AppInfo,
+    row_assumed: Option<al_builtins::assumptions::Assumption>,
+    target: Option<&al_version::Target>,
+) -> Logo<'a> {
     let bytes = match &a.logo {
         Some(al_ir::AppLogo::None) => return Logo::None,
         Some(al_ir::AppLogo::File(bytes)) => bytes.as_slice(),
         None => return Logo::Unknown(format!("app '{}': its manifest's logo was not read", a.name)),
     };
-    let picture = |size, jpeg| Logo::Picture { bytes, size, jpeg };
+    let pinned = |size, mime| Logo::Picture {
+        bytes,
+        size,
+        mime,
+        assumed: None,
+    };
+    if row_assumed.is_none()
+        && let Some(size) = assumed_jpeg_logo(bytes, target)
+    {
+        return Logo::Picture {
+            bytes,
+            size,
+            mime: "image/jpeg",
+            assumed: Some(al_builtins::assumptions::Assumption::AppLogoJpegSizes),
+        };
+    }
+    let jpeg_mime = if al_version::gate_on(target, al_version::Gate::ProbedValuesDifferFrom29) {
+        "image/jpeg"
+    } else {
+        "image/png"
+    };
     match (
         al_builtins::media::png_size(bytes),
         al_builtins::media::jfif_logo_size(bytes),
         row_assumed,
     ) {
-        (Some(size), _, _) => picture(size, false),
-        (None, Some(MEASURED_JPEG_SIZE), None) => picture(MEASURED_JPEG_SIZE, true),
+        (Some(size), _, _) => pinned(size, "image/png"),
+        (None, Some(MEASURED_JPEG_SIZE), None) => pinned(MEASURED_JPEG_SIZE, jpeg_mime),
         (None, Some((width, height)), None) => Logo::Unknown(format!(
             "app '{}', whose JPEG logo is {width} x {height}, not the measured 8 x 8",
             a.name
@@ -328,6 +371,25 @@ fn served_logo(a: &al_ir::AppInfo, row_assumed: Option<al_builtins::assumptions:
             "app '{}', whose logo is neither a PNG nor a JPEG built as the measured one (the Media row of another picture is not pinned)",
             a.name
         )),
+    }
+}
+
+/// The size of a JPEG logo that assumption `app-logo-jpeg-sizes` serves: on a major open corpus PR 1594 measured on Windows
+/// BC ([`al_version::app_logo_jpeg_sizes_measured`]: 27 and 29), a file with the JFIF header of the probe's logos
+/// ([`al_builtins::media::jfif_header_of_measured_logos`]), built as its baseline logos in one of their sizes, or as its
+/// progressive logo in its size (UsAppLogoJpegSizes.al: Media row with the file's bytes, `image/jpeg` on Windows 27.5 and
+/// 29.0, Height and Width of the picture). `None` for every other file and major.
+fn assumed_jpeg_logo(bytes: &[u8], target: Option<&al_version::Target>) -> Option<(i32, i32)> {
+    if !al_version::app_logo_jpeg_sizes_measured(target) || !al_builtins::media::jfif_header_of_measured_logos(bytes) {
+        return None;
+    }
+    match (
+        al_builtins::media::jfif_logo_size(bytes),
+        al_builtins::media::jfif_progressive_logo_size(bytes),
+    ) {
+        (Some(size), None) if ASSUMED_BASELINE_SIZES.contains(&size) => Some(size),
+        (None, Some(ASSUMED_PROGRESSIVE_SIZE)) => Some(ASSUMED_PROGRESSIVE_SIZE),
+        _ => None,
     }
 }
 
@@ -399,10 +461,11 @@ mod tests {
         let bytes = jfif_8x8();
         let global = Some(Assumption::DependencyPublishedAsGlobal);
         assert!(matches!(
-            served_logo(&app(bytes.clone()), None),
+            served_logo(&app(bytes.clone()), None, None),
             Logo::Picture {
-                jpeg: true,
+                mime: "image/jpeg",
                 size: (8, 8),
+                assumed: None,
                 ..
             }
         ));
@@ -410,11 +473,57 @@ mod tests {
         let sof = wide.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
         wide[sof + 8] = 16;
         assert_eq!(al_builtins::media::jfif_logo_size(&wide), Some((16, 8)));
-        assert!(matches!(served_logo(&app(wide), None), Logo::Unknown(why) if why.contains("8 x 8")));
+        assert!(matches!(served_logo(&app(wide), None, None), Logo::Unknown(why) if why.contains("8 x 8")));
         assert!(
-            matches!(served_logo(&app(bytes), global), Logo::Unknown(why) if why.contains("dependency-published-as-global"))
+            matches!(served_logo(&app(bytes), global, None), Logo::Unknown(why) if why.contains("dependency-published-as-global"))
         );
-        assert!(matches!(served_logo(&app(vec![1, 2, 3]), None), Logo::Unknown(_)));
+        assert!(matches!(served_logo(&app(vec![1, 2, 3]), None, None), Logo::Unknown(_)));
+    }
+
+    /// Assumption `app-logo-jpeg-sizes` serves a JPEG with the probe's JFIF header in a measured size on BC 27 and 29 only, on
+    /// a row that rests on no other assumption, with Mime Type image/jpeg; one fact changed at a time keeps main's answer: BC
+    /// 28, another size, another JFIF header, a row that rests on an assumption.
+    #[test]
+    fn a_jpeg_logo_of_a_measured_size_is_served_by_its_assumption_only_as_measured() {
+        let app = |logo: Vec<u8>| al_ir::AppInfo {
+            name: "D".into(),
+            logo: Some(al_ir::AppLogo::File(logo)),
+            ..Default::default()
+        };
+        let target = |major| Some(al_version::Target::for_bc(al_version::BcVersion::new(major, 0)));
+        let sized = |w: u16, h: u16, header: [u8; 9]| {
+            let mut b = jfif_8x8();
+            b[11..20].copy_from_slice(&header);
+            let sof = b.windows(2).position(|w| w == [0xFF, 0xC0]).unwrap();
+            b[sof + 5..sof + 7].copy_from_slice(&h.to_be_bytes());
+            b[sof + 7..sof + 9].copy_from_slice(&w.to_be_bytes());
+            b
+        };
+        let measured_header = [1, 1, 0, 0, 1, 0, 1, 0, 0];
+        for major in [27, 29] {
+            for (w, h) in [(535, 534), (16, 8), (400, 300)] {
+                let logo = app(sized(w, h, measured_header));
+                assert!(matches!(
+                    served_logo(&logo, None, target(major).as_ref()),
+                    Logo::Picture { mime: "image/jpeg", size, assumed: Some(Assumption::AppLogoJpegSizes), .. }
+                        if size == (i32::from(w), i32::from(h))
+                ));
+            }
+        }
+        let g = app(sized(535, 534, measured_header));
+        assert!(matches!(served_logo(&g, None, target(28).as_ref()), Logo::Unknown(_)));
+        let global = Some(Assumption::DependencyPublishedAsGlobal);
+        assert!(matches!(served_logo(&g, global, target(29).as_ref()), Logo::Unknown(_)));
+        let other_size = app(sized(300, 300, measured_header));
+        assert!(matches!(served_logo(&other_size, None, target(29).as_ref()), Logo::Unknown(_)));
+        let dpi96 = app(sized(535, 534, [1, 1, 1, 0, 0x60, 0, 0x60, 0, 0]));
+        assert!(matches!(served_logo(&dpi96, None, target(29).as_ref()), Logo::Unknown(_)));
+        // The pinned 8 x 8 logo with the probe's header stays pinned: image/png on 27, no assumption.
+        let e = app(sized(8, 8, measured_header));
+        assert!(matches!(
+            served_logo(&e, None, target(27).as_ref()),
+            Logo::Picture { mime: "image/png", assumed: None, .. }
+        ));
     }
 
     /// A read of Media by one app's logo id writes that app's logo alone, not the logo of every app (issue 8608): of

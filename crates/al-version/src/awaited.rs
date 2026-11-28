@@ -39,6 +39,14 @@ pub fn http_probe_1424_measured(target: Option<&Target>) -> bool {
     target.is_some_and(|t| matches!((t.bc.major, t.bc.minor), (27, 5) | (28, 5) | (29, 0) | (29, 1)))
 }
 
+/// Whether `target` is a major on which open corpus PR 1594 (tests/al-language-onprem/session-system/UsAppLogoJpegSizes.al,
+/// al-runner issue 9111) measured the Published Application logo of a JPEG of another size than 8 x 8 on Windows BC: 27
+/// (27.5) and 29 (29.0), and no target (the newest major, 29). BC 28 is measured only by corpus CI on Linux, whose Mime Type
+/// (image/png) differs from Windows on 27.5, so it is not measured.
+pub fn app_logo_jpeg_sizes_measured(target: Option<&Target>) -> bool {
+    matches!(target.map(|t| t.bc.major), Some(27 | 29) | None)
+}
+
 /// What a TestPage does with a Card's field control bound to no field of the source table whose own Visible names a field of
 /// the record (`ir::Control::visible_row_field`; open corpus PR 1504, tests/al-language/pages/controls/VisibleExpressionSource.al,
 /// al-runner issue 8660): `Some(true)` on 29, where its Visible reads Yes whatever the row holds; `Some(false)` on 27 and 28,

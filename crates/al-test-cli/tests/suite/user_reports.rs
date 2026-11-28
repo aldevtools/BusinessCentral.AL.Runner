@@ -1888,7 +1888,8 @@ const XAPP_E_JPEG: [u8; 307] = [
 /// al-runner issue 8061: the Published Application Logo of an app whose manifest declares a baseline JPEG logo is a media with a
 /// value and the same id on every read; its Media row holds the file's bytes unchanged, the picture's size, every other column
 /// empty, and Mime Type image/png on BC 27.5 and 28.5, image/jpeg on BC 29.0 (onprem session-system/UsAppLogoJpeg.al:82-120,
-/// pinned). A pass without an assumption. A progressive JPEG, and a JPEG of another size, stay refused.
+/// pinned). A pass without an assumption. A JPEG built otherwise stays refused; a JPEG of another size stays refused on BC 28
+/// (on 27 and 29 the sizes corpus PR 1594 measured run through an assumption: `issue_9111_jpeg_logos_of_the_measured_sizes`).
 #[test]
 fn issue_8061_extension_logo_of_an_app_with_a_jpeg_logo() {
     let main = |mime: &str| {
@@ -1919,23 +1920,24 @@ codeunit 50000 T {{ Subtype = Test;
         )
     };
     let jpeg = || Some(al_ir::AppLogo::File(XAPP_E_JPEG.to_vec()));
-    for (target, mime) in [
-        (Some("27.5"), "image/png"),
-        (Some("28.5"), "image/png"),
-        (Some("29.0"), "image/jpeg"),
-    ] {
+    for (target, mime) in JPEG_LOGO_MIME_8X8 {
         let o = run_over_system_as(target, MAIN_ID, jpeg(), None, &main(mime));
         assert_eq!(o[0].1, Outcome::Pass, "{target:?}: {o:?}");
         assert!(o[0].2.is_empty(), "{target:?}: pinned, no assumption");
     }
-    // A JPEG built otherwise than the measured one, or built so in another size than 8 x 8: not measured, refused as on main.
+    // A JPEG built otherwise than the measured one: not measured, refused as on main. One built so in another size than 8 x 8:
+    // refused on BC 28, which corpus PR 1594 did not measure on Windows.
     let sized = [
         include_bytes!("../fixtures/jpeg/wide16x8.jpg").to_vec(),
         include_bytes!("../fixtures/jpeg/big400x300.jpg").to_vec(),
     ];
-    for other in unmeasured_jpegs().into_iter().chain(sized) {
+    let runs = unmeasured_jpegs()
+        .into_iter()
+        .map(|b| (None, b))
+        .chain(sized.into_iter().map(|b| (Some("28.5"), b)));
+    for (target, other) in runs {
         let o = run_over_system_as(
-            None,
+            target,
             MAIN_ID,
             Some(al_ir::AppLogo::File(other)),
             None,
@@ -1943,6 +1945,60 @@ codeunit 50000 T {{ Subtype = Test;
         );
         assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
     }
+}
+
+/// The Mime Type of the pinned 8 x 8 JPEG logo's Media row per version (UsAppLogoJpeg.al:113-117).
+const JPEG_LOGO_MIME_8X8: [(Option<&str>, &str); 3] = [
+    (Some("27.5"), "image/png"),
+    (Some("28.5"), "image/png"),
+    (Some("29.0"), "image/jpeg"),
+];
+
+/// al-runner issue 9111: the four JPEG logos of open corpus PR 1594 (UsAppLogoJpegSizes.al: baseline 535 x 534, 16 x 8 and
+/// 400 x 300, progressive 535 x 534) on Windows BC 27.5 and 29.0: the Logo has a value, its Media row holds the file's bytes,
+/// Mime Type image/jpeg and the picture's size. A pass through assumption `app-logo-jpeg-sizes`; BC 28 stays refused, and so
+/// does the measured 535 x 534 file with a JFIF header of units 1 and 96 dpi.
+#[test]
+fn issue_9111_jpeg_logos_of_the_measured_sizes() {
+    let main = |w: i32, h: i32, len: usize| {
+        format!(
+            r#"
+codeunit 50000 T {{ Subtype = Test;
+  [Test] procedure JpegLogo() var App: Record "Published Application"; Media: Record Media; InS: InStream; B: Byte; N: Integer; begin
+    App.SetRange(ID, '{MAIN_ID}');
+    App.SetRange("Tenant Visible", true);
+    if not App.FindFirst() then Error('no row');
+    if not App.Logo.HasValue() then Error('no logo');
+    Media.SetRange(ID, App.Logo.MediaId());
+    if not Media.FindFirst() then Error('no media row');
+    if Media."Mime Type" <> 'image/jpeg' then Error('mime %1', Media."Mime Type");
+    if (Media.Width <> {w}) or (Media.Height <> {h}) then Error('size %1 x %2', Media.Width, Media.Height);
+    Media.CalcFields(Content);
+    Media.Content.CreateInStream(InS);
+    while not InS.EOS() do begin InS.Read(B); N += 1; end;
+    if N <> {len} then Error('length %1', N); end; }}"#
+        )
+    };
+    let logos: [(&[u8], i32, i32); 4] = [
+        (include_bytes!("../fixtures/jpeg/base535x534.jpg"), 535, 534),
+        (include_bytes!("../fixtures/jpeg/wide16x8.jpg"), 16, 8),
+        (include_bytes!("../fixtures/jpeg/big400x300.jpg"), 400, 300),
+        (include_bytes!("../fixtures/jpeg/prog535x534.jpg"), 535, 534),
+    ];
+    for (bytes, w, h) in logos {
+        let code = main(w, h, bytes.len());
+        for target in ["27.5", "29.0"] {
+            let o = run_over_system_as(Some(target), MAIN_ID, Some(al_ir::AppLogo::File(bytes.to_vec())), None, &code);
+            assert_eq!(o[0].1, Outcome::Pass, "{target} {w} x {h}: {o:?}");
+            assert_eq!(o[0].2, [al_builtins::assumptions::Assumption::AppLogoJpegSizes], "{target}");
+        }
+        let o = run_over_system_as(Some("28.5"), MAIN_ID, Some(al_ir::AppLogo::File(bytes.to_vec())), None, &code);
+        assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "28.5 {w} x {h}: {o:?}");
+    }
+    let mut dpi96 = include_bytes!("../fixtures/jpeg/base535x534.jpg").to_vec();
+    dpi96[13..18].copy_from_slice(&[1, 0, 0x60, 0, 0x60]);
+    let o = run_over_system_as(Some("29.0"), MAIN_ID, Some(al_ir::AppLogo::File(dpi96)), None, &main(535, 534, 14191));
+    assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Logo")), "{o:?}");
 }
 
 /// JPEG files built otherwise than the measured logo [`XAPP_E_JPEG`]: progressive (start-of-frame FF C2), cut after the
@@ -2002,6 +2058,27 @@ fn jfif_logo_size_takes_the_measured_structure_only() {
     assert_eq!(al_builtins::media::jfif_logo_size(wide), Some((16, 8)));
     let big = include_bytes!("../fixtures/jpeg/big400x300.jpg");
     assert_eq!(al_builtins::media::jfif_logo_size(big), Some((400, 300)));
+    // The logos of corpus PR 1594: baseline and progressive 535 x 534, each read by its own walk only, all with its JFIF header.
+    let base = include_bytes!("../fixtures/jpeg/base535x534.jpg");
+    let prog = include_bytes!("../fixtures/jpeg/prog535x534.jpg");
+    assert_eq!(al_builtins::media::jfif_logo_size(base), Some((535, 534)));
+    assert_eq!(al_builtins::media::jfif_progressive_logo_size(base), None);
+    assert_eq!(al_builtins::media::jfif_progressive_logo_size(prog), Some((535, 534)));
+    assert_eq!(al_builtins::media::jfif_logo_size(prog), None);
+    for b in [&base[..], &prog[..], &wide[..], &big[..]] {
+        assert!(al_builtins::media::jfif_header_of_measured_logos(b));
+    }
+    // The progressive walk: a restart marker in a scan, bytes after FF D9, a cut file, a scan before the frame.
+    let sos = prog.windows(2).position(|w| w == [0xFF, 0xDA]).unwrap();
+    let mut restart = prog[..sos + 15].to_vec();
+    restart.extend_from_slice(&[0xFF, 0xD0]);
+    restart.extend_from_slice(&prog[sos + 15..]);
+    let mut trailing = prog.to_vec();
+    trailing.extend_from_slice(b"GE");
+    let cut = prog[..prog.len() - 2].to_vec();
+    for other in [restart, trailing, cut] {
+        assert_eq!(al_builtins::media::jfif_progressive_logo_size(&other), None);
+    }
     for other in unmeasured_jpegs() {
         assert_eq!(
             al_builtins::media::jfif_logo_size(&other),

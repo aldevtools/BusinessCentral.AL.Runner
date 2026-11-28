@@ -90,28 +90,61 @@ fn jpeg_size(b: &[u8]) -> Option<(i32, i32)> {
 /// `00`, and then `FF D9` as the last two bytes. The size is read from the frame; width and height are at least 1.
 /// `None` for any other file.
 pub fn jfif_logo_size(b: &[u8]) -> Option<(i32, i32)> {
+    jfif_logo(b, 0xC0)
+}
+
+/// The size (width, height) of a progressive JPEG built as the progressive logo of open corpus PR 1594
+/// (tests/al-language-xapp-k/logo.jpg, 535 x 534, 9857 bytes): as [`jfif_logo_size`], but with a progressive start-of-frame
+/// segment (`FF C2`), then one or more start-of-scan segments of 1 to 3 components, each followed by at least one byte of
+/// coded data without a restart or other marker, Huffman tables between them, and `FF D9` as the last two bytes.
+pub fn jfif_progressive_logo_size(b: &[u8]) -> Option<(i32, i32)> {
+    jfif_logo(b, 0xC2)
+}
+
+/// The walk of [`jfif_logo_size`] (`frame` `FF C0`, one scan) and [`jfif_progressive_logo_size`] (`frame` `FF C2`, scans).
+fn jfif_logo(b: &[u8], frame: u8) -> Option<(i32, i32)> {
     let framed = b.starts_with(&[0xFF, 0xD8, 0xFF, 0xE0]) && b.get(6..11) == Some(&b"JFIF\0"[..]);
     framed.then_some(())?;
+    let progressive = frame == 0xC2;
     let mut size = None;
+    let mut scans = 0;
     let mut i = 2;
     loop {
         (*b.get(i)? == 0xFF).then_some(())?;
         let marker = *b.get(i + 1)?;
+        if progressive && marker == 0xD9 {
+            return size.filter(|_| scans > 0 && i + 2 == b.len());
+        }
         let len = usize::from(u16::from_be_bytes([*b.get(i + 2)?, *b.get(i + 3)?]));
         let segment = b.get(i + 4..i + 2 + len)?;
         match (marker, segment) {
             (0xE0, _) if i == 2 => {}
             (0xDB | 0xC4, _) => {}
-            (0xC0, [8, h1, h2, w1, w2, 3, ..]) if len == 17 && size.is_none() => {
+            (m, [8, h1, h2, w1, w2, 3, ..]) if m == frame && len == 17 && size.is_none() => {
                 let (w, h) = (u16::from_be_bytes([*w1, *w2]), u16::from_be_bytes([*h1, *h2]));
                 (w >= 1 && h >= 1).then_some(())?;
                 size = Some((i32::from(w), i32::from(h)));
             }
-            (0xDA, [3, ..]) if len == 12 => return size.filter(|_| coded_data_then_end(&b[i + 2 + len..])),
+            (0xDA, [3, ..]) if !progressive && len == 12 => {
+                return size.filter(|_| coded_data_then_end(&b[i + 2 + len..]));
+            }
+            (0xDA, [n @ 1..=3, ..]) if progressive && size.is_some() && len == 6 + 2 * usize::from(*n) => {
+                i += 2 + len + coded_data_len(&b[i + 2 + len..])?;
+                scans += 1;
+                continue;
+            }
             _ => return None,
         }
         i += 2 + len;
     }
+}
+
+/// The length of the coded data of one scan of the measured progressive logo: at least one byte, in which every `FF` is
+/// followed by `00`, up to the next marker (`FF` and a byte other than `00` and the restart markers `D0`..`D7`). `None` when
+/// a restart marker comes first, or no marker follows.
+fn coded_data_len(rest: &[u8]) -> Option<usize> {
+    let end = (0..rest.len().saturating_sub(1)).find(|&k| rest[k] == 0xFF && rest[k + 1] != 0)?;
+    (end > 0 && !(0xD0..=0xD7).contains(&rest[end + 1])).then_some(end)
 }
 
 /// Whether the bytes after the measured logo's start-of-scan header are at least one byte of coded data, in which every
@@ -125,6 +158,13 @@ fn coded_data_then_end(rest: &[u8]) -> bool {
             .iter()
             .enumerate()
             .all(|(k, &x)| x != 0xFF || coded.get(k + 1) == Some(&0))
+}
+
+/// Whether a JPEG's APP0 segment is the JFIF header of the logos of open corpus PR 1594 (tests/al-language-xapp-g, -h, -j,
+/// -k/logo.jpg), each byte by equality: length 16, "JFIF\0", version 1.01, density units 0, density 1 x 1, no thumbnail.
+pub fn jfif_header_of_measured_logos(b: &[u8]) -> bool {
+    b.get(2..20)
+        == Some(&[0xFF, 0xE0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0][..])
 }
 
 /// Whether a JPEG starts with a JFIF header of units 1 (dots per inch) and density 300 x 300: SOI, APP0, "JFIF\0", version,
