@@ -6,9 +6,17 @@
 //!                         /platform.tail.json   {build, url, total, length, crc}
 //!                         /apps/<file>          one entry exactly as Microsoft ships it
 //!                         /apps/<file>.json     {build, entry, url, size, crc}  (what was downloaded)
-//!                         /service/<file>       a service-tier assembly of the report render sets (`service_tier`)
+//!                         /service/<file>       a service-tier file read from the platform artifact (`service_tier`)
+//!                         /packages/<file>      a RapidStart package of the platform artifact (`test_apps`)
+//!                         /country-<cc>/platform.tail(.json)   the same, of the artifact of country <cc>
+//!                         /country-<cc>/apps/<file>(.json)     a Microsoft app of country <cc>
 //! <root>/artifacts/render-extras/<package>.<version>/<file>   a nuget piece of the render process (`render_set`)
 //! ```
+//!
+//! A cached build of a run of country `w1` has `platform.tail` and a recorded app in `apps/`; of another country `cc`,
+//! `country-<cc>/platform.tail` and a recorded app in `country-<cc>/apps/` or `apps/` (`Store::list_builds`). The
+//! central directory alone, `service/` and `packages/` do not make a cached build (issue 8977): no app of the build was
+//! used, and offline it has none to give.
 //!
 //! A cached entry is trusted only when its sidecar exists and the file still has the recorded size
 //! and CRC-32. The sidecar also keeps the file's size and modification time at its last check
@@ -192,19 +200,32 @@ impl Store {
         &self.artifacts
     }
 
-    /// Builds that have a saved central directory. Directories that are not named like a build, and
-    /// builds whose directory has nothing saved yet, are not listed.
-    pub fn list_builds(&self) -> Vec<BuildId> {
+    /// The cached builds of a run of `country`, the builds its Microsoft apps are taken from first (the rule is stated in
+    /// the module header): for `w1`, a saved central directory of the platform artifact and a recorded app in `apps/`;
+    /// for another country, a saved central directory of that country's artifact and a recorded app in
+    /// `country-<country>/apps/` or `apps/`. Directories that are not named like a build are not listed.
+    pub fn list_builds(&self, country: &str) -> Vec<BuildId> {
         let Ok(rd) = std::fs::read_dir(&self.artifacts) else {
             return Vec::new();
         };
         let mut out: Vec<BuildId> = rd
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().join("platform.tail").is_file())
-            .filter_map(|e| BuildId::parse(&e.file_name().to_string_lossy()).ok())
+            .filter_map(|e| BuildId::parse(&e.ok()?.file_name().to_string_lossy()).ok())
+            .filter(|b| self.is_cached_build(b, country))
             .collect();
         out.sort();
         out
+    }
+
+    /// Whether `b` is a cached build of a run of `country` ([`Store::list_builds`]). Issue 8977: the central directory
+    /// alone (what the service tier or a listing of test apps saves) is not one, and neither is a folder whose apps a run
+    /// of that country does not read.
+    fn is_cached_build(&self, b: &BuildId, country: &str) -> bool {
+        let platform = self.build(b);
+        if crate::artifact::is_w1(country) {
+            return platform.has_tail() && platform.records_an_app();
+        }
+        let own = self.country_build(b, country);
+        own.has_tail() && (own.records_an_app() || platform.records_an_app())
     }
 
     pub fn build(&self, b: &BuildId) -> BuildDir {
@@ -242,7 +263,8 @@ pub struct Recorded {
     pub crc: u32,
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+/// Writes `bytes` to `path` under a temporary name and renames it, so no reader sees a half-written file.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("no parent directory")?;
     std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
     let tmp = path.with_extension(format!("tmp{}", std::process::id()));
@@ -279,6 +301,21 @@ impl BuildDir {
     /// The directory of cached entries; a search directory for the dependency pool.
     pub fn apps_dir(&self) -> PathBuf {
         self.dir.join("apps")
+    }
+
+    /// Whether `apps/` holds a file with its record (what [`BuildDir::put_entry`] writes). Whether the file is intact is
+    /// checked when the apps are read ([`BuildDir::verify`]).
+    fn records_an_app(&self) -> bool {
+        std::fs::read_dir(self.apps_dir()).is_ok_and(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .any(|p| is_entry_file(&p) && sidecar(&p).is_file())
+        })
+    }
+
+    /// Whether the artifact's central directory is saved ([`BuildDir::save_tail`]).
+    pub fn has_tail(&self) -> bool {
+        self.tail_path().is_file()
     }
 
     fn tail_path(&self) -> PathBuf {
@@ -351,7 +388,7 @@ impl BuildDir {
         };
         let mut files: Vec<PathBuf> = rd
             .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().is_some_and(|x| x != "json") && !is_temp(p))
+            .filter(|p| is_entry_file(p))
             .collect();
         files.sort();
         for f in files {
@@ -416,6 +453,11 @@ fn stamp_of(file: &Path) -> Option<serde_json::Value> {
 /// The size in a record's stamp.
 fn stamp_size(meta: &serde_json::Value) -> Option<u64> {
     meta["checked"]["len"].as_u64()
+}
+
+/// A file of an entry folder that may be an entry: neither a record (`.json`) nor a file still being written.
+fn is_entry_file(p: &Path) -> bool {
+    p.extension().is_some_and(|x| x != "json") && !is_temp(p)
 }
 
 fn is_temp(p: &Path) -> bool {
@@ -488,17 +530,67 @@ mod tests {
         BuildId::parse(s).unwrap()
     }
 
+    /// The cached builds of a country run (issue 8977, review round 1): the country artifact's central directory and a
+    /// recorded app in the country's folder or the platform's. Each fact is flipped once.
     #[test]
-    fn only_builds_with_a_saved_directory_are_listed_and_the_layout_is_stable() {
+    fn a_country_run_lists_a_build_with_its_country_directory_and_a_recorded_app_of_either_folder() {
         let root = tempfile::tempdir().unwrap();
         let store = Store::new(root.path());
-        assert!(store.list_builds().is_empty());
+        let id = b("27.5.46862.56249");
+        let (platform, us) = (store.build(&id), store.country_build(&id, "US"));
+        // A recorded country app without the country's central directory: no.
+        us.put_entry("Applications.US/Base Application.Source.zip", "u", b"base")
+            .unwrap();
+        assert!(store.list_builds("us").is_empty());
+        // With the platform's central directory instead: still no, that is not the country's.
+        platform.save_tail("u", 100, b"tail").unwrap();
+        assert!(store.list_builds("us").is_empty());
+        // The country's central directory and its recorded app: yes, for that country only.
+        us.save_tail("u", 100, b"tail").unwrap();
+        assert_eq!(store.list_builds("us"), std::slice::from_ref(&id));
+        assert_eq!(store.list_builds("US"), std::slice::from_ref(&id));
+        assert!(store.list_builds("gb").is_empty());
+        // A w1 run reads only `apps/`, which is empty.
+        assert!(store.list_builds("w1").is_empty());
+        assert!(store.list_builds("").is_empty());
+        // The country's central directory and a recorded app in `apps/` only: yes.
+        let other = b("27.5.46862.56250");
+        let (p2, us2) = (store.build(&other), store.country_build(&other, "us"));
+        us2.save_tail("u", 100, b"tail").unwrap();
+        assert!(store.list_builds("us").iter().all(|x| x != &other));
+        p2.put_entry("ModernDev/System.app", "u", b"sys").unwrap();
+        assert_eq!(store.list_builds("us"), [id, other]);
+    }
+
+    #[test]
+    fn only_builds_with_a_saved_directory_and_a_recorded_app_are_listed_and_the_layout_is_stable() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::new(root.path());
+        assert!(store.list_builds("w1").is_empty());
         let bd = store.build(&b("27.5.46862.56249"));
         bd.save_tail("https://x/27.5.46862.56249/platform", 100, b"tail-bytes")
             .unwrap();
         std::fs::create_dir_all(store.dir().join("not-a-build")).unwrap();
         std::fs::create_dir_all(store.dir().join("28.1.1.1")).unwrap(); // nothing saved in it
-        assert_eq!(store.list_builds(), [b("27.5.46862.56249")]);
+        // Issue 8977: a central directory without an app (what the service tier keeps) is no cached build.
+        assert!(store.list_builds("w1").is_empty());
+        bd.put_entry_in("service", "ServiceTier/x/Service/a.json", "u", b"{}")
+            .unwrap();
+        bd.put_entry_in("packages", "ConfigurationPackages/p.rapidstart", "u", b"p")
+            .unwrap();
+        assert!(store.list_builds("w1").is_empty());
+        // A file without its record is no app either.
+        std::fs::create_dir_all(bd.apps_dir()).unwrap();
+        std::fs::write(bd.apps_dir().join("Loose.Source.zip"), b"x").unwrap();
+        assert!(store.list_builds("w1").is_empty());
+        bd.put_entry("Applications/A/Any.Source.zip", "u", b"app").unwrap();
+        assert_eq!(store.list_builds("w1"), [b("27.5.46862.56249")]);
+        // An app without the central directory is no cached build.
+        store
+            .build(&b("28.1.1.1"))
+            .put_entry("Applications/A/Any.Source.zip", "u", b"app")
+            .unwrap();
+        assert_eq!(store.list_builds("w1"), [b("27.5.46862.56249")]);
         assert!(root.path().join("artifacts/27.5.46862.56249/platform.tail").is_file());
         assert!(
             root.path()
