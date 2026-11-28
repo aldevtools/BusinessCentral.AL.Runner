@@ -10,8 +10,8 @@
 //!   between the recording session's login and a replay (the owner says why).
 //! - **gated**: the state exists only in a run that follows the code it runs (coverage, the profiler); such a run takes no
 //!   start (`login_start::run_gate`, `NotTaken::NotesCode`).
-//! - **key**: a serve request sets it and the login can read it: a field of the login key holds it by content, so a start
-//!   is never taken under another value (the field is named).
+//! - **key**: a serve request sets it and the login can read it: a field of the login key holds it by content or by a
+//!   SHA-256 digest, so a start is never taken under another value (the field is named).
 //! - **run**: one value for the whole process or thread run, set once before any session, not of one session or request
 //!   (a cache of the program, an id counter, a diagnostic, a setting of the process start).
 //!
@@ -36,19 +36,22 @@
 //!   `field messages`, `field captured`, `field traces`, `field stubbed`, `field ui_answered`, `field cells`,
 //!   `field slept`, `field skipped`, `field entered`, `field run_only`, `field hub_leg`, `field leak`,
 //!   `field leak_hits`, `field onrun_carry`, `field read_tables`, `field discovery`, `field on_run_rows`,
-//!   `field report_unpinned_errors`, `field skip_after_timeout`, `field stop_after_first_failure`, `field runner`,
+//!   `field report_unpinned_errors`, `field skip_after_timeout`, `field stop`, `field stop_trigger`, `field runner`,
 //!   `field watch`, `field singles_past_stop`, `field singles_out`, `field unfinished_after_start`,
-//!   `field refused_mid_run`, `field test_panicked`, `field unfinished_at`, `field order_hints`: after (what to
-//!   capture, the runner codeunit, the single instance watch, the carries and the leak are taken after the open; the
-//!   rest chooses, limits or reports the tests).
+//!   `field refused_mid_run`, `field test_panicked`, `field unfinished_at`, `field order_hints`,
+//!   `field numbers_taken`, `field carry_from`, `field carry_at`, `field test_numbers`: after (what to capture, the
+//!   runner codeunit, the single instance watch, the carries and the leak are taken after the open; the numbers a test
+//!   took, its number and the carry places are read only by the order hint after the run; the rest chooses, limits or
+//!   reports the tests).
 //! - `crates/al-vm/src/lib.rs` (`Engine`, "Set by a run"): `field emit_version`: key (`Key::emit_version`).
-//!   `field unseeded`, `field demo_tables`: key (`Key::refused_reads`). `field resource_overrides`: key
-//!   (`Key::resources`). `field test_data`: key (`Key::backing`) and engine. `field license`: key (`Key::license`) and
-//!   engine; `field license_caps`: engine (worked out from the license on first use). `field skipped_apps`,
-//!   `field write_in_try_allowed`, `field dependencies_published_global`: engine. `field company_refusal`: after (with
-//!   it no session of the run opens the company, `run_codeunit_inner`). `field resources_read`, `field dotnet_called`:
-//!   after (written by any session that reads a resource file or makes such a `DotNet` call, and read only when the
-//!   install baseline is kept, before a test session opens the company; a replayed login writes neither).
+//!   `field unseeded`, `field demo_tables`: key (`Key::refused_reads`). `field resource_overrides`: key (the SHA-256
+//!   digests of the texts of the files the login read, `StartKey`). `field test_data`: key (`Key::backing`) and engine.
+//!   `field license`: key (`Key::license`) and engine; `field license_caps`: engine (worked out from the license on
+//!   first use). `field skipped_apps`, `field write_in_try_allowed`, `field dependencies_published_global`: engine.
+//!   `field company_refusal`: after (with it no session of the run opens the company, `run_codeunit_inner`).
+//!   `field resources_read`, `field dotnet_called`: after (written by any session that reads a resource file or makes
+//!   such a `DotNet` call, and read only when the install baseline is kept, before a test session opens the company; a
+//!   replayed login writes neither).
 //!
 //! Thread-local and process tables:
 //! - `crates/al-testrun/src/events.rs` `static CURRENT`: untouched (the hooks and reported names of the running test; the
@@ -77,6 +80,9 @@
 //!   new session, so a login that started a sidecar has no start).
 //! - `crates/al-testrun/src/compile_cache.rs` `static COUNTER`, `static HASH`, `static PINNED_EXECUTABLE`: run (the compile
 //!   cache's file counter, the hash of the runner's own build and the executable it is read from).
+//! - `crates/al-testrun/src/workspace_cache/writes.rs` `static DEFERRED`, `static WRITERS`: run (the workspace layer's
+//!   entries a compile made, written after the results or the response, and the threads writing them; no session reads
+//!   them).
 //! - `crates/al-testrun/src/crash.rs` `static RUNNING`, `static PREVIOUS`, `static INSTALL`, `static TOLD`: run (the crash
 //!   handler's note of the codeunit that runs and its signal state).
 //! - `crates/al-testrun/src/login_replay.rs` `static NEXT`: run (the numbers a backing that does not say who it is gets,

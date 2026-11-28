@@ -117,7 +117,15 @@ impl Session {
                     "onopenpage" => crate::pages::TriggerKind::OpenPage,
                     _ => crate::pages::TriggerKind::Other,
                 };
-                self.pages.trigger_kinds.push((std::ptr::null(), kind, None));
+                let (page, view, open_id, frame) = (std::ptr::null(), None, 0, self.frames.len());
+                let trigger = crate::pages::PageTrigger {
+                    page,
+                    kind,
+                    view,
+                    open_id,
+                    frame,
+                };
+                self.pages.trigger_kinds.push(trigger);
                 let called = self.call(schema.object, r, inst.clone(), Vec::new());
                 self.pages.trigger_kinds.pop();
                 called?;

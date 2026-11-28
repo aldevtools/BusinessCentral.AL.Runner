@@ -31,9 +31,12 @@ pub mod refusal_keys;
 pub mod report;
 pub mod runner;
 pub mod select;
+pub mod strict_not_run;
 pub mod strict_order;
 pub mod windows_language;
 pub mod work;
+pub mod workspace_equality;
+pub mod workspace_leg;
 
 /// What tells two builds of this binary apart: its size and when it was written, as
 /// `<bytes> bytes, written <UTC time>`. A rebuild (after a golden file such as

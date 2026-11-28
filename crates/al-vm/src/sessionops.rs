@@ -376,6 +376,8 @@ impl Session {
         };
         let key = self.sequence_key(args, scope)?;
         self.note_footprint_sequence(method, &key);
+        self.note_sequence_call(method, &key);
+        self.hub_log_call(method, &key);
         let name = key.1.clone();
         // session-system/TestNumberSequenceRuntimeContracts.al:NumberSequence_MissingSequence_Texts: the name is
         // quoted and the code is `AL`.
@@ -412,7 +414,7 @@ impl Session {
             // (errors/TestNumberSequenceTrappableErrors.al:117-126).
             "Delete" => {
                 if let Some(before) = self.sequences.remove(&key) {
-                    self.note_sequence_change(key, before).deleted = true;
+                    self.note_sequence_change(key, before, crate::sequence_start::SequenceStep::Delete);
                 }
                 Ok(Value::Null)
             }
@@ -468,6 +470,7 @@ impl Session {
                 if id == ids::NUMBERSEQUENCE_RANGE_2 {
                     args[2] = Value::BigInteger(s.increment);
                 }
+                self.note_numbers_taken(&key);
                 Ok(Value::BigInteger(first))
             }
             "Restart" => {
@@ -488,31 +491,43 @@ impl Session {
 impl Session {
     /// Restarts `key` at `seed`, noting the change; `false`: there is no such sequence.
     fn restart_sequence(&mut self, key: (String, String), seed: i64) -> bool {
-        let Some(before) = self.sequences.get(&key).cloned() else {
+        let Some(s) = self.sequences.get_mut(&key) else {
             return false;
         };
-        self.note_sequence_change(key.clone(), before).restarted = true;
-        if let Some(s) = self.sequences.get_mut(&key) {
-            s.seed = seed;
-            s.last = None;
-        }
+        let before = s.clone();
+        s.seed = seed;
+        s.last = None;
+        self.note_sequence_change(key, before, crate::sequence_start::SequenceStep::Restart);
         true
     }
 
-    /// The record of `key`'s first Restart or Delete in this session (`before`: its state just before).
-    fn note_sequence_change(&mut self, key: (String, String), before: Sequence) -> &mut SequenceChange {
-        self.sequences_changed.entry(key).or_insert(SequenceChange {
+    /// Notes `step`, the Restart or Delete of `key` just made (`before`: its state just before): the record of `key`'s
+    /// first Restart or Delete in this session, and the change of the open transaction (`sequence_start/tx_changes.rs`).
+    fn note_sequence_change(
+        &mut self,
+        key: (String, String),
+        before: Sequence,
+        step: crate::sequence_start::SequenceStep,
+    ) {
+        use crate::sequence_start::SequenceStep;
+        let new_in_tx = !self.sequences_changed.contains_key(&key);
+        let change = self.sequences_changed.entry(key.clone()).or_insert(SequenceChange {
             before,
             restarted: false,
             deleted: false,
-        })
+        });
+        match step {
+            SequenceStep::Restart => change.restarted = true,
+            SequenceStep::Delete => change.deleted = true,
+        }
+        self.note_tx_change(key, step, new_in_tx);
     }
 }
 
 fn secret_text(s: String) -> Value {
     Value::Library(
         "SecretText".into(),
-        Rc::new(RefCell::new(al_builtins::value::LibraryValue::Text(s))),
+        Rc::new(RefCell::new(al_builtins::value::LibraryValue::Text(s.into()))),
     )
 }
 
@@ -652,6 +667,8 @@ impl Session {
                     al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::IsolatedStorageOverwriteTx);
                 }
                 self.tx.phase = crate::transactions::TxPhase::Write;
+                // Not a Record write: no cell of the failed-Insert check measures it (`version_entry.rs`).
+                self.tx.write_counts.note_unmeasured();
                 self.isolated_set_in_test.insert(slot.clone());
                 self.isolated_written_in_codeunit.insert(slot.clone());
                 self.isolated_storage
@@ -695,6 +712,7 @@ impl Session {
                     Some(_) => {
                         // A Delete opens the write transaction (session-system/CnIsolatedStorageLeads.al:254-255).
                         self.tx.phase = crate::transactions::TxPhase::Write;
+                        self.tx.write_counts.note_unmeasured();
                         Ok(Value::Boolean(true))
                     }
                     // A Delete of a missing key answers false and still opens the write transaction (misc/lt-y76-assumptions/

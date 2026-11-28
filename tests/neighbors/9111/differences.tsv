@@ -1,0 +1,5 @@
+# key	entry	version
+# al-runner issue 9111: the reporter's repro. Main refuses every test at the login (the logo of the app, a 535 x 534 JPEG, is not
+# served); head serves it on BC 27 and 29 through the assumption (Windows BC 27.5 and 29.0, corpus PR 1594). BC 28: refused on both.
+JL Logo Test::TheTestRuns	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	27
+JL Logo Test::TheTestRuns	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29

@@ -102,6 +102,16 @@ functions or methods; the file is in `docs/codemap.md`.
    back and the run compiles without the cache.
 4. `Lowered::calls_of` / `calls_into` give the call graph: the direct calls stored in the block plus what a page,
    report or xmlport variable drives (`driven_edges`).
+5. The workspace layer (ADR-022 amendment 2026-11-15): before the weighing of the install
+   baseline, `workspace_layer::Layer::plan` makes the run's `WorkspaceKey` (the top layer's key from `layer_keys`, every
+   workspace source, manifest, target, symbols, compile options, roots, environment) and `Layer::read` opens
+   `<tag>-ws-<identity>-<key>.alcw` (`al_cache::open_workspace`), the dependency layers, and makes the compile without
+   parsing, checking or lowering the workspace: `lower::stored::restore` (the blocks and `StoredLowered`) and
+   `Workspace::load_stored`. A miss compiles as above; `Layer::finish` takes the compile's parts before the manifests are
+   applied, and once the run goes on with the compile (`Store::go_on`; not after a stop by the memory limit) the entry is
+   encoded and written after the run (`workspace_cache::defer_write`): by `al-runner test` after
+   the results are printed (`wait_for_writes` in `main`), by serve on a thread after the response (`start_writes`), and
+   its `shutdown` reply and a stop signal wait for them, bounded (`wait_for_writes_within`, `serve_stop.rs`).
 
 ### Record.Insert(true): trigger, events, Global Triggers, store
 

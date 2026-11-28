@@ -1,0 +1,3 @@
+# Review round 3: a replay of a carried variant runs in BC's order, as that variant did in the stability run.
+--stability-replay
+isolation.singleInstance=carried

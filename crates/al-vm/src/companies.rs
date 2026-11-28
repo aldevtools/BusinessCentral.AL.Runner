@@ -79,7 +79,8 @@ impl Session {
         self.engine.program.objects[t.object as usize].id == Some(COMPANY_TABLE)
     }
 
-    /// A Rename of the Company row of a company `--companies` selected is refused (ADR-046).
+    /// A Rename of the Company row of a company `--companies` selected is refused (ADR-046), and so is one of the
+    /// session company's row in install code.
     pub(crate) fn refuse_selected_company_rename(
         &self,
         temporary: bool,
@@ -94,11 +95,19 @@ impl Session {
                 new.first().and_then(al_builtins::native::text_of),
             )
             && from != to
-            && self.companies.iter().any(|company| company == &from)
         {
-            return unsupported(format!(
-                "renaming selected company {from} under --companies is not supported (ADR-046)"
-            ));
+            if self.companies.iter().any(|company| company == &from) {
+                return unsupported(format!(
+                    "renaming selected company {from} under --companies is not supported (ADR-046)"
+                ));
+            }
+            // No corpus test pins a rename of the current company; in install code it would leave the copies of the
+            // install baseline reading different rows (issue 9244).
+            if self.install_scope && from == self.host.identity.company_name() {
+                return unsupported(format!(
+                    "renaming the session company {from} in install code is not supported (ADR-046)"
+                ));
+            }
         }
         Ok(())
     }

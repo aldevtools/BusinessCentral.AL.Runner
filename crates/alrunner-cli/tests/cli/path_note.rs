@@ -6,7 +6,6 @@ use super::*;
 // tool installs a command of the same name; whichever comes first on PATH runs.
 
 /// A fake other `al-runner`: a shell script that runs `body`.
-#[cfg(unix)]
 fn fake_al_runner(dir: &Path, body: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     std::fs::create_dir_all(dir).unwrap();
@@ -17,7 +16,6 @@ fn fake_al_runner(dir: &Path, body: &str) -> PathBuf {
 }
 
 /// Runs this al-runner with a PATH, a home folder and a cache folder of the test's own, the note switched on.
-#[cfg(unix)]
 fn alrunner_env(path: &Path, home: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_al-runner"))
         .env_remove("ALRUNNER_NO_PATH_NOTE")
@@ -30,10 +28,8 @@ fn alrunner_env(path: &Path, home: &Path, args: &[&str]) -> Output {
         .expect("run al-runner")
 }
 
-#[cfg(unix)]
 const NOTE: &str = "note: another al-runner is on PATH at ";
 
-#[cfg(unix)]
 #[test]
 fn another_al_runner_on_path_gets_one_note_on_stderr_at_most_once_a_day() {
     let d = tempfile::tempdir().unwrap();
@@ -60,7 +56,6 @@ fn another_al_runner_on_path_gets_one_note_on_stderr_at_most_once_a_day() {
     assert_eq!(first.stdout, second.stdout, "the note does not change stdout");
 }
 
-#[cfg(unix)]
 #[test]
 fn the_path_note_is_off_with_alrunner_no_path_note() {
     let d = tempfile::tempdir().unwrap();
@@ -79,7 +74,6 @@ fn the_path_note_is_off_with_alrunner_no_path_note() {
     assert!(!text(&o).contains(NOTE), "{}", text(&o));
 }
 
-#[cfg(unix)]
 #[test]
 fn the_dotnet_tools_folder_is_checked_even_when_it_is_not_on_path() {
     let d = tempfile::tempdir().unwrap();
@@ -98,7 +92,6 @@ fn the_dotnet_tools_folder_is_checked_even_when_it_is_not_on_path() {
     assert!(err.contains("dotnet tool uninstall -g MSDyn365BC.AL.Runner"), "{err}");
 }
 
-#[cfg(unix)]
 #[test]
 fn this_binary_itself_and_a_shim_of_another_tool_are_not_another_al_runner() {
     let d = tempfile::tempdir().unwrap();
@@ -124,7 +117,6 @@ fn this_binary_itself_and_a_shim_of_another_tool_are_not_another_al_runner() {
     assert!(!text(&o).contains(NOTE), "{}", text(&o));
 }
 
-#[cfg(unix)]
 #[test]
 fn version_lists_each_other_al_runner_with_the_first_line_of_its_version() {
     let d = tempfile::tempdir().unwrap();
@@ -151,7 +143,6 @@ fn version_lists_each_other_al_runner_with_the_first_line_of_its_version() {
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn version_waits_at_most_2_seconds_for_another_al_runner() {
     let d = tempfile::tempdir().unwrap();
@@ -169,7 +160,6 @@ fn version_waits_at_most_2_seconds_for_another_al_runner() {
     assert!(out.contains("no answer within 2 s"), "{out}");
 }
 
-#[cfg(unix)]
 #[test]
 fn version_read_by_a_tool_that_takes_only_the_first_line_still_exits_0() {
     use std::io::BufRead;

@@ -11,10 +11,16 @@
 //! points: `SequenceStart`, `DataAccess`, `data_access`, `sequence_inserted_at`.
 
 use crate::Session;
+use crate::recmeta::{ISOLATION_READ_UNCOMMITTED, ISOLATION_UPDLOCK};
 use crate::sessionops::Sequence;
 use al_builtins::native::Signal;
 use al_builtins::value::{LibraryValue, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+mod interval;
+mod tx_changes;
+pub use interval::{Interval, Reached};
+pub(crate) use tx_changes::{RollbackBy, SequenceStep};
 
 type Key = (String, String);
 
@@ -40,6 +46,12 @@ pub struct DataAccess {
     pub find_last_failures: u64,
     /// Outermost Record.SetRange calls from AL code.
     pub set_range_calls: u64,
+    /// The part of `table_store` whose outermost call was Record.FindFirst.
+    pub find_first_store: u64,
+    /// Outermost Record.FindFirst calls from AL code.
+    pub find_first_calls: u64,
+    /// Outermost Record.ReadIsolation calls from AL code that set IsolationLevel::UpdLock.
+    pub upd_lock_calls: u64,
     /// Calls of a method of a Record variable from AL code, a temporary one too.
     pub record_calls: u64,
     /// Outermost calls of a method of a temporary Record variable from AL code (one that a trigger or subscriber of a table
@@ -51,6 +63,12 @@ pub struct DataAccess {
     pub ref_open_close_calls: u64,
     /// Calls of the session builtin CompanyName from AL code.
     pub company_name_calls: u64,
+    /// The RecordRef calls of `other_calls` that the helper of corpus PR 1572 makes (GetLastEntryNoFromTable,
+    /// SqFailedSeqFixture.al:189), on a RecordRef of the session's company that is not temporary and that did not fail:
+    /// [`RefLoads`].
+    pub ref_loads: RefLoads,
+    /// Calls of a Page or TestPage method from AL code (counted in no other field).
+    pub page_calls: u64,
     /// Calls from AL code of any other RecordRef, FieldRef or KeyRef method, of one on a temporary RecordRef or one of
     /// another company, of a Query method, and of a session builtin other than NumberSequence and CompanyName
     /// (IsolatedStorage, CompanyProperty, UserId, ...).
@@ -63,7 +81,76 @@ pub(crate) struct Notes {
     access: DataAccess,
     /// How many table calls from AL code are running ([`Session::al_table_call`]).
     table_depth: u32,
-    inserted_at: HashMap<Key, u64>,
+    /// Where in `tx_log` each number sequence was last inserted while the log was kept.
+    inserted_at: HashMap<Key, usize>,
+    /// What the next commit is the commit of ([`Session::commit_as`]).
+    pub(crate) commit_by: Option<CommitBy>,
+    /// The transaction ends and test method bodies since [`Session::note_tx_ends`]; `None` while not noted.
+    tx_log: Option<Vec<TxPoint>>,
+    /// The runner is one al-testrun `failed_test_runner_measured` names ([`Session::note_tx_ends`]).
+    measured: bool,
+    /// The Restarts and Deletes of number sequences in the open transaction (`tx_changes.rs`).
+    tx_changes: HashMap<Key, tx_changes::TxChange>,
+    /// What the next rollback inside a run is the rollback of ([`Session::note_rollback_by`]).
+    rollback_by: Option<RollbackBy>,
+    /// Sequences whose step an asserterror kept, until the next commit or rollback outside a run.
+    held: HashSet<Key>,
+    /// The point of `tx_log` of the last rollback outside a run, and the sequences of `held` then, until the next test
+    /// body starts ([`Session::sequences_held_at_rollback`]).
+    held_at_rollback: Option<(usize, Vec<Key>)>,
+    /// Sequences whose Delete an asserterror undid, until al-testrun reads them at the test's end
+    /// ([`Session::take_deletes_undone`]).
+    deletes_undone: Vec<Key>,
+    /// The sequences `Next` or `Range` took numbers from since [`Session::take_numbers_taken`] (al-testrun
+    /// `order_hint.rs`, ADR-070 decision 3).
+    taken: std::collections::BTreeSet<Key>,
+}
+
+/// Calls of the RecordRef methods the helper of corpus PR 1572 makes beside the measured ones ([`DataAccess::ref_loads`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RefLoads {
+    /// RecordRef.ReadIsolation(IsolationLevel::ReadUncommitted).
+    pub read_uncommitted: u64,
+    /// RecordRef.ReadIsolation(IsolationLevel::UpdLock).
+    pub upd_lock: u64,
+    /// RecordRef.ReadIsolation with any other level.
+    pub other_isolation: u64,
+    /// RecordRef.SetLoadFields.
+    pub set_load_fields: u64,
+}
+
+/// A point of a test codeunit's run that [`Session::note_tx_ends`] notes (al-testrun `isolation/failed_test.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TxPoint {
+    pub kind: TxPointKind,
+    /// [`Session::data_access`] then.
+    pub access: DataAccess,
+}
+
+/// What happened at a [`TxPoint`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TxPointKind {
+    /// A test method body began ([`Session::note_body`]).
+    BodyStart,
+    /// A test method body ended.
+    BodyEnd,
+    /// A transaction was committed, by this.
+    Commit(CommitBy),
+    /// A transaction was rolled back.
+    Rollback,
+}
+
+/// What committed a transaction ([`TxPointKind::Commit`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitBy {
+    /// An AL `Commit()` statement.
+    Statement,
+    /// A guarded `Codeunit.Run`, which commits the run's own transaction.
+    GuardedRun,
+    /// The subscriber of an isolated event, which commits its own transaction.
+    IsolatedEvent,
+    /// Anything else (the runner, a TestIsolation boundary, an unguarded run).
+    Other,
 }
 
 /// The number sequences when a test codeunit's tests begin (after its OnRun), and which of them the session had
@@ -138,15 +225,41 @@ pub(crate) fn measured_ref_method(id: &str) -> bool {
 /// A table call from AL code ([`Session::al_table_call`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TableCall<'a> {
-    /// A method of a Record variable: `find_last`, it is Record.FindLast; `set_range`, Record.SetRange; `temporary`, the
-    /// record is temporary.
-    Record {
-        find_last: bool,
-        set_range: bool,
-        temporary: bool,
-    },
+    /// A method of a Record variable: `op`, which one as far as [`DataAccess`] counts it; `temporary`, the record is
+    /// temporary.
+    Record { op: RecordCall, temporary: bool },
     /// A RecordRef, FieldRef or KeyRef method [`measured_ref_method`] names, by catalog id.
     Ref(&'a str),
+}
+
+/// A Record method as [`DataAccess`] counts it ([`TableCall::Record`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RecordCall {
+    FindLast,
+    FindFirst,
+    SetRange,
+    /// Record.ReadIsolation setting IsolationLevel::UpdLock.
+    UpdLock,
+    Other,
+}
+
+impl RecordCall {
+    /// The Record method `method` called with `args`.
+    pub(crate) fn of(method: al_builtins::record_op::RecordOp, args: &[Value]) -> RecordCall {
+        use al_builtins::record_op::RecordOp;
+        match method {
+            RecordOp::FindLast => RecordCall::FindLast,
+            RecordOp::FindFirst => RecordCall::FindFirst,
+            RecordOp::SetRange => RecordCall::SetRange,
+            RecordOp::ReadIsolation if is_level(args, ISOLATION_UPDLOCK) => RecordCall::UpdLock,
+            _ => RecordCall::Other,
+        }
+    }
+}
+
+/// `args` is the IsolationLevel member of index `level` (`recmeta::ISOLATION_*`).
+fn is_level(args: &[Value], level: i32) -> bool {
+    matches!(args.first(), Some(Value::Option(i, _)) if *i == level)
 }
 
 impl Session {
@@ -167,15 +280,13 @@ impl Session {
         let outermost = self.access_notes.table_depth == 0;
         let access = &mut self.access_notes.access;
         match kind {
-            TableCall::Record {
-                find_last,
-                set_range,
-                temporary,
-            } => {
+            TableCall::Record { op, temporary } => {
                 access.record_calls += 1;
                 access.temporary_record_calls += u64::from(temporary && outermost);
-                access.find_last_calls += u64::from(find_last && outermost);
-                access.set_range_calls += u64::from(set_range && outermost);
+                access.find_last_calls += u64::from(op == RecordCall::FindLast && outermost);
+                access.find_first_calls += u64::from(op == RecordCall::FindFirst && outermost);
+                access.set_range_calls += u64::from(op == RecordCall::SetRange && outermost);
+                access.upd_lock_calls += u64::from(op == RecordCall::UpdLock && outermost);
             }
             TableCall::Ref(id) => {
                 access.ref_calls += 1;
@@ -190,7 +301,15 @@ impl Session {
         self.access_notes.table_depth += 1;
         let out = call(self);
         self.access_notes.table_depth -= 1;
-        if self.access_notes.table_depth == 0 && matches!(kind, TableCall::Record { find_last: true, .. }) {
+        if self.access_notes.table_depth == 0
+            && matches!(
+                kind,
+                TableCall::Record {
+                    op: RecordCall::FindLast,
+                    ..
+                }
+            )
+        {
             self.access_notes.access.find_last_failures += u64::from(out.is_err());
         }
         if self.access_notes.table_depth == 0 {
@@ -200,8 +319,15 @@ impl Session {
             access.table_writes += self.store.writes().saturating_sub(writes);
             match kind {
                 TableCall::Ref(_) => access.ref_store += read,
-                TableCall::Record { find_last: true, .. } => access.find_last_store += read,
-                TableCall::Record { find_last: false, .. } => {}
+                TableCall::Record {
+                    op: RecordCall::FindLast,
+                    ..
+                } => access.find_last_store += read,
+                TableCall::Record {
+                    op: RecordCall::FindFirst,
+                    ..
+                } => access.find_first_store += read,
+                TableCall::Record { .. } => {}
             }
         }
         out
@@ -218,7 +344,23 @@ impl Session {
     ) -> Result<Value, Signal> {
         if !measured_ref_method(id) {
             self.note_other_access();
-            return self.ref_op(id, receiver, args);
+            // The RecordRef calls of the helper of corpus PR 1572 beside the measured ones (GetLastEntryNoFromTable,
+            // SqFailedSeqFixture.al:189), told apart by the isolation level they set.
+            let load: Option<fn(&mut RefLoads) -> &mut u64> =
+                match crate::setrange_convert::catalog_id(id).0.split('#').next() {
+                    Some("RecordRef.SetLoadFields") => Some(|l| &mut l.set_load_fields),
+                    Some("RecordRef.ReadIsolation") if is_level(args, ISOLATION_READ_UNCOMMITTED) => {
+                        Some(|l| &mut l.read_uncommitted)
+                    }
+                    Some("RecordRef.ReadIsolation") if is_level(args, ISOLATION_UPDLOCK) => Some(|l| &mut l.upd_lock),
+                    Some("RecordRef.ReadIsolation") => Some(|l| &mut l.other_isolation),
+                    _ => None,
+                };
+            let out = self.ref_op(id, receiver.as_deref_mut(), args);
+            if let Some(count) = load.filter(|_| out.is_ok() && self.ref_of_session_table(receiver.as_deref())) {
+                *count(&mut self.access_notes.access.ref_loads) += 1;
+            }
+            return out;
         }
         let out = self.al_table_call(TableCall::Ref(id), |s| s.ref_op(id, receiver.as_deref_mut(), args));
         if out.is_err() || !self.ref_of_session_table(receiver.as_deref()) {
@@ -271,6 +413,11 @@ impl Session {
         }
     }
 
+    /// AL code called a Page or TestPage method ([`DataAccess::page_calls`]).
+    pub(crate) fn note_page_call(&mut self) {
+        self.access_notes.access.page_calls += 1;
+    }
+
     /// The innermost running frame is code of Microsoft's apps ([`Session::of_microsoft_app`]).
     fn running_microsoft_code(&self) -> bool {
         self.frames
@@ -278,15 +425,117 @@ impl Session {
             .is_some_and(|o| self.of_microsoft_app(self.engine.program.objects[*o].app))
     }
 
-    /// The value of [`Session::commits`] when the sequence `key` (company, name) was last inserted.
-    pub fn sequence_inserted_at(&self, key: &Key) -> Option<u64> {
+    /// How many points [`Session::tx_log`] held when the sequence `key` (company, name) was last inserted while it was kept.
+    pub fn sequence_inserted_at(&self, key: &Key) -> Option<usize> {
         self.access_notes.inserted_at.get(key).copied()
     }
 
     /// `NumberSequence.Insert` makes the sequence `key`, and notes when ([`Session::sequence_inserted_at`]).
     pub(crate) fn insert_sequence(&mut self, key: Key, sequence: Sequence) {
-        self.access_notes.inserted_at.insert(key.clone(), self.commits);
+        if let Some(log) = &self.access_notes.tx_log {
+            self.access_notes.inserted_at.insert(key.clone(), log.len());
+        }
         self.sequences.insert(key, sequence);
+    }
+
+    /// `NumberSequence.Next` or `Range` took numbers from the sequence `key` ([`Session::take_numbers_taken`]).
+    pub(crate) fn note_numbers_taken(&mut self, key: &Key) {
+        if !self.access_notes.taken.contains(key) {
+            self.access_notes.taken.insert(key.clone());
+        }
+    }
+
+    /// The sequences (company, name) the session took numbers from since the last call, and starts the next count.
+    pub fn take_numbers_taken(&mut self) -> std::collections::BTreeSet<Key> {
+        std::mem::take(&mut self.access_notes.taken)
+    }
+
+    /// From now on every transaction end and test method body is noted ([`Session::tx_log`]), and every
+    /// `NumberSequence.Insert`, until [`Session::stop_noting_tx_ends`]; `measured`: the runner is one al-testrun
+    /// `failed_test_runner_measured` names.
+    pub fn note_tx_ends(&mut self, measured: bool) {
+        self.access_notes.tx_log = Some(Vec::new());
+        self.access_notes.measured = measured;
+        self.access_notes.inserted_at.clear();
+    }
+
+    /// Ends [`Session::note_tx_ends`].
+    pub fn stop_noting_tx_ends(&mut self) {
+        self.access_notes.tx_log = None;
+        self.access_notes.measured = false;
+        self.access_notes.deletes_undone.clear();
+        self.access_notes.held_at_rollback = None;
+        self.access_notes.inserted_at.clear();
+    }
+
+    /// The target is BC 29: corpus PRs 1572 and 1573 measured their cells on BC 29.0 alone (the `probe` texts of the
+    /// assumptions `sequence-after-failed-test` and `existing-sequence-asserterror`), so the arms only they pin answer
+    /// there alone; on BC 27 and 28 those shapes refuse.
+    pub fn sequence_cells_measured_major(&self) -> bool {
+        self.engine.target.as_ref().map_or(29, |t| t.bc.major) == 29
+    }
+
+    /// Every point noted since [`Session::note_tx_ends`], in order.
+    pub fn tx_log(&self) -> Option<&[TxPoint]> {
+        self.access_notes.tx_log.as_deref()
+    }
+
+    /// A test method body begins (`start`) or ends: noted while [`Session::note_tx_ends`] notes.
+    pub fn note_body(&mut self, start: bool) {
+        self.end_body_refusals();
+        if start {
+            self.access_notes.held_at_rollback = None;
+        }
+        self.note_tx_point(match start {
+            true => TxPointKind::BodyStart,
+            false => TxPointKind::BodyEnd,
+        });
+    }
+
+    /// Commits the open transaction as the commit of `by` (an AL `Commit()`, a guarded `Codeunit.Run`, an isolated
+    /// event's subscriber).
+    pub(crate) fn commit_as(&mut self, by: CommitBy) {
+        self.access_notes.commit_by = Some(by);
+        self.commit_transaction();
+    }
+
+    /// A transaction ended (`commit`: by a commit), noted while [`Session::note_tx_ends`] notes.
+    pub(crate) fn note_tx_end(&mut self, commit: bool) {
+        self.settle_tx_changes(commit);
+        let by = self.access_notes.commit_by.take().unwrap_or(CommitBy::Other);
+        self.note_tx_point(match commit {
+            true => TxPointKind::Commit(by),
+            false => TxPointKind::Rollback,
+        });
+    }
+
+    fn note_tx_point(&mut self, kind: TxPointKind) {
+        if self.access_notes.tx_log.is_none() {
+            return;
+        }
+        let access = self.data_access();
+        if let Some(log) = &mut self.access_notes.tx_log {
+            log.push(TxPoint { kind, access });
+        }
+    }
+
+    /// The sequences `keys` (company, name) are gone, as a failed test's rollback takes their `NumberSequence.Insert` back.
+    pub fn drop_sequences(&mut self, keys: &[Key]) {
+        for key in keys {
+            self.sequences.remove(key);
+        }
+    }
+
+    /// The sequences `start` did not hold that were restarted or deleted since, or inserted while [`Session::tx_log`] was
+    /// kept and gone now, sorted.
+    pub fn new_sequences_changed_since(&self, start: &SequenceStart) -> Vec<Key> {
+        let flagged = (self.sequences_changed.keys()).filter(|k| !start.holds(k) && !start.changed.contains_key(*k));
+        let removed =
+            (self.access_notes.inserted_at.keys()).filter(|k| !start.holds(k) && !self.sequences.contains_key(*k));
+        let mut keys: Vec<Key> = flagged.chain(removed).cloned().collect();
+        keys.sort();
+        keys.dedup();
+        keys
     }
 
     /// The number sequences now, for [`Session::drop_sequences_inserted_since`].

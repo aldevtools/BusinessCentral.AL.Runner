@@ -19,6 +19,7 @@ pub(crate) mod instream_arg;
 mod invoke_exception;
 mod last_error;
 mod not_created;
+mod null_value_type;
 mod pinned_exceptions;
 pub mod policy;
 mod pure;
@@ -95,6 +96,38 @@ const _: fn() = || {
     assert_send_sync::<DotNetConfig>();
 };
 
+/// The AL stream behind a host write bridge, and its Blob's [`al_builtins::stream::BlobBuf::content_edits`] when the bridge was made
+/// or a reply last wrote into it: an AL write, `Clear`, `CreateOutStream` or `Import` of the Blob since then changes the count.
+struct Bridge {
+    blob: BlobRef,
+    edits: u32,
+}
+
+impl Bridge {
+    fn new(blob: &BlobRef) -> Self {
+        Bridge {
+            blob: blob.clone(),
+            edits: blob.borrow().content_edits,
+        }
+    }
+
+    /// Bytes .NET appended through the bridge, written into the Blob. The stamp follows them only when AL did not change the
+    /// Blob since the bridge took it: else a later rewrite would see the AL change as the bridge's own (al-runner issue 9291).
+    fn append(&mut self, bytes: &[u8]) {
+        let unchanged = self.blob.borrow().content_edits == self.edits;
+        al_builtins::stream::write_bytes(&self.blob, bytes);
+        if unchanged {
+            self.edits = self.blob.borrow().content_edits;
+        }
+    }
+
+    /// The whole content .NET rewrote, as the Blob's bytes; the caller checked that the Blob still held the bridge's bytes.
+    fn replace(&mut self, bytes: &[u8]) {
+        al_builtins::stream::replace_bytes(&self.blob, bytes);
+        self.edits = self.blob.borrow().content_edits;
+    }
+}
+
 /// A session's .NET side: the host session (opened at the first call that reaches the host),
 /// the queue of dropped handles, and the AL streams behind the host's write bridges.
 #[derive(Default)]
@@ -103,7 +136,7 @@ pub struct DotNetState {
     release: Rc<RefCell<Vec<DotNetHandle>>>,
     /// `availability()` of the host, asked once per session.
     available: Option<Result<(), String>>,
-    bridges: HashMap<u64, BlobRef>,
+    bridges: HashMap<u64, Bridge>,
     /// ADR-056: the workbook writers `WorkbookWriter.Create(fileName)` made, by handle: the file and the AL stream the writer
     /// writes into instead. `Close` makes the bytes the file.
     open_workbooks: HashMap<DotNetHandle, (String, BlobRef)>,
@@ -122,6 +155,9 @@ pub struct DotNetState {
     entry_streams: std::collections::HashSet<DotNetHandle>,
     /// `DotNetSite::result_ty` of the call `dotnet_apply` is about to make (taken at its start).
     pub(crate) result_ty: Option<usize>,
+    /// Bit `i` set: argument `i` of the call `dotnet_apply` is about to make is a DateTime parameter (`zone_rules.rs`
+    /// `al_datetime_args`; taken at its start).
+    pub(crate) al_datetime_args: u64,
     /// The last .NET result was a null `string` (ADR-024). Set by the reply of a host call and
     /// cleared at the start of every `DotNet` member, so a settle step that runs right after
     /// the member reads the declared type of the null it got.
@@ -148,6 +184,7 @@ impl DotNetState {
             cleared,
             entry_streams,
             result_ty,
+            al_datetime_args,
             null_string,
             password_rng,
         } = self;
@@ -163,6 +200,7 @@ impl DotNetState {
             && cleared.is_empty()
             && entry_streams.is_empty()
             && result_ty.is_none()
+            && *al_datetime_args == 0
             && !null_string
             && password_rng.is_none()
     }
@@ -352,6 +390,9 @@ impl Session {
         op: &ir::DotNetOp,
         f: &mut Frame,
     ) -> Result<Value, Signal> {
+        // Both are set for this call only (`exec/run.rs`): taken before any early return, so no later call reads them.
+        let result_ty = self.dotnet.result_ty.take();
+        let al_datetime_args = std::mem::take(&mut self.dotnet.al_datetime_args);
         // `[RunOnClient]` bookkeeping, not a .NET call: it leaves the null-string flag of the value it passes on.
         match op {
             ir::DotNetOp::ClientNull => return Ok(run_on_client_null()),
@@ -372,7 +413,7 @@ impl Session {
             }
         };
         let decl = ty.map(declared);
-        let result_decl = self.dotnet.result_ty.take().map(declared);
+        let result_decl = result_ty.map(declared);
         let (kind, member) = match op {
             ir::DotNetOp::ClientNull | ir::DotNetOp::ClientAssign | ir::DotNetOp::ClientCall(_) => {
                 unreachable!("answered above")
@@ -385,13 +426,17 @@ impl Session {
             ir::DotNetOp::Get(n) => (MemberKind::Get, n.clone()),
             ir::DotNetOp::Set(n) => (MemberKind::Set, n.clone()),
         };
+        // The answers before the target is known touch everything, as every .NET call did before al-runner issue 8954.
+        let early = |s: &Session| s.note_footprint_everything(|| format!("a .NET call ({member})"));
         if is_run_on_client_null(&recv) {
+            early(self);
             return run_on_client_call(kind, &member, decl.as_ref().map(|d| d.name.as_str()), &values);
         }
         if let Value::DotNet(o) = &recv
             && let DotNetKind::Host { handle, .. } = &o.kind
             && self.dotnet.cleared.contains(handle)
         {
+            early(self);
             return unsupported(format!(
                 "DotNet {member}: the object was cleared through another variable; whether that Clear disposed it is not pinned"
             ));
@@ -399,9 +444,12 @@ impl Session {
         if let (Value::Null, Some(d)) = (&recv, &decl)
             && let Some(r) = self.not_created(kind, &member, values.is_empty(), &d.name, f)
         {
+            early(self);
             return r;
         }
-        let target = self.dotnet_target(kind, &recv, decl.as_ref(), &member)?;
+        let target = self
+            .dotnet_target(kind, &recv, decl.as_ref(), &member)
+            .inspect_err(|_| early(self))?;
         let clr_type = match &target {
             Target::Static(d) => d.name.clone(),
             Target::Host(_, t) | Target::Internal(_, t) | Target::Boxed(_, t) => t.clone(),
@@ -411,6 +459,9 @@ impl Session {
         } else {
             format!("{clr_type}.{member}")
         };
+        let footprint_member = (kind != MemberKind::Construct).then_some(member.as_str());
+        self.note_footprint_dotnet(&clr_type, footprint_member, values.len(), &shown);
+        self.null_value_type_args(kind, &clr_type, &member, &mut values, &places, f)?;
 
         // 1. The registry: a registered type is served here for all its members.
         let engine = self.engine.clone();
@@ -426,12 +477,7 @@ impl Session {
             };
             if let Some(call_ref) = m.call_ref {
                 let result = call_ref(self, this, &mut values)?;
-                for (i, place) in places.iter().enumerate() {
-                    let Some(place) = place else { continue };
-                    let ty = self.place_type(place, f);
-                    let v = fit(values[i].clone(), &ty).map_err(|e| prefix(e, &shown))?;
-                    self.write(place, v, f)?;
-                }
+                self.write_back_registry_args(&places, &values, &shown, f)?;
                 return Ok(result);
             }
             return (m.call)(self, this, &values);
@@ -545,6 +591,11 @@ impl Session {
                 value: self.value_to_wire(v, i, &mut book).map_err(|e| prefix(e, &shown))?,
                 by_ref: places[i].is_some(),
             });
+        }
+        if let Err(why) = Self::datetime_kind_member(&target, &member, &values)
+            .and_then(|()| self.zone_datetime_kind(&target, &clr_type, &member, &values, al_datetime_args, &mut wire))
+        {
+            return unsupported(format!("DotNet {shown}: {why}"));
         }
         self.dotnet_ready(
             &clr_type,
@@ -1363,17 +1414,46 @@ impl Session {
     /// What a reply says .NET did to the AL streams behind its bridges, applied to their Blobs: the bytes it wrote come back
     /// (the bridges of al-runner issue 6317), and a Blob whose handed-back bytes it wrote over is marked
     /// (`DOTNET_BRIDGE_OVERWRITTEN`). Every call that can write through a bridge applies its reply here.
-    fn apply_stream_effects(&self, streams: &al_host::dotnet::StreamEffects, shown: &str) -> Result<(), Signal> {
+    fn apply_stream_effects(&mut self, streams: &al_host::dotnet::StreamEffects, shown: &str) -> Result<(), Signal> {
         for (id, bytes) in &streams.written {
-            match self.dotnet.bridges.get(id) {
-                Some(blob) => al_builtins::stream::write_bytes(blob, bytes),
+            match self.dotnet.bridges.get_mut(id) {
+                Some(bridge) => bridge.append(bytes),
                 None => return unsupported(format!("DotNet {shown}: bytes for an unknown stream bridge {id}")),
+            }
+        }
+        // The seed was the Blob's whole bytes with the position at their end (`DotNetValue::OutStreamWith`). A rewrite replaces them
+        // only when the Blob still holds what the bridge holds: its edit count is the one of the bridge (no AL write, Clear,
+        // CreateOutStream or Import since the bridge was made or last written), its length and position are the bridge's length,
+        // no render is pending, and a Clear of it empties this same buffer (`blob_clears_in_place`: no Insert stored it, no xRec
+        // shares it). Else what the Blob then holds is not pinned.
+        for (id, before, bytes) in &streams.replaced {
+            let Some(bridge) = self.dotnet.bridges.get(id) else {
+                return unsupported(format!("DotNet {shown}: an unknown stream bridge {id}"));
+            };
+            let blob = bridge.blob.clone();
+            let held = {
+                let buf = blob.borrow();
+                (
+                    buf.content_edits,
+                    buf.bytes.len(),
+                    buf.write_pos,
+                    buf.render_pending.is_none(),
+                ) == (bridge.edits, *before, *before, true)
+            } && al_builtins::native::blob_clears_in_place(&*self, &blob);
+            if !held {
+                return unsupported(format!(
+                    "DotNet {shown}: a .NET rewrite of an OutStream AL wrote into since the call before (not pinned)"
+                ));
+            }
+            if let Some(bridge) = self.dotnet.bridges.get_mut(id) {
+                bridge.replace(bytes);
             }
         }
         for id in &streams.overwritten {
             match self.dotnet.bridges.get(id) {
-                Some(blob) => {
-                    blob.borrow_mut().render_pending = Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN.into())
+                Some(bridge) => {
+                    bridge.blob.borrow_mut().render_pending =
+                        Some(al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN.into())
                 }
                 None => return unsupported(format!("DotNet {shown}: an unknown stream bridge {id}")),
             }
@@ -1402,7 +1482,7 @@ impl Session {
         }
         for (idx, id) in &reply.streams.bridges {
             if let Some((_, blob)) = book.outs.iter().find(|(i, _)| i == idx) {
-                self.dotnet.bridges.insert(*id, blob.clone());
+                self.dotnet.bridges.insert(*id, Bridge::new(blob));
             }
         }
         self.apply_stream_effects(&reply.streams, shown)?;
@@ -1413,9 +1493,29 @@ impl Session {
             let v = self.wire_to_value(v).map_err(|e| prefix(e, shown))?;
             let ty = self.place_type(place, f);
             let v = fit(v, &ty).map_err(|e| prefix(e, shown))?;
+            self.note_by_ref_write(place, f)?;
             self.write(place, v, f)?;
         }
         Ok(value)
+    }
+
+    /// Writes the `var` arguments of a registry member back to their places, after noting each
+    /// write for the xRec routes gate (`note_by_ref_write`, issue 9161).
+    fn write_back_registry_args(
+        &mut self,
+        places: &[Option<ir::Place>],
+        values: &[Value],
+        shown: &str,
+        f: &mut Frame,
+    ) -> Result<(), Signal> {
+        for (i, place) in places.iter().enumerate() {
+            let Some(place) = place else { continue };
+            let ty = self.place_type(place, f);
+            let v = fit(values[i].clone(), &ty).map_err(|e| prefix(e, shown))?;
+            self.note_by_ref_write(place, f)?;
+            self.write(place, v, f)?;
+        }
+        Ok(())
     }
 
     /// An AL value as a wire value (ADR-014 section 4).
@@ -1430,7 +1530,8 @@ impl Session {
             Value::Decimal(d) => DotNetValue::Decimal(d.to_string()),
             Value::Text(s) | Value::Code(s) => DotNetValue::Str(s.to_string()),
             // A Date or DateTime is a .NET DateTime of unspecified kind, with no time zone shift;
-            // the kind and zone rule is a probe (docs/probes-needed.md).
+            // the kind and zone rule is a probe (docs/probes-needed.md). `zone_rules.rs` `zone_datetime_kind` gives the
+            // TimeZoneInfo members that read the kind their own rule.
             Value::Date(0, _) | Value::DateTime(0) => {
                 return unsupported("an undefined Date or DateTime passed to .NET (what BC sends is not pinned)");
             }
@@ -1529,6 +1630,7 @@ impl Session {
             },
             DotNetValue::Str(s) => Value::Text(s.into()),
             DotNetValue::DateTime(ticks) => Value::DateTime(ticks.div_euclid(TICKS_PER_MS) + 1),
+            DotNetValue::DateTimeUtc(_) => return unsupported("the host returned a DateTime of kind Utc"),
             DotNetValue::TimeSpan(ticks) => Value::Duration(ticks.div_euclid(TICKS_PER_MS)),
             DotNetValue::Guid(g) => Value::Guid(g),
             DotNetValue::Enum { ty, name, ordinal } => Value::DotNet(Rc::new(DotNetObject::new(DotNetKind::Enum {
@@ -1565,7 +1667,9 @@ impl Session {
             if let Some(content) = content {
                 return Ok(Value::Library(
                     "SecretText".into(),
-                    std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(content))),
+                    std::rc::Rc::new(std::cell::RefCell::new(al_builtins::value::LibraryValue::Text(
+                        content.into(),
+                    ))),
                 ));
             }
         }

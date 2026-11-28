@@ -253,6 +253,11 @@ fn manifest(publisher: &str) -> Manifest {
 
 /// Runs the test app (under test) over the dependency apps `deps` (id, name, publisher, dependencies, source).
 fn run(deps: Vec<(&str, &str, &str, Vec<&str>, String)>) -> CorpusRuntime {
+    run_on(deps, Default::default())
+}
+
+/// [`run`] with the .NET host `dotnet`.
+fn run_on(deps: Vec<(&str, &str, &str, Vec<&str>, String)>, dotnet: al_vm::dotnet::DotNetConfig) -> CorpusRuntime {
     let mut apps = Vec::new();
     let mut kinds = Vec::new();
     let mut manifests = Vec::new();
@@ -266,7 +271,7 @@ fn run(deps: Vec<(&str, &str, &str, Vec<&str>, String)>) -> CorpusRuntime {
     apps.push(app(MAIN_ID, "Order Tests", &all, TESTS));
     kinds.push(al_sema::AppKind::Workspace);
     manifests.push(manifest("Partner"));
-    CorpusRuntime::run_for_apps(apps, kinds, &manifests, &Default::default(), None, Default::default())
+    CorpusRuntime::run_for_apps(apps, kinds, &manifests, &Default::default(), None, dotnet)
 }
 
 fn outcome(rt: &CorpusRuntime, test: &str) -> Outcome {
@@ -539,6 +544,101 @@ fn partner_apps_under_test_whose_orders_give_different_databases_are_refused() {
     assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
 }
 
+/// A partner app with no dependency path to A whose subscriber writes five rows: more differences than the refusal shows.
+fn logging_five(object: u32, name: &str) -> String {
+    format!(
+        r#"
+codeunit {object} "{name} Logging Subscriber"
+{{
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Loggers", 'OnRegister', '', false, false)]
+    local procedure OnRegister(var Sender: Codeunit "Loggers")
+    var
+        M: Codeunit "Marks";
+        I: Integer;
+    begin
+        for I := 1 to 5 do
+            M.Log('{name} saw a logger ' + Format(I));
+    end;
+}}
+"#
+    )
+}
+
+/// `--verbose` lists every reason of every install-order tie (al-runner issue 9058; CLI report text, no corpus pin): the
+/// refusal of `test` shows the first differences and counts the rest, and every one of them reaches the notes the run
+/// prints (`Phases::install_order_differences`).
+fn assert_every_difference_noted(rt: &CorpusRuntime, test: &str) {
+    let Outcome::NotRun(why) = outcome(rt, test) else {
+        panic!("expected not run, got {:?}", outcome(rt, test));
+    };
+    let more: usize = (why
+        .split("; ")
+        .find_map(|p| p.strip_suffix(" more, --verbose lists them)")))
+    .and_then(|n| n.parse().ok())
+    .unwrap_or_else(|| panic!("no hidden differences: {why}"));
+    let noted = &rt.phases.install_order_differences;
+    let distinct: std::collections::BTreeSet<&String> = noted.iter().collect();
+    assert!(distinct.len() >= 3 + more, "{more} hidden, noted: {noted:#?}\n{why}");
+}
+
+/// The install code of the apps under test runs once per run (`install_once.rs`).
+#[test]
+fn every_install_order_difference_of_partner_apps_under_test_is_noted() {
+    let rt = run_under_test(vec![
+        (PA_ID, "Partner A", PA.into()),
+        (PB_ID, "Partner B", logging_five(74000, "PB")),
+    ]);
+    assert_every_difference_noted(&rt, "ReadsTheLog");
+}
+
+/// Partner dependency apps: the install baseline (`baseline.rs`).
+#[test]
+fn every_install_order_difference_of_partner_dependency_apps_is_noted() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner A", "Partner", vec![BASE_ID], PA.into()),
+        (PB_ID, "Partner B", "Partner", vec![BASE_ID], logging_five(74000, "PB")),
+    ]);
+    assert_every_difference_noted(&rt, "ReadsTheLog");
+}
+
+/// A reader whose five Install Mark rows depend on whether Order Log has rows.
+const READER_FIVE: &str = r#"
+codeunit 73200 "Reader Install"
+{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        L: Record "Order Log";
+        M: Codeunit "Marks";
+        I: Integer;
+        Seen: Text;
+    begin
+        if not L.IsEmpty() then
+            Seen := ' saw the log';
+        for I := 1 to 5 do
+            M.Mark('A' + Format(I) + Seen);
+    end;
+}
+"#;
+
+/// The proof stops after a measured difference (`Unproven`: four apps collide on one row): the difference stays refused
+/// and its every line is still noted.
+#[test]
+fn every_install_order_difference_is_noted_when_the_proof_stops() {
+    let rt = run(vec![
+        base(),
+        (PA_ID, "Partner Reader", "Partner", vec![BASE_ID], READER_FIVE.into()),
+        (PB_ID, "Partner W1", "Partner", vec![BASE_ID], writer(74000, "W1")),
+        (PC_ID, "Partner C1", "Partner", vec![BASE_ID], colliding(75000, "C1")),
+        (PD_ID, "Partner C2", "Partner", vec![BASE_ID], colliding(76000, "C2")),
+        (PE_ID, "Partner C3", "Partner", vec![BASE_ID], colliding(77000, "C3")),
+        (PG_ID, "Partner C4", "Partner", vec![BASE_ID], colliding(78000, "C4")),
+    ]);
+    assert_every_difference_noted(&rt, "PartnerInstallRan");
+}
+
 const PF_ID: &str = "a0000000-0000-0000-0000-000000006644";
 const PG_ID: &str = "b0000000-0000-0000-0000-000000006644";
 
@@ -678,7 +778,166 @@ fn an_install_that_touches_everything_next_to_three_other_installs_is_refused() 
     ]);
     match outcome(&rt, "PartnerInstallRan") {
         Outcome::NotRun(why) => assert!(
-            why.contains("4 apps tied by their installs") && why.contains("touches everything"),
+            why.contains("4 apps tied by their installs")
+                && why.contains("touch everything")
+                // al-runner issue 8954: the reason names the call site and the install that reached it.
+                && why.contains("\"Unattributed Install\".OnInstallAppPerCompany")
+                && why.contains("in the install of Partner N1"),
+            "{why}"
+        ),
+        other => panic!("expected not run, got {other:?}"),
+    }
+}
+
+/// A partner install that builds a local `System.Text.StringBuilder`, calls `call` on it (`B.Append('S1')`) and writes
+/// its text into its own JQ Entry row (`no`); the first (`no` 1) also writes the Install Mark that `PartnerInstallRan`
+/// reads.
+fn string_builder(object: u32, name: &str, no: u32, call: &str) -> String {
+    format!(
+        r#"
+dotnet {{ assembly("mscorlib") {{ type("System.Text.StringBuilder"; "{name} Builder") {{ }} }} }}
+
+codeunit {object} "{name} Install"
+{{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        B: DotNet "{name} Builder";
+        E: Record "JQ Entry";
+        M: Codeunit "Marks";
+    begin
+        B := B.StringBuilder();
+        {call};
+        E."No." := {no};
+        E.Note := B.ToString();
+        if E.Insert() then;
+        if {no} = 1 then
+            M.Mark('A');
+    end;
+}}
+"#
+    )
+}
+
+/// al-runner issue 8954, the outside reporter's shape: four installs that each build a local StringBuilder through members
+/// served in process touch no lasting resource with it (the objects live no longer than the install session, ADR-079
+/// fact 1); their disjoint rows tie nothing, so the group is proven.
+#[test]
+fn four_installs_with_a_local_string_builder_run() {
+    let rt = run_on(
+        vec![
+            base(),
+            (
+                PA_ID,
+                "Partner S1",
+                "Partner",
+                vec![BASE_ID],
+                string_builder(73400, "S1", 1, "B.Append('S1')"),
+            ),
+            (
+                PB_ID,
+                "Partner S2",
+                "Partner",
+                vec![BASE_ID],
+                string_builder(74000, "S2", 2, "B.Append('S2')"),
+            ),
+            (
+                PC_ID,
+                "Partner S3",
+                "Partner",
+                vec![BASE_ID],
+                string_builder(75000, "S3", 3, "B.Append('S3')"),
+            ),
+            (
+                PD_ID,
+                "Partner S4",
+                "Partner",
+                vec![BASE_ID],
+                string_builder(76000, "S4", 4, "B.Append('S4')"),
+            ),
+        ],
+        al_vm::dotnet::DotNetConfig {
+            host: std::sync::Arc::new(al_host::inproc::InprocHost::new(
+                super::baseline_cache::with_dotnet().host,
+            )),
+            ..Default::default()
+        },
+    );
+    assert_eq!(outcome(&rt, "PartnerInstallRan"), Outcome::Pass);
+}
+
+/// A .NET host that answers every construction with a new handle, `ToString` with a text and every other call with the
+/// StringBuilder it was called on.
+struct Answering(u64);
+
+impl al_host::dotnet::DotNetSession for Answering {
+    fn construct(&mut self, ty: &al_host::dotnet::DotNetType, _: Vec<al_host::dotnet::DotNetArg>) -> Answer {
+        self.0 += 1;
+        Ok(al_host::dotnet::DotNetReply::value(
+            al_host::dotnet::DotNetValue::Handle {
+                handle: self.0,
+                ty: ty.name.clone(),
+            },
+        ))
+    }
+    fn invoke(&mut self, t: al_host::dotnet::DotNetTarget, m: &str, _: Vec<al_host::dotnet::DotNetArg>) -> Answer {
+        let value = match (t, m) {
+            (_, "ToString") => al_host::dotnet::DotNetValue::Str("text".into()),
+            (al_host::dotnet::DotNetTarget::Instance(handle), _) => al_host::dotnet::DotNetValue::Handle {
+                handle,
+                ty: "System.Text.StringBuilder".into(),
+            },
+            _ => al_host::dotnet::DotNetValue::Null,
+        };
+        Ok(al_host::dotnet::DotNetReply::value(value))
+    }
+    fn get_property(&mut self, _: al_host::dotnet::DotNetTarget, _: &str) -> Answer {
+        Ok(al_host::dotnet::DotNetReply::value(al_host::dotnet::DotNetValue::Null))
+    }
+    fn set_property(&mut self, _: al_host::dotnet::DotNetTarget, _: &str, _: al_host::dotnet::DotNetValue) -> Answer {
+        Ok(al_host::dotnet::DotNetReply::value(al_host::dotnet::DotNetValue::Null))
+    }
+    fn release(&mut self, _: &[al_host::dotnet::DotNetHandle]) {}
+    fn close(self: Box<Self>) {}
+}
+
+type Answer = Result<al_host::dotnet::DotNetReply, al_host::dotnet::DotNetFailure>;
+
+struct AnsweringHost;
+
+impl al_host::dotnet::DotNetHost for AnsweringHost {
+    fn availability(&self) -> Result<(), al_host::dotnet::DotNetUnavailable> {
+        Ok(())
+    }
+    fn open_session(&self, _: &al_host::dotnet::DotNetSessionConfig) -> Box<dyn al_host::dotnet::DotNetSession> {
+        Box::new(Answering(0))
+    }
+}
+
+/// al-runner issue 8954, ADR-079 amendment 1: `StringBuilder.Insert` is not in `inproc.txt`, so each of four installs
+/// that call it touches everything; the four tie into one unit larger than three, which stays refused as on main
+/// (a neighbor app cannot show it: no test runs on either side).
+#[test]
+fn four_installs_tied_by_a_dotnet_member_that_is_not_kept_are_not_run() {
+    let insert = |o, n: &str, no| string_builder(o, n, no, &format!("B.Insert(0, '{n}')"));
+    let rt = run_on(
+        vec![
+            base(),
+            (PA_ID, "Partner I1", "Partner", vec![BASE_ID], insert(73400, "I1", 1)),
+            (PB_ID, "Partner I2", "Partner", vec![BASE_ID], insert(74000, "I2", 2)),
+            (PC_ID, "Partner I3", "Partner", vec![BASE_ID], insert(75000, "I3", 3)),
+            (PD_ID, "Partner I4", "Partner", vec![BASE_ID], insert(76000, "I4", 4)),
+        ],
+        al_vm::dotnet::DotNetConfig {
+            host: std::sync::Arc::new(al_host::inproc::InprocHost::new(std::sync::Arc::new(AnsweringHost))),
+            ..Default::default()
+        },
+    );
+    match outcome(&rt, "PartnerInstallRan") {
+        Outcome::NotRun(why) => assert!(
+            why.contains("4 apps tied by their installs")
+                && why.contains("a .NET call (System.Text.StringBuilder.Insert)"),
             "{why}"
         ),
         other => panic!("expected not run, got {other:?}"),
@@ -1039,4 +1298,62 @@ fn the_final_install_puts_an_app_after_the_install_it_depends_on() {
         "{}",
         rt.phases.baseline_line().unwrap_or_default()
     );
+}
+
+/// A partner install that reads `read` (a Text expression), writes it into its own JQ Entry row (`no`); the first (`no`
+/// 1) also writes the Install Mark that `PartnerInstallRan` reads.
+fn reading(object: u32, name: &str, no: u32, read: &str) -> String {
+    format!(
+        r#"
+codeunit {object} "{name} Install"
+{{
+    Subtype = Install;
+
+    trigger OnInstallAppPerCompany()
+    var
+        E: Record "JQ Entry";
+        M: Codeunit "Marks";
+    begin
+        E."No." := {no};
+        E.Note := CopyStr({read}, 1, 50);
+        if E.Insert() then;
+        if {no} = 1 then
+            M.Mark('A');
+    end;
+
+    local procedure Callers(): Integer
+    begin
+        exit(NavApp.GetCallerCallstackModuleInfos().Count());
+    end;
+}}
+"#
+    )
+}
+
+/// Issue 9260, the outside reporter's shape: four installs that each read a company property or the module infos of
+/// the caller call stack, and write disjoint rows. The company properties read the Company row, which no install
+/// writes; the call stack names apps whose code the install runs. Nothing ties the four, so the group is proven (BC
+/// 28.4 runs them).
+#[test]
+fn four_installs_that_read_company_properties_or_the_caller_callstack_run() {
+    let not_run: Vec<(&str, Outcome)> = [
+        "CompanyProperty.DisplayName()",
+        "Format(CompanyProperty.ID())",
+        "Format(Callers())",
+    ]
+    .into_iter()
+    .map(|read| {
+        let r = |object, name: &str, no| reading(object, name, no, read);
+        let rt = run(vec![
+            base(),
+            (PA_ID, "Partner R1", "Partner", vec![BASE_ID], r(73400, "R1", 1)),
+            (PB_ID, "Partner R2", "Partner", vec![BASE_ID], r(74000, "R2", 2)),
+            (PC_ID, "Partner R3", "Partner", vec![BASE_ID], r(75000, "R3", 3)),
+            (PD_ID, "Partner R4", "Partner", vec![BASE_ID], r(76000, "R4", 4)),
+        ]);
+        (read, outcome(&rt, "PartnerInstallRan"))
+    })
+    .filter(|(_, o)| *o != Outcome::Pass)
+    .collect();
+    assert!(not_run.is_empty(), "{not_run:#?}");
 }

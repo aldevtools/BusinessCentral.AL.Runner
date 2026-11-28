@@ -1,1 +1,0 @@
-No neighbor app applies: on one UTC day every run still starts its clock at 12:34:56.789 of that day, as on main; the answers differ only when midnight passes between a process's first run and a later run in it, which a neighbor run cannot exercise (pinned by al-testrun tests/run_clock_day.rs instead).

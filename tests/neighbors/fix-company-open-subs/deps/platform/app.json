@@ -1,2 +1,0 @@
-{ "id": "8d1a2b3c-0000-4000-8000-0000000c0151", "name": "FC Stand-in Platform", "publisher": "Microsoft", "version": "1.0.0.0",
-  "platform": "27.0.0.0", "runtime": "15.0", "idRanges": [ { "from": 150, "to": 151 }, { "from": 457, "to": 457 }, { "from": 3702, "to": 3703 }, { "from": 6723, "to": 6723 } ], "dependencies": [] }

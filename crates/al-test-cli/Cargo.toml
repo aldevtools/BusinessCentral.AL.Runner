@@ -27,6 +27,11 @@ required-features = ["cli-e2e"]
 name = "dev_tooling"
 required-features = ["cli-e2e"]
 
+# The workspace layer's equality test over the corpus and the Microsoft apps (release, CI's release tests).
+[[test]]
+name = "workspace_cache_equality"
+required-features = ["cli-e2e"]
+
 [dependencies]
 al-data.workspace = true
 al-deps.workspace = true

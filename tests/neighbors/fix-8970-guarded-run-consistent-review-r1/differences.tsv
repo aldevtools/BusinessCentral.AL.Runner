@@ -1,9 +1,0 @@
-# key	entry
-GR Tests::InnerMarksFails_NoCommit	ASSUMED guarded-run-consistent-end (corpus PR 1568, GuardedRunId_InnerStartsStateAndFails)
-GR Tests::NestedRunMarksFails_OuterFails	ASSUMED guarded-run-consistent-end (corpus PR 1568, Preview_OuterGuardedRun_InnerStartsStateAndFails)
-GR Tests::NestedRunMarksFails_OuterFailsText	ASSUMED guarded-run-consistent-end (corpus PR 1568, Preview_OuterGuardedRun_InnerStartsStateAndFails; an Error text drops the same as Error(''): GuardedRunId_InnerStartsStateAndFails, _InnerStartsStateAndErrorsEmpty)
-GR Tests::NestedRunMarksFails_OuterSucceeds	REFUSED A guarded Codeunit.Run ends after a guarded run inside it dropped its Consistent(false) marks
-GR Tests::NestedRunMarksFails_OuterCommitsThenFails	REFUSED A guarded Codeunit.Run ends after a guarded run inside it dropped its Consistent(false) marks
-GR Tests::NestedRunMarksFails_OuterRunsAgainThenFails	REFUSED A guarded Codeunit.Run ends after a guarded run inside it dropped its Consistent(false) marks
-GR Tests::NestedRunMarksFails_OuterMarksAndFails	REFUSED A guarded Codeunit.Run ends after a guarded run inside it dropped its Consistent(false) marks
-GR Tests::NestedRunMarksFails_Twice_OuterFails	REFUSED A guarded Codeunit.Run ends while Consistent(false) marks table GR Row in a shape no probe measured

@@ -1,4 +1,0 @@
-# key	entry
-# Every test is an option member next to the new rule that the AL compiler takes and main runs: keywords quoted, and
-# words that are no keyword there unquoted, in a local and a global option variable, the first member, a parameter, a
-# return type and a table field's OptionMembers (Key, Area and End unquoted). No test differs.

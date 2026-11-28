@@ -55,6 +55,8 @@ iterate on either). `./target/release/al-test-cli --help` lists every flag.
    by area, the regressions, the stale lines, the cases still listed and the cases without an
    outcome. Then `--prune-not-passing --bc-version N`, one run per major, deletes the stale lines of that major (without
    `--bc-version` it prunes only the newest; it refuses while a selection is active).
+   On a machine that cannot render reports, `--baseline-diff` first warns once with the renderer's reason: the Word-layout
+   report cases it then lists as regressions are the machine's, not the change's.
 5. `--timings` says where a run spent its time (load, compile, install baseline, tests).
 6. `AL_REACH_REPORT=1` prints, after the compile, how many routines each kind of root pulls in, which are refused,
    and how many only matter through a refused routine (slow on a bucket: it walks every test).
@@ -75,6 +77,11 @@ owner's OK; CI shows it in the job summary. No bot pushes to `main`.
 install baseline's NumberSequence values per test codeunit). Corpus files that pin what carries from one test
 codeunit to the next are listed in `metrics/strict-order-files.txt`; each pass runs their codeunits once more,
 alone, with `--strict-order`, and their cases take that outcome. They must pass there and get no not-passing line.
+The nightly CI runs the whole corpus in BC's order (`AL_STRICT_ORDER_ALL=1`, ADR-070 decision 5), where the order probes
+keep the outcome of that run (nothing runs once more). It holds the
+not-passing lists and `metrics/<major>/strict-order-not-run.txt`: the cases the default run passes and that run does not
+run yet. That list only shrinks (`--list-changes` exits 3 on an added line); prune it with
+`AL_STRICT_ORDER_ALL=1 al-test-cli --root . --bc-version 29 --prune-not-passing`.
 
 ## Generated docs and ids
 

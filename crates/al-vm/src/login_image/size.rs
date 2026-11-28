@@ -69,7 +69,8 @@ impl LoginImage {
 /// The heap behind a plain value.
 fn plain_heap(p: &Plain) -> usize {
     match p {
-        Plain::Text(t) | Plain::Code(t) | Plain::TextConst(t, _) => t.as_str().len(),
+        // `audited_str`: a size estimate only, never observable.
+        Plain::Text(t) | Plain::Code(t) | Plain::TextConst(t, _) => t.audited_str().len(),
         Plain::DateFormula(s) => s.len(),
         Plain::Option(_, names) => names.iter().map(|n| size_of::<String>() + n.len()).sum(),
         Plain::Unknown(s) => s.len(),
@@ -157,7 +158,8 @@ fn node_bytes(n: &Node) -> usize {
 
 fn library_heap(l: &LibraryNode) -> usize {
     match l {
-        LibraryNode::Text(s) | LibraryNode::TextCap(s, _) => s.len(),
+        // `audited_str`: a size estimate only, never observable.
+        LibraryNode::Text(t) | LibraryNode::TextCap(t, _) => t.audited_str().len(),
         LibraryNode::RecordId { name, key, .. } => name.len() + all(key),
         LibraryNode::UserNameFieldRef { value, .. } => value.as_ref().map_or(0, String::len),
         LibraryNode::Empty

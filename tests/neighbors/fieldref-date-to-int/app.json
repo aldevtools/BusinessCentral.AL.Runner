@@ -1,0 +1,15 @@
+{
+  "id": "3c7a9e41-2b5d-4f60-8a19-926500000001",
+  "name": "Neighbors fieldref-date-to-int",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [
+    {
+      "from": 50100,
+      "to": 50199
+    }
+  ],
+  "dependencies": []
+}

@@ -52,6 +52,7 @@ codeunit 50100 Keeper
         Rec: Record Row; T1: Record TRow temporary; T2: Record TRow temporary;
         Items: List of [Integer]; Dict: Dictionary of [Integer, Text]; Refs: array[3] of RecordRef;
         V1: Variant; V2: Variant; J: JsonObject; Strm: InStream; TB: Record Row temporary; RR: RecordRef;
+        Builder: TextBuilder; Big: BigText;
 
     procedure FillTemps()
     begin
@@ -539,6 +540,7 @@ fn media_object() -> al_builtins::media::MediaObject {
         height: 0,
         pending: None,
         stream_call: None,
+        logo_icon: None,
     }
 }
 
@@ -1230,4 +1232,47 @@ fn a_saved_transaction_type_or_a_calls_var_codeunits_refuses_the_image() {
     f.session.tx.saved_types.clear();
     f.session.events.next_var_codeunits.push(None);
     assert_eq!(refused(&mut f), NotImaged::Field("events.next_var_codeunits"));
+}
+
+/// The UTF-16 units of the text a TextBuilder or BigText global holds, and its capacity when it has one.
+fn text_handle(v: &Value) -> (Vec<u16>, Option<i32>) {
+    match &*library_cell(v).borrow() {
+        LibraryValue::Text(t) => (t.units(), None),
+        LibraryValue::TextCap(t, n) => (t.units(), Some(*n)),
+        other => panic!("not a text handle: {other:?}"),
+    }
+}
+
+// Issue 9202: a TextBuilder the login left holding half of a surrogate pair (corpus PR 1605, LtSurrogateHalves.al
+// Ops_tb_1: Append keeps the half) read back U+FFFD in every replayed session, because the image held its text as a
+// String. A BigText holds its text in the same variant of the cell; both are checked with and without a capacity.
+fn a_lone_half_in(global: &str, kind: LibraryKind) {
+    let lone = |units: &[u16]| al_builtins::text::Txt::from_units(units);
+    for units in [
+        &[0xD83D][..],
+        &[0x78, 0xDE01, 0x79],
+        &[0xD83D, 0xFFFD, 0xDE01, 0xD83D, 0xDE00],
+    ] {
+        for (cell, cap) in [
+            (LibraryValue::Text(lone(units)), None),
+            (LibraryValue::TextCap(lone(units), 32), Some(32)),
+        ] {
+            let mut f = fx();
+            f.set(global, Value::Library(kind.clone(), Rc::new(RefCell::new(cell))));
+            let image = image(&mut f.session);
+            let mut twin = thaw(&f.session, &image);
+            let back = text_handle(&get(&mut twin, f.keeper, global));
+            assert_eq!(back, (units.to_vec(), cap), "{global} holding {units:x?}");
+        }
+    }
+}
+
+#[test]
+fn a_text_builder_keeps_a_lone_half_through_the_image() {
+    a_lone_half_in("Builder", LibraryKind::TextBuilder);
+}
+
+#[test]
+fn a_big_text_keeps_a_lone_half_through_the_image() {
+    a_lone_half_in("Big", LibraryKind::BigText);
 }

@@ -1,1 +1,0 @@
-Corpus symbols only: al_version::corpus_symbols feeds the oracle suites (al-test-cli main.rs), never a user app, whose symbols come from its app.json; with no released_minors in oracle.toml the sets are main's, shown by --baseline-diff on BC 27, 28 and 29 (a neighbor app with #if BC27PLUS saw no symbol on main or head).

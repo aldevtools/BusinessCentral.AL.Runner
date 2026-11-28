@@ -1,0 +1,1 @@
+No AL-visible answer changes: a module comment, and a debug-only assertion that a scan compares against full positions, which every caller passes; release builds are unchanged in behavior.

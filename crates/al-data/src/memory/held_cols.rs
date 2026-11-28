@@ -172,7 +172,8 @@ impl MemStore {
             }
         }
         let key = key.filter(|_| holds_ae && passing.len() >= 2)?;
-        passing.sort_by(|a, b| cmp_rows(t, key, a, b));
+        let by = KeyOrder::sorting(t, key);
+        passing.sort_by(|a, b| by.cmp_rows(a, b));
         passing
             .windows(2)
             .find_map(|w| order_refusal(t, key, w[0], w[1], normal_record))

@@ -154,6 +154,7 @@ mod save_abort_move_answer;
 mod subpagelink_blank_recordid;
 mod subpageview_cross_enum;
 mod table_field_values_allowed;
+mod table_relation_neighbors;
 mod temp_list_gone_middle_row;
 mod temp_list_refill_unpinned;
 mod temp_refill_to_fewer_rows;

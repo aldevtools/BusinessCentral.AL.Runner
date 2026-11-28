@@ -9,6 +9,7 @@
 #                                              that a change of a binary input adds one
 #   tools/neighbor-diff.sh [OPTIONS] --plan    only the rule and the list of apps (no build, no run)
 #   tools/neighbor-diff.sh [OPTIONS] --stale-mode APP...  "note" or "strict" per app: how its stale entries count
+#   tools/neighbor-diff.sh [OPTIONS] --main-sidecar  "own" or "shared": whether the main run builds its own sidecar
 #   tools/neighbor-diff.sh [OPTIONS] --same-inputs  the main commits, newest first from BASE, whose binary is BASE's
 #
 #   --bc-version N   a BC major to run on, repeatable (default 29); the build is the one oracle/oracle.toml pins
@@ -17,6 +18,9 @@
 # The head binary is built from the working tree. The main binary of BASE comes from the cache
 # (<cache>/main-bin/<commit>), else from the CI artifact `al-runner-main-<commit>` of BASE or of an older main commit
 # with the same binary inputs (tools/binary-inputs.txt), else it is built (one build at a time, under a lock).
+# Each binary runs with its own .NET sidecar: ALRT_DOTNET_SIDECAR (a sidecar built from the working tree, as CI sets it)
+# serves the head run, and the main run too when tools/dotnet-sidecar equals BASE's; otherwise the main run gets no
+# ALRT_DOTNET_SIDECAR and builds the sidecar sources built into it (once per source hash, in the sidecar cache).
 # Exit 0: every difference has an entry. 1: a difference has none, an entry is stale or malformed, the rule fails, or
 # the runs are not compared (a resource limit, no test ran, or nothing passed). 2: the tool could not finish.
 set -uo pipefail
@@ -37,7 +41,8 @@ while [ $# -gt 0 ]; do
     --plan) mode=plan; shift ;;
     --same-inputs) mode=same; shift ;;
     --stale-mode) mode=stale; shift ;;
-    -h | --help) sed -n '2,20p' "$0"; exit 0 ;;
+    --main-sidecar) mode=sidecar; shift ;;
+    -h | --help) sed -n '2,25p' "$0"; exit 0 ;;
     -*) echo "neighbor-diff: unknown option $1" >&2; exit 2 ;;
     *) apps+=("$(cd "$1" && pwd -P)") || exit 2; shift ;;
   esac
@@ -167,6 +172,14 @@ pinned_build() {
     maj == m && /^bc_build = / { gsub(/"/, "", $3); print $3; exit }' "$root/oracle/oracle.toml"
 }
 
+# Prints 'own' when the working tree's tools/dotnet-sidecar differs from BASE's (the main run then must not take the
+# sidecar ALRT_DOTNET_SIDECAR names), else 'shared'. A failing git command counts as a difference.
+main_sidecar() {
+  local d=tools/dotnet-sidecar
+  git diff --quiet "$base" -- "$d" 2> /dev/null && [ -z "$(git ls-files --others --exclude-standard -- "$d")" ] &&
+    echo shared || echo own
+}
+
 # A folder the pull request does not change already has its change on main: its stale entries are a note. Anything else
 # is strict: the app is outside the repository (physical path), or a git command fails or prints a change.
 stale_mode() {
@@ -179,6 +192,7 @@ stale_mode() {
 }
 
 [ "$mode" = same ] && { same_inputs; exit 0; }
+[ "$mode" = sidecar ] && { main_sidecar; exit 0; }
 if [ "$mode" = stale ]; then
   for app in "${apps[@]}"; do stale_mode "$app"; done
   exit 0
@@ -191,9 +205,16 @@ fi
 [ ${#apps[@]} -gt 0 ] || exit $status
 out="${NEIGHBOR_DIFF_OUT:-$cache/neighbor-diff/$(git rev-parse --short HEAD)}"
 mkdir -p "$out"
+# Absolute: each run changes into its own folder, so a relative $out would no longer name this one.
+out="$(cd "$out" && pwd -P)"
 head_bin="$out/al-runner-head"
 build_head "$head_bin" || { echo "neighbor-diff: the head build failed" >&2; exit 2; }
 main_bin="$(main_binary)" || { echo "neighbor-diff: no main binary for $base" >&2; exit 2; }
+main_env=()
+if [ "$(main_sidecar)" = own ] && [ -n "${ALRT_DOTNET_SIDECAR:-}" ]; then
+  echo "main run: tools/dotnet-sidecar differs from ${base:0:9}; the main binary builds its own sidecar" >&2
+  main_env=(-u ALRT_DOTNET_SIDECAR)
+fi
 for app in "${apps[@]}"; do
   name="$(basename "$app")"
   entries="$app/differences.tsv"
@@ -216,11 +237,15 @@ for app in "${apps[@]}"; do
   for v in "${versions[@]}"; do
     build="$(pinned_build "$v")"
     for side in main head; do
-      bin="$main_bin"
-      [ $side = head ] && bin="$head_bin"
+      bin="$main_bin" side_env=("${main_env[@]}")
+      [ $side = head ] && bin="$head_bin" side_env=()
       rm -f "$out/$name-$v.$side.xml"
-      cap 3G timeout 900 "$bin" test "$run_app" "${dep_args[@]}" "${flag_args[@]}" --bc-version "${build:-$v}" --seed 1 --junit "$out/$name-$v.$side.xml" \
-        > "$out/$name-$v.$side.log" 2>&1
+      # Each run starts in a fresh copy of the app folder: a relative path in flags.txt (such as --files-dir) resolves
+      # against the app, wherever the script runs from, and files a run writes there touch neither the repo nor the other run.
+      cwd="$out/$name-$v.$side.cwd"
+      rm -rf "$cwd" && cp -r "$app" "$cwd" || exit 2
+      (cd "$cwd" && cap 3G env "${side_env[@]}" timeout 900 "$bin" test "$run_app" "${dep_args[@]}" "${flag_args[@]}" --bc-version "${build:-$v}" \
+        --seed 1 --junit "$out/$name-$v.$side.xml") > "$out/$name-$v.$side.log" 2>&1
       [ -s "$out/$name-$v.$side.xml" ] || { echo "neighbor-diff: no JUnit file, see $out/$name-$v.$side.log" >&2; exit 2; }
     done
     note=()

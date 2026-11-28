@@ -40,7 +40,8 @@
 //! - emptied marks (`MemStore::committed_marks`): session.
 //! - company copies (`committed_copies`): follows, `restore_baseline` puts them back from `full_copies` (plain).
 //! - deleted companies (`committed_dropped_backed_companies`, in `MemStore::committed_marks`): session; the image takes
-//!   no login that changes them (al-data `committed_row_changes_from`), and the base shape holds them.
+//!   no login that changes them (al-data `committed_row_changes_from`), and the base shape holds them; a baseline's
+//!   bytes and its frozen copy carry them (issue 9233, `MemStore::committed_deleted_companies`).
 //! - held columns (`unknown_cols`, `accent_cols`, `ae_cols`): follows, `MemStore::from_exported` notes every row
 //!   (test `baseline::tests::a_baseline_read_back_from_bytes_refuses_what_the_captured_one_refuses`).
 //! - stamps, `moves`, `shapes`, the read caches: run (a stamp only says whether a table changed, and the facts that
@@ -73,6 +74,8 @@
 //!   run (stamps and diagnostic counters).
 //! - `crates/al-vm/src/lib.rs` `static NEXT_ENGINE_UID`, `crates/al-vm/src/baseline.rs` `static NEXT_ORIGIN`,
 //!   `crates/al-vm/src/dotnet/blob_stream.rs` `static NEXT_VIEW`: run (ids handed out once in the process).
+//! - `crates/al-vm/src/report_placeholder/files.rs` `static HEADERS`: run (the constant headers of the placeholder files,
+//!   built once).
 //! - `crates/al-builtins/src/catalog.rs` `static CATALOG`, `crates/al-builtins/src/collation.rs` `static ASCII_WEIGHTS`,
 //!   `crates/al-builtins/src/conv/mod.rs` `static CELLS`, `crates/al-builtins/src/features.rs` `static TABLE`,
 //!   `crates/al-builtins/src/native/registry.rs` `static TABLE`, `crates/al-builtins/src/page_handle.rs`
@@ -204,7 +207,9 @@ macro_rules! session_fields {
                 resource_reads,
                 // Counts and insert stamps al-testrun compares within one test only (`sequence_start.rs`; install_left.rs
                 // keeps none of them either): a test's differences of the counts are the same from any start, and the
-                // insert stamps are asked only for sequences inserted since the test's start, so none from the login.
+                // insert stamps are asked only for sequences inserted since the test's start, so none from the login. The
+                // number sequence steps of the open transaction (`sequence_start/tx_changes.rs`) are that session's
+                // transaction's.
                 access_notes,
             }
             refuse {
@@ -289,6 +294,8 @@ macro_rules! session_fields {
                 validate_site => |s: &Session| s.validate_site.is_none(),
                 validate_sites => |s: &Session| s.validate_sites.is_empty(),
                 plain_proc_xrec => |s: &Session| s.plain_proc_xrec.is_empty(),
+                ext_xrec_triggers => |s: &Session| s.ext_xrec_triggers == 0,
+                ext_before_watch => |s: &Session| s.ext_before_watch.borrow().is_empty(),
                 shared_proc_xrec => |s: &Session| s.shared_proc_xrec.is_empty(),
                 iface_frames => |s: &Session| s.iface_frames.is_empty(),
                 field_error_form => |s: &Session| s.field_error_form.is_none(),

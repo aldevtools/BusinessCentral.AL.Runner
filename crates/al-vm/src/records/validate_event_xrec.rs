@@ -16,6 +16,7 @@
 
 use crate::records::{Rec, ValidateRun, ValidateSite};
 use crate::{Frame, Session};
+use al_builtins::assumptions::{self, Assumption};
 use al_builtins::native::Signal;
 use al_builtins::value::{RtType, Value};
 use al_data::TableDef;
@@ -33,6 +34,11 @@ pub(crate) struct ValidateEvent {
     /// The field is one of the base table with its own OnValidate trigger and no OnBeforeValidate or OnAfterValidate of a
     /// table extension, as the probe's Mode field.
     field_measured: bool,
+    /// The event is the OnAfterValidateEvent.
+    after: bool,
+    /// The event has one subscriber for the field, as the probe's OnAfterValidateEvent of Mode (assumption
+    /// `xrec-table-proc-routes`; review of PR 9063, 2026-11-25: a second subscriber is a writer no cell measures).
+    sole_subscriber: bool,
 }
 
 impl Session {
@@ -46,18 +52,54 @@ impl Session {
         xrec: &Rec,
         field: &al_ir::Field,
     ) -> Result<(), Signal> {
-        let field_measured = field.on_validate.is_some_and(|(o, _)| o == t.object as usize)
-            && field.ext_before_validate.is_empty()
-            && field.ext_after_validate.is_empty();
+        let before = event == "onbeforevalidateevent";
+        let handle = Rc::as_ptr(rec) as usize;
+        // The probe's validated fields have no table extension OnBeforeValidate or OnAfterValidate, writers no cell measures
+        // (review of PR 9063, 2026-11-25).
+        let no_ext_validate = field.ext_before_validate.is_empty() && field.ext_after_validate.is_empty();
+        if !self.listened(t, event, Some(&field.name))? {
+            if before {
+                self.note_kept_by_before_event(handle, no_ext_validate);
+            }
+            return self.table_event(t, event, rec, Some(xrec), false, Some(&field.name));
+        }
+        let field_measured = field.on_validate.is_some_and(|(o, _)| o == t.object as usize) && no_ext_validate;
+        let sole_subscriber = self
+            .engine
+            .events
+            .subscribers_at(t.object as usize, event)
+            .is_some_and(|subs| {
+                subs.iter()
+                    .filter(|s| s.element.eq_ignore_ascii_case(&field.name))
+                    .count()
+                    == 1
+            });
         self.validate_events.push(ValidateEvent {
-            handle: Rc::as_ptr(rec) as usize,
+            handle,
             xrec: xrec.clone(),
             depth: self.call_stack.len(),
             field_measured,
+            after: !before,
+            sole_subscriber,
         });
         let r = self.table_event(t, event, rec, Some(xrec), false, Some(&field.name));
         self.validate_events.pop();
+        if before && r.is_ok() {
+            let kept = no_ext_validate
+                && self
+                    .sole_validate_run(handle)
+                    .is_some_and(|run| Self::same_values(&rec.borrow().fields, &run.entered));
+            self.note_kept_by_before_event(handle, kept);
+        }
         r
+    }
+
+    /// Notes on the innermost Validate of the record at `handle` whether its OnBeforeValidateEvent returned with the fields
+    /// the Validate started with and the field has no table extension validate trigger (`ValidateRun::kept_by_before_event`).
+    fn note_kept_by_before_event(&mut self, handle: usize, kept: bool) {
+        if let Some(run) = self.validate_sites.iter_mut().rev().find(|v| v.handle == handle) {
+            run.kept_by_before_event = kept;
+        }
     }
 
     /// The xRec a procedure of table `object` (or of one of its table extensions) runs with when the subscriber in frame `f`
@@ -66,66 +108,161 @@ impl Session {
     /// OnAfterValidateEvent after Insert, :935 after Get, :952 on a fresh record, :1011 on a temporary record, :1025 after
     /// FindFirst, :969 the assignment, :983 OnBeforeValidateEvent, :1326 its assignment the trigger reads, :997 and :1312 a
     /// subscriber that does not declare xRec), pinned at corpus 8fcde9a6. Every fact by equality:
-    /// - the innermost event being raised is a validate event of `rc`, and `f` is the subscriber's frame the event put right
-    ///   above the code that called the Validate (table events put no frame of their own between them);
-    /// - `f` runs an event subscriber of a codeunit that is neither bound manually nor SingleInstance; it declares Rec by `var`,
-    ///   holding `rc`, alone or with xRec by `var` and CurrFieldNo, as the probe's subscribers do;
+    /// - the innermost event being raised is a validate event of `rc`, and the subscriber's frame is the one the event put
+    ///   right above the code that called the Validate (table events put no frame of their own between them); `f` is that
+    ///   frame, or, through assumption `xrec-table-proc-routes`, one helper procedure of its codeunit right above it
+    ///   (`through_helper`; the subscriber then declares xRec);
+    /// - the subscriber runs an event subscriber of a codeunit that is neither bound manually nor SingleInstance; it declares
+    ///   Rec by `var`, holding `rc`, alone or with xRec by `var` and CurrFieldNo, as the probe's subscribers do;
     /// - the validated field is one of the base table with its own OnValidate trigger (`ValidateEvent::field_measured`);
     /// - the Validate is the one Validate of the record that runs, called by the code the cells measured
     ///   (`measured_validate_caller`);
     /// - no record method ran on the record since the Validate started and its fields are as they were then
     ///   (`ValidateRun::touched`, `ValidateRun::entered`), and its buffer came from no TransferFields: the cells hold a record
-    ///   after Insert (:633), Get (:935), FindFirst (:1025), its own Modify (:1294), fresh (:952) and temporary (:1011);
+    ///   after Insert (:633), Get (:935), FindFirst (:1025), its own Modify (:1294), fresh (:952) and temporary (:1011). Or,
+    ///   through assumption `xrec-table-proc-routes`, in an OnAfterValidateEvent, the fields changed only after the
+    ///   OnBeforeValidateEvent returned, by no record method (`changed_after_before_event`);
+    /// - on the routes of that assumption (a changed record or the helper), also: the event has one subscriber for the field
+    ///   (`ValidateEvent::sole_subscriber`) and the Validate is a `Record.Validate` from a test codeunit's own procedures, as
+    ///   in every cell of record/validate/XRecTableProcRoutes.al (corpus PR 1583);
     /// - no trigger or procedure of the record's table or of its table extensions runs on the record (`running_xrecs`): the
     ///   Validate called from one of them was not measured.
     ///
     /// `None` for any other call; `running_call_xrec` then refuses a read of xRec while a validate event of `rc` is raised
     /// (`raised_validate_event_xrec`).
     pub(super) fn validate_event_xrec(&self, object: usize, rc: &Rec, f: &Frame) -> Option<Rec> {
+        let ev = self.validate_events.last()?;
         let ValidateEvent {
             handle,
             xrec,
             depth,
             field_measured,
-        } = self.validate_events.last()?;
+            ..
+        } = ev;
         let table = rc.borrow().table as usize;
         let n = self.frames.len();
         let frame = self.call_stack.last()?;
+        let (sub_o, sub_frame) = (*self.frames.get(*depth)?, *self.call_stack.get(*depth)?);
         let objects = &self.engine.program.objects;
-        let sub = &objects[f.object].routines[f.routine];
+        let sub = &objects[sub_o].routines[sub_frame.routine];
         // Parameters bind by name: the second of three is xRec only when it is a record of the table (review of PR 8307,
         // 2026-11-22: `(var Rec; var CurrFieldNo: Integer; xRec)` is not measured).
-        let declares = match sub.params {
-            1 => true,
-            3 => {
-                sub.by_var.get(1) == Some(&true)
-                    && matches!(sub.locals.get(1).map(|l| &l.ty), Some(RtType::Record(t, _)) if *t as usize == table)
-            }
-            _ => false,
+        let declares_xrec = sub.params == 3
+            && sub.by_var.get(1) == Some(&true)
+            && matches!(sub.locals.get(1).map(|l| &l.ty), Some(RtType::Record(t, _)) if *t as usize == table);
+        // The subscriber calls the procedure itself (`n == depth + 1`, frame `f` is the subscriber's), or, from an
+        // OnAfterValidateEvent, through one helper procedure of its codeunit (`through_helper`, assumed).
+        let (calls, helper) = match n.checked_sub(*depth) {
+            Some(1) => (
+                (sub.params == 1 || declares_xrec)
+                    && matches!(f.locals.first(), Some(Value::Record(p)) if Rc::ptr_eq(p, rc)),
+                false,
+            ),
+            Some(2) => (
+                ev.after && declares_xrec && self.through_helper(sub_o, rc, xrec, table, f),
+                true,
+            ),
+            _ => return None,
         };
+        let run = self.sole_validate_run(*handle)?;
+        let untouched = self.untouched_since(run, rc);
         let measured = *handle == Rc::as_ptr(rc) as usize
-            && n == depth + 1
             && self.frames[n - 1] == f.object
             && frame.routine == f.routine
-            && !frame.event
-            && objects[f.object].kind == ObjKind::Codeunit
-            && !self.engine.object_facts[f.object].manual_subscriber
-            && !self.engine.object_facts[f.object].single_instance
+            && !sub_frame.event
+            && objects[sub_o].kind == ObjKind::Codeunit
+            && !self.engine.object_facts[sub_o].manual_subscriber
+            && !self.engine.object_facts[sub_o].single_instance
             && *field_measured
             && sub
                 .attributes
                 .iter()
                 .any(|a| a.name.eq_ignore_ascii_case("EventSubscriber"))
-            && declares
             && sub.by_var.first() == Some(&true)
-            && matches!(f.locals.first(), Some(Value::Record(p)) if Rc::ptr_eq(p, rc))
+            && calls
             && self.table_or_its_extension(object, table)
-            && self
-                .sole_validate_run(*handle)
-                .is_some_and(|run| self.untouched_since(run, rc))
+            && (untouched || (ev.after && self.changed_after_before_event(run, rc)))
             && self.measured_validate_caller(*handle, *depth, table)
             && self.running_xrecs(table, rc).is_empty();
+        // Every cell of assumption `xrec-table-proc-routes` validates by `Record.Validate` from its test codeunit's own
+        // procedures, with one subscriber of the event (review of PR 9063, 2026-11-25).
+        let routes = helper || !untouched;
+        let routes_measured = ev.sole_subscriber
+            && run.site == Some(ValidateSite::AlRecordValidate)
+            && self.only_test_codeunit_frames(0, n - run.depth);
+        let measured = measured && (untouched && !helper || routes_measured);
+        if measured && routes {
+            assumptions::assume(Assumption::XrecTableProcRoutes);
+        }
         measured.then(|| xrec.clone())
+    }
+
+    /// Whether frame `f`, right above the subscriber's frame, runs one procedure of the subscriber's codeunit `sub_o` that is
+    /// no trigger and has no attributes, called directly (not as an event, not through an interface), whose parameters are the
+    /// record `rc` by `var`, then optionally the event's xRec `xrec` by `var` (a record of table `table`) and a Boolean by
+    /// value: the reporter's `Helper(var Line; var xLine)` (al-runner issue 8974), the probe's `Helper(var Line; var xLine;
+    /// Ext: Boolean)` and `HelperRecOnly(var Line)` (record/validate/XRecTableProcRoutes.al, corpus PR 1583, assumption
+    /// `xrec-table-proc-routes`).
+    fn through_helper(&self, sub_o: usize, rc: &Rec, xrec: &Rec, table: usize, f: &Frame) -> bool {
+        let n = self.frames.len();
+        let cf = self.call_stack[n - 1];
+        let r = &self.engine.program.objects[sub_o].routines[cf.routine];
+        let is_rec = |i: usize, of: &Rec| matches!(f.locals.get(i), Some(Value::Record(p)) if Rc::ptr_eq(p, of));
+        let xrec_param = || {
+            r.by_var.get(1) == Some(&true)
+                && matches!(r.locals.get(1).map(|l| &l.ty), Some(RtType::Record(t, _)) if *t as usize == table)
+                && is_rec(1, xrec)
+        };
+        let params_measured = match r.params {
+            1 => true,
+            2 => xrec_param(),
+            3 => {
+                xrec_param()
+                    && r.by_var.get(2) == Some(&false)
+                    && matches!(r.locals.get(2).map(|l| &l.ty), Some(RtType::Boolean))
+            }
+            _ => false,
+        };
+        self.frames[n - 1] == sub_o
+            && f.object == sub_o
+            && cf.routine == f.routine
+            && !cf.event
+            && !self.iface_frames.contains(&(n - 1))
+            && !r.is_trigger
+            && r.attributes.is_empty()
+            && params_measured
+            && r.by_var.first() == Some(&true)
+            && is_rec(0, rc)
+    }
+
+    /// Whether the record `rc` may hold other fields than the Validate `run` started with, changed only after its
+    /// OnBeforeValidateEvent returned: that event returned with the fields the Validate started with, no record method ran on
+    /// the record (CalcSums among them), CalcFields loaded no Blob field of it and no builtin wrote into a field of it (through
+    /// its receiver or a by-reference operand: `ValidateRun::touched`) since the Validate started, and its buffer came from no
+    /// TransferFields. The probe changed it by an assignment in the field's OnValidate trigger, in a table procedure and in a
+    /// codeunit that trigger calls, and in the subscriber before the call (assumption `xrec-table-proc-routes`:
+    /// record/validate/XRecTableProcRoutes.al, corpus PR 1583; al-runner issue 8974). Writers no cell measures refuse (review of PR 9063, 2026-11-25): a table extension
+    /// OnBeforeValidate or OnAfterValidate of the field (`kept_by_before_event` is then false), another record's fields put into
+    /// the record (`ValidateRun::whole_write`: an assignment, RecordRef.SetTable, Page.GetRecord, Page.SetSelectionFilter), and a change of a field that is no Normal field (CalcFields of a FlowField). Also
+    /// read by `cell_facts` in `running_call_xrec.rs`.
+    pub(super) fn changed_after_before_event(&self, run: &ValidateRun, rc: &Rec) -> bool {
+        let r = rc.borrow();
+        let facts = &self.engine.field_facts[r.table as usize];
+        let normal_changes = r
+            .fields
+            .iter()
+            .zip(run.entered.iter())
+            .enumerate()
+            .all(|(i, (now, then))| {
+                Self::same_values(std::slice::from_ref(now), std::slice::from_ref(then))
+                    || facts.get(i).is_some_and(|f| f.class == al_ir::FieldClass::Normal)
+            });
+        !run.touched
+            && !run.whole_write
+            && run.kept_by_before_event
+            && r.fields.len() == run.entered.len()
+            && normal_changes
+            && r.row_origin.is_none_or(|o| !o.lock_only)
     }
 
     /// Whether the record `rc` is as the Validate `run` found it: no record method ran on it since, its fields are those it had

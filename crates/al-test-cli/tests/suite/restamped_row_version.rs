@@ -1,7 +1,8 @@
 //! Rows whose Insert row version is below one an earlier send of another table handed out (al-vm records/stale.rs
 //! `note_read_for_row_versions`): BC gives them their row version when it sends them (corpus PR 1509, merged, not pinned:
 //! session-system/row-version-writes/RowVersionWrites.al:392 InsertTwoTables `row/other` greater), this runtime keeps the
-//! Insert's. A read of their SystemRowVersion and a find or query that filters or sorts on it are refused; other reads run,
+//! Insert's. A read of their SystemRowVersion is refused (outside the shape of assumption `restamped-row-version-insert-value`), and
+//! a find or query that filters or sorts on it is refused; other reads run,
 //! in install code too, and the rows install code left that way are refused to a test. A Delete, Rename or ModifyAll of a
 //! committed row while the table holds an inserted row keeps the refusal of `last_used_row_version`.
 
@@ -74,6 +75,7 @@ codeunit 69986 T
         TwoTables();
         Row.Get(1);
         V := Row.SystemRowVersion;
+        Error(Format(V));
     end;
 
     [Test]
@@ -84,6 +86,27 @@ codeunit 69986 T
         RecRef.Open(Database::"RS Row");
         RecRef.FindFirst();
         V := RecRef.Field(Row.FieldNo(SystemRowVersion)).Value;
+        Error(Format(V));
+    end;
+
+    [Test]
+    procedure InsertBufferAfterSend()
+    var Row: Record "RS Row"; Other: Record "RS Other"; Row2: Record "RS Row";
+    begin
+        Row.DeleteAll(); Other.DeleteAll(); Commit();
+        Row.Id := 1; Row.Insert();
+        Other.Id := 1; Other.Insert(); Other.Get(1);
+        Row2.FindFirst();
+        if Row.SystemRowVersion > 0 then Error('positive');
+    end;
+
+    [Test]
+    procedure ReReadComparedWithZero()
+    var Row: Record "RS Row";
+    begin
+        TwoTables();
+        Row.Get(1);
+        if not (Row.SystemRowVersion > 0) then Error('not positive');
     end;
 
     [Test]
@@ -130,6 +153,7 @@ codeunit 69986 T
     begin
         A.Get(1);
         V := A.SystemRowVersion;
+        Error(Format(V));
     end;
 
     [Test]
@@ -194,6 +218,11 @@ fn row_versions_of_rows_sent_after_another_table_are_refused_where_they_show() {
     for t in ["FieldRead", "FieldRefRead", "InstallRowsRowVersion"] {
         refused(t, "SystemRowVersion of a row");
     }
+    // The variable's own Insert buffer, read only after the send: main's refusal.
+    refused("InsertBufferAfterSend", "SystemRowVersion of a row");
+    // A re-read row whose Insert buffer was never read, compared with 0: refused (only the Insert buffer read shape of
+    // assumption restamped-row-version-insert-value runs).
+    refused("ReReadComparedWithZero", "SystemRowVersion of a row");
     for t in ["FilterFind", "KeyFind", "QueryColumn"] {
         refused(t, "on SystemRowVersion of a table");
     }

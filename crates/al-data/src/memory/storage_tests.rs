@@ -80,7 +80,7 @@ fn assert_number_order(s: &MemStore, how: &str) {
 fn an_imported_table_keeps_the_number_order_of_its_key() {
     let s = store();
     assert_number_order(&s, "written");
-    let back = MemStore::from_exported(s.export_committed().unwrap());
+    let back = MemStore::from_exported(s.export_committed().unwrap(), &[], &[]);
     assert_number_order(&back, "from_exported");
     let (one, emptied) = s.committed_table("C", 7).unwrap();
     let replaced = MemStore::default().with_committed_tables(vec![(one, emptied)], &[]);
@@ -102,4 +102,19 @@ fn a_view_without_rows_counts_nothing_and_leaves_the_store() {
     assert!(view.get(&cx("C"), &t, &code("9")).unwrap().is_none());
     assert!(s.get(&cx("C"), &t, &code("9")).unwrap().is_some());
     assert_eq!(order(&view).0, ["1", "10"]);
+}
+
+// A table marked as written stays marked in every copy of the store: a clone, a frozen store each thread thaws, a store
+// rebuilt from its export, through commit and rollback (al-vm `records/op_inner.rs`, al-runner issue 8981).
+#[test]
+fn a_written_mark_goes_with_every_copy_of_the_store() {
+    let mut s = store();
+    assert!(!s.was_written(7));
+    s.note_written(7);
+    s.rollback();
+    assert!(s.was_written(7) && s.clone().was_written(7));
+    assert!(FrozenStore::freeze(&s).unwrap().thaw().was_written(7));
+    let rebuilt = MemStore::from_exported(s.export_committed().unwrap(), &[], &[]).with_written(&s.written_tables());
+    assert!(rebuilt.was_written(7) && !rebuilt.was_written(8));
+    assert!(!rebuilt.same_unshown_marks(&MemStore::default()));
 }

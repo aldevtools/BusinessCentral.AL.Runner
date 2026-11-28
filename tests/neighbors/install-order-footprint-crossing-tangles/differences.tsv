@@ -1,9 +1,0 @@
-# key	entry
-# Review round 5 of PR 8865, L15/L16: tangles A1,A2 and B1,B2 (each pair meets), A1 depends on B1, B2 depends on A2.
-# Main: not run (proving A1,A2 installs B1 as A1's dependency but not B2, so B1's meet of B2 is of unknown order and
-# the proof stops). Head: a run installs whole units, and when the units' order cannot be built the final install
-# takes the plan order with the dependencies kept (unit test crossing_tangles_install_in_an_order_the_dependencies_allow).
-RQ ct Tests::A1RowIsConst	PINNED tests/al-language/install-upgrade/install-order/InstallOrderSubscriberTests.al:70
-RQ ct Tests::A2RowIsConst	PINNED tests/al-language/install-upgrade/install-order/InstallOrderSubscriberTests.al:70
-RQ ct Tests::B1RowIsConst	PINNED tests/al-language/install-upgrade/install-order/InstallOrderSubscriberTests.al:70
-RQ ct Tests::B2RowIsConst	PINNED tests/al-language/install-upgrade/install-order/InstallOrderSubscriberTests.al:70

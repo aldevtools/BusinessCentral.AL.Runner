@@ -11,6 +11,7 @@
 //! Rename propagation to related tables. Entry points: `rename_references`, `propagate_rename`.
 
 use crate::Session;
+use crate::rename_short_field::RenameCall;
 use al_builtins::filter::{FieldFilter, FilterExpr};
 use al_builtins::native::{Signal, unsupported};
 use al_builtins::ops;
@@ -118,7 +119,8 @@ impl Session {
         Ok(refs)
     }
 
-    /// After the row at `old` became `new`: rewrites every referencing row.
+    /// After the row at `old` became `new`: rewrites every referencing row. `statement_from_al`: AL code called the
+    /// statement form of Rename (read in the Rename arm before the triggers run).
     pub(crate) fn propagate_rename(
         &mut self,
         rec: &crate::records::Rec,
@@ -126,6 +128,7 @@ impl Session {
         refs: &[RenameRef],
         old: &[Value],
         new: &[Value],
+        statement_from_al: bool,
     ) -> Result<(), Signal> {
         for r in refs {
             let Some(child) = self.engine.tables[r.table].clone() else {
@@ -175,8 +178,24 @@ impl Session {
             if !parent_ok {
                 continue;
             }
-            let old_value = ops::convert(old[rel].clone(), &child.fields[r.pos].ty)?;
-            let new_value = ops::convert(new[rel].clone(), &child.fields[r.pos].ty)?;
+            let ty = &child.fields[r.pos].ty;
+            let (old_value, new_value) = match (ops::convert(old[rel].clone(), ty), ops::convert(new[rel].clone(), ty))
+            {
+                (Ok(o), Ok(n)) => (o, n),
+                (old_value, new_value) => {
+                    // Owned by `rename_short_field.rs`: a measured skip, the measured error, or a refusal.
+                    let call = RenameCall {
+                        rec,
+                        old,
+                        new,
+                        old_converts: old_value.is_ok(),
+                        new_converts: new_value.is_ok(),
+                        statement_from_al,
+                    };
+                    self.rename_unconvertible_reference(&cx, t, &child, r, &call)?;
+                    continue;
+                }
+            };
             // The rows carrying the old value, snapshotted before any is rewritten.
             let filters = [FieldFilter {
                 lang: al_builtins::filter::filter_language(),

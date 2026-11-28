@@ -19,15 +19,20 @@ mod impact_index;
 mod kept_apps;
 mod matrix;
 mod memory_budget;
+mod order_mode;
 mod output;
 mod path_note;
 mod profile;
 mod recipe;
 mod recipe_run;
+mod request_timings;
 mod run;
 mod run_inputs;
+#[cfg(test)]
+mod run_writes_tests;
 mod seed;
 mod serve;
+mod serve_stop;
 mod service_tier;
 mod setup_timings;
 mod sources;
@@ -39,6 +44,7 @@ mod test_suites;
 mod testdata;
 mod unpinned;
 mod version;
+mod workspace_layer;
 
 use args::Command;
 use std::process::ExitCode;
@@ -61,6 +67,14 @@ fn write_permission_shadow(path: &std::ffi::OsStr) {
 fn main() -> ExitCode {
     // Keep the executable open from the start: the build hash of the compile cache is made later (issue 8691).
     let _ = al_testrun::compile_cache::pin_running_executable();
+    let code = run_command();
+    // The workspace layer entries this process writes off the critical path (ADR-022 amendment 2026-11-15, decision 6):
+    // after the results are printed and before the process ends.
+    al_testrun::workspace_cache::wait_for_writes();
+    code
+}
+
+fn run_command() -> ExitCode {
     let shadow = std::env::var_os("AL_PERMISSION_SHADOW");
     if shadow.is_some() {
         al_builtins::permission_shadow::enable();
@@ -192,6 +206,10 @@ fn real_main() -> ExitCode {
                 ),
                 (Why::Unused, "unused for 30 days"),
                 (Why::Temp, "leftover temporary file"),
+                (
+                    Why::OverLimit,
+                    "a workspace layer entry beyond the newest 4 of its project",
+                ),
             ] {
                 let (n, b) = r.count_of(why);
                 if n > 0 {

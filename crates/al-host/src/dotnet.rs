@@ -46,6 +46,8 @@ pub enum DotNetValue {
     Str(String),
     /// `System.DateTime` as ticks of 100 ns since 0001-01-01, kind unspecified.
     DateTime(i64),
+    /// `System.DateTime` as ticks, kind `Utc`. Only the VM sends it, for the calls `al-vm` `dotnet/zone_rules.rs` names.
+    DateTimeUtc(i64),
     /// `System.TimeSpan` in ticks of 100 ns.
     TimeSpan(i64),
     Guid([u8; 16]),
@@ -107,6 +109,9 @@ pub struct StreamEffects {
     /// The bridges a .NET write went over bytes they had handed back, or set below them, since the last reply: the VM marks
     /// their Blobs (`al_builtins::stream::DOTNET_BRIDGE_OVERWRITTEN`).
     pub overwritten: Vec<u64>,
+    /// The bridges whose whole content the one pinned writer rewrote (a ZipArchive opened in Update mode, disposed; al-runner
+    /// issue 8360), as (bridge id, bytes the Blob held before the call, the whole new content): the VM replaces the Blob's bytes.
+    pub replaced: Vec<(u64, usize, Vec<u8>)>,
     /// The helper bound an AL Text argument to a `System.Guid` parameter (assumption `dotnet-text-argument-as-guid`); the VM marks it.
     pub text_converted_to_guid: bool,
 }

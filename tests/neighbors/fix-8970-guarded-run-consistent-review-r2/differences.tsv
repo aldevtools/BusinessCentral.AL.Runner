@@ -1,2 +1,0 @@
-# key	entry
-GS Tests::ScopeInsideOuter_OuterFails	ASSUMED guarded-run-consistent-end (corpus PR 1568, Preview_OuterGuardedRun_InnerStartsStateAndFails)

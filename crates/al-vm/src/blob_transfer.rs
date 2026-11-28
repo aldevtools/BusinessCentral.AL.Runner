@@ -247,7 +247,8 @@ pub(crate) fn new_variable(v: &Value, commits: u64, sources: &mut Sources) {
 /// records. Every other non-zero `RecordState::probed_source` comes from one of these (a clone gives 0), so while `records`
 /// is `false` no record of the session is a measured source and [`records_into_builtin`] has nothing to end. `table_copies`
 /// says the same of a [`TABLE_COPY`] record: only `Session::gettable_copy` stamps one, and adopted single instances may
-/// hold one. Neither is ever reset.
+/// hold one. Neither is ever reset within a session. A session that starts from what install code left starts with both
+/// `false` (`install_left.rs`, issue 9227): it holds none of the install session's records.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct Sources {
     records: bool,
@@ -255,11 +256,6 @@ pub(crate) struct Sources {
 }
 
 impl Sources {
-    /// Holds what a new session holds (`install_left.rs`): no record marked.
-    pub(crate) fn as_new(self) -> bool {
-        self == Sources::default()
-    }
-
     /// Whether any record of the session may be a measured source.
     #[inline]
     pub(crate) fn any(self) -> bool {
@@ -351,7 +347,7 @@ fn end_record_table_copy(r: &Rc<RefCell<RecordState>>) {
 }
 
 /// The record a RecordRef, FieldRef or KeyRef value works on.
-fn ref_record(v: &Value) -> Option<Rc<RefCell<RecordState>>> {
+pub(crate) fn ref_record(v: &Value) -> Option<Rc<RefCell<RecordState>>> {
     let Value::Library(_, lib) = v else {
         return None;
     };
