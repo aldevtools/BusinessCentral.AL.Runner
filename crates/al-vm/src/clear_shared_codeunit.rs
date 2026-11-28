@@ -82,9 +82,10 @@ impl Session {
                     // the owner, no cell measures it (1596 always has the caller hold it).
                     // A store of corpus PR 1672 that only a back link shares is measured (BackOnly_ClearAll,
                     // ClearSharedCodeunitSelfHoldNested.al:518; assumption clear-all-self-holding-tree).
-                    let store = rc.borrow().object as usize;
-                    let self_tree = self.store_kind_in(owner, store) == Some(Store::SelfTree);
-                    if shared && holders - self.back_links(rc) <= 2 && !self_tree {
+                    if shared
+                        && holders - self.back_links(rc) <= 2
+                        && self.store_kind_in(owner, rc.borrow().object as usize) != Some(Store::SelfTree)
+                    {
                         return Err(Signal::unsupported(
                             "ClearAll of a global codeunit variable that only a codeunit nested in it shares, in a \
                              shape the corpus does not pin",
@@ -595,6 +596,16 @@ impl Session {
         })
     }
 
+    /// Whether `object` is a codeunit with no TableNo, SingleInstance exactly when `single`, whose every global is one
+    /// `kind` admits.
+    fn leaf_codeunit(&self, object: usize, single: bool, kind: &dyn Fn(&al_ir::Slot) -> bool) -> bool {
+        let o = &self.engine.program.objects[object];
+        o.kind == al_ir::ObjKind::Codeunit
+            && self.engine.object_facts[object].single_instance == single
+            && o.rec_slot.is_none()
+            && o.globals.iter().all(kind)
+    }
+
     /// The first global of SingleInstance codeunit `object`, held at nesting `depth` below a register of
     /// [`Session::single_register_unpinned`], that ClearSharedCodeunitNestedSingleInstance.al does not measure: `None` when
     /// every global is an Integer, a temporary record, a `Label 'text', Comment = 'text'`, a `Label 'text', Locked = true`
@@ -608,18 +619,12 @@ impl Session {
     /// 'text'` ("CSW D3" :228-232 in "CSW D2Si" :246-252, Deep_OwnerClearAll :451).
     fn single_instance_unpinned(&self, object: usize, depth: u8, wide: bool) -> Option<Unpinned> {
         let objects = &self.engine.program.objects;
-        let leaf_of = |c: usize, single: bool, kind: &dyn Fn(&al_ir::Slot) -> bool| {
-            objects[c].kind == al_ir::ObjKind::Codeunit
-                && self.engine.object_facts[c].single_instance == single
-                && objects[c].rec_slot.is_none()
-                && objects[c].globals.iter().all(kind)
-        };
-        let leaf = |c: usize| leaf_of(c, false, &|g| !g.label && matches!(g.ty, RtType::Integer));
+        let leaf = |c: usize| self.leaf_codeunit(c, false, &|g| !g.label && matches!(g.ty, RtType::Integer));
         let whse = wide && depth == 2;
         let whse_leaf = |c: usize| {
-            leaf_of(c, true, &|g| {
+            self.leaf_codeunit(c, true, &|g| {
                 !g.label && matches!(g.ty, RtType::Integer | RtType::Boolean)
-            }) || leaf_of(c, false, &|g| {
+            }) || self.leaf_codeunit(c, false, &|g| {
                 g.comment_label || !g.label && matches!(g.ty, RtType::Integer | RtType::Record(_, false))
             })
         };

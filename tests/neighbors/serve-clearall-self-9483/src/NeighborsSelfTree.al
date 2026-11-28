@@ -633,3 +633,196 @@ codeunit 88152 "CSN Refused_VariantSessHolder"
         VSess.Drop();
     end;
 }
+
+// The probe's store with a TableNo.
+codeunit 88153 "CSN TNo Self Store"
+{
+    TableNo = "Probe Observer Entry";
+
+    var
+        Value: Integer;
+        Myself: Codeunit "CSN TNo Self Store";
+
+    procedure Init(ThisIn: Codeunit "CSN TNo Self Store")
+    begin
+        Myself := ThisIn;
+    end;
+
+    procedure SetValue(NewValue: Integer)
+    begin
+        Value := NewValue;
+    end;
+
+    procedure GetValue(): Integer
+    begin
+        exit(Value);
+    end;
+}
+
+codeunit 88154 "CSN Refused_TableNoStore"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        TS: Codeunit "CSN TNo Self Store";
+
+    local procedure Check(Actual: Integer; Expected: Integer)
+    begin
+        if Actual <> Expected then
+            Error('expected %1, got %2', Expected, Actual);
+    end;
+
+    [Test]
+    procedure Refused_TableNoStore()
+    begin
+        Clear(TS);
+        TS.Init(TS);
+        TS.SetValue(42);
+        ClearAll();
+        Check(TS.GetValue(), 0);
+    end;
+}
+
+// The probe's store with a Label global.
+codeunit 88155 "CSN Label Store"
+{
+    var
+        Value: Integer;
+        Myself: Codeunit "CSN Label Store";
+        Caption: Label 'x';
+
+    procedure Init(ThisIn: Codeunit "CSN Label Store")
+    begin
+        Myself := ThisIn;
+    end;
+
+    procedure SetValue(NewValue: Integer)
+    begin
+        Value := NewValue + StrLen(Caption) - 1;
+    end;
+
+    procedure GetValue(): Integer
+    begin
+        exit(Value);
+    end;
+}
+
+codeunit 88156 "CSN Refused_LabelGlobal"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        LS: Codeunit "CSN Label Store";
+
+    local procedure Check(Actual: Integer; Expected: Integer)
+    begin
+        if Actual <> Expected then
+            Error('expected %1, got %2', Expected, Actual);
+    end;
+
+    [Test]
+    procedure Refused_LabelGlobal()
+    begin
+        Clear(LS);
+        LS.Init(LS);
+        LS.SetValue(42);
+        ClearAll();
+        Check(LS.GetValue(), 0);
+    end;
+}
+
+// Two test locals on the store's nested Line instance: two outside holders of a nested instance.
+codeunit 88157 "CSN Refused_TwoLineHandles"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        S: Codeunit "CSH Line Store";
+
+    local procedure Check(Actual: Integer; Expected: Integer)
+    begin
+        if Actual <> Expected then
+            Error('expected %1, got %2', Expected, Actual);
+    end;
+
+    [Test]
+    procedure Refused_TwoLineHandles()
+    var
+        Sess: Codeunit "CSH Line Sess";
+        L1: Codeunit "CSH Line";
+        L2: Codeunit "CSH Line";
+    begin
+        Sess.Reset();
+        Sess.Start();
+        Clear(S);
+        Sess.GetSale(S);
+        S.SetLineVal(3);
+        S.GetLine(L1);
+        S.GetLine(L2);
+        ClearAll();
+        Check(L1.GetVal(), 0);
+    end;
+}
+
+// A store that holds a second called instance of its own codeunit, which a test local also holds.
+codeunit 88158 "CSN Two Store"
+{
+    var
+        Value: Integer;
+        Myself: Codeunit "CSN Two Store";
+        Other: Codeunit "CSN Two Store";
+
+    procedure Init(ThisIn: Codeunit "CSN Two Store")
+    begin
+        Myself := ThisIn;
+        Other.SetValue(1);
+    end;
+
+    procedure SetValue(NewValue: Integer)
+    begin
+        Value := NewValue;
+    end;
+
+    procedure GetValue(): Integer
+    begin
+        exit(Value);
+    end;
+
+    procedure GetOther(var O: Codeunit "CSN Two Store")
+    begin
+        O := Other;
+    end;
+}
+
+codeunit 88159 "CSN Refused_SecondStoreHeld"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+
+    var
+        S: Codeunit "CSN Two Store";
+
+    local procedure Check(Actual: Integer; Expected: Integer)
+    begin
+        if Actual <> Expected then
+            Error('expected %1, got %2', Expected, Actual);
+    end;
+
+    [Test]
+    procedure Refused_SecondStoreHeld()
+    var
+        T: Codeunit "CSN Two Store";
+        O: Codeunit "CSN Two Store";
+    begin
+        Clear(S);
+        S.Init(S);
+        S.GetOther(O);
+        T := S;
+        S.SetValue(42);
+        ClearAll();
+        Check(O.GetValue(), 0);
+    end;
+}

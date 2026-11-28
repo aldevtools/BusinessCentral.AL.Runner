@@ -74,11 +74,7 @@ impl Session {
     /// Whether codeunit `object` is SingleInstance, has no TableNo and declares only Integers ("CSH Deep Setup",
     /// ClearSharedCodeunitSelfHoldNested.al:788-793): it keeps its state (DeepSess_ClearAll :874, 'setup' 6).
     fn self_tree_setup(&self, object: usize) -> bool {
-        let o = &self.engine.program.objects[object];
-        o.kind == al_ir::ObjKind::Codeunit
-            && self.engine.object_facts[object].single_instance
-            && o.rec_slot.is_none()
-            && o.globals.iter().all(|g| !g.label && matches!(g.ty, RtType::Integer))
+        self.leaf_codeunit(object, true, &|g| !g.label && matches!(g.ty, RtType::Integer))
     }
 
     /// Whether the holders of store instance `rc` of a [`Session::self_tree`], met by `ClearAll()` in its owner, are those
@@ -108,7 +104,7 @@ impl Session {
         let mut nested = 0;
         for r in &reached[1..] {
             match (r.object == store, outside(r)) {
-                (true, Some(0)) | (false, Some(0)) => {}
+                (_, Some(0)) => {}
                 (false, Some(1)) => nested += 1,
                 _ => return false,
             }

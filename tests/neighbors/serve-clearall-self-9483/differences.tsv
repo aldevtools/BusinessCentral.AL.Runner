@@ -27,4 +27,3 @@ CSH Deep Tests::DeepSess_L3Handle_ClearAll	ASSUMED clear-all-self-holding-tree (
 CSH Deep Tests::DeepOnly_ClearAll	ASSUMED clear-all-self-holding-tree (open corpus PR 1672, ClearSharedCodeunitSelfHoldNested.al:937)
 CSH Deep Tests::DeepSess_ClearAllAtEnd	ASSUMED clear-all-self-holding-tree (open corpus PR 1672, ClearSharedCodeunitSelfHoldNested.al:960)
 CSH Chain Tests::ChainSess_ClearAll	ASSUMED clear-all-self-holding-tree (open corpus PR 1672, ClearSharedCodeunitSelfHoldNested.al:1146)
-CSN Refused_VariantSessHolder::Refused_VariantSessHolder	REFUSED ClearAll of a global codeunit variable whose instance another variable shares
