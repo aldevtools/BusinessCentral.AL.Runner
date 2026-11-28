@@ -1,6 +1,6 @@
 # key	entry
 # Main stored the content of a Blob that was never loaded (or wrote it over the row on Modify); head writes none, through
-# the assumption: corpus PR 1631 (merged, not pinned yet), 31 tests measured on a local Business Central and on every
+# the assumption: corpus PRs 1631 and 1654 (merged, not pinned yet), measured on a local Business Central and on every
 # supported major by the corpus CI (issue 9286).
 NB BI Case 01::Assign_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al C01)
 NB BI Case 07::SameVariable_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al C02)
@@ -17,3 +17,24 @@ NB BI Case 19::ChangeCompany_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored 
 NB BI Case 20::Assign_NoCalc_Insert_OwnCalcFields	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al I4)
 NB BI Case 21::ClearedRow_NoCalc_Modify	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al R1)
 NB BI Case 23::OtherCompany_NoSwitch_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1631, BlobInsertUnloaded.al R3)
+NB BI Case 24::GuardedInsert_Exists_Modify_CalcFields	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al F1)
+NB BI Case 25::GuardedInsert_OwnKey_CalcFields	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al F2)
+NB BI Case 26::AssertErrorInsert_CalcFields	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al F3)
+NB BI Case 27::Insert_Modify_OwnCalcFields	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al S1)
+NB BI Case 28::Insert_OtherWrite_OwnCalcFields	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al S2)
+NB BI Case 29::Insert_Delete_OwnCalcFields	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al S4)
+NB BI Case 30::Insert_Get_OwnCalcFields	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al S5)
+NB BI Case 31::Insert_SecondInsert_OwnCalcFields	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al S6)
+NB BI Case 32::Insert_Commit_OwnCalcFields	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al S3)
+NB BI Case 33::FindLast_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al O1)
+NB BI Case 34::Next_NoCalc_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al O5)
+NB BI Case 35::RecordRefOpen_FindFirst_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al O6)
+NB BI Case 36::ModifyTrue_OntoOther	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al M4)
+NB BI Case 37::RecordRefModify_OntoOther	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al M5)
+NB BI Case 38::ByValueModify_OntoOther	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al M6)
+NB BI Case 39::TempRename_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al T1)
+NB BI Case 40::TempRename_Modify	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al T2)
+NB BI Case 41::GuardedInsert_Exists_CalcFields	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al F4)
+NB BI Case 42::SetTable_FindFirst_Insert	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al O7)
+NB BI Case 44::RecordRefInsert_OwnBlob	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al O6b)
+NB BI Case 45::Insert_OtherWrite_Stored	ASSUMED blob-never-loaded-not-stored (corpus PR 1654, BlobInsertUnloadedOrigin.al S2b)

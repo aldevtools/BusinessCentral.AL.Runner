@@ -73,10 +73,12 @@ impl Session {
     /// another row; codeunit 73782 M1 the key it was read under, M2 a stale buffer whose row another variable changed,
     /// M3 Insert then Modify of the same variable, R1 a row another variable cleared; codeunit 73783 M4 Modify(true),
     /// M5 RecordRef.Modify, M6 a by-value copy modified in the callee). The row as it was read holds the same bytes
-    /// (streams/BlobCopyStates.al:1219 `bv get row`). A temporary record is not measured and stores as before. Then the
-    /// Blobs are marked as not an Insert's.
+    /// (streams/BlobCopyStates.al:1219 `bv get row`). A temporary record, and one that called ChangeCompany (M7), are
+    /// not served and store as before. Then the Blobs are marked as not an Insert's.
     pub(crate) fn blobs_to_modify(rec: &Rec, stored: &mut [Value], old: Option<&[Value]>) {
-        if let (Some(old), false) = (old, rec.borrow().temporary) {
+        // Not served: a record that called ChangeCompany (M7, BC raises DB:RecordChanged, the runner modifies the row).
+        let measured = !rec.borrow().temporary && !rec.borrow().change_company_called;
+        if let (Some(old), true) = (old, measured) {
             for (i, v) in rec.borrow().fields.iter().enumerate() {
                 let (Value::Blob(b), Value::Blob(o)) = (v, &old[i]) else {
                     continue;
