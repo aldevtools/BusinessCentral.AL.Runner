@@ -35,6 +35,7 @@ codeunit 423 "Change Log Management" { SingleInstance = true;
     procedure Load() begin if ChangeLogSetupRead then exit; if ChangeLogSetup.Get() then; ChangeLogSetupRead := true; MonitorSensitiveFieldSetupRead := true; end;
     procedure IsRead(): Boolean begin exit(ChangeLogSetupRead); end;
     procedure Reset() begin ChangeLogSetupRead := false; MonitorSensitiveFieldSetupRead := false; end;
+    procedure MarkMonitor() begin MonitorSensitiveFieldSetupRead := true; end;
     [EventSubscriber(ObjectType::Codeunit, Codeunit::GlobalTriggerManagement, 'OnAfterGetDatabaseTableTriggerSetup', '', false, false)]
     local procedure S(TableId: Integer; var OnDatabaseInsert: Boolean; var OnDatabaseModify: Boolean; var OnDatabaseDelete: Boolean; var OnDatabaseRename: Boolean)
     begin if TableId = 60805 then Load(); end;
@@ -202,10 +203,19 @@ fn change_log_loaded_in_the_ask_then_loaded_by_the_test_is_kept() {
     assert_flagged(got, "partner-login-microsoft-cache");
 }
 
-// Not measured: 423 loaded by a direct call, reset, then loaded again on the insert event (changed outside a raise too).
+// Review of al-runner PR 9028 (MED-1): 423 loaded by a direct call and reset before the insert event loads it. The watch
+// compares values at each raise boundary, so the undone change leaves no trace: the insert event starts from the state
+// cell M3 starts from, and the test reads what M3 measured.
 #[test]
-fn change_log_loaded_directly_then_on_insert_refuses() {
+fn change_log_loaded_and_reset_directly_then_on_insert_is_kept() {
     let first = "C.Load(); C.Reset(); P.K := 1; P.Insert();";
+    assert_flagged(run(&partner(first, ""), READ_423), "partner-login-microsoft-cache");
+}
+
+// Not measured (MED-1): one global of 423 changed by a direct call, outside any raise, the other on the insert event.
+#[test]
+fn change_log_changed_directly_then_on_insert_refuses() {
+    let first = "C.MarkMonitor(); P.K := 1; P.Insert();";
     assert_refused(run(&partner(first, ""), READ_423), "not one of the caches");
 }
 
