@@ -256,6 +256,7 @@ al-testkit     dev only: compile AL from a string and run a routine     al-testf
 - `refusal_keys.rs`: The refusal key lists of every crate that refuses. Entry: `LISTS`.
 - `not_passing.rs`: ADR-065, the lists of the cases the runtime does… Entry: `check`.
 - `base_oracle.rs`: The base branch's oracle and lists. Entry: `Base`.
+- `rename_map.rs`: Case keys through the corpus rename map at a pin move (ADR-065 amendment 1). Entry: `carry`.
 - `lib.rs`: Runs the corpus's `[Test]` codeunits and reports…
 - `main.rs`: The binary: run each oracle version, report. Entry: `main`.
 - `oracle.rs`: The oracle: JUnit and xUnit cases of real BC, identified by. Entry: `CaseId`.
