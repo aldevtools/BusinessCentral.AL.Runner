@@ -2069,30 +2069,73 @@ codeunit 50000 T {{ Subtype = Test;
              while not InS.EOS() do begin InS.Read(B); N += 1; end; if N <> {len} then Error('length %1', N);"
         )
     };
-    let g = || Some(al_ir::AppLogo::File(include_bytes!("../fixtures/jpeg/base535x534.jpg").to_vec()));
+    let g = || {
+        Some(al_ir::AppLogo::File(
+            include_bytes!("../fixtures/jpeg/base535x534.jpg").to_vec(),
+        ))
+    };
     let e = || Some(al_ir::AppLogo::File(XAPP_E_JPEG.to_vec()));
     let assumed = [al_builtins::assumptions::Assumption::AppLogoJpegSizes];
     for target in ["27.5", "29.0"] {
-        let o = run_over_system_as(Some(target), MAIN_ID, g(), None, &main("Id", &size(535, 534, "image/jpeg")));
-        assert_eq!((&o[0].1, &o[0].2[..]), (&Outcome::Pass, &assumed[..]), "{target} G: {o:?}");
+        let o = run_over_system_as(
+            Some(target),
+            MAIN_ID,
+            g(),
+            None,
+            &main("Id", &size(535, 534, "image/jpeg")),
+        );
+        assert_eq!(
+            (&o[0].1, &o[0].2[..]),
+            (&Outcome::Pass, &assumed[..]),
+            "{target} G: {o:?}"
+        );
         let o = run_over_system_as(Some(target), MAIN_ID, g(), None, &main("Id", &length(14191)));
         assert!(
             matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Guided Experience icon of a JPEG logo")),
             "{target} G content: {o:?}"
         );
         let o = run_over_system_as(Some(target), MAIN_ID, e(), None, &main("Id", &size(8, 8, "image/jpeg")));
-        assert_eq!((&o[0].1, &o[0].2[..]), (&Outcome::Pass, &assumed[..]), "{target} E: {o:?}");
+        assert_eq!(
+            (&o[0].1, &o[0].2[..]),
+            (&Outcome::Pass, &assumed[..]),
+            "{target} E: {o:?}"
+        );
         let o = run_over_system_as(Some(target), MAIN_ID, e(), None, &main("Id", &length(307)));
-        assert_eq!((&o[0].1, &o[0].2[..]), (&Outcome::Pass, &assumed[..]), "{target} E content: {o:?}");
+        assert_eq!(
+            (&o[0].1, &o[0].2[..]),
+            (&Outcome::Pass, &assumed[..]),
+            "{target} E content: {o:?}"
+        );
     }
     // Not the measured call: a text description (main's 0 x 0 stays); BC 28 (main's answer for the pinned 8 x 8 logo).
-    let o = run_over_system_as(Some("29.0"), MAIN_ID, g(), None, &main("'a logo'", &size(0, 0, "application/octet-stream")));
+    let o = run_over_system_as(
+        Some("29.0"),
+        MAIN_ID,
+        g(),
+        None,
+        &main("'a logo'", &size(0, 0, "application/octet-stream")),
+    );
     assert_eq!(o[0].1, Outcome::Pass, "text description: {o:?}");
-    let o = run_over_system_as(Some("28.5"), MAIN_ID, e(), None, &main("Id", &size(0, 0, "application/octet-stream")));
+    let o = run_over_system_as(
+        Some("28.5"),
+        MAIN_ID,
+        e(),
+        None,
+        &main("Id", &size(0, 0, "application/octet-stream")),
+    );
     assert_eq!((&o[0].1, o[0].2.is_empty()), (&Outcome::Pass, true), "28.5 E: {o:?}");
     // The logo's own Media row: a column the probe does not observe refuses.
-    let o = run_over_system_as(Some("29.0"), MAIN_ID, g(), None, &main("Id", "if Media.Description <> '' then Error('d');"));
-    assert!(matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Description")), "G Description: {o:?}");
+    let o = run_over_system_as(
+        Some("29.0"),
+        MAIN_ID,
+        g(),
+        None,
+        &main("Id", "if Media.Description <> '' then Error('d');"),
+    );
+    assert!(
+        matches!(&o[0].1, Outcome::NotRun(why) if why.contains("Description")),
+        "G Description: {o:?}"
+    );
 }
 
 /// JPEG files built otherwise than the measured logo [`XAPP_E_JPEG`]: progressive (start-of-frame FF C2), cut after the

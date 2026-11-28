@@ -11,3 +11,7 @@ Logo Icon E Tests::DirectImportE_GuidDescription_Size	ASSUMED app-logo-jpeg-size
 Logo Icon E Tests::IconE_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a clean pass on main becomes flagged: the bytes are main's answer, the mark is per row)	29
 Logo Icon E Tests::CountOfJpegTenantMedia	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a reader of the mark: main counts 0 image/jpeg rows)	27
 Logo Icon E Tests::CountOfJpegTenantMedia	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a reader of the mark: main counts 0 image/jpeg rows)	29
+Logo Icon E Tests::DirectImportH16x8File_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a user import of the 16 x 8 file, the measured call; main fails with 0 x 0)	27
+Logo Icon E Tests::DirectImportH16x8File_ContentLength	REFUSED the stored Tenant Media content of the Guided Experience icon of a JPEG logo	27
+Logo Icon E Tests::DirectImportH16x8File_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a user import of the 16 x 8 file, the measured call; main fails with 0 x 0)	29
+Logo Icon E Tests::DirectImportH16x8File_ContentLength	REFUSED the stored Tenant Media content of the Guided Experience icon of a JPEG logo	29

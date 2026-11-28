@@ -153,4 +153,54 @@ codeunit 50184 "Logo Icon E Tests"
         if TenantMedia.Count() < 1 then
             Error('count %1', TenantMedia.Count());
     end;
+
+    // A user import of the 16 x 8 logo file of corpus PR 1594 (not an app logo), two arguments with a Guid description, into an
+    // empty Media field: the measured call, so head gives the measured size and refuses a look at the content.
+    local procedure ImportH16x8File(No: Integer; var TenantMedia: Record "Tenant Media")
+    var
+        Holder: Record "Logo Icon Holder";
+        TempBlob: Codeunit "Temp Blob";
+        Base64: Codeunit "Base64 Convert";
+        OutS: OutStream;
+        InS: InStream;
+        B64: Text;
+    begin
+        B64 += '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAx';
+        B64 += 'NDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIy';
+        B64 += 'MjIyMjIyMjL/wAARCAAIABADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUF';
+        B64 += 'BAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVW';
+        B64 += 'V1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi';
+        B64 += '4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAEC';
+        B64 += 'AxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVm';
+        B64 += 'Z2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq';
+        B64 += '8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDkKKKK8U/TD//Z';
+        TempBlob.CreateOutStream(OutS);
+        Base64.FromBase64(B64, OutS);
+        TempBlob.CreateInStream(InS);
+        Holder."No." := No;
+        Holder.Picture.ImportStream(InS, CreateGuid());
+        Holder.Insert();
+        TenantMedia.SetRange(ID, Holder.Picture.MediaId());
+        TenantMedia.FindFirst();
+    end;
+
+    [Test]
+    procedure DirectImportH16x8File_Size()
+    var
+        TenantMedia: Record "Tenant Media";
+    begin
+        ImportH16x8File(3, TenantMedia);
+        CheckSize(TenantMedia, 16, 8);
+    end;
+
+    // Main answers the file's bytes; head refuses (Windows rewrites 3 header bytes).
+    [Test]
+    procedure DirectImportH16x8File_ContentLength()
+    var
+        TenantMedia: Record "Tenant Media";
+    begin
+        ImportH16x8File(4, TenantMedia);
+        if ContentLength(TenantMedia) <> 633 then
+            Error('length');
+    end;
 }

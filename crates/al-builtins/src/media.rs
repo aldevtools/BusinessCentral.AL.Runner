@@ -204,7 +204,7 @@ pub fn measured_jpeg_logo(b: &[u8], target: Option<&al_version::Target>) -> Opti
     match (jfif_logo_size(b), jfif_progressive_logo_size(b)) {
         (Some((8, 8)), None) => Some(MeasuredJpegLogo::Fixture8x8),
         (Some((w, h)), None) if PROBED_BASELINE_SIZES.contains(&(w, h)) => Some(MeasuredJpegLogo::Sized(w, h)),
-        (None, Some(PROBED_PROGRESSIVE_SIZE)) => Some(MeasuredJpegLogo::Sized(PROBED_PROGRESSIVE_SIZE.0, PROBED_PROGRESSIVE_SIZE.1)),
+        (None, Some((w, h))) if (w, h) == PROBED_PROGRESSIVE_SIZE => Some(MeasuredJpegLogo::Sized(w, h)),
         _ => None,
     }
 }
@@ -213,7 +213,12 @@ pub fn measured_jpeg_logo(b: &[u8], target: Option<&al_version::Target>) -> Opti
 /// with `Icon.ImportStream(IconInStream, ExtensionId)` (two arguments, the app id as a Guid, into the Icon of a new item) when the
 /// stream holds such a logo (UsAppLogoJpegSizes.al UsLogo_GuidedExperienceIcon_*: Height and Width of the picture on every
 /// host, Mime Type image/jpeg on Windows BC 27.5 and 29.0). `description_is_guid`: the second argument was a Guid.
-fn measured_logo_icon(c: &dyn Ctx, bytes: &[u8], call: StreamCall, description_is_guid: bool) -> Option<MeasuredJpegLogo> {
+fn measured_logo_icon(
+    c: &dyn Ctx,
+    bytes: &[u8],
+    call: StreamCall,
+    description_is_guid: bool,
+) -> Option<MeasuredJpegLogo> {
     let icon_call = StreamCall {
         args: 2,
         into_empty_media: true,

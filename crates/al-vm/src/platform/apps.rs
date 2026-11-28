@@ -285,8 +285,16 @@ pub(super) fn logo_media_row(p: &Providers, t: &TableDef, media_id: [u8; 16]) ->
     };
     // The assumption's probe observes only these columns (UsAppLogoJpegSizes.al:96-121); the others are pinned for the 8 x 8
     // logo alone (UsAppLogoJpeg.al:112-114), so a read of one refuses.
-    let observed = [pos(t, 1), field("Content")?, field("Mime Type")?, field("Height")?, field("Width")?];
-    let whose = format!("the logo of app '{app}' (open corpus PR 1594 observes only its ID, Content, Mime Type, Height and Width)");
+    let observed = [
+        pos(t, 1),
+        field("Content")?,
+        field("Mime Type")?,
+        field("Height")?,
+        field("Width")?,
+    ];
+    let whose = format!(
+        "the logo of app '{app}' (open corpus PR 1594 observes only its ID, Content, Mime Type, Height and Width)"
+    );
     for (i, f) in t.fields.iter().enumerate().filter(|(i, _)| !observed.contains(i)) {
         r[i] = super::unknown(t, f.id, &whose);
     }
@@ -342,7 +350,8 @@ fn served_logo<'a>(
         assumed,
     };
     if row_assumed.is_none()
-        && let Some(al_builtins::media::MeasuredJpegLogo::Sized(w, h)) = al_builtins::media::measured_jpeg_logo(bytes, target)
+        && let Some(al_builtins::media::MeasuredJpegLogo::Sized(w, h)) =
+            al_builtins::media::measured_jpeg_logo(bytes, target)
     {
         let assumed = Some(al_builtins::assumptions::Assumption::AppLogoJpegSizes);
         return picture((w, h), "image/jpeg", assumed);
