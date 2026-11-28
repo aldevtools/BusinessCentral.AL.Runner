@@ -209,8 +209,7 @@ pub(crate) fn singles_changed(
                     .filter(|&(i, _)| !y.declared[i])
                     .map(|(_, g)| g)
                     .collect(),
-                (Some(x), _) => stamped(only, o, x.count).into_iter().collect(),
-                (None, Some(y)) => stamped(only, o, y.count).into_iter().collect(),
+                (Some(s), _) | (None, Some(s)) => stamped(only, o, s.count).into_iter().collect(),
                 (None, None) => BTreeSet::new(),
             };
             (!changed.is_empty()).then_some((o, changed))
