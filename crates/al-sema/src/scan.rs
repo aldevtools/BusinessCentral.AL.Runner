@@ -330,13 +330,17 @@ mod tests {
     /// Every text of up to `len` characters over an alphabet that exercises the scanners: both quotes, parentheses,
     /// both separators, a space, a letter, a non-ASCII character.
     fn texts(len: usize) -> Vec<String> {
-        const A: [char; 9] = ['"', '\'', '(', ')', ',', '=', ' ', 'a', 'é'];
+        texts_of(&['"', '\'', '(', ')', ',', '=', ' ', 'a', 'é'], len)
+    }
+
+    /// Every text of up to `len` characters of alphabet `a`.
+    fn texts_of(a: &[char], len: usize) -> Vec<String> {
         let mut all = vec![String::new()];
         let mut layer = vec![String::new()];
         for _ in 0..len {
             let mut next = Vec::new();
             for s in &layer {
-                for c in A {
+                for &c in a {
                     let mut t = s.clone();
                     t.push(c);
                     next.push(t);
@@ -367,6 +371,23 @@ mod tests {
                 );
             }
             assert_eq!(split_slices(&t, ','), legacy_split_commas(&t), "slices {t:?}");
+        }
+    }
+
+    /// The dot, the one separator the two replaced name splitters were called with (column sources, dotted object names).
+    #[test]
+    fn the_name_splitter_gives_what_both_replaced_splitters_gave_at_dots() {
+        for t in texts_of(&['"', '.', '(', ')', ' ', 'a', 'é'], 7) {
+            assert_eq!(
+                split_names(&t, '.'),
+                legacy_members_split_outside_quotes(&t, '.'),
+                "members {t:?}"
+            );
+            assert_eq!(
+                split_names(&t, '.'),
+                legacy_reports_split_outside_quotes(&t, '.'),
+                "reports {t:?}"
+            );
         }
     }
 

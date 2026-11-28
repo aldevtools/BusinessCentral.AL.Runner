@@ -436,7 +436,9 @@ pub enum Gate {
     /// `Format` of a Decimal field with `AutoFormatType = 1` (an amount) rounds to 2 decimals from BC 28, under the default format
     /// and under `<Standard Format,2>` and format number 2 or 9; BC 27 writes every digit
     /// (format-evaluate/AtPrecisionStandardFormat2.al:684-723, :749-788; corpus bump 49). Consumed by
-    /// `al-builtins` `format_decimal_field` through `FormatCtx::format_gate`, for a type 1 field without AutoFormatExpression.
+    /// `al-builtins` `format_decimal_field` through `FormatCtx::format_gate`, for a type 1 field without AutoFormatExpression, and
+    /// by `al-vm` `column_formatter.rs`: the `decimalformatter` of a report column over a type 1 field with DecimalPlaces 0:3 is
+    /// `#,##0.00` from BC 28 and `#,##0.###` on BC 27 (reports/dataset/ReportColumnFormatsHeaderRest.al:123, :125).
     AutoFormatAmountFieldRoundsFrom28,
     /// Microsoft's test runner leaves six frames below the test procedure in the full call stack text on BC 27.5 and none from
     /// BC 28 (session-system/callstack/CallstackFullText.al:106, corpus bump e01709f4). Corpus bump 1110c adds the per-frame pins
@@ -1249,6 +1251,10 @@ impl Gate {
                 Evidence {
                     file: "format-evaluate/format-matrix/FMFields.al",
                     lines: "235,273",
+                },
+                Evidence {
+                    file: "reports/dataset/ReportColumnFormatsHeaderRest.al",
+                    lines: "123,125",
                 },
                 Evidence {
                     file: "format-evaluate/AtPrecisionStandardFormat2.al",

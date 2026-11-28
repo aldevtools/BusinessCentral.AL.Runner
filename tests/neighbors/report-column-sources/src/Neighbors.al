@@ -21,6 +21,8 @@ table 51120 "NB RCS N Row"
         field(10; KindEmptyCap; Option) { Caption = 'N KindEmptyCap cap'; OptionMembers = " ",Open,Closed; OptionCaption = ' ,,N Closed cap'; }
         field(11; KindShortCap; Option) { Caption = 'N KindShortCap cap'; OptionMembers = " ",Open,Closed; OptionCaption = ' ,N Open cap'; }
         field(12; RowId; Integer) { }
+        field(13; KindExt; Option) { Caption = 'N KindExt cap'; OptionMembers = " ",Open,Closed; OptionCaption = ' ,N Open cap,N Closed cap'; }
+        field(14; KindExtMl; Option) { Caption = 'N KindExtMl cap'; OptionMembers = " ",Open,Closed; OptionCaption = ' ,N Open cap,N Closed cap'; }
     }
 
     keys
@@ -46,7 +48,8 @@ table 51121 "NB RCS N Kid"
     }
 }
 
-// A child table like the probe's (:46-55): a Decimal field with DecimalPlaces 0:4.
+// A child table with a Decimal field with DecimalPlaces 0:4 and a Caption, as the probe's (:55), at another field number (no. 3, not
+// 4) and without the Text field Note.
 table 51122 "NB RCS N Kid4"
 {
     DataClassification = SystemMetadata;
@@ -55,7 +58,7 @@ table 51122 "NB RCS N Kid4"
     {
         field(1; Id; Integer) { }
         field(2; RowId; Integer) { }
-        field(3; Price; Decimal) { DecimalPlaces = 0 : 4; }
+        field(3; Price; Decimal) { Caption = 'N Price cap'; DecimalPlaces = 0 : 4; }
     }
 
     keys
@@ -126,7 +129,8 @@ report 51129 "NB RCS N Kind"
     }
 }
 
-// The measured parent cells (:127-128), alone in their report.
+// The measured parent columns (:127-128) and the parent's own columns (:112-113), at other field numbers: parent Qty no. 5 and Amt
+// no. 7, child Price no. 3 (the cell: 3, 4 and 4, cell P6).
 report 51130 "NB RCS N Parent Hit"
 {
     ProcessingOnly = false;
@@ -137,6 +141,9 @@ report 51130 "NB RCS N Parent Hit"
     {
         dataitem(PRow; "NB RCS N Row")
         {
+            column(HQty; PRow.Qty) { IncludeCaption = true; }
+            column(HAmt; PRow.Amt) { IncludeCaption = true; }
+
             dataitem(PKid4; "NB RCS N Kid4")
             {
                 DataItemLink = RowId = field(Id);
@@ -288,6 +295,8 @@ codeunit 51126 "NB RCS N Tests"
         Row.KindNoCap := Row.KindNoCap::Open;
         Row.KindEmptyCap := Row.KindEmptyCap::Open;
         Row.KindShortCap := Row.KindShortCap::Open;
+        Row.KindExt := Row.KindExt::Open;
+        Row.KindExtMl := Row.KindExtMl::Open;
         Row.RowId := 1;
         Row.Insert();
         Kid.Id := 1;
@@ -300,6 +309,41 @@ codeunit 51126 "NB RCS N Tests"
         Kid5.Id := 1;
         Kid5.RowId := 1;
         Kid5.Insert();
+        SeedCell();
+    end;
+
+    local procedure SeedCell()
+    var
+        PRow: Record "NB RCS N PRow";
+        KidC: Record "NB RCS N KidC";
+        KidT: Record "NB RCS N KidT";
+        KidN: Record "NB RCS N KidN";
+        Kid6: Record "NB RCS N Kid6";
+    begin
+        PRow.DeleteAll();
+        PRow.Id := 1;
+        PRow.Name := 'Row one';
+        PRow.Qty := 2.5;
+        PRow.Amt := 1234.5;
+        PRow.Insert();
+        KidC.DeleteAll();
+        KidC.Id := 1;
+        KidC.RowId := 1;
+        KidC.Note := 'C1';
+        KidC.Price := 0.5;
+        KidC.Insert();
+        KidT.DeleteAll();
+        KidT.Id := 1;
+        KidT.RowId := 1;
+        KidT.Insert();
+        KidN.DeleteAll();
+        KidN.Id := 1;
+        KidN.RowId := 1;
+        KidN.Insert();
+        Kid6.DeleteAll();
+        Kid6.Id := 1;
+        Kid6.RowId := 1;
+        Kid6.Insert();
     end;
 
     // The trimmed Column line of the SaveAs Xml dataset of report ReportId whose name is Name (the first one).
@@ -419,17 +463,110 @@ codeunit 51126 "NB RCS N Tests"
         Check(Report::"NB RCS N Own", 'KindOtherCase', '<Column name="KindOtherCase">Open</Column>');
     end;
 
-    // The measured cells (:127-128, :300) in a child table like the probe's.
+    // A tableextension sets the OptionCaption or OptionCaptionML of the measured Option cell's field.
+    [Test]
+    procedure Option_ExtensionOptionCaption()
+    begin
+        Check(Report::"NB RCS N Kind Ext", 'KindExtQual', '<Column name="KindExtQual">Open</Column>');
+    end;
+
+    [Test]
+    procedure Option_ExtensionOptionCaptionMl()
+    begin
+        Check(Report::"NB RCS N Kind Ext", 'KindExtMlQual', '<Column name="KindExtMlQual">Open</Column>');
+    end;
+
+    // The measured cells (:127-128, :300) in the probe's layout (NeighborsCell.al).
     [Test]
     procedure Parent_Places03()
     begin
-        Check(Report::"NB RCS N Parent Hit", 'K4Qty', '<Column name="K4Qty" decimalformatter="#,##0.###">2.5</Column>');
+        Check(Report::"NB RCS N Cell", 'CParentQty', '<Column name="CParentQty" decimalformatter="#,##0.###">2.5</Column>');
     end;
 
     [Test]
     procedure Parent_AutoFormatType1()
     begin
-        Check(Report::"NB RCS N Parent Hit", 'K4Amt', '<Column name="K4Amt" decimalformatter="#,##0.####">1234.5</Column>');
+        Check(Report::"NB RCS N Cell", 'CParentAmt', '<Column name="CParentAmt" decimalformatter="#,##0.####">1234.5</Column>');
+    end;
+
+    // The same columns where the parent fields' numbers meet no child field (Qty no. 5, Amt no. 7; Price no. 3).
+    [Test]
+    procedure Parent_Places03_OtherFieldNumbers()
+    begin
+        Check(Report::"NB RCS N Parent Hit", 'K4Qty', '<Column name="K4Qty" decimalformatter="#,##0.00">2.5</Column>');
+    end;
+
+    [Test]
+    procedure Parent_AutoFormatType1_OtherFieldNumbers()
+    begin
+        Check(Report::"NB RCS N Parent Hit", 'K4Amt', '<Column name="K4Amt" decimalformatter="#,##0.00">1234.5</Column>');
+    end;
+
+    // Cell P7: the child field with Amt's number is the Text field; cell P8's neighbor: the one with Qty's number the Decimal 0:4.
+    [Test]
+    procedure Parent_AutoFormatType1_ChildTextAtSameNumber()
+    begin
+        Check(Report::"NB RCS N Cell Swapped", 'TParentAmt', '<Column name="TParentAmt" decimalformatter="#,##0.00">1234.5</Column>');
+    end;
+
+    [Test]
+    procedure Parent_Places03_ChildDecimalAtSameNumber()
+    begin
+        Check(Report::"NB RCS N Cell Swapped", 'TParentQty', '<Column name="TParentQty" decimalformatter="#,##0.00">2.5</Column>');
+    end;
+
+    // Cell P9: the parent has no column of its own over the field.
+    [Test]
+    procedure Parent_AutoFormatType1_NoParentColumn()
+    begin
+        Check(Report::"NB RCS N Cell No Own", 'OParentAmt', '<Column name="OParentAmt" decimalformatter="#,##0.00">1234.5</Column>');
+    end;
+
+    [Test]
+    procedure Parent_Places03_NoParentColumn()
+    begin
+        Check(Report::"NB RCS N Cell No Own", 'OParentQty', '<Column name="OParentQty" decimalformatter="#,##0.00">2.5</Column>');
+    end;
+
+    // The parent's own columns state no property (the cell's state IncludeCaption = true).
+    [Test]
+    procedure Parent_AutoFormatType1_ParentColumnWithoutProperty()
+    begin
+        Check(Report::"NB RCS N Cell Own NoProp", 'PParentAmt', '<Column name="PParentAmt" decimalformatter="#,##0.00">1234.5</Column>');
+    end;
+
+    // The child's Note and Price state no Caption.
+    [Test]
+    procedure Parent_AutoFormatType1_ChildPriceWithoutCaption()
+    begin
+        Check(Report::"NB RCS N Cell NoCap", 'NParentAmt', '<Column name="NParentAmt" decimalformatter="#,##0.00">1234.5</Column>');
+    end;
+
+    [Test]
+    procedure Parent_Places03_ChildNoteWithoutCaption()
+    begin
+        Check(Report::"NB RCS N Cell NoCap", 'NParentQty', '<Column name="NParentQty" decimalformatter="#,##0.00">2.5</Column>');
+    end;
+
+    // The child item's name holds a dot, the parent's does not.
+    [Test]
+    procedure Parent_AutoFormatType1_DottedChildName()
+    begin
+        Check(Report::"NB RCS N Cell Dotted Kid", 'KParentAmt', '<Column name="KParentAmt" decimalformatter="#,##0.00">1234.5</Column>');
+    end;
+
+    // Cell P6: Price at a number no parent field uses. Amt meets no child field and keeps main's rule; Qty still meets the
+    // Text field Note at its number and is served (the run is flagged for it).
+    [Test]
+    procedure Parent_AutoFormatType1_PriceAtOtherNumber()
+    begin
+        Check(Report::"NB RCS N Cell P6", 'SParentAmt', '<Column name="SParentAmt" decimalformatter="#,##0.00">1234.5</Column>');
+    end;
+
+    [Test]
+    procedure Parent_Places03_PriceAtOtherNumber()
+    begin
+        Check(Report::"NB RCS N Cell P6", 'SParentQty', '<Column name="SParentQty" decimalformatter="#,##0.###">2.5</Column>');
     end;
 
     [Test]

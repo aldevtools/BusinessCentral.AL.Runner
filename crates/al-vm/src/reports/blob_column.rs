@@ -13,10 +13,19 @@ pub(super) fn option_field<'a>(
     let qualified = c
         .item_field
         .filter(|_| c.measured_field == ir::MeasuredField::OptionCaption);
-    if t.is_some() && c.field.is_none() && qualified.is_some() {
+    Some((t.as_ref()?, c.field.or(qualified)?))
+}
+
+/// [`option_field`] of a column that shows the caption: marks the assumption when the field is the qualified one.
+pub(super) fn shown_option_field<'a>(
+    t: &'a Option<Arc<al_data::TableDef>>,
+    c: &ir::ReportColumn,
+) -> Option<(&'a Arc<al_data::TableDef>, usize)> {
+    let at = option_field(t, c)?;
+    if c.field.is_none() {
         al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::ReportColumnQualifiedOptionCaption);
     }
-    Some((t.as_ref()?, c.field.or(qualified)?))
+    Some(at)
 }
 
 /// Whether column `c` of the report itself (`own`, not one a reportextension adds) reads a field of a global record variable

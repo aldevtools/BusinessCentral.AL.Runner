@@ -166,7 +166,8 @@ fn amount_places_measured(f: &FieldInfo, t: usize, column: &ast::Section) -> boo
 
 /// Assumption `report-column-qualified-option-caption` (corpus PR 1652 at cf6884b9): `Item.Field` over the Option field :356
 /// (a Caption, `OptionMembers = " ",Open,Closed`, `OptionCaption = ' ,DQ Open cap,DQ Closed cap'`) under exactly
-/// IncludeCaption = true (:428), line :678: a caption that is not empty for each member, no CaptionML or format property.
+/// IncludeCaption = true (:428), line :678: a caption that is not empty for each member, no CaptionML or format property, and
+/// no tableextension that sets OptionCaption or OptionCaptionML (the cell has none).
 fn option_caption_measured(f: &FieldInfo, t: usize, column: &ast::Section) -> bool {
     let (crate::types::Ty::Option(members), Some(captions)) = (&f.ty, field_prop(f, "OptionCaption")) else {
         return false;
@@ -179,6 +180,7 @@ fn option_caption_measured(f: &FieldInfo, t: usize, column: &ast::Section) -> bo
     plain_own_field(f, t)
         && field_prop(f, "Caption").is_some()
         && field_prop(f, "OptionCaptionML").is_none()
+        && !f.option_caption_modified
         && field_formats(f) == (None, None, None)
         && members.len() == captions.len()
         && captions.iter().all(|c| c.chars().count() > 0)
@@ -358,26 +360,62 @@ fn dotted_column_measured(
     measured.then_some(j)
 }
 
-/// Assumption `report-column-parent-field-format` (corpus PR 1652 at cf6884b9): parent fields :32 (DecimalPlaces 0:3) and :33
-/// (AutoFormatType 1), both with a Caption; the child :122-124 a [`linked_child`] of [`probe_child_table`]; columns :127-128
-/// under exactly IncludeCaption = true; line :300.
-fn parent_field_measured(f: &FieldInfo, t: usize, child: &RawItem, column: &ast::Section) -> bool {
+/// Assumption `report-column-parent-field-format` (corpus PR 1652 at cf6884b9): parent fields :32 (no. 3, DecimalPlaces 0:3)
+/// and :33 (no. 4, AutoFormatType 1), both with a Caption; columns :127-128 under exactly IncludeCaption = true; line :300. The
+/// cell cannot tell the parent field's own rule from one by field number on the child's record (child no. 3 is the Text field
+/// Note :54, no. 4 the Decimal Price with DecimalPlaces 0:4 :55), so `same_number`, the child table's field with the parent
+/// field's number, must be the cell's: [`cell_note`] for the DecimalPlaces 0:3 field, [`cell_price`] for the AutoFormatType 1
+/// field.
+fn parent_field_measured(
+    f: &FieldInfo,
+    t: usize,
+    same_number: Option<&FieldInfo>,
+    ct: usize,
+    column: &ast::Section,
+) -> bool {
     let formats = field_formats(f);
+    let counterpart = match (formats.0.as_deref(), formats.1.as_deref(), formats.2.as_deref()) {
+        (None, None, Some("0:3")) => same_number.is_some_and(|c| cell_note(c, ct)),
+        (Some("1"), None, None) => same_number.is_some_and(|c| cell_price(c, ct)),
+        _ => false,
+    };
     plain_own_field(f, t)
         && f.ty == crate::types::Ty::Decimal
         && field_prop(f, "Caption").is_some()
-        && matches!(
-            (formats.0.as_deref(), formats.1.as_deref(), formats.2.as_deref()),
-            (None, None, Some("0:3")) | (Some("1"), None, None)
-        )
-        && linked_child(child)
+        && counterpart
         && column_shape(column) == Some(ColumnShape::IncludeCaption)
 }
 
-/// Whether child item `child` over table `ct` has the facts of the probe's child (table :46-55, item :122-130 at cf6884b9) that
-/// may decide the parent column's formatter (`#,##0.####` for AutoFormatType 1 is the DecimalPlaces 0:4 of :55): exactly one
-/// Decimal field, [`plain_own_field`], with DecimalPlaces 0:4 and no AutoFormatType or AutoFormatExpression, and a column
-/// `Child.Field` over it under exactly IncludeCaption = true (`CPrice` :130).
+/// The probe's child field Price (:55): [`plain_own_field`], Decimal, a Caption, DecimalPlaces 0:4, no AutoFormatType or
+/// AutoFormatExpression.
+fn cell_price(f: &FieldInfo, ct: usize) -> bool {
+    plain_own_field(f, ct)
+        && f.ty == crate::types::Ty::Decimal
+        && field_prop(f, "Caption").is_some()
+        && field_formats(f) == (None, None, Some("0:4".to_string()))
+}
+
+/// The probe's child field Note (:54): [`plain_own_field`], Text, a Caption, no DecimalPlaces, AutoFormatType or
+/// AutoFormatExpression.
+fn cell_note(f: &FieldInfo, ct: usize) -> bool {
+    plain_own_field(f, ct)
+        && matches!(f.ty, crate::types::Ty::Text(_))
+        && field_prop(f, "Caption").is_some()
+        && field_formats(f) == (None, None, None)
+}
+
+/// Whether item `item` has a column `Item.Field` over field `name` under exactly IncludeCaption = true, both names as declared:
+/// the probe's `CPrice` (:130) in the child, `DQty` and `DAmt` (:112-113) in the parent.
+fn own_column_over(item: &RawItem, name: &str) -> bool {
+    column_sections(item).any(|c| {
+        ColumnSource::of(&c).qualified() == Some((item.name.as_str(), name))
+            && column_shape(&c) == Some(ColumnShape::IncludeCaption)
+    })
+}
+
+/// Whether child item `child` over table `ct` has the facts of the probe's child (table :46-55, item :122-130 at cf6884b9):
+/// a name without a dot, a [`linked_child`] (:124), and exactly one Decimal field, the [`cell_price`], with its own column
+/// ([`own_column_over`], `CPrice` :130).
 fn probe_child_table(members: &crate::members::MemberTable, ct: usize, child: &RawItem) -> bool {
     let decimals: Vec<&FieldInfo> = members[ct]
         .fields
@@ -387,18 +425,14 @@ fn probe_child_table(members: &crate::members::MemberTable, ct: usize, child: &R
     let [price] = decimals.as_slice() else {
         return false;
     };
-    plain_own_field(price, ct)
-        && field_formats(price) == (None, None, Some("0:4".to_string()))
-        && column_sections(child).any(|c| {
-            ColumnSource::of(&c).qualified() == Some((child.name.as_str(), price.name.as_str()))
-                && column_shape(&c) == Some(ColumnShape::IncludeCaption)
-        })
+    undotted(&child.name) && linked_child(child) && cell_price(price, ct) && own_column_over(child, &price.name)
 }
 
 /// Marks each column of report `raw` whose source is `Parent.Field` of its direct parent, a top-level item, the parent's name
-/// without a dot and both names as declared, in a [`probe_child_table`] child, where [`parent_field_measured`] holds: the parent field decides its `decimalformatter`
-/// (`ir::MeasuredField::ParentField`). A dotted parent name stays with [`dotted_columns_on`], which turns the report's dotted
-/// columns off for this shape.
+/// without a dot and both names as declared, in a [`probe_child_table`] child, where the parent has its own column over the
+/// field ([`own_column_over`]) and [`parent_field_measured`] holds: the parent field decides its `decimalformatter`
+/// (`ir::MeasuredField::ParentField`). Every other column keeps main's rule. A dotted parent name stays with
+/// [`dotted_columns_on`], which turns the report's dotted columns off for this shape.
 pub(super) fn parent_fields(members: &crate::members::MemberTable, raw: &[RawItem], items: &mut [ir::ReportItem]) {
     for i in 0..items.len() {
         let Some(p) = raw[i].parent else {
@@ -408,7 +442,7 @@ pub(super) fn parent_fields(members: &crate::members::MemberTable, raw: &[RawIte
             continue;
         };
         // The probe's parent is a top-level item (:111).
-        if raw[p].parent.is_some() || !probe_child_table(members, ct, &raw[i]) {
+        if raw[p].parent.is_some() || !undotted(&raw[p].name) || !probe_child_table(members, ct, &raw[i]) {
             continue;
         }
         for (k, c) in column_sections(&raw[i]).enumerate().take(items[i].columns.len()) {
@@ -416,18 +450,78 @@ pub(super) fn parent_fields(members: &crate::members::MemberTable, raw: &[RawIte
             let Some((qualifier, member)) = source.qualified() else {
                 continue;
             };
-            if qualifier != raw[p].name || !undotted(qualifier) {
+            if qualifier != raw[p].name {
                 continue;
             }
             let Some(pos) = members[t].fields.iter().position(|f| f.name == member) else {
                 continue;
             };
-            if parent_field_measured(&members[t].fields[pos], t, &raw[i], &c) {
+            let f = &members[t].fields[pos];
+            let same_number = members[ct].fields.iter().find(|cf| cf.id == f.id);
+            if own_column_over(&raw[p], member) && parent_field_measured(f, t, same_number, ct, &c) {
                 let column = &mut items[i].columns[k];
                 column.places_table = Some(t);
                 column.places_field = Some(pos);
                 column.measured_field = ir::MeasuredField::ParentField;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type Parts = Option<(String, String)>;
+
+    /// `ColumnSource::qualified` and `ast::Section::arg_name_parts(1)` (the reader it replaced in `caption_sources`) of column
+    /// source `source`.
+    fn both(source: &str) -> (Parts, Parts) {
+        let src = format!("report 1 R {{ dataset {{ dataitem(A; T) {{ column(X; {source}) {{ }} }} }} }}");
+        let parse = al_syntax::parse(&src, &Default::default());
+        let root = ast::SourceFile::cast(parse.syntax()).unwrap();
+        let c = root
+            .syntax()
+            .descendants()
+            .filter_map(ast::Section::cast)
+            .find(|s| s.name().eq_ignore_ascii_case("column"))
+            .unwrap();
+        let new = ColumnSource::of(&c)
+            .qualified()
+            .map(|(q, m)| (q.to_string(), m.to_string()));
+        let old = c.arg_name_parts(1).and_then(|p| match p.as_slice() {
+            [q, m] => Some((q.clone(), m.clone())),
+            _ => None,
+        });
+        (new, old)
+    }
+
+    #[test]
+    fn the_qualified_source_is_what_arg_name_parts_gave() {
+        for source in [
+            "A.F",
+            "\"A. B\".F",
+            "A.\"F x\"",
+            "A . F",
+            "A.F.G",
+            "F",
+            "A.F()",
+            "A.F.ToUpper()",
+            "'x'",
+            "A.F + 1",
+        ] {
+            let (new, old) = both(source);
+            assert_eq!(new, old, "{source}");
+        }
+    }
+
+    /// The two known differences: a doubled quote in a quoted name is one quote (`ast::unquote_ident`, as the lexer reads a
+    /// name), and a comment between the parts hides the source.
+    #[test]
+    fn the_qualified_source_differs_from_arg_name_parts_in_two_shapes() {
+        let (new, _) = both("\"A \"\"x\"\"\".F");
+        assert_eq!(new, Some(("A \"x\"".to_string(), "F".to_string())));
+        let (new, old) = both("A /*c*/ .F");
+        assert_eq!((new, old), (None, Some(("A".to_string(), "F".to_string()))));
     }
 }

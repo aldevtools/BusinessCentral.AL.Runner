@@ -12,3 +12,5 @@ NB RCS N Tests::AmountPlaces_BarePinned	PINNED tests/al-language/reports/dataset
 NB RCS N Tests::Option_Qualified	ASSUMED report-column-qualified-option-caption (merged corpus PR 1652 at cf6884b9: DataItemNamesDottedQualifier.al:678)
 NB RCS N Tests::Parent_Places03	ASSUMED report-column-parent-field-format (merged corpus PR 1652 at cf6884b9: DataItemNamesDottedQualifier.al:300)
 NB RCS N Tests::Parent_AutoFormatType1	ASSUMED report-column-parent-field-format (merged corpus PR 1652 at cf6884b9: DataItemNamesDottedQualifier.al:300)
+NB RCS N Tests::Parent_AutoFormatType1_PriceAtOtherNumber	ASSUMED report-column-parent-field-format (merged corpus PR 1652 at cf6884b9: DataItemNamesDottedQualifier.al:300; main's value, the run is flagged for the Qty column of its report)
+NB RCS N Tests::Parent_Places03_PriceAtOtherNumber	ASSUMED report-column-parent-field-format (merged corpus PR 1652 at cf6884b9: DataItemNamesDottedQualifier.al:300; child no. 3 is the Text field Note, as at :54)

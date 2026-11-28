@@ -2643,5 +2643,6 @@ mod link_not_blank;
 mod namespaced_receiver;
 mod own_caption;
 mod report_column_source;
+mod report_parent_field;
 mod type_before_rec_field;
 mod unknown_object_literal;

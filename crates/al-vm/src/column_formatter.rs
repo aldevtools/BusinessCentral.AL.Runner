@@ -96,7 +96,14 @@ impl Session {
         t: &Option<Arc<al_data::TableDef>>,
         c: &al_ir::ReportColumn,
     ) -> Result<String, Signal> {
-        let from_field = |name: &str| match (t, c.field, c.places_table.zip(c.places_field)) {
+        // A parent's field (`MeasuredField::ParentField`) whose AutoFormatType a subscriber outside Microsoft's apps could
+        // write keeps main's rule for another item's field: no field, not flagged, no refusal.
+        let places_at = c.places_table.zip(c.places_field).filter(|&at| {
+            c.measured_field != al_ir::MeasuredField::ParentField
+                || field_property(&self.engine.program, at, "AutoFormatType")
+                    .is_none_or(|k| self.auto_format_writer_refusal(&k, false).is_none())
+        });
+        let from_field = |name: &str| match (t, c.field, places_at) {
             (Some(t), Some(pos), _) => self.field_property(t, pos, name),
             (_, None, Some(at)) => field_property(&self.engine.program, at, name),
             _ => None,
@@ -142,13 +149,13 @@ impl Session {
                 }
             }
             // A parent's field in a child column: its DecimalPlaces, `#,##0.####` for AutoFormatType 1 (corpus PR 1652).
-            al_ir::MeasuredField::ParentField => {
+            al_ir::MeasuredField::ParentField if places_at.is_some() => {
                 assume(Assumption::ReportColumnParentFieldFormat);
                 if field_type.as_deref() == Some("1") {
                     return dataset::decimal_formatter(Some("0:4"));
                 }
             }
-            al_ir::MeasuredField::None | al_ir::MeasuredField::OptionCaption => {}
+            al_ir::MeasuredField::ParentField | al_ir::MeasuredField::None | al_ir::MeasuredField::OptionCaption => {}
         }
         of_column(c, from_field("DecimalPlaces").as_deref())
     }
