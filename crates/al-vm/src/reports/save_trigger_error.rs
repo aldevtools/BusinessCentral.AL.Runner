@@ -48,7 +48,9 @@ impl Session {
             // the shape `Cover::Pinned` names. For any other error what the last error holds is not pinned:
             // GetLastErrorText and GetLastErrorCode are refused.
             (ir::ReportLayout::None, false) => {
-                if std::mem::take(&mut self.report.zero_date_view_failed) || cover == Cover::Pinned {
+                if std::mem::take(&mut self.report.zero_date_view_failed) {
+                    self.last_error = *e;
+                } else if cover == Cover::Pinned {
                     self.hold_error(*e)?;
                 } else {
                     self.last_error = al_builtins::native::unpinned_error();
@@ -84,15 +86,16 @@ impl Session {
         }
     }
 
-    /// Which measurement covers an error that left a SaveAs from the report trigger `site` (`failed_trigger`). Every fact is
-    /// read by equality with the cells; anything else is `Cover::Not`.
+    /// Which measurement covers an error that left a SaveAs from the report trigger `site` (`failed_trigger`). Each fact is
+    /// read by equality with the cells; anything else is `Cover::Not`. Two facts are read as kinds: a TestField by its code
+    /// (the cells raise the empty-field form), and the trigger that raised (other triggers the report declares are not read).
     ///
     /// Assumed (corpus pull request 1579, reports/layouts-saveas/SaveAsTriggerErrors.al, issue 8486): the error is
     /// `Error('literal')` (E1, E2, E3) or a TestField of an empty field (`Mode.Fire` :113-130), raised by the report's own
     /// OnPreReport, OnPreDataItem, OnAfterGetRecord or OnPostReport; the call is the static `Report.SaveAs(Id, '', Format,
-    /// OutStream)` as Pdf, Word or Xml, as a statement or in the Boolean form ("SAE Cells" :362-424); the report is not
+    /// OutStream)` as Pdf, Word or Xml, as a statement or in the Boolean form ("SAE Cells" :377-424); the report is not
     /// processing-only, has one data item and one layout in its rendering section named by DefaultRenderingLayout: Word
-    /// ("SAE Word Rpt" :149, codeunit 77388 SaveAs_Word_*), or Word or RDLC with one report extension that only adds a
+    /// ("SAE Word Rpt" :132, codeunit 77388 SaveAs_Word_*), or Word or RDLC with one report extension that only adds a
     /// column ("SAE Word Col Ext", "SAE Rdlc Col Ext", codeunit 77395); or, as Xml, one Excel layout and no extension
     /// ("SAE Excel Rpt", SaveAs_Excel_*: as Pdf and Word the platform's error comes first, `cells_platform_first`).
     ///
