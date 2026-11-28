@@ -350,7 +350,10 @@ impl Lane<'_> {
         let read_in = done.5.singles_out.as_ref().map(|o| &o.read_in);
         let hints = super::order_hint::hints_for(self.lowered, self.units, changed, &writers, read_in, &failed);
         let reads = super::order_hint::hints_for(self.lowered, self.units, changed, &writers, read_in, &passing);
-        (merge_hints(&mut done.5.order_hints, hints), merge_hints(&mut done.5.order_hints, reads))
+        (
+            merge_hints(&mut done.5.order_hints, hints),
+            merge_hints(&mut done.5.order_hints, reads),
+        )
     }
 
     /// ADR-058 amendment 1, decision 4: dependent codeunit `p` of session `ks` and what it read, for the report.

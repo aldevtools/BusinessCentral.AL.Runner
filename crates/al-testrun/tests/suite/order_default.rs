@@ -375,8 +375,14 @@ fn a_default_run_takes_the_outcomes_of_listed_codeunits_from_a_strict_run() {
     assert!(rt.assumptions_in("", &case("ReadsTheFlag", 60472)).is_empty());
     assert_eq!(rt.outcome_in("", &case("SetsTheFlag", 60471)), Outcome::Pass);
     // Al-runner issue 8943: the default-order outcome stays readable after the strict one replaced it.
-    assert!(matches!(rt.default_order_recorded(None, &case("ReadsTheFlag", 60472)), Some(Outcome::Fail(_))));
-    assert_eq!(rt.default_order_recorded(None, &case("SetsTheFlag", 60471)), Some(Outcome::Pass));
+    assert!(matches!(
+        rt.default_order_recorded(None, &case("ReadsTheFlag", 60472)),
+        Some(Outcome::Fail(_))
+    ));
+    assert_eq!(
+        rt.default_order_recorded(None, &case("SetsTheFlag", 60471)),
+        Some(Outcome::Pass)
+    );
 }
 
 /// The same over one compile: `RunOptions::strict_after` runs the listed codeunits again inside the run, so the pass
@@ -639,7 +645,10 @@ fn a_numbers_hint_and_a_single_instance_hint_from_two_sessions_merge_into_one() 
     assert!(matches!(&r.outcome, Outcome::Fail(m) if m.contains("flag is")), "{r:?}");
     let hint = r.order_hint.as_ref().expect("a hint");
     assert!(!hint.reads.is_empty(), "{hint:?}");
-    assert_eq!(numbers_hint(&rt, "ReadsAndTakesY"), vec![("ORDERSEQY".to_string(), 60492)]);
+    assert_eq!(
+        numbers_hint(&rt, "ReadsAndTakesY"),
+        vec![("ORDERSEQY".to_string(), 60492)]
+    );
     let failed_hinted = rt
         .results()
         .iter()

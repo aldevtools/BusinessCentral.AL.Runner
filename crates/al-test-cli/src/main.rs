@@ -920,16 +920,24 @@ fn strict_files_in_both(
     if main {
         let default = |c: &oracle::CaseId| rt.default_order_recorded(None, c);
         let strict = |c: &oracle::CaseId| rt.first_recorded(c);
-        found.extend(al_test_cli::strict_order::passing_in_both(&files, index, all_cases, &default, &strict));
+        found.extend(al_test_cli::strict_order::passing_in_both(
+            &files, index, all_cases, &default, &strict,
+        ));
     }
     for (suite, (all, ix)) in version.suites.iter().zip(suite_data) {
         let default = |c: &oracle::CaseId| rt.default_order_recorded(Some(&suite.name), c);
         let strict = |c: &oracle::CaseId| rt.recorded_in(&suite.name, c);
-        found.extend(al_test_cli::strict_order::passing_in_both(&files, ix, all, &default, &strict));
+        found.extend(al_test_cli::strict_order::passing_in_both(
+            &files, ix, all, &default, &strict,
+        ));
     }
-    found
-        .iter()
-        .for_each(|f| eprintln!("BC {}: {}", version.bc_version, al_test_cli::strict_order::passing_in_both_line(f)));
+    found.iter().for_each(|f| {
+        eprintln!(
+            "BC {}: {}",
+            version.bc_version,
+            al_test_cli::strict_order::passing_in_both_line(f)
+        )
+    });
     Ok(u8::from(!found.is_empty()))
 }
 
@@ -1812,7 +1820,15 @@ fn run_version_inner(
     } else {
         check_lists(args, root, &targets, Some((&renderer, render_note)))?
     };
-    let code = code.max(strict_files_in_both(root, index, pass.main, &all_cases, version, &suite_data, &rt)?);
+    let code = code.max(strict_files_in_both(
+        root,
+        index,
+        pass.main,
+        &all_cases,
+        version,
+        &suite_data,
+        &rt,
+    )?);
     Ok(VersionRun {
         code: if args.no_ratchet { 0 } else { code },
         oracle: oracle_ok,
@@ -1919,7 +1935,10 @@ fn check_lists(
         if args.baseline_diff {
             println!(
                 "\n{}",
-                not_passing::render_diff(&format!("BC {}", t.label), c, &|cu| t.index.area_of(cu).map(str::to_string))
+                not_passing::render_diff(&format!("BC {}", t.label), c, &|cu| t
+                    .index
+                    .area_of(cu)
+                    .map(str::to_string))
             );
         }
         if args.no_ratchet {

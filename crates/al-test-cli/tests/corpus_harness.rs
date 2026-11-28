@@ -653,7 +653,10 @@ fn list_changes_refuses_a_line_added_to_the_strict_list() {
     seed(root.path());
     let (code, md) = changes("# header\n\n60900 FailsOnPurpose\n");
     assert_eq!(code, 3, "{md}");
-    assert!(md.contains("names their issue") && md.contains("60900 FailsOnPurpose"), "{md}");
+    assert!(
+        md.contains("names their issue") && md.contains("60900 FailsOnPurpose"),
+        "{md}"
+    );
     let (code, md) = changes("# header\n\n# not run: a reason (runner issue 1).\n60900 FailsOnPurpose\n");
     assert_eq!(code, 0, "{md}");
     std::fs::remove_dir_all(root.path().join(".git")).unwrap();

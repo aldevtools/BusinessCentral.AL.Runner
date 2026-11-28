@@ -109,7 +109,8 @@ pub fn added(base: Option<&BTreeSet<CaseId>>, now: &BTreeSet<CaseId>, text: &str
                     .filter_map(|l| l.trim_start().strip_prefix('#'))
                     .map(str::trim)
                     .collect();
-                let reason = comment.first().is_some_and(|c| c.starts_with("not run:")) && names_issue(&comment.join(" "));
+                let reason =
+                    comment.first().is_some_and(|c| c.starts_with("not run:")) && names_issue(&comment.join(" "));
                 if !reason {
                     out.extend(para.lines().filter_map(|l| not_passing::parse(l).ok()).flatten());
                 }

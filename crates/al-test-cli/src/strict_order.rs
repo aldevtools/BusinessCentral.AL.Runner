@@ -12,6 +12,11 @@
 //! 2026-11-09): `parse`, `load`, `codeunits` (the listed files' test codeunits). `main.rs`
 //! `StrictOrder::of` picks them per pass and `StrictOrder::adopt` runs them alone with
 //! `strict_order`, then `CorpusRuntime::adopt_cases` gives their cases that run's outcomes.
+//!
+//! ADR-070 decision 5 (al-runner issue 8943): a listed file whose every case passes in both orders fails the run
+//! (`passing_in_both`), except a writer (`<writer> writes-for <reader>`) its listed reader still needs. The nightly run in
+//! BC's order names the file of a default-list case that passes there and whether the list has it
+//! (`default_passing_file`).
 
 use crate::corpus::CorpusIndex;
 use crate::oracle::{CaseId, OracleCase};
@@ -198,7 +203,12 @@ mod tests {
     /// Al-runner issue 8943: a listed file is reported only when every case passes in both orders.
     #[test]
     fn a_listed_file_whose_every_case_passes_in_both_orders_is_reported() {
-        let ix = index_of(&[(1, "a/Both.al"), (2, "a/OnlyStrict.al"), (3, "a/Partly.al"), (4, "a/Unrun.al")]);
+        let ix = index_of(&[
+            (1, "a/Both.al"),
+            (2, "a/OnlyStrict.al"),
+            (3, "a/Partly.al"),
+            (4, "a/Unrun.al"),
+        ]);
         let all = [
             case(1, "P"),
             case(1, "Q"),
@@ -217,7 +227,13 @@ mod tests {
         let strict = |_: &CaseId| Some(Outcome::Pass);
         assert_eq!(passing_in_both(&files, &ix, &all, &default, &strict), ["a/Both.al"]);
         // A case that fails in BC's order keeps its file off the report too.
-        let strict_q = |c: &CaseId| Some(if c.name == "Q" { Outcome::Fail("x".into()) } else { Outcome::Pass });
+        let strict_q = |c: &CaseId| {
+            Some(if c.name == "Q" {
+                Outcome::Fail("x".into())
+            } else {
+                Outcome::Pass
+            })
+        };
         assert!(passing_in_both(&files, &ix, &all, &default, &strict_q).is_empty());
     }
 
@@ -231,11 +247,20 @@ mod tests {
         assert_eq!(list.files, ["a/Setter.al", "a/Reader.al", "a/Lone.al"]);
         let strict = |_: &CaseId| Some(Outcome::Pass);
         // The reader fails in the default order: it holds its writer; the writer of an unlisted reader is reported.
-        let default = |c: &CaseId| Some(if c.codeunit == 2 { Outcome::Fail("fresh".into()) } else { Outcome::Pass });
+        let default = |c: &CaseId| {
+            Some(if c.codeunit == 2 {
+                Outcome::Fail("fresh".into())
+            } else {
+                Outcome::Pass
+            })
+        };
         assert_eq!(passing_in_both(&list, &ix, &all, &default, &strict), ["a/Lone.al"]);
         // The reader passes in both orders too: it and its writer are reported.
         let default_all = |_: &CaseId| Some(Outcome::Pass);
-        assert_eq!(passing_in_both(&list, &ix, &all, &default_all, &strict), ["a/Setter.al", "a/Reader.al", "a/Lone.al"]);
+        assert_eq!(
+            passing_in_both(&list, &ix, &all, &default_all, &strict),
+            ["a/Setter.al", "a/Reader.al", "a/Lone.al"]
+        );
     }
 
     /// Al-runner issue 8943, reverse direction: a default-list case that passes in BC's order names its file and
@@ -245,7 +270,10 @@ mod tests {
         let ix = index_of(&[(1, "a/Listed.al"), (2, "a/Unlisted.al")]);
         let files = parse("a/Listed.al").files;
         assert_eq!(default_passing_file(&files, &ix, 1), " (Listed.al)");
-        assert_eq!(default_passing_file(&files, &ix, 2), " (Unlisted.al, not on metrics/strict-order-files.txt)");
+        assert_eq!(
+            default_passing_file(&files, &ix, 2),
+            " (Unlisted.al, not on metrics/strict-order-files.txt)"
+        );
         assert_eq!(default_passing_file(&files, &ix, 3), "");
     }
 }
