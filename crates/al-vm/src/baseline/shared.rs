@@ -21,7 +21,7 @@ pub struct SharedBaseline {
     last_stamp: i64,
     workspace_installs: Option<Vec<super::SkippedInstall>>,
     company_built: bool,
-    login_held: Option<std::sync::Arc<crate::HeldLogin>>,
+    held_logins: crate::HeldLogins,
     codeunit_left: bool,
     company_unknown: Vec<(String, u32, String)>,
     full_copies: Vec<String>,
@@ -74,8 +74,8 @@ impl Baseline {
             last_stamp: copy.last_stamp,
             workspace_installs: copy.workspace_installs,
             company_built: copy.company_built,
-            // Not part of the bytes (`Baseline::login_held`).
-            login_held: self.login_held.clone(),
+            // Not part of the bytes (`Baseline::held_logins`).
+            held_logins: self.held_logins.clone(),
             codeunit_left: self.codeunit_left,
             company_unknown: copy.company_unknown,
             full_copies: copy.full_copies,
@@ -102,7 +102,7 @@ impl SharedBaseline {
             last_stamp: self.last_stamp,
             workspace_installs: self.workspace_installs.clone(),
             company_built: self.company_built,
-            login_held: self.login_held.clone(),
+            held_logins: self.held_logins.clone(),
             codeunit_left: self.codeunit_left,
             install_rows: None,
             company_unknown: self.company_unknown.clone(),

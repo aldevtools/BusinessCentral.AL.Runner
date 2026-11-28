@@ -565,6 +565,7 @@ impl Session {
         }
         let cx = self.cx.clone();
         let pk = t.primary_key(&rec.borrow().fields);
+        self.note_row_code_read();
         let stored = self
             .store_for(&rec)?
             .get(&cx, &t, &pk)

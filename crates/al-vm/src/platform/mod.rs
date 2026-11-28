@@ -94,21 +94,8 @@ pub(crate) struct EventStats {
     /// background task worker); its one writer is `Session::sync_no_client_test_session`. A read of the Session or Active
     /// Session table is refused while it holds ([`Providers::no_client_session_read`]).
     pub no_client_test_session: std::cell::Cell<bool>,
-    /// The session runner 130450 made for a login of its own after the held login (`Session::set_own_login`, its one
-    /// writer).
+    /// The session runner 130450 runs its codeunits in after the held login (`Session::set_own_login`, its one writer).
     pub own_login: std::cell::Cell<Option<crate::OwnLogin>>,
-    /// The session answered its own id while `own_login` comes after another such session (`Session::note_own_id_read`;
-    /// a read of the Session or Active Session table, [`Providers::note_session_read`]).
-    pub own_id_read: std::cell::Cell<bool>,
-}
-
-impl EventStats {
-    /// See `Session::note_own_id_read`: noted only where `own_login` comes after another such session.
-    pub(crate) fn note_own_id_read(&self) {
-        if self.own_login.get().is_some_and(|own| own.after_another()) {
-            self.own_id_read.set(true);
-        }
-    }
 }
 
 /// The apps an install has not reached, and the app whose install runs: the "NAV App Installed App" list leaves them out
@@ -690,17 +677,6 @@ impl Providers {
         }
     }
 
-    /// A read of the Session or Active Session table `t`: both list the reading session's own row (metadata/platform-tables/
-    /// PlTSession.al:294; RvActiveSessionWrites.al:42-70; session-system/TestSessionVirtualTable.al:120), so the read
-    /// answers the session's id, as `SessionId()` does (`Session::note_own_id_read`). In a session runner 130450 made for a
-    /// login of its own after the held login, whether the Active Session table also lists the hub session's row is not
-    /// measured (assumption `hub-login-later-runners`): every read keeps main's answer, the own row.
-    fn note_session_read(&self, t: &TableDef) {
-        if matches!(self.kind(t), Virtual::Session | Virtual::ActiveSession) {
-            self.events.note_own_id_read();
-        }
-    }
-
     /// The rows of a table that is listed in full.
     fn listed(&self, t: &TableDef, kind: Virtual) -> Result<Listed, StoreError> {
         self.no_client_session_read(kind)?;
@@ -1015,7 +991,6 @@ impl VirtualTables for Providers {
     }
 
     fn get(&self, store: &MemStore, cx: &AccessContext, t: &TableDef, pk: &[Value]) -> Result<Option<Row>, StoreError> {
-        self.note_session_read(t);
         match self.kind(t) {
             Virtual::AggregatePermissionSet => self.aggregate(store, cx, t)?.get(t, pk),
             Virtual::MetadataPermission | Virtual::ExpandedPermission | Virtual::Permission => {
@@ -1062,7 +1037,6 @@ impl VirtualTables for Providers {
     }
 
     fn next(&self, store: &MemStore, cx: &AccessContext, t: &TableDef, scan: &Scan) -> Result<Option<Row>, StoreError> {
-        self.note_session_read(t);
         if self.kind(t) == Virtual::TimeZone
             && let Some(m) = host_tables::time_zone_by_id(t, &self.ident, scan.filters)?
         {
@@ -1137,7 +1111,6 @@ impl VirtualTables for Providers {
         t: &TableDef,
         filters: &[FieldFilter],
     ) -> Result<usize, StoreError> {
-        self.note_session_read(t);
         if self.kind(t) == Virtual::TimeZone
             && let Some(m) = host_tables::time_zone_by_id(t, &self.ident, filters)?
         {
