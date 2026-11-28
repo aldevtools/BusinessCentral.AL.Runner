@@ -248,6 +248,7 @@ impl Session {
             Self::sql_key(rec, &t, &fields)
         };
         let cx = self.cx.clone();
+        self.note_row_code_read();
         let stored = self
             .store_for(rec)?
             .get(&cx, &t, &pk)

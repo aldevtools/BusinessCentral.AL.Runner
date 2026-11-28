@@ -133,12 +133,12 @@ codeunit 50100 C
 }
 "#;
 
-// DeleteAll(true) of two or more rows on a descending record with stored filters only: the order of the OnDelete calls
-// is not pinned (the FlowField-filter form is, record/crud/R6961DeleteAllFlowFilter.al:258-266, and runs in
-// delete_all_flow.rs). Ascending(false) and SetAscending(Field, false) are the same question.
+// DeleteAll(true) of two or more rows on a record sorted descending by Ascending(false) runs OnDelete in the scan order
+// (assumption delete-all-row-code-scan-order, corpus PR 1659 record/crud/DeleteAllRowCodeOrder.al:305). SetAscending of
+// the primary key field is not measured and keeps main's refusal (records/delete_all_order.rs).
 #[test]
-fn delete_all_true_of_two_rows_on_a_descending_record_refuses() {
-    refused(al_testkit::run_in(DELETE, "C", "DescendingRun"), "descending");
+fn delete_all_true_of_two_rows_on_a_descending_record_runs_in_scan_order() {
+    assert_eq!(text(al_testkit::run_in(DELETE, "C", "DescendingRun")), "2;1;");
     refused(al_testkit::run_in(DELETE, "C", "DescendingFieldRun"), "descending");
 }
 

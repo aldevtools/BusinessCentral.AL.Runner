@@ -259,6 +259,12 @@ pub trait DotNetSession {
     fn is_in_process_utc_zone(&self, _handle: DotNetHandle) -> bool {
         false
     }
+    /// Whether the host's current culture is still the object it started with (en-US, ADR-014 section 9) and every
+    /// property of its date and time formats still has its start value: no AL code of this session or of an earlier one
+    /// changed them, or it set them back. The default, and any host that cannot tell: no.
+    fn formatting_at_start(&mut self) -> bool {
+        false
+    }
     /// Drops host objects. Called before the next call and when the session closes.
     fn release(&mut self, handles: &[DotNetHandle]);
     /// Ends the host side for this session (the sidecar process).
