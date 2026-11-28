@@ -6,7 +6,7 @@
 //!
 //! The same question for the Blob field of a record of a `TableType = Temporary` table in a local variable of a `[Test]`
 //! method, both of whose streams that method opened ([`TestLocalBlobFields`]): the repro of al-runner issue 9322, assumption
-//! `base64-line-breaks-temporary-table-blob`.
+//! `base-convert-line-breaks-temporary-table-blob`.
 
 use al_builtins::builtin_id::{BuiltinId, ids};
 use al_builtins::stream::BlobRef;

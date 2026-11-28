@@ -944,7 +944,7 @@ mod tests {
     }
 
     // al-runner issue 9322, the reporter's repro on BC 28.4: a temporary table's own Blob, 100 'A' bytes, unread, gives a CR LF
-    // at position 77 and 138 characters, through assumption base64-line-breaks-temporary-table-blob.
+    // at position 77 and 138 characters, through assumption base-convert-line-breaks-temporary-table-blob.
     #[test]
     fn issue_9322_temporary_table_blob_on_28_runs_flagged() {
         let mut args = [in_stream(&[b'A'; 100]), Value::Boolean(true)];
@@ -953,7 +953,7 @@ mod tests {
         assert_eq!((t.find("\r\n").map(|i| i + 1), t.len()), (Some(77), 138));
         assert_eq!(
             take_hits(),
-            [crate::assumptions::Assumption::Base64LineBreaksTemporaryTableBlob]
+            [crate::assumptions::Assumption::BaseConvertLineBreaksTemporaryTableBlob]
         );
     }
 

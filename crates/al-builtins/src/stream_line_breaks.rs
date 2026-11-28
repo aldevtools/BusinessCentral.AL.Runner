@@ -31,7 +31,7 @@ pub fn line_break_source(ctx: &dyn Ctx, v: &mut Value, out_form: bool) -> Result
             );
         }
         if holder == MeasuredHolder::TemporaryTableTestLocal {
-            crate::assumptions::assume(crate::assumptions::Assumption::Base64LineBreaksTemporaryTableBlob);
+            crate::assumptions::assume(crate::assumptions::Assumption::BaseConvertLineBreaksTemporaryTableBlob);
         }
         s.after_line_break_call = true;
         Ok(Some(s.with_data(<[u8]>::to_vec)))
@@ -49,7 +49,7 @@ enum MeasuredHolder {
     /// A live "Temp Blob Impl." (Base64LineBreaks.al:53-61): pinned.
     TempBlob,
     /// A record of a `TableType = Temporary` table in a local variable of a `[Test]` method, never inserted: the repro of
-    /// al-runner issue 9322 (BC 28.4), assumption `base64-line-breaks-temporary-table-blob`.
+    /// al-runner issue 9322 (BC 28.4), assumption `base-convert-line-breaks-temporary-table-blob`.
     TemporaryTableTestLocal,
 }
 
