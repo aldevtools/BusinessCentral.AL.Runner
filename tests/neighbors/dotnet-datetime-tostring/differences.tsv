@@ -1,0 +1,8 @@
+# key	entry
+DtText Neighbors::Neighbor_Midnight_ToString	ASSUMED dotnet-datetime-tostring-plain-space (corpus PR 1653)
+DtText Neighbors::Served_AlParam_ToString	ASSUMED dotnet-datetime-tostring-plain-space (corpus PR 1653)
+DtText Neighbors::Served_AlParam_ToString_Evaluate	ASSUMED dotnet-datetime-tostring-plain-space (corpus PR 1653)
+DtText Neighbors::Served_CtorLocal_ToString	ASSUMED dotnet-datetime-tostring-plain-space (corpus PR 1653)
+DtText Neighbors::Served_CtorUnspecified_ToString	ASSUMED dotnet-datetime-tostring-plain-space (corpus PR 1653)
+DtText Neighbors::Served_ParseOffset_ToString_AM	ASSUMED dotnet-datetime-tostring-plain-space (corpus PR 1653)
+DtText Neighbors::Served_AlSumTwoHours_ToString	ASSUMED dotnet-datetime-tostring-plain-space,dotnet-datetime-utc-zone-conversions (corpus PR 1653)
