@@ -275,6 +275,12 @@ codeunit 97120 "NBS Tests"
     end;
 
     [Test]
+    procedure Word_NestedReportOnPostDataItemError_PdfBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBS Word Nested Rpt", 0, ReportFormat::Pdf, 'false Dialog/N26');
+    end;
+
+    [Test]
     procedure Rdlc_OnPreReportError_PdfBoolean_MainsRule()
     begin
         BooleanForm(Report::"NBS Rdlc Rpt", 1, ReportFormat::Pdf, 'false Dialog/N1');
@@ -301,5 +307,32 @@ codeunit 97121 "NBS Insert Tests"
             Error('SaveAs answered true');
         if GetLastErrorCode() + '/' + GetLastErrorText() <> 'Dialog/N11' then
             Error('expected Dialog/N11 but was %1/%2', GetLastErrorCode(), GetLastErrorText());
+    end;
+}
+
+// The report writes a CRM row before its error. In a test codeunit of its own: the write's transaction state does not reach
+// the other tests.
+codeunit 97130 "NBS Crm Tests"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure Word_CrmWriteThenOnPreReportError_PdfBoolean_NotMeasured()
+    var
+        S: Codeunit "NBS Site";
+        TempRow: Record "NBS Row" temporary;
+        OutS: OutStream;
+    begin
+        if HasTableConnection(TableConnectionType::CRM, 'NBS') then
+            UnregisterTableConnection(TableConnectionType::CRM, 'NBS');
+        RegisterTableConnection(TableConnectionType::CRM, 'NBS', '@@test@@');
+        SetDefaultTableConnection(TableConnectionType::CRM, 'NBS');
+        S.Set(Report::"NBS Word Crm Rpt", 0, ReportFormat::Pdf);
+        ClearLastError();
+        TempRow.Data.CreateOutStream(OutS);
+        if Report.SaveAs(Report::"NBS Word Crm Rpt", '', ReportFormat::Pdf, OutS) then
+            Error('SaveAs answered true');
+        if GetLastErrorCode() + '/' + GetLastErrorText() <> 'Dialog/N29' then
+            Error('expected Dialog/N29 but was %1/%2', GetLastErrorCode(), GetLastErrorText());
     end;
 }

@@ -20,8 +20,8 @@ pub(super) struct FailedSave<'a> {
     pub result_used: bool,
     /// What the save table planned before the run (`static_or_variable_save`): for Pdf and Word its fact vector.
     pub output: &'a SaveOutput,
-    /// The store's change counter when the run started ([`Session::start_save_run`]).
-    pub changes: u64,
+    /// The database's write mark when the run started ([`Session::start_save_run`]).
+    pub changes: WriteMark,
 }
 
 impl<'a> FailedSave<'a> {
@@ -38,18 +38,26 @@ impl<'a> FailedSave<'a> {
             plain_stream: matches!(target, SaveTarget::Stream(_)) && parameters.is_empty() && record_ref.is_none(),
             result_used,
             output: &SaveOutput::Dataset,
-            changes: 0,
+            changes: WriteMark::default(),
         }
     }
 
     /// With what the save table planned and the change counter at the start of the run.
-    pub(super) fn after(self, output: &'a SaveOutput, changes: u64) -> Self {
+    pub(super) fn after(self, output: &'a SaveOutput, changes: WriteMark) -> Self {
         FailedSave {
             output,
             changes,
             ..self
         }
     }
+}
+
+/// The change counters of the stores a run can write: the company's store and the store of each CRM table connection
+/// (`records.rs` `store_of`). Temporary records live in neither and do not count.
+#[derive(Default, PartialEq)]
+pub(super) struct WriteMark {
+    store: u64,
+    crm: Vec<(String, u64)>,
 }
 
 /// What measures the error of a SaveAs.
@@ -63,11 +71,34 @@ enum Cover {
 }
 
 impl Session {
-    /// Called before the run of a SaveAs: no report trigger has failed yet. Returns the store's change counter, which
+    /// Called before the run of a SaveAs: no report trigger has failed yet. Returns the write mark, which
     /// [`FailedSave::changes`] carries.
-    pub(super) fn start_save_run(&mut self) -> u64 {
+    pub(super) fn start_save_run(&mut self) -> WriteMark {
         self.report.failed_trigger = None;
-        self.store.change_counter()
+        self.save_write_mark()
+    }
+
+    fn save_write_mark(&self) -> WriteMark {
+        let mut crm: Vec<(String, u64)> = self
+            .crm_stores
+            .iter()
+            .map(|(name, s)| (name.clone(), s.store.change_counter()))
+            .collect();
+        crm.sort();
+        WriteMark {
+            store: self.store.change_counter(),
+            crm,
+        }
+    }
+
+    /// Where a report trigger call ended (`report_trigger_call`): the first trigger an error leaves is its origin, and the
+    /// triggers of outer reports it unwinds through keep it (a nested report's OnPostDataItem stays the origin, not the outer
+    /// OnPreReport). A trigger that returns leaves no origin: whatever failed inside it was caught.
+    pub(super) fn note_trigger_end(&mut self, object: usize, kind: TrigKind, r: &Result<(Value, Vec<Value>), Signal>) {
+        self.report.failed_trigger = match r {
+            Err(Signal::Error(_)) => self.report.failed_trigger.or(Some((object, kind))),
+            _ => None,
+        };
     }
 
     pub(super) fn save_trigger_error(
@@ -76,7 +107,9 @@ impl Session {
         schema: &Schema,
         call: FailedSave<'_>,
     ) -> Result<Value, Signal> {
-        let site = self.report.failed_trigger.take();
+        // Read, not taken: a statement form re-raises the error, and the origin stays for the triggers of an outer report it
+        // unwinds through; the Boolean form's catch clears it (`hold_error`).
+        let site = self.report.failed_trigger;
         let cover = self.trigger_error_cover(&e, site, schema, &call);
         let report = schema.report();
         match (report.layout, !report.extensions.is_empty()) {
@@ -175,7 +208,7 @@ impl Session {
             TrigKind::PreItem => crate::recmeta::is_empty_field_error(e),
             _ => false,
         };
-        let wrote = self.store.change_counter() != call.changes;
+        let wrote = self.save_write_mark() != call.changes;
         if !measured_pair || wrote || !call.plain_stream {
             return Cover::Not;
         }

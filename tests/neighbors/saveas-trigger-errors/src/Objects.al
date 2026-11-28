@@ -756,6 +756,119 @@ report 97125 "NBS Processing Rendering Rpt"
         Site: Codeunit "NBS Site";
 }
 
+// A processing-only report that fails in its OnPostDataItem (not measured), run by a measured Word report's OnPreReport.
+report 97126 "NBS Inner Rpt"
+{
+    UsageCategory = None;
+    ProcessingOnly = true;
+    UseRequestPage = false;
+
+    dataset
+    {
+        dataitem(Int; Integer)
+        {
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+
+            trigger OnPostDataItem()
+            begin
+                Error('N26');
+            end;
+        }
+    }
+}
+
+report 97127 "NBS Word Nested Rpt"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = L;
+
+    dataset
+    {
+        dataitem(Int; Integer)
+        {
+            column(N; Number) { }
+
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+        }
+    }
+
+    rendering
+    {
+        layout(L)
+        {
+            Type = Word;
+            LayoutFile = './src/NbsWordNested.docx';
+        }
+    }
+
+    trigger OnPreReport()
+    begin
+        Report.Run(Report::"NBS Inner Rpt", false);
+    end;
+}
+
+table 97128 "NBS Crm Entity"
+{
+    TableType = CRM;
+
+    fields
+    {
+        field(1; EntityId; Guid) { }
+        field(2; Name; Text[100]) { }
+    }
+
+    keys
+    {
+        key(PK; EntityId) { }
+    }
+}
+
+// A measured Word report whose OnPreReport writes a CRM row before its error.
+report 97129 "NBS Word Crm Rpt"
+{
+    UsageCategory = None;
+    DefaultRenderingLayout = L;
+
+    dataset
+    {
+        dataitem(Int; Integer)
+        {
+            column(N; Number) { }
+
+            trigger OnPreDataItem()
+            begin
+                SetRange(Number, 1, 1);
+            end;
+        }
+    }
+
+    rendering
+    {
+        layout(L)
+        {
+            Type = Word;
+            LayoutFile = './src/NbsWordCrm.docx';
+        }
+    }
+
+    trigger OnPreReport()
+    var
+        E: Record "NBS Crm Entity";
+    begin
+        E.Init();
+        E.EntityId := CreateGuid();
+        E.Name := 'x';
+        E.Insert();
+        Error('N29');
+    end;
+}
+
 // The statement form, run inside Codeunit.Run so the raised error's code and text can be read afterwards.
 codeunit 97112 "NBS Statement"
 {

@@ -1150,7 +1150,7 @@ impl Session {
         let saved = self.report.report_trigger.replace((self.depth + 1, kind));
         self.report.report_flow = None;
         let r = self.call(object, routine, inst, Vec::new());
-        self.report.failed_trigger = matches!(r, Err(Signal::Error(_))).then_some((object, kind));
+        self.note_trigger_end(object, kind, &r);
         self.report.report_trigger = saved;
         self.report.flow_unwind = None;
         let flow = self.report.report_flow.take();
