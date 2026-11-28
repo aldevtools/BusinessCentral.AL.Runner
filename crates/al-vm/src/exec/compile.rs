@@ -27,8 +27,8 @@ pub(crate) fn compile_debug(program: &ir::Program, o: usize, routine: usize) -> 
     compile_form(program, o, routine, false, true, true)
 }
 
-fn compile_form<'a>(
-    program: &'a ir::Program,
+fn compile_form(
+    program: &ir::Program,
     o: usize,
     routine: usize,
     captured: bool,
