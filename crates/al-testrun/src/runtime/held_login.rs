@@ -181,33 +181,29 @@ pub(super) fn runs_own_login(hub_leg: bool, isolation: TestIsolation) -> bool {
     }
 }
 
-/// The `SessionId()` of a codeunit's session when it runs a login of its own on the run's one login (`held`; `runs_own_login`,
-/// not a scratch run: `execute`): runner 130450 runs it in another session than the hub codeunits, a new one for each
-/// codeunit (assumption `hub-login-later-runners`; corpus PR 1644, LgnHeldLoginRunners.al:617, :664, :705 "same
-/// session as the snapshot" No, and :622, :669, :710 one LOGIN row of that session). The id is `host_id`, the hub
-/// session's, plus [`OWN_SESSION_STRIDE`] for each such session so far, so it is none of the ids install sessions (2 +
-/// k, `install.rs`) and background sessions (the starting session's id plus a count, al-vm `bgsession.rs`) take.
-/// `None`: the session answers the host's id.
+/// The session of a codeunit that runs a login of its own on the run's one login (`held`; `runs_own_login`, not a
+/// scratch run: `execute`): runner 130450 runs it in another session than the hub codeunits (assumption
+/// `hub-login-later-runners`; corpus PR 1644, LgnHeldLoginRunners.al:664, :705 "same session as the snapshot" No, and
+/// :669, :710 one LOGIN row of that session), a new one for each codeunit, whose id is not the hub session's (`host_id`)
+/// nor an earlier one's (al-vm `HeldLogin::next_own_login`). `None`: the session answers the host's id.
 pub(super) fn own_session_id(
     held: Option<&al_vm::HeldLogin>,
     hub_leg: bool,
     isolation: TestIsolation,
     execute: bool,
     host_id: i32,
-) -> Option<i32> {
+) -> Option<al_vm::OwnLogin> {
     let held = held.filter(|_| !execute && runs_own_login(hub_leg, isolation))?;
-    Some(host_id.saturating_add(OWN_SESSION_STRIDE.saturating_mul(held.next_own_login())))
+    Some(held.next_own_login(host_id))
 }
 
-/// How far apart the ids of the sessions that run a login of their own are ([`own_session_id`]).
-const OWN_SESSION_STRIDE: i32 = 1000;
-
 /// `host` with the session id of [`own_session_id`]: `SessionId()`, the Session and Active Session rows and the ids of
-/// the background sessions it starts all follow it. `None`: `host` as it is.
-pub(super) fn in_own_session(host: al_host::Host, own_session: Option<i32>) -> al_host::Host {
-    match own_session {
-        Some(id) => host.with_identity_overrides(al_host::IdentityOverrides {
-            session_id: Some(id),
+/// the background sessions it starts all follow it. `None`: `host` as it is. The session made on it is then told
+/// (al-vm `Session::set_own_login`), so its readers refuse what is not measured of it.
+pub(super) fn in_own_session(host: al_host::Host, own: Option<al_vm::OwnLogin>) -> al_host::Host {
+    match own {
+        Some(own) => host.with_identity_overrides(al_host::IdentityOverrides {
+            session_id: Some(own.id),
             ..Default::default()
         }),
         None => host,

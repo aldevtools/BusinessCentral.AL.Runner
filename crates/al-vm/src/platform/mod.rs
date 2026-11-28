@@ -92,8 +92,11 @@ pub(crate) struct EventStats {
     pub install_view: RefCell<InstallView>,
     /// The value of `Session::no_client_test_session` (the test session under `--no-client`, not install code, not a page
     /// background task worker); its one writer is `Session::sync_no_client_test_session`. A read of the Session or Active
-    /// Session table is refused while it holds ([`Providers::no_client_session_read`]).
+    /// Session table is refused while it holds ([`Providers::session_read_refusal`]).
     pub no_client_test_session: std::cell::Cell<bool>,
+    /// The session runner 130450 made for a login of its own after the held login (`Session::set_own_login`, its one
+    /// writer). A read of the Session or Active Session table is refused while it is set ([`Providers::session_read_refusal`]).
+    pub own_login: std::cell::Cell<Option<crate::OwnLogin>>,
 }
 
 /// The apps an install has not reached, and the app whose install runs: the "NAV App Installed App" list leaves them out
@@ -580,7 +583,7 @@ impl Providers {
     /// The session's own Active Session row and the rows an Insert added: a Get, Count and Count with a filter find them
     /// (RvActiveSessionWrites.al:42-70, :90-130, :173-204).
     fn active_session_listing(&self, store: &MemStore, cx: &AccessContext, t: &TableDef) -> Result<Listed, StoreError> {
-        self.no_client_session_read(Virtual::ActiveSession)?;
+        self.session_read_refusal(Virtual::ActiveSession)?;
         let stored = store.stored_rows(cx, t);
         if stored.is_empty() {
             return self.listed(t, Virtual::ActiveSession);
@@ -660,7 +663,16 @@ impl Providers {
     /// of the Active Session table does there is not measured (BC's error on the Session read says "The Active Session does not
     /// exist"). Both are refused; install code and a page background task worker keep their own answers, and with a client the
     /// session's own row is listed.
-    fn no_client_session_read(&self, kind: Virtual) -> Result<(), StoreError> {
+    ///
+    /// In a session that runner 130450 made for a login of its own after the held login (`EventStats::own_login`) every
+    /// read of both is refused: whether they hold the hub session's row there is not measured (assumption
+    /// `hub-login-later-runners`; corpus PR 1644 reads neither).
+    fn session_read_refusal(&self, kind: Virtual) -> Result<(), StoreError> {
+        if self.events.own_login.get().is_some() && matches!(kind, Virtual::Session | Virtual::ActiveSession) {
+            return Err(refused(
+                "a read of the Session or Active Session table in a session runner 130450 made for a login of its own after the held login: whether the hub session's row is there is not measured (assumption `hub-login-later-runners`)",
+            ));
+        }
         if !self.events.no_client_test_session.get() {
             return Ok(());
         }
@@ -677,7 +689,7 @@ impl Providers {
 
     /// The rows of a table that is listed in full.
     fn listed(&self, t: &TableDef, kind: Virtual) -> Result<Listed, StoreError> {
-        self.no_client_session_read(kind)?;
+        self.session_read_refusal(kind)?;
         // In another language than 1033 the layouts' descriptions are that language's: listed per read, not kept.
         if kind == Virtual::ReportLayoutList && self.language() != 1033 {
             return Ok(Listed::Own(Rc::new(mat::Mat::new(
@@ -1243,6 +1255,27 @@ mod tests {
 
     fn some_mat() -> mat::Mat {
         mat::Mat::new(&some_def(), Vec::new())
+    }
+
+    // Whether the Session and Active Session tables of a session runner 130450 made for a login of its own after the held
+    // login hold the hub session's row is not measured (assumption `hub-login-later-runners`): every read is refused
+    // there; another session lists its one row (session-system/TestSessionVirtualTable.al:120).
+    #[test]
+    fn an_own_login_session_refuses_the_session_tables() {
+        let p = Providers::new(
+            &engine(),
+            Ident::of(&al_host::Host::default()),
+            Rc::default(),
+            al_builtins::media::MediaStore::default(),
+        );
+        for kind in [Virtual::Session, Virtual::ActiveSession] {
+            assert!(p.session_read_refusal(kind).is_ok(), "{kind:?}");
+            p.events.own_login.set(Some(crate::held_login::own_login_for_test(1)));
+            assert!(p.session_read_refusal(kind).is_err(), "{kind:?}");
+            p.events.own_login.set(None);
+        }
+        p.events.own_login.set(Some(crate::held_login::own_login_for_test(1)));
+        assert!(p.session_read_refusal(Virtual::Field).is_ok());
     }
 
     #[test]

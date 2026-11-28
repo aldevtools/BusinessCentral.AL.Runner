@@ -122,8 +122,8 @@ fn each_runner_130450_session_after_the_held_login_answers_a_session_id_of_its_o
     let (l, _) = super::tests::engine_for(SRC);
     let held = held(&l);
     let hub = 1;
-    let first = own_session_id(Some(&held), false, TestIsolation::Codeunit, false, hub);
-    let second = own_session_id(Some(&held), false, TestIsolation::Function, false, hub);
+    let first = own_session_id(Some(&held), false, TestIsolation::Codeunit, false, hub).map(|o| o.id);
+    let second = own_session_id(Some(&held), false, TestIsolation::Function, false, hub).map(|o| o.id);
     assert!(first.is_some_and(|id| id != hub), "{first:?}");
     assert!(
         second.is_some_and(|id| id != hub && Some(id) != first),

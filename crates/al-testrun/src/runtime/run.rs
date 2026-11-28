@@ -573,6 +573,7 @@ fn run_codeunit_inner(
     let held = baseline.and_then(|b| b.login_held.as_deref());
     let own_session = own_session_id(held, scratch.hub_leg, isolation, execute, host.identity.session_id());
     let (mut session, moved) = new_session(engine, in_own_session(host, own_session), baseline, execute);
+    session.set_own_login(own_session);
     set_up_session(&mut session, scratch, observe.is_some());
     let covering = crate::coverage::enabled();
     let is_on_run = |r: usize| obj.routines[r].is_trigger && obj.routines[r].name.eq_ignore_ascii_case("OnRun");
@@ -1774,7 +1775,7 @@ struct Steps<'a> {
     moved_in: bool,
     /// The session runs a login of its own on the run's one login, with this `SessionId()` (`own_session_id`); a new
     /// session of the codeunit and the check's twin take the same.
-    own_session: Option<i32>,
+    own_session: Option<al_vm::OwnLogin>,
 }
 
 type Opened = (
@@ -1824,6 +1825,7 @@ impl Steps<'_> {
     ) -> Session {
         let host = in_own_session(session_host(scratch), self.own_session);
         let mut session = session_from(self.engine, host, baseline, moved);
+        session.set_own_login(self.own_session);
         set_up_session(&mut session, scratch, self.observed);
         session
     }

@@ -179,6 +179,8 @@ pub(crate) fn events_not_as_new(e: &EventState) -> Option<&'static str> {
         // `Session::no_client_test_session`, kept in step by `Session::sync_no_client_test_session`: once install code ended it
         // is what the run's session flags make it in a new session.
         no_client_test_session: _,
+        // `Session::set_own_login`: set by al-testrun on a test codeunit's session after it is made, never on install code's.
+        own_login: _,
     } = &**event_stats;
     let crate::order_trial::TrialState {
         allowed,

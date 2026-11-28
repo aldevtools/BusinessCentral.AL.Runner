@@ -14,7 +14,7 @@
 //! Message or Hyperlink fails with "Unhandled UI" ([`Session::no_client_dialog`]); the measured report skips its request page
 //! ([`Session::clientless_report`]). On the other majors these are refused. BC fails a TestPage open and a read of the Session
 //! table there, with errors the corpus does not measure: refused (`clientless_test_page_reason`, `platform`
-//! `no_client_session_read`, which refuses a read of Active Session too). Every other dialog or call shape is refused in both
+//! `session_read_refusal`, which refuses a read of Active Session too). Every other dialog or call shape is refused in both
 //! sessions (hard rules 3 and 4); the worker's answers do not stand in for the web-service session.
 //!
 //! what a dialog does in a session without a client (`Session::without_client`): a page background
@@ -35,7 +35,7 @@
 //! cells of `measured_report_run`) and `clientless_request_page_guard` the request page of a report;
 //! `clientless_xmlport_window_guard` (`xmlports/run_request.rs`). GuiAllowed is in `hostvalues.rs`;
 //! the Session and Active Session read refusal in `platform/mod.rs`
-//! (`Providers::no_client_session_read`, through `EventStats::no_client_test_session`, kept in step
+//! (`Providers::session_read_refusal`, through `EventStats::no_client_test_session`, kept in step
 //! by `sync_no_client_test_session`); `clientless_refuses_test_page_handler` decides which handlers
 //! that take a TestPage `ui.rs` `ui_handler` refuses, a bound RequestPageHandler that never ran marks
 //! the assumption in `end_ui_scope`; a read of the WorkDate the skipped login code would have set
