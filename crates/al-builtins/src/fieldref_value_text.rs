@@ -31,8 +31,8 @@ pub fn fieldref_value_into_text(
 /// OptionCaption, an Enum member's Caption or else its name, a Decimal with its thousands separator, and
 /// StringLengthExceeded past the length of a Code or a bounded Text (issues 9285 and 9305). Corpus PR 1629, merged at
 /// 778b8fc1, not yet pinned: recordref-fieldref/fieldref-value-convert/FvcTimestampField.al:443 ExitValue_NumberFields,
-/// :466 ExitValue_EnumOptionFields, :485 ExitValue_OtherFields, :214 Field0_InsertedRow; and the follow-up corpus
-/// probe, FvcExitValueMore.al:142-280 ExitValue_* (Decimals of 1000 or more, an OptionCaption, an Enum member without a
+/// :466 ExitValue_EnumOptionFields, :485 ExitValue_OtherFields, :214 Field0_InsertedRow; and corpus PR 1641 (open),
+/// FvcExitValueMore.al:142-282 ExitValue_* (Decimals of 1000 or more, an OptionCaption, an Enum member without a
 /// Caption, Text[3] and Text[30]). `unmeasured`: the fact of the session no cell covers (another language, a major the
 /// corpus does not cover); there a number or an Enum refuses, since BC gives a text where the Variant conversion
 /// raises. `None`: another value or target, which converts as every exit value does.

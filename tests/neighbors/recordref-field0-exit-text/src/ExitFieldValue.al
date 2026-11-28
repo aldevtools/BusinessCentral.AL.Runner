@@ -4,7 +4,7 @@
 // fieldref-value-exit-into-text. A Code or Text field, a number return, a Variant return, a Variant variable, assignment and
 // argument answer the same on both. Paren_ tests: a parenthesized exit (issue 9305), into a Code and into an
 // Integer return. German_ tests: a session in another language, where no cell is measured. More_ tests:
-// the cells of the follow-up corpus probe (FvcExitValueMore.al).
+// the cells of corpus PR 1641 (FvcExitValueMore.al:142-282).
 enum 50310 "FY Kind" { Extensible = false; value(0; Zero) { } value(1; One) { Caption = 'One Caption'; } }
 
 table 50311 "FY Row"

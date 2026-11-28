@@ -2,7 +2,7 @@
 //! of another type (issue 9285): the value's Format text, as FieldRef.Validate converts it, upper-cased into a Code,
 //! StringLengthExceeded past the length. Assumption `fieldref-value-exit-into-text` (corpus PR 1629, merged at
 //! 778b8fc1, recordref-fieldref/fieldref-value-convert/FvcTimestampField.al:443, :466, :485 ExitValue_* and :214
-//! Field0_InsertedRow; the follow-up corpus probe, FvcExitValueMore.al:142-280 ExitValue_*). Outside an en-US session a
+//! Field0_InsertedRow; corpus PR 1641, FvcExitValueMore.al:142-282 ExitValue_*). Outside an en-US session a
 //! number or an Enum refuses. A Variant variable exited into a Code keeps its TypeConversion error
 //! (types/variant/VaTCompare.al:Concat_After_Conversion), and the exit into a number checks the lowered value, so a
 //! parenthesized `exit((FR.Value()))` meets the refusal of a Date (issue 9305).
@@ -268,7 +268,7 @@ fn more(field: i32) -> String {
     )
 }
 
-/// The follow-up corpus probe, recordref-fieldref/fieldref-value-convert/FvcExitValueMore.al ExitValue_*: a Decimal
+/// Corpus PR 1641 (open), recordref-fieldref/fieldref-value-convert/FvcExitValueMore.al:142-282 ExitValue_*: a Decimal
 /// keeps its thousands separator, an Option gives its OptionCaption, an Enum member without a Caption its name, and a
 /// bounded Text return takes the text when it fits.
 #[test]
