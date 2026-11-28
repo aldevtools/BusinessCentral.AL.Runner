@@ -22,7 +22,7 @@ use al_builtins::assumptions::{Assumption, assume};
 use al_data::AccessContext;
 
 /// The field id of SystemRowVersion.
-const ROW_VERSION: u32 = 2_000_000_005;
+pub(super) const ROW_VERSION: u32 = 2_000_000_005;
 
 impl Session {
     /// The re-reads corpus PR 1613 sends the row with (RowVersionReReadShapes.al `ReRead`): Get, FindFirst, FindSet and

@@ -5,6 +5,7 @@
 
 use super::*;
 use al_builtins::assumptions::{Assumption, assume};
+use al_data::AccessContext;
 
 /// Why `Database.LastUsedRowVersion` is refused after a write of these kinds that follows an Insert (`note_row_versions`).
 const AFTER_INSERT: &str = "a Delete, Rename, DeleteAll, ModifyAll or Truncate after an Insert in the open transaction";
@@ -37,6 +38,9 @@ impl Session {
         self.note_row_versions(t.object, &company, kind, pk);
         if kind == crate::state::TxWriteKind::Insert {
             self.note_row_version_buffer(rec, t.object, &company);
+            if self.ret_used {
+                self.send_checked_insert(rec, t.object, &company);
+            }
         }
         self.push_write(t, company, kind, pk, before, Default::default());
     }
@@ -75,9 +79,9 @@ impl Session {
     /// 220-245 `after_insert_greater` No), it covers the inserted row after a Get of its table (corpus master
     /// PlTRowVersionValue.al:157-172 TV_MinimumActiveRowVersion_AcrossInsertModifyCommit, `insert open last > start last` and
     /// `row version <= last` Yes) and grows after a Modify (PlTDatabase.al:238 `after_modify_greater`, PlTRowVersionValue.al
-    /// `modify open row version <= last`). A Delete, Rename or ModifyAll after an Insert moves it only in the shapes
-    /// `row_version_after_write` lets through; every other one, a DeleteAll or Truncate after an Insert and row versions an
-    /// Insert or a Modify does not account for are not pinned, so refused. `row` is the key of the row a Delete or Rename
+    /// `modify open row version <= last`). A Delete, Rename, ModifyAll or DeleteAll after an Insert moves it only in the shapes
+    /// `row_version_after_write` lets through; every other one, a Truncate after an Insert and row versions an Insert or a
+    /// Modify does not account for are not pinned, so refused. `row` is the key of the row a Delete or Rename
     /// writes (empty for other bulk writes).
     pub(super) fn note_row_versions(
         &mut self,
@@ -158,7 +162,7 @@ impl Session {
             // measured, so it stays in `write_sends` (`row_version_after_write`). A Rename (`Other` until it
             // turns out a plain one) of that table, or of a table the transaction inserted into and sent, grows it to the row
             // version it hands out (`end_row_version_write`).
-            TxWriteKind::Delete | TxWriteKind::ModifyAll | TxWriteKind::Other
+            TxWriteKind::Delete | TxWriteKind::ModifyAll | TxWriteKind::DeleteAll | TxWriteKind::Other
                 if Self::row_version_after_write(
                     rv,
                     self.tx.committed_row_version,
@@ -167,7 +171,10 @@ impl Session {
                     kind,
                 ) =>
             {
-                rv.assumed_write = true;
+                match kind {
+                    TxWriteKind::DeleteAll => rv.assumed_delete_all = true,
+                    _ => rv.assumed_write = true,
+                }
                 if matches!(kind, TxWriteKind::ModifyAll | TxWriteKind::Other) {
                     rv.write_sends = Some((table, company.clone(), kind));
                 }
@@ -191,6 +198,14 @@ impl Session {
         }
     }
 
+    /// The test runs as the cells of corpus PR 1621 (RowVersionWriteShapes.al:134, a test codeunit with no
+    /// RequiredTestIsolation and test methods with no TransactionModel): under the test runner codeunit's isolation, not
+    /// Disabled, AutoCommit. A RequiredTestIsolation applies only when the hub runs the codeunit (`isolation_from_hub`).
+    fn probe_isolation(&self) -> bool {
+        (self.isolation_from_hub, self.hub_disabled, self.tx_model)
+            == (false, false, crate::transactions::TxModel::AutoCommit)
+    }
+
     /// Whether a write of `kind` to `table` after an Insert in the open transaction moves `Database.LastUsedRowVersion` as corpus
     /// PR 1509 (merged, not pinned: session-system/row-version-writes/RowVersionWrites.al) measured it, through the assumption
     /// `row-version-write-after-insert`. Delete (:147) and ModifyAll (:218): the inserted rows nothing sent yet are exactly those
@@ -198,8 +213,10 @@ impl Session {
     /// transaction is an Insert a read sent. The probe sent no other row version before those rows (`own_unsent`: the first of
     /// them is above every row version sent), and the Delete (:147) and Rename (:192, :517) wrote a row the transaction inserted
     /// and did not write since (`row`, `write_notes::inserted_unwritten`); a ModifyAll's rows are checked when it ends
-    /// (`note_bulk_end`). Every other shape keeps the refusal of `note_row_versions`: a DeleteAll (:242) or Truncate (:267) is a
-    /// store write `writes_all_noted` does not count, and a ModifyAll of a table whose rows were sent (:544) is main's Modify rule.
+    /// (`note_bulk_end`). Every other shape keeps the refusal of `note_row_versions`: a Truncate (:267) is a store write
+    /// `writes_all_noted` does not count, and a ModifyAll of a table whose rows were sent (:544) is main's Modify rule.
+    /// A DeleteAll (RowVersionWriteShapes.al of corpus PR 1621, :316, :338, :363) sends the inserted rows of its table as a
+    /// ModifyAll does, through the assumption `row-version-delete-all`.
     fn row_version_after_write(
         rv: &crate::state::RowVersionTx,
         committed: i64,
@@ -223,9 +240,56 @@ impl Session {
         match kind {
             TxWriteKind::Delete => own_unsent && inserted_row,
             TxWriteKind::ModifyAll => none_running && own_unsent,
+            // RowVersionWriteShapes.al of corpus PR 1621 (open): :316 (unfiltered), :338 (a filter that matches no inserted
+            // row) and :363 (committed rows too): the value becomes the last inserted row's (assumption `row-version-delete-all`).
+            TxWriteKind::DeleteAll => (none_running, own_unsent, company.is_none()) == (true, true, true),
             TxWriteKind::Other => none_running && inserted_row && (own_unsent || sent_insert),
             _ => false,
         }
+    }
+
+    /// A checked Insert (`if not Rec.Insert() then`, the return value used) sends its row at once: `Database.LastUsedRowVersion`
+    /// becomes that row's SystemRowVersion (corpus PR 1621, open, not pinned: session-system/row-version-writes/
+    /// RowVersionWriteShapes.al:172 RowVersion_CheckedInsert, :524 RowVersion_IssueWriteOrder; assumption
+    /// `row-version-checked-insert`). The measured shape: a Record (not a RecordRef) Insert into a database table whose
+    /// statement-form Insert is queued, no LockTable in the open transaction, and the Insert just handed out the one row version
+    /// of its table's only unsent entry, as its last row (earlier plain Inserts of that table may be in it, :524), no other
+    /// table holds unsent rows, the session company, and the isolation of the cells (`probe_isolation`). Every other checked
+    /// Insert is refused.
+    fn send_checked_insert(&mut self, rec: &Rec, table: u32, company: &Option<String>) {
+        let queued = self.insert_is_queued(rec);
+        let rv = &self.tx.open.row_versions;
+        let own: Vec<usize> = (0..rv.pending_inserts.len())
+            .filter(|&i| rv.pending_inserts[i].0 == table && rv.pending_inserts[i].1 == *company)
+            .collect();
+        // The Insert's row is the last of its table's one unsent entry; earlier plain Inserts of the table may be in it (:524:
+        // three Inserts, then two checked ones, `checked last/row` same).
+        let one_row = matches!(own.as_slice(), [i] if rv.pending_inserts[*i].3 == rv.last);
+        let measured = (
+            queued,
+            self.through_recordref,
+            self.tx.open.locked_tables.is_empty(),
+            one_row,
+            // :172 and :524: no other table holds unsent inserted rows.
+            own.len() == rv.pending_inserts.len(),
+            company.is_none(),
+            self.probe_isolation(),
+            rv.handed_out == rv.accounted,
+            rv.unpinned.is_none(),
+        ) == (true, false, true, true, true, true, true, true, true);
+        if !measured {
+            self.tx
+                .open
+                .row_versions
+                .unpinned
+                .get_or_insert("a checked Insert in a shape corpus PR 1621 does not measure");
+            return;
+        }
+        let v = self.send_pending_insert(own[0], false);
+        let rv = &mut self.tx.open.row_versions;
+        rv.sent = rv.sent.max(v);
+        rv.sent_by.raise(false);
+        rv.assumed_checked_insert = true;
     }
 
     /// The end of a plain Rename of `table` that `note_row_versions` let send (`RowVersionTx::write_sends`): the row version it
@@ -310,11 +374,47 @@ impl Session {
         if rv.handed_out != rv.accounted {
             return Err("row versions handed out by a write other than an Insert or a Modify");
         }
-        if !self.writes_all_noted() {
+        // A DeleteAll writes its rows without a note each (`note_bulk_end`): over one in the shape corpus PR 1621 measures
+        // (RowVersionWriteShapes.al :256, :276, :298 with no inserted row unsent; :316, :338, :363 after Inserts of its
+        // table; :524) the chain goes on from where it ended.
+        let measured = |w: &crate::state::TxWrite| {
+            let b = w.bulk_shape;
+            (
+                w.kind,
+                w.through_recordref,
+                b.argument,
+                b.marked_only,
+                w.bulk.as_ref().map(|e| e.entries),
+            ) == (crate::state::TxWriteKind::DeleteAll, false, false, false, Some(0))
+        };
+        // A DeleteAll that sent inserted rows (`row_version_after_write`) in another shape is not measured.
+        let mut delete_alls = self
+            .tx
+            .open
+            .writes
+            .iter()
+            .filter(|w| w.kind == crate::state::TxWriteKind::DeleteAll);
+        if rv.assumed_delete_all && !delete_alls.all(measured) {
+            return Err("a DeleteAll after an Insert in a shape corpus PR 1621 does not measure");
+        }
+        let over_delete_all = std::cell::Cell::new(false);
+        let noted = self.writes_noted_over(|w| {
+            measured(w).then(|| {
+                over_delete_all.set(over_delete_all.get() || w.bulk.as_ref().is_some_and(|e| e.counter != w.after));
+                w.bulk.as_ref().map_or(w.after, |e| e.counter)
+            })
+        });
+        if !noted {
             return Err("a write of the open transaction the runtime does not track");
+        }
+        if over_delete_all.get() || rv.assumed_delete_all {
+            assume(Assumption::RowVersionDeleteAll);
         }
         if rv.assumed_write {
             assume(Assumption::RowVersionWriteAfterInsert);
+        }
+        if rv.assumed_checked_insert {
+            assume(Assumption::RowVersionCheckedInsert);
         }
         Ok(self.tx.committed_row_version.max(rv.sent).max(1))
     }
@@ -330,6 +430,68 @@ impl Session {
         row: &[Value],
     ) -> Option<BulkMark> {
         self.note_bulk_write_reset(rec, t, kind, row, false)
+    }
+
+    /// `note_bulk_write` of a DeleteAll; `argument`: the call passed one.
+    pub(crate) fn note_delete_all_write(&mut self, rec: &Rec, t: &TableDef, argument: bool) -> Option<BulkMark> {
+        self.note_bulk_write_reset(rec, t, crate::state::TxWriteKind::DeleteAll, &[], argument)
+    }
+
+    /// Before a filtered DeleteAll of `t` while the open transaction holds unsent inserted rows of `t`: those rows (their row
+    /// versions, and how many of them `t` holds), for `end_filtered_delete_all`. `None` for every other DeleteAll.
+    pub(crate) fn filtered_delete_all_inserted(
+        &self,
+        cx: &AccessContext,
+        t: &TableDef,
+        rec: &Rec,
+    ) -> Result<Option<(i64, i64, usize)>, Signal> {
+        let r = rec.borrow();
+        let own = self
+            .tx
+            .open
+            .row_versions
+            .pending_inserts
+            .iter()
+            .find(|(o, c, ..)| *o == t.object && *c == r.company);
+        let (Some(&(_, _, first, last)), true, false) = (own, !r.filters.is_empty(), r.temporary) else {
+            return Ok(None);
+        };
+        drop(r);
+        Ok(Some((first, last, self.rows_in_row_versions(cx, t, first, last)?)))
+    }
+
+    /// After the DeleteAll `filtered_delete_all_inserted` looked at: RowVersionWriteShapes.al:338 of corpus PR 1621 measures a
+    /// filter that matches none of the inserted rows (assumption `row-version-delete-all`); one that deleted one of them is not
+    /// measured, so what reads LastUsedRowVersion later is refused.
+    pub(crate) fn end_filtered_delete_all(
+        &mut self,
+        cx: &AccessContext,
+        t: &TableDef,
+        inserted: Option<(i64, i64, usize)>,
+    ) -> Result<(), Signal> {
+        let Some((first, last, before)) = inserted else {
+            return Ok(());
+        };
+        if self.rows_in_row_versions(cx, t, first, last)? != before {
+            self.tx
+                .open
+                .row_versions
+                .unpinned
+                .get_or_insert("a filtered DeleteAll that deleted rows the open transaction inserted");
+        }
+        Ok(())
+    }
+
+    /// How many rows of `t` hold a SystemRowVersion in [`first`, `last`].
+    fn rows_in_row_versions(&self, cx: &AccessContext, t: &TableDef, first: i64, last: i64) -> Result<usize, Signal> {
+        let Some(pos) = t.fields.iter().position(|f| f.id == super::restamped::ROW_VERSION) else {
+            return Ok(0);
+        };
+        let rows = self.all_rows(cx, t)?;
+        Ok(rows
+            .iter()
+            .filter(|row| matches!(row.get(pos), Some(Value::BigInteger(v)) if first <= *v && *v <= last))
+            .count())
     }
 
     /// `note_bulk_write` of a `Truncate(reset)`.
@@ -431,12 +593,18 @@ impl Session {
     /// Whether every write to the database store since the last Commit or rollback was a Record write in `tx.open.writes`: the
     /// counters chain from the Commit's to the store's current one.
     pub(crate) fn writes_all_noted(&self) -> bool {
+        self.writes_noted_over(|_| None)
+    }
+
+    /// `writes_all_noted`, where `over` may name the counter a note's write ended at (a bulk write whose rows have no note
+    /// each); the chain goes on from there.
+    pub(crate) fn writes_noted_over(&self, over: impl Fn(&crate::state::TxWrite) -> Option<u64>) -> bool {
         let mut at = self.tx.commit_counter;
         for w in &self.tx.open.writes {
             if w.before != at {
                 return false;
             }
-            at = w.after;
+            at = over(w).unwrap_or(w.after);
         }
         at == self.store.change_counter()
     }
