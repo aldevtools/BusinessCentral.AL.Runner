@@ -176,8 +176,7 @@ pub(crate) fn singles_changed(
                 (Some(x), Some(y)) if x.globals.len() == y.globals.len() => {
                     // Two values that each hold what a fresh one holds hold the same, also where neither has a
                     // comparable form (an untouched temporary record, `untouched_temp`).
-                    let both_declared =
-                        |g: usize| x.declared.get(g) == Some(&true) && y.declared.get(g) == Some(&true);
+                    let both_declared = |g: usize| x.declared.get(g) == Some(&true) && y.declared.get(g) == Some(&true);
                     (0..x.globals.len())
                         .filter(|&g| x.globals[g] != y.globals[g] && !both_declared(g))
                         .collect()

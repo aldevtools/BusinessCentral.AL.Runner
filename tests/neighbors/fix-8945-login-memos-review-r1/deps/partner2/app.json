@@ -1,0 +1,22 @@
+{
+ "id": "8d1a2b3c-0000-4000-8000-000000228945",
+ "name": "LR Partner Two",
+ "publisher": "LR Partner Two Co",
+ "version": "1.0.0.0",
+ "platform": "27.0.0.0",
+ "runtime": "15.0",
+ "idRanges": [
+  {
+   "from": 61040,
+   "to": 61049
+  }
+ ],
+ "dependencies": [
+  {
+   "id": "8d1a2b3c-0000-4000-8000-000000208945",
+   "name": "LR Stand-in Platform",
+   "publisher": "Microsoft",
+   "version": "1.0.0.0"
+  }
+ ]
+}

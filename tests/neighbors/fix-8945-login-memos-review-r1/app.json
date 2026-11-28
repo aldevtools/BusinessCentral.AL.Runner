@@ -1,0 +1,34 @@
+{
+ "id": "8d1a2b3c-0000-4000-8000-000000238945",
+ "name": "LR Main",
+ "publisher": "LR Partner Co",
+ "version": "1.0.0.0",
+ "platform": "27.0.0.0",
+ "runtime": "15.0",
+ "idRanges": [
+  {
+   "from": 61050,
+   "to": 61059
+  }
+ ],
+ "dependencies": [
+  {
+   "id": "8d1a2b3c-0000-4000-8000-000000218945",
+   "name": "LR Partner",
+   "publisher": "LR Partner Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "8d1a2b3c-0000-4000-8000-000000228945",
+   "name": "LR Partner Two",
+   "publisher": "LR Partner Two Co",
+   "version": "1.0.0.0"
+  },
+  {
+   "id": "8d1a2b3c-0000-4000-8000-000000208945",
+   "name": "LR Stand-in Platform",
+   "publisher": "Microsoft",
+   "version": "1.0.0.0"
+  }
+ ]
+}

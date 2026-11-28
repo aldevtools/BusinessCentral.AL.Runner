@@ -1,0 +1,5 @@
+# key	entry
+# main failed (the install session's setup cache hid the test session's ask, so 6153 was never asked); head asks again (Y69InstallTriggerSetup.al:134) and refuses: a setup ask nested in an insert raise is not measured
+LR Login Tests::ReadsApiCacheAskedInsideInsert	REFUSED a read of a global of SingleInstance codeunit API Webhook Notification Mgt.: OnAfterLogin raised to the login subscribers of the partner dependency apps changed it before the first test
+# a load undone before the insert event leaves no trace at the watch points: the insert event starts from cell M3's state
+LR Login Tests::ReadsChangeLogLoadedDirectlyThenOnInsert	ASSUMED partner-login-microsoft-cache (corpus PR 1571, merged, not yet pinned)

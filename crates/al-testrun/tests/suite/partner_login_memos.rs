@@ -236,10 +236,7 @@ fn api_cache_asked_outside_a_raise_refuses() {
 // Not measured: 423 loaded by a direct call, outside any Global Triggers raise.
 #[test]
 fn change_log_loaded_outside_a_raise_refuses() {
-    assert_refused(
-        run(&partner("C.Load();", ""), READ_423),
-        "not one of the caches",
-    );
+    assert_refused(run(&partner("C.Load();", ""), READ_423), "not one of the caches");
 }
 
 // Not measured: a setup row at the load (its Get loads the record global, a third changed global).

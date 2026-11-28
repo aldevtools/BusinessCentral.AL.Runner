@@ -22,6 +22,17 @@ codeunit 60981 "LS Login Tests"
             Error('change log not read');
     end;
 
+    // Review of al-runner PR 9028: the test loads the cache again before it reads it (main passed: no mark on 423).
+    [Test]
+    procedure UsesChangeLogAfterLoginAsk()
+    var
+        C: Codeunit "Change Log Management";
+    begin
+        C.Load();
+        if not C.IsRead() then
+            Error('change log not read');
+    end;
+
     [Test]
     procedure ReadsProfileFetchedInRaise()
     var

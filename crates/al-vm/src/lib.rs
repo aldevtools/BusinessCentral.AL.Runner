@@ -105,7 +105,6 @@ mod filterpage;
 mod flowfields;
 mod geturl;
 mod globaltriggers;
-mod raise_watch;
 pub mod group1_sessions;
 mod hostvalues;
 mod http;
@@ -114,6 +113,7 @@ pub mod install_footprint;
 mod install_footprint_row_version;
 mod install_left;
 mod login_image;
+mod raise_watch;
 pub use login_image::{
     BaseShape, ImageSize, KindSize, LoginBase, LoginImage, NODE_KINDS, NotImaged, NotThawed, PortableBase,
 };
