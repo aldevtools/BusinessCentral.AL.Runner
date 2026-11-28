@@ -67,6 +67,11 @@ enum Access {
     Internal,
 }
 
+/// Whether value `v` of a variable declared as `ty` is codeunit instance `rc`, `ty` being `rc`'s codeunit.
+fn holds(v: &Value, ty: &RtType, rc: &Rc<RefCell<Instance>>) -> bool {
+    *ty == RtType::Codeunit(rc.borrow().object) && matches!(v, Value::Codeunit(x) if Rc::ptr_eq(x, rc))
+}
+
 fn access(r: &al_ir::Routine) -> Option<Access> {
     match (r.local, r.internal) {
         (false, false) => Some(Access::Public),
@@ -169,23 +174,14 @@ impl Session {
     /// Which one variable of frame `f` declared as `rc`'s codeunit holds `rc`: exactly one global of its instance and no
     /// declared local, or exactly one declared local (not a parameter, not the return value) and no global.
     fn held_by(&self, f: &Frame, rc: &Rc<RefCell<Instance>>) -> Option<Held> {
-        let declared = RtType::Codeunit(rc.borrow().object);
-        let holds = |v: &Value, ty: &RtType| *ty == declared && matches!(v, Value::Codeunit(x) if Rc::ptr_eq(x, rc));
-        let program = &self.engine.program;
-        let instance = f.instance.borrow();
-        let globals = instance
-            .globals
-            .iter()
-            .zip(&program.objects[instance.object as usize].globals)
-            .filter(|(v, g)| holds(v, &g.ty))
-            .count();
-        let r = &program.objects[f.object].routines[f.routine];
+        let globals = self.globals_holding(&f.instance, rc);
+        let r = &self.engine.program.objects[f.object].routines[f.routine];
         let locals = f
             .locals
             .iter()
             .zip(&r.locals)
             .enumerate()
-            .filter(|&(i, (v, s))| i >= r.params && r.ret_local != Some(i) && holds(v, &s.ty))
+            .filter(|&(i, (v, s))| i >= r.params && r.ret_local != Some(i) && holds(v, &s.ty, rc))
             .count();
         match (globals, locals) {
             (1, 0) => Some(Held::HolderGlobal),
@@ -212,31 +208,39 @@ impl Session {
             Some(Some(check @ (Access::Local | Access::Internal))) => check,
             _ => return false,
         };
+        let Some(holder_kind) = self.owner_kind(holder_object) else {
+            return false;
+        };
+        let Some(entry) = run
+            .at
+            .checked_sub(1)
+            .and_then(|below| self.holder_entry(below, holder_object, &holder))
+        else {
+            return false;
+        };
         let path = Path {
-            holder: match self.owner_kind(holder_object) {
-                Some(kind) => kind,
-                None => return false,
-            },
-            entry: match run
-                .at
-                .checked_sub(1)
-                .and_then(|below| self.holder_entry(below, holder_object, &holder))
-            {
-                Some(entry) => entry,
-                None => return false,
-            },
+            holder: holder_kind,
+            entry,
             held,
             check,
         };
-        let globals = &self.engine.program.objects[holder_object].globals;
-        let holds_register = holder.borrow().globals.iter().zip(globals).any(|(v, g)| {
-            g.ty == RtType::Codeunit(rc.borrow().object) && matches!(v, Value::Codeunit(x) if Rc::ptr_eq(x, rc))
-        });
         !run.guarded
             && MEASURED.contains(&path)
             && self.frame_access(n - 1, owner, false) == Some(Access::Local)
             && self.is_on_run(run.at, owner)
-            && holds_register
+            && self.globals_holding(&holder, rc) > 0
+    }
+
+    /// How many globals of `instance` declared as `rc`'s codeunit hold `rc`.
+    fn globals_holding(&self, instance: &Rc<RefCell<Instance>>, rc: &Rc<RefCell<Instance>>) -> usize {
+        let instance = instance.borrow();
+        let globals = &self.engine.program.objects[instance.object as usize].globals;
+        instance
+            .globals
+            .iter()
+            .zip(globals)
+            .filter(|(v, g)| holds(v, &g.ty, rc))
+            .count()
     }
 
     /// How the holder (object `holder_object`, instance `holder`) reached the `Run` its frame `below` makes ([`Entry`]).
