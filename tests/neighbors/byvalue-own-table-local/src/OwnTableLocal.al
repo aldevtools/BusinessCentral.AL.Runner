@@ -207,6 +207,9 @@ table 59600 "NBO Acct"
                     Acct.SetFilter(Amount, '<>%1', 0);
                     Acct.FilterGroup(0);
                 end;
+            // MarkedOnly on without marks: no cell has it.
+            21:
+                Acct.MarkedOnly(true);
             // Field values and the combined view.
             17:
                 begin
@@ -447,6 +450,15 @@ codeunit 59603 "NBO Own Table Local Tests"
     begin
         Lib.Setup(Acct);
         Lib.Check(Acct.FromLocal(20));
+    end;
+
+    [Test]
+    procedure Table_Local_MarkedOnlyNoMarks()
+    var
+        Acct: Record "NBO Acct";
+    begin
+        Lib.Setup(Acct);
+        Lib.Check(Acct.FromLocal(21));
     end;
 
     [Test]

@@ -569,10 +569,10 @@ impl Session {
     /// false (:674), marks with MarkedOnly on (:716), a key the table does not define (:926), and all of these together
     /// with a filter in group 4 (:884). Not measured, so the call keeps main's answer: a filter in group 1, 3, 5, 6 or
     /// 7 (no cell's caller sets one there; the copy reading every group empty says nothing of them) or on a FlowField,
-    /// the caller in another group, a field sorted descending by SetAscending, marks with MarkedOnly off,
-    /// SetAutoCalcFields or ReadIsolation ([`plain_state`]), and a SetLoadFields, which the cells :758 and :779 cannot
-    /// tell apart (the caller read the row fully first, and a plain caller's AreFieldsLoaded depends on that, codeunit
-    /// 73794).
+    /// the caller in another group, a field sorted descending by SetAscending, marks with MarkedOnly off, MarkedOnly on
+    /// without marks, SetAutoCalcFields or ReadIsolation ([`plain_state`]), and a SetLoadFields, which the cells :758
+    /// and :779 cannot tell apart (the caller read the row fully first, and a plain caller's AreFieldsLoaded depends on
+    /// that, codeunit 73794).
     fn own_table_view_measured(&self, s: &RecordState) -> bool {
         let fields = self.engine.program.objects[s.table as usize]
             .table
@@ -584,7 +584,7 @@ impl Session {
             .all(|f| matches!(f.group, -1 | 0 | 2 | 4) && measured_field(f.field))
             && matches!(s.filter_group, 0 | 2)
             && s.field_descending == 0
-            && (s.marks.is_empty() || s.marked_only)
+            && s.marks.is_empty() != s.marked_only
             && s.load.request.is_none()
             && plain_state(s)
     }
