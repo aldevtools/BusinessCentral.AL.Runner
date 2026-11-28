@@ -138,6 +138,11 @@ pub trait Ctx: FormatCtx {
     fn gate(&self, _gate: al_version::Gate) -> bool {
         true
     }
+    /// Whether the run's major is one the assumption entries measured (each supported major); a context with no target
+    /// answers yes, as the VM does.
+    fn supported_major(&self) -> bool {
+        true
+    }
     /// `al_version::http_probe_1424_measured` for the run's target: the minors on which the HTTP shapes of corpus PR 1424
     /// were measured. Without a target nothing is measured.
     fn http_probe_1424_measured(&self) -> bool {

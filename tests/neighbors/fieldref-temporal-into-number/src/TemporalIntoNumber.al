@@ -1,8 +1,23 @@
 // The shapes next to FieldRef.Value() of a Date, Time or DateTime field converted straight into a number (al-runner issues
 // 9265 and 9305). Corpus PR 1629 (FvcTemporalIntoNumberPlaces.al) measured a blank and a set value of each kind into each number
 // target and into an Integer in each place; head gives those readings, flagged with fieldref-value-temporal-into-number, and
-// takes the rule for every value of the kind (Other_ tests: values the probe did not measure). Same on both: the Variant route,
-// a Date into a Text, an Integer field into an Integer, Abs of an Integer field and of a Variant holding a Date.
+// takes the rule for every value of the kind (Other_ tests: the values the follow-up corpus probe FvcTemporalIntoNumberMore.al
+// measured). Same on both: the Variant route,
+// a Date into a Text, an Integer field into an Integer, Abs of an Integer field and of a Variant holding a Date. Unmeasured_
+// tests: places the probes did not measure, which refuse on both.
+interface "FT Taker"
+{
+    procedure Take(I: Integer): Integer;
+}
+
+codeunit 50322 "FT Taker Impl" implements "FT Taker"
+{
+    procedure Take(I: Integer): Integer
+    begin
+        exit(I);
+    end;
+}
+
 table 50320 "FT Row"
 {
     fields
@@ -42,6 +57,8 @@ codeunit 50321 "FT Tests"
     end;
 
     local procedure TakeInt(I: Integer): Integer begin exit(I); end;
+    [TryFunction]
+    local procedure TryTakeInt(I: Integer) begin end;
     local procedure RetExit(var FR: FieldRef): Integer begin exit(FR.Value()); end;
     local procedure RetParen(var FR: FieldRef): Integer begin exit((FR.Value())); end;
     local procedure RetNamed(var FR: FieldRef) R: Integer begin R := FR.Value(); end;
@@ -491,5 +508,136 @@ codeunit 50321 "FT Tests"
         V := FR.Value();
         I := Abs(V);
         Error('got [%1]', I);
+    end;
+
+    [Test]
+    procedure Unmeasured_ListContains()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+        L: List of [Integer];
+    begin
+        FR := Src(RR, 2, 20260115D);
+        Error('got [%1]', L.Contains(FR.Value()));
+    end;
+
+    [Test]
+    procedure Unmeasured_ListIndexOf()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+        L: List of [Integer];
+    begin
+        FR := Src(RR, 2, 20260115D);
+        Error('got [%1]', L.IndexOf(FR.Value()));
+    end;
+
+    [Test]
+    procedure Unmeasured_ListInsert()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+        L: List of [Integer];
+    begin
+        FR := Src(RR, 2, 20260115D);
+        L.Insert(1, FR.Value());
+        Error('got [%1]', L.Get(1));
+    end;
+
+    [Test]
+    procedure Unmeasured_DictionaryAdd()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+        D: Dictionary of [Integer, Integer];
+    begin
+        FR := Src(RR, 2, 20260115D);
+        D.Add(FR.Value(), 1);
+        Error('got [%1]', D.Count());
+    end;
+
+    [Test]
+    procedure Unmeasured_DictionaryContainsKey()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+        D: Dictionary of [Integer, Integer];
+    begin
+        FR := Src(RR, 2, 20260115D);
+        Error('got [%1]', D.ContainsKey(FR.Value()));
+    end;
+
+    [Test]
+    procedure Unmeasured_TryFunctionArgument()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+    begin
+        FR := Src(RR, 2, 20260115D);
+        Error('got [%1]', TryTakeInt(FR.Value()));
+    end;
+
+    [Test]
+    procedure Unmeasured_InterfaceArgument()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+        Impl: Codeunit "FT Taker Impl";
+        Taker: Interface "FT Taker";
+    begin
+        FR := Src(RR, 2, 20260115D);
+        Taker := Impl;
+        Error('got [%1]', Taker.Take(FR.Value()));
+    end;
+
+    [Test]
+    procedure Unmeasured_CurrFieldNo()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+        Row: Record "FT Row";
+    begin
+        FR := Src(RR, 2, 20260115D);
+        Row.CurrFieldNo := FR.Value();
+        Error('got [%1]', Row.CurrFieldNo);
+    end;
+
+    [Test]
+    procedure Other_ClosingDate_IntoOption()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+        X: Option A,B,C;
+    begin
+        FR := Src(RR, 2, 20260115D);
+        FR := Src(RR, 2, ClosingDate(20260115D));
+        X := FR.Value();
+        Error('got [%1]', Format(X, 0, 9));
+    end;
+
+    [Test]
+    procedure Other_ClosingDate_IntoInteger()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+        I: Integer;
+    begin
+        FR := Src(RR, 2, 20260115D);
+        FR := Src(RR, 2, ClosingDate(20260115D));
+        asserterror I := FR.Value();
+        Expect(Conv('Date', 'System.Int32'));
+    end;
+
+    [Test]
+    procedure Other_EarlyDateTime_IntoOption()
+    var
+        RR: RecordRef;
+        FR: FieldRef;
+        X: Option A,B,C;
+    begin
+        FR := Src(RR, 2, 20260115D);
+        FR := Src(RR, 4, CreateDateTime(17530101D, 000001T));
+        asserterror X := FR.Value();
+        Error('got [%1]', GetLastErrorText());
     end;
 }

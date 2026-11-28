@@ -346,9 +346,9 @@ impl Session {
                     let v = self.convert_op(v, ty)?;
                     set(&mut f.locals[d as usize], v);
                 }
-                Op::ConvertFieldValue { d, a, t, slot, at_exit } => {
+                Op::ConvertFieldValue { d, a, t, slot, site } => {
                     let v = take(f, a, nl);
-                    let v = self.convert_field_value(v, &chunk.types[t as usize], slot, at_exit)?;
+                    let v = self.convert_field_value(v, &chunk.types[t as usize], slot, site)?;
                     set(&mut f.locals[d as usize], v);
                 }
                 Op::DbgHit { p } => self.debug_hit(p, &f.locals[..nl as usize]),
@@ -1176,7 +1176,7 @@ impl Session {
     }
 
     /// Whether the run's BC major is one the assumption entries of this file measured (each supported major).
-    fn supported_major(&self) -> bool {
+    pub(crate) fn supported_major(&self) -> bool {
         matches!(self.engine.target.as_ref().map_or(29, |t| t.bc.major), 27..=29)
     }
 
@@ -1186,15 +1186,15 @@ impl Session {
     /// text/text-methods/Y49FieldRefIntoText.al:207-353). A Date, Time or DateTime value into one of those number types
     /// takes the cells of `fieldref_value_temporal::temporal_into_number` (issue 9265); any other value converts as an
     /// assignment does.
-    /// `at_exit`: the value of an `exit` into a Text or Code return (`convert_field_value_at_exit`).
+    /// `site`: where the value goes; an `exit` into a Text or Code return takes `convert_field_value_at_exit`.
     fn convert_field_value(
         &self,
         v: Value,
         ty: &al_builtins::value::RtType,
         slot: Option<al_builtins::fieldref_value_temporal::TemporalSlot>,
-        at_exit: bool,
+        site: super::FieldValueSite,
     ) -> Result<Value, Signal> {
-        if at_exit {
+        if site == super::FieldValueSite::TextExit {
             return self.convert_field_value_at_exit(v, ty);
         }
         let from28 = self.has(al_version::Gate::FieldRefTextNumberEvaluateErrorFrom28);
@@ -1206,8 +1206,12 @@ impl Session {
         }
         match al_builtins::fieldref_value_text::fieldref_value_into_text(&v, ty, self)
             .or_else(|| al_builtins::fieldref_value_text::fieldref_value_into_blob(&v, ty, self, from28))
-            .or_else(|| al_builtins::fieldref_value_temporal::temporal_into_number(&v, ty, from28, self))
-        {
+            .or_else(|| {
+                let measured = site == super::FieldValueSite::Measured;
+                let unmeasured =
+                    al_builtins::fieldref_value_temporal::unmeasured(measured, self.supported_major(), self);
+                al_builtins::fieldref_value_temporal::temporal_into_number(&v, ty, from28, self, unmeasured)
+            }) {
             Some(r) => r,
             None => ops::convert_plain(v, ty),
         }

@@ -117,7 +117,8 @@ pub fn fieldref_value_into_temporal(
     )))
 }
 
-/// The number types a `FieldRef.Value()` of a Date, Time or DateTime field is refused into (`temporal_into_number`).
+/// The number types a `FieldRef.Value()` of a Date, Time or DateTime field converts into by the cells of
+/// `temporal_into_number`.
 pub fn is_number_target(t: &RtType) -> bool {
     matches!(
         t,
@@ -132,23 +133,44 @@ pub fn is_number_target(t: &RtType) -> bool {
     )
 }
 
+/// The fact no cell of [`temporal_into_number`] covers, if one holds: a place the probes did not measure
+/// (`measured_place` false), a major the corpus does not cover, another session language or format region.
+pub fn unmeasured(
+    measured_place: bool,
+    supported_major: bool,
+    ctx: &dyn crate::format::FormatCtx,
+) -> Option<&'static str> {
+    if !measured_place {
+        Some("in a place the corpus does not measure")
+    } else if !supported_major {
+        Some("on a major the corpus does not cover")
+    } else if !crate::format::en_us_session(ctx) {
+        Some("outside an en-US session")
+    } else {
+        None
+    }
+}
+
 /// `FieldRef.Value()` of a Date, Time or DateTime field converted straight into a number `t` (no Variant in between),
 /// in every place the probe measured (a local, a `var` parameter, an argument, a named return value, exit, a global, a
 /// record field, an array element, `List.Add` with the list's element type, and `Abs` as a Decimal): corpus PR 1629
 /// (merged at 778b8fc1, not yet pinned),
 /// recordref-fieldref/fieldref-value-convert/FvcTemporalIntoNumberPlaces.al:296-680 `<Source>_Targets` and
-/// `<Source>_Places`, the DateTime split by major at :536 and :608 (issue 9265, assumption
-/// `fieldref-value-temporal-into-number`). Into an Integer, BigInteger, Decimal, Byte or Char it raises `Unable to
-/// convert from Microsoft.Dynamics.Nav.Runtime.Nav<Kind> to <.NET type>.` (Conversion). A Date or Time into a Duration,
-/// Option or Boolean, and a DateTime into a Duration, converts as the Variant conversion does (`None`). A DateTime into
-/// a Boolean raises the Int32 error, into an Option from BC 28 (`from28`) the Evaluate error of its Format text, before
-/// that the Int32 error. The probe measured a blank and a set value of each kind; the rule is taken for the whole kind.
-/// Outside an en-US session: refused. `None`: any other value or target, which converts as before.
+/// `<Source>_Places`, the DateTime split by major at :536 and :608; the follow-up corpus probe,
+/// FvcTemporalIntoNumberMore.al:158-310 `<Source>_Targets` (1753-01-01, 9999-12-31, a closing date, 08:30:15, 00:00:01
+/// and a DateTime of 1753-01-01; issue 9265, assumption `fieldref-value-temporal-into-number`). Into an Integer,
+/// BigInteger, Decimal, Byte or Char it raises `Unable to convert from Microsoft.Dynamics.Nav.Runtime.Nav<Kind> to
+/// <.NET type>.` (Conversion). A Date or Time into a Duration, Option or Boolean, and a DateTime into a Duration,
+/// converts as the Variant conversion does (`None`). A DateTime into a Boolean raises the Int32 error, into an Option
+/// from BC 28 (`from28`) the Evaluate error of its Format text, before that the Int32 error. The probes measured five
+/// Dates, four Times and three DateTimes; the rule is taken for the whole kind. `unmeasured` ([`unmeasured`]): refused.
+/// `None`: any other value or target, which converts as before.
 pub fn temporal_into_number(
     v: &Value,
     t: &RtType,
     from28: bool,
     ctx: &dyn crate::format::FormatCtx,
+    unmeasured: Option<&str>,
 ) -> Option<Result<Value, Signal>> {
     let kind = match v {
         Value::Date(..) => "Date",
@@ -159,9 +181,9 @@ pub fn temporal_into_number(
     if !is_number_target(t) {
         return None;
     }
-    if !crate::format::en_us_session(ctx) {
+    if let Some(fact) = unmeasured {
         return Some(Err(Signal::unsupported(format!(
-            "FieldRef.Value() of a {kind} field into {} outside an en-US session (not pinned, issue 9265)",
+            "FieldRef.Value() of a {kind} field into {} {fact} (not pinned, issue 9265)",
             crate::describe::Describe::describe(t)
         ))));
     }
