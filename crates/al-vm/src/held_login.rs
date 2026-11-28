@@ -1,9 +1,11 @@
 //! What the run's one login on the TestRunnerHub left in a session whose data a codeunit with RequiredTestIsolation =
-//! Disabled then carried ([`HeldLogin`], al-testrun runtime/held_login.rs `login_once_on_hub`): the session image of that login, the
-//! SingleInstance codeunits it left an instance of, and what the runner noted of the opening. A later session of the
-//! same run starts from the carried data with the held login's session state thawed in place of a second login
-//! ([`Session::thaw_held_login`]), or, where that is not possible, runs its login and has its writes undone
-//! ([`Session::undo_login_writes`]). Entry points: [`Session::hold_login`], [`Session::login_held`].
+//! Disabled then carried ([`HeldLogin`], al-testrun runtime/held_login.rs `login_once_on_hub`), and what the login of the
+//! one session runner 130450 runs its codeunits in after it left ([`OwnLogin`], [`Session::hold_runner_login`]; corpus PR
+//! 1657): the session image of that login, the SingleInstance codeunits it left an instance of, and what the runner noted
+//! of the opening. A later session of the same run starts from the carried data with that login's session state thawed
+//! in place of a second login ([`Session::thaw_held_login`]), or, where that is not possible, runs its login and has its
+//! writes undone ([`Session::undo_login_writes`]). Entry points: [`Session::hold_login`], [`Session::login_held`],
+//! [`Session::hold_runner_login`], [`Session::runner_login`].
 
 use crate::{Baseline, LoginImage, Session};
 use al_builtins::native::Signal;

@@ -84,7 +84,7 @@ codeunit 52621 "R1 F3 Unrelated 130450"
         Assert.Equal(0, Other.Count(), 'other rows');
     end;
 
-    // The login rows hold F2's SessionId() and F3's own: how they relate is not measured (runner issue 9393).
+    // F2 and F3 share one session, whose one login row carries its id (corpus PR 1657, LgnRunnerSessions.al:431, :433).
     [Test]
     procedure F3_LoginRows()
     var

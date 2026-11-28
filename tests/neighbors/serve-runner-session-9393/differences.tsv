@@ -1,0 +1,27 @@
+# key	entry	version
+SRS N NonRestrictive::N_ActiveSessions	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:438, :439)	28
+SRS N NonRestrictive::N_LoginRows	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:429-:431)	28
+SRS N NonRestrictive::N_MemoLogin	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:424, :425)	28
+SRS N NonRestrictive::N_NotHubSession	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:423)	28
+SRS N NonRestrictive::N_OnRunId	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:428)	28
+SRS N NonRestrictive::N_SessionTables	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:440-:444)	28
+SRS R Restrictive::R_ActiveSessions	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:490, :491)	28
+SRS R Restrictive::R_EarlierRunnersSameId	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:488)	28
+SRS R Restrictive::R_LoginRows	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:481-:486)	28
+SRS R Restrictive::R_MemoLogin	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:476, :477)	28
+SRS R Restrictive::R_NotHubSession	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:475)	28
+SRS S Stop Hub::S_StopHubSession	REFUSED Session.StopSession of the hub session, from the session runner 130450 runs its codeunits in after the held login	28
+SRS Y After Changed Rows::Y_OtherTableOnly	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:423, :436: hub-disabled-login-once marks the thawed login)	28
+SRS N NonRestrictive::N_ActiveSessions	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:438, :439)	29
+SRS N NonRestrictive::N_LoginRows	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:429-:431)	29
+SRS N NonRestrictive::N_MemoLogin	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:424, :425)	29
+SRS N NonRestrictive::N_NotHubSession	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:423)	29
+SRS N NonRestrictive::N_OnRunId	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:428)	29
+SRS N NonRestrictive::N_SessionTables	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:440-:444)	29
+SRS R Restrictive::R_ActiveSessions	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:490, :491)	29
+SRS R Restrictive::R_EarlierRunnersSameId	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:488)	29
+SRS R Restrictive::R_LoginRows	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:481-:486)	29
+SRS R Restrictive::R_MemoLogin	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:476, :477)	29
+SRS R Restrictive::R_NotHubSession	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:475)	29
+SRS S Stop Hub::S_StopHubSession	REFUSED Session.StopSession of the hub session, from the session runner 130450 runs its codeunits in after the held login	29
+SRS Y After Changed Rows::Y_OtherTableOnly	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:423, :436: hub-disabled-login-once marks the thawed login)	29

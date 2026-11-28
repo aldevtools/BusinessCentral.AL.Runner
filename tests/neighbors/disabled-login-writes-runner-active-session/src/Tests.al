@@ -91,7 +91,7 @@ codeunit 52620 "R1 F2 OnRun Writer 130450"
         Assert.Equal(1, Sess.Count(), 'own session rows');
     end;
 
-    // Unfiltered: whether the hub session's row is listed is not measured (runner issue 9393).
+    // Unfiltered: not measured (the probe of runner issue 9393 did not assert it); main's answer.
     [Test]
     procedure F2_AllActiveSessions()
     var
@@ -116,14 +116,14 @@ codeunit 52621 "R1 F3 Unrelated 130450"
     end;
 
 
-    // Served as before: the login rows of F2 and F3, with no session id read (flagged, not measured).
+    // BC: two login rows, the hub's and the one of the session F2 and F3 share (corpus PR 1657, LgnRunnerSessions.al:429).
     [Test]
     procedure F3_LoginRowsWithoutId()
     var
         Row: Record "DLW Login Row";
         Assert: Codeunit "DLW Assert";
     begin
-        Assert.Equal(3, Row.Count(), 'login rows');
+        Assert.Equal(2, Row.Count(), 'login rows');
     end;
 
     [Test]
@@ -135,7 +135,7 @@ codeunit 52621 "R1 F3 Unrelated 130450"
         Assert.Equal(0, Other.Count() + SessionId() - SessionId(), 'other rows');
     end;
 
-    // The session id and the login rows F2's login wrote: how they relate is not measured (runner issue 9393).
+    // F2 and F3 share one session and its one login row (corpus PR 1657, LgnRunnerSessions.al:429, :440).
     [Test]
     procedure F3_IdAndLoginRows()
     var
@@ -145,7 +145,7 @@ codeunit 52621 "R1 F3 Unrelated 130450"
     begin
         ActiveSession.SetRange("Session ID", SessionId());
         Assert.Equal(1, ActiveSession.Count(), 'own active session rows');
-        Assert.Equal(3, Row.Count(), 'login rows');
+        Assert.Equal(2, Row.Count(), 'login rows');
     end;
 }
 
