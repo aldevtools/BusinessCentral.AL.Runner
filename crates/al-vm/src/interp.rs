@@ -37,6 +37,7 @@ impl Session {
         id: al_builtins::builtin_id::BuiltinId,
         class: al_builtins::builtin_id::Class,
         recv: Option<Value>,
+        receiver: Option<&ir::Arg>,
         values: Vec<Value>,
         ret_used: bool,
         f: &mut Frame,
@@ -70,7 +71,13 @@ impl Session {
         if class == Class::FilterPageBuilder {
             return self.filter_page_builder_op(id, recv, &values, ret_used);
         }
-        self.codeunit_run(id, recv, &values, ret_used)
+        // The receiver moves into the Run, so the run instance's reference count is the one of main.
+        match recv {
+            Some(Value::Codeunit(rc)) if id == ids::CODEUNIT_RUN_1 => {
+                self.codeunit_run_noting_caller(rc, receiver, &values, ret_used, f)
+            }
+            recv => self.codeunit_run(id, recv, &values, ret_used),
+        }
     }
 
     /// Runs the native of a builtin on evaluated operands and writes the by-reference ones back.

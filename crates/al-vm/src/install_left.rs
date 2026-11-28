@@ -168,6 +168,7 @@ impl Session {
             ext_before_watch: _,
             shared_proc_xrec: _,
             iface_frames: _,
+            run_callers: _,
             cx: _,
             // Carried: `Baseline::install_rows` (the session has no baseline, so it is empty).
             baseline_rows: _,

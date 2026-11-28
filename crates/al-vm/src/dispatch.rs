@@ -198,6 +198,7 @@ impl Session {
             event: true,
             routine,
             pos: al_ir::NO_POS,
+            instance: std::ptr::null(),
         });
         self.profile_enter(object, routine, true);
         self.events.publish_frame = true;

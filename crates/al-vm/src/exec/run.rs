@@ -1398,7 +1398,15 @@ impl Session {
             if site.id == al_builtins::builtin_id::ids::REPORT_RUN_1 {
                 if let (Some(Value::Codeunit(old)), Some(ir::Arg::Ref(place))) = (recv.clone(), &site.receiver_arg) {
                     self.report.rebind_after_run = true;
-                    let r = self.vm_class_call(site.id, site.class, recv, values, site.ret_used, f);
+                    let r = self.vm_class_call(
+                        site.id,
+                        site.class,
+                        recv,
+                        site.receiver_arg.as_ref(),
+                        values,
+                        site.ret_used,
+                        f,
+                    );
                     self.report.rebind_after_run = false;
                     self.report.report_executed.retain(|w| w.strong_count() > 0);
                     self.report.report_executed.push(std::rc::Rc::downgrade(&old));
@@ -1407,7 +1415,15 @@ impl Session {
                     return r;
                 }
             }
-            return self.vm_class_call(site.id, site.class, recv, values, site.ret_used, f);
+            return self.vm_class_call(
+                site.id,
+                site.class,
+                recv,
+                site.receiver_arg.as_ref(),
+                values,
+                site.ret_used,
+                f,
+            );
         }
         let Some(native) = site.native else {
             return Err(Signal::unsupported(format!("builtin {}", site.id)));

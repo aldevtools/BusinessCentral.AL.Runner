@@ -1945,6 +1945,9 @@ pub struct Routine {
     /// The routine is declared `local`.
     #[serde(default)]
     pub local: bool,
+    /// The routine is declared `internal`.
+    #[serde(default)]
+    pub internal: bool,
 }
 
 fn no_pos() -> u32 {
@@ -2431,6 +2434,7 @@ mod tests {
             expr_tys: vec![],
             reads_var_max_len: false,
             local: false,
+            internal: false,
         }
     }
 
@@ -2548,6 +2552,7 @@ mod tests {
                     expr_tys: vec![],
                     reads_var_max_len: false,
                     local: false,
+                    internal: false,
                     body: vec![
                         Stmt::Pos(0),
                         Stmt::Assign(
