@@ -38,9 +38,11 @@
 //!   `field leak_hits`, `field onrun_carry`, `field read_tables`, `field discovery`, `field on_run_rows`,
 //!   `field report_unpinned_errors`, `field skip_after_timeout`, `field stop`, `field stop_trigger`, `field runner`,
 //!   `field watch`, `field singles_past_stop`, `field singles_out`, `field unfinished_after_start`,
-//!   `field refused_mid_run`, `field test_panicked`, `field unfinished_at`, `field order_hints`: after (what to
-//!   capture, the runner codeunit, the single instance watch, the carries and the leak are taken after the open; the
-//!   rest chooses, limits or reports the tests).
+//!   `field refused_mid_run`, `field test_panicked`, `field unfinished_at`, `field order_hints`,
+//!   `field numbers_taken`, `field carry_from`, `field carry_at`, `field test_numbers`: after (what to capture, the
+//!   runner codeunit, the single instance watch, the carries and the leak are taken after the open; the numbers a test
+//!   took, its number and the carry places are read only by the order hint after the run; the rest chooses, limits or
+//!   reports the tests).
 //! - `crates/al-vm/src/lib.rs` (`Engine`, "Set by a run"): `field emit_version`: key (`Key::emit_version`).
 //!   `field unseeded`, `field demo_tables`: key (`Key::refused_reads`). `field resource_overrides`: key (the SHA-256
 //!   digests of the texts of the files the login read, `StartKey`). `field test_data`: key (`Key::backing`) and engine.

@@ -101,6 +101,9 @@ pub(crate) struct Notes {
     /// Sequences whose Delete an asserterror undid, until al-testrun reads them at the test's end
     /// ([`Session::take_deletes_undone`]).
     deletes_undone: Vec<Key>,
+    /// The sequences `Next` or `Range` took numbers from since [`Session::take_numbers_taken`] (al-testrun
+    /// `order_hint.rs`, ADR-070 decision 3).
+    taken: std::collections::BTreeSet<Key>,
 }
 
 /// Calls of the RecordRef methods the helper of corpus PR 1572 makes beside the measured ones ([`DataAccess::ref_loads`]).
@@ -433,6 +436,18 @@ impl Session {
             self.access_notes.inserted_at.insert(key.clone(), log.len());
         }
         self.sequences.insert(key, sequence);
+    }
+
+    /// `NumberSequence.Next` or `Range` took numbers from the sequence `key` ([`Session::take_numbers_taken`]).
+    pub(crate) fn note_numbers_taken(&mut self, key: &Key) {
+        if !self.access_notes.taken.contains(key) {
+            self.access_notes.taken.insert(key.clone());
+        }
+    }
+
+    /// The sequences (company, name) the session took numbers from since the last call, and starts the next count.
+    pub fn take_numbers_taken(&mut self) -> std::collections::BTreeSet<Key> {
+        std::mem::take(&mut self.access_notes.taken)
     }
 
     /// From now on every transaction end and test method body is noted ([`Session::tx_log`]), and every

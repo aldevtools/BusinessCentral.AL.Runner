@@ -668,8 +668,10 @@ fn run_tests(base: &TestArgs, fields: &Map<String, Value>, ctx: &mut WarmCtx, fl
             if cancelled {
                 summary["cancelled"] = json!(true);
             }
-            // `--tdd` (ADR-051 decision 8): the stubbed counts and every stub of the program, as in `--output-json`.
+            // `--tdd` (ADR-051 decision 8): the stubbed counts and every stub of the program, as in `--output-json`;
+            // the order mode of the request (ADR-070 step 4, `order_mode.rs`).
             for key in [
+                "orderMode",
                 "stubbed",
                 "generatedStubs",
                 "compilationErrors",

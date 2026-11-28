@@ -98,9 +98,13 @@ impl Base {
 
     /// The list file at the revision; empty when it has none.
     pub fn list(&self, path: &str) -> Result<BTreeSet<CaseId>, String> {
-        match self.show(path)? {
-            Some(text) => crate::not_passing::parse(&text).map_err(|e| format!("{}:{path}: {e}", self.rev)),
-            None => Ok(BTreeSet::new()),
-        }
+        Ok(self.list_opt(path)?.unwrap_or_default())
+    }
+
+    /// The list at `path` in the base revision, `None` when the base revision has no such file.
+    pub fn list_opt(&self, path: &str) -> Result<Option<BTreeSet<CaseId>>, String> {
+        self.show(path)?
+            .map(|text| crate::not_passing::parse(&text).map_err(|e| format!("{}:{path}: {e}", self.rev)))
+            .transpose()
     }
 }
