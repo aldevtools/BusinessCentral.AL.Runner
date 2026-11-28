@@ -33,7 +33,7 @@ macro_rules! registry {
     } ),* $(,)?) => {
         /// A behavior implemented on an assumption no probe has confirmed.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-        #[repr(u8)]
+        #[repr(u16)]
         pub enum Assumption { $( $(#[$m])* $variant ),* }
 
         impl Assumption {
@@ -110,8 +110,8 @@ pub fn awaiting_text(w: &Awaiting) -> String {
 
 include!(concat!(env!("OUT_DIR"), "/assumption_registry.rs"));
 
-/// The words of a [`HitBits`]: room for 256 assumptions.
-const HIT_WORDS: usize = 4;
+/// The words of a [`HitBits`]: one bit per registry entry, so the set grows with the registry.
+const HIT_WORDS: usize = Assumption::ALL.len().div_ceil(64);
 
 /// The assumption marks as a bit set: bit `a as u32` for assumption `a`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
