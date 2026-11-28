@@ -1235,8 +1235,8 @@ fn source_syntax(r: &ast::Routine) -> ir::SourceSyntax {
     }
 }
 
-/// The shape of the properties column `column` states: none, exactly `IncludeCaption = true`, exactly `DecimalPlaces`, or
-/// anything else (`None`).
+/// The shape of the properties column `column` states: none, exactly `IncludeCaption = true`, exactly `DecimalPlaces = 4 : 4`
+/// (the one value probe :82 measures), or anything else (`None`).
 #[derive(Clone, Copy, PartialEq)]
 enum ColumnShape {
     NoProperty,
@@ -1257,7 +1257,9 @@ fn column_shape(column: &ast::Section) -> Option<ColumnShape> {
     match stated.as_slice() {
         [] => Some(ColumnShape::NoProperty),
         [(name, value)] if name == "includecaption" && value == "true" => Some(ColumnShape::IncludeCaption),
-        [(name, _)] if name == "decimalplaces" => Some(ColumnShape::DecimalPlaces),
+        [(name, value)] if name == "decimalplaces" && value.split_whitespace().collect::<String>() == "4:4" => {
+            Some(ColumnShape::DecimalPlaces)
+        }
         _ => None,
     }
 }
@@ -1295,7 +1297,7 @@ fn plain_own_field(f: &crate::members::FieldInfo, t: usize) -> bool {
 ///   exactly IncludeCaption = true (:75, :383-393); the Date and the Enum field also under a column without property
 ///   (:395, :398, values :600, :614);
 /// - Decimal, with or without a Caption, by (AutoFormatType, AutoFormatExpression, DecimalPlaces): (none, none, any) under
-///   IncludeCaption or a column DecimalPlaces (:32, :36, :37, :76, :80-82); (1, none, none) (:33, :77) and (0, none, none)
+///   IncludeCaption or a column DecimalPlaces = 4 : 4 (:32, :36, :37, :76, :80-82); (1, none, none) (:33, :77) and (0, none, none)
 ///   (:359, :394) under IncludeCaption; (0, none, 0:5) and (1, '', none) under IncludeCaption or no property (:353, :355,
 ///   :388, :390, :396, :397); AutoFormatType 2 only where [`field_unit_amount_measured`] holds.
 ///
@@ -1649,13 +1651,37 @@ fn dotted_columns_on(cx: &Context) -> bool {
         .any(|c| dotted(&source_parts(&c)))
 }
 
+/// Whether the child item `child` has the facts of the probe's child cell (`"Dq. Child"` :86, `DataItemLink = RowId = field(Id)`
+/// :88 at cf6884b9): a name that holds a dot and a DataItemLink of exactly one `Field = field(ParentField)` pair.
+fn dotted_child_measured(child: &RawItem) -> bool {
+    let Some(link) = child
+        .section
+        .properties()
+        .find(|p| p.name().eq_ignore_ascii_case("DataItemLink"))
+    else {
+        return false;
+    };
+    let text = link.value_text();
+    let pairs = crate::scan::split_double(&text, ',');
+    let [pair] = pairs.as_slice() else {
+        return false;
+    };
+    let parts = crate::scan::split_double(pair, '=');
+    let [_, other] = parts.as_slice() else {
+        return false;
+    };
+    let other = other.trim();
+    child.name.contains('.') && other.to_ascii_lowercase().starts_with("field(") && other.ends_with(')')
+}
+
 /// The data item that column `column` of item `i`, with source `parts` ([`source_parts`]), reads through a dotted qualifier,
 /// when the column is a shape DataItemNamesDottedQualifier.al (corpus PR 1652 at cf6884b9) measures. The qualifier and the
 /// field are written as declared, and:
 /// - `Item.Field` of its own item where [`dotted_qualifier_measured`] holds;
 /// - `Item.Field.ToUpper()` of its own item, a Text field with a Caption, a column without property (:84, value :236);
-/// - `Parent.Field` of the item it is nested in directly, a Text field with a Caption under exactly IncludeCaption = true
-///   (`CParentName` :90, labels :224, values :250). This column keeps main's rule for another item's field (`caption_sources`).
+/// - `Parent.Field` of the item it is nested in directly, when the child's name holds a dot and it states one
+///   `Field = field(ParentField)` DataItemLink pair ([`dotted_child_measured`], :86, :88), a Text field with a Caption under
+///   exactly IncludeCaption = true (`CParentName` :90, labels :224, values :250). This column keeps main's rule for another item's field (`caption_sources`).
 ///
 /// Every other column with a dotted qualifier is no measured shape (`None`): a Decimal field of the parent (:91-92, where
 /// main's rule for another item's field does not write BC's formatter, :250), another type or column property, another case,
@@ -1678,7 +1704,11 @@ fn dotted_column_measured(
     let f = members[t].fields.iter().find(|f| f.name == *member)?;
     let measured = match call {
         None if j == i => dotted_qualifier_measured(f, t, column),
-        None => items[i].parent == Some(j) && dotted_text_measured(f, t, column, ColumnShape::IncludeCaption),
+        None => {
+            items[i].parent == Some(j)
+                && dotted_child_measured(&items[i])
+                && dotted_text_measured(f, t, column, ColumnShape::IncludeCaption)
+        }
         Some("ToUpper()") => j == i && dotted_text_measured(f, t, column, ColumnShape::NoProperty),
         Some(_) => false,
     };

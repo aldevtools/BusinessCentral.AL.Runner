@@ -8,5 +8,3 @@ NB DQ2 Typed Qualifier Tests::TypedUndotted_Columns_CodeIntegerDate	ASSUMED repo
 NB DQ2 Typed Qualifier Tests::TypedUndotted_Columns_EnumOption	ASSUMED report-column-field-unit-amount-format (undotted :692)
 NB DQ2 Typed Qualifier Tests::TypedUndotted_Columns_Decimal	ASSUMED report-column-field-unit-amount-format (undotted :692)
 NB DQ2 Child Text T::OtherItem_ChildReadsDottedParentText	ASSUMED report-column-dotted-item-qualifier (part 1 :90, :224, :250)
-NB DQ2 Undotted Kid Text T::OtherItem_UndottedChildReadsDottedParentText	ASSUMED report-column-dotted-item-qualifier (part 1 :90; the child's name is not read)
-NB DQ2 Unlinked Kid Text T::OtherItem_UnlinkedChildReadsDottedParentText	ASSUMED report-column-dotted-item-qualifier (part 1 :90; the child's DataItemLink is not read)

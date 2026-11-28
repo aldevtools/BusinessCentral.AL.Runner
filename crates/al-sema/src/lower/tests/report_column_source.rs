@@ -256,7 +256,7 @@ fn a_child_reading_the_dotted_parent_text_leaves_the_report_on() {
         "{TABLE}
 report 50100 R {{ dataset {{ dataitem(\"A. B\"; T) {{
     column(Admitted; \"A. B\".Qty) {{ IncludeCaption = true; }}
-    dataitem(\"C. D\"; T) {{ column(ParentName; \"A. B\".Name) {{ IncludeCaption = true; }} }}
+    dataitem(\"C. D\"; T) {{ DataItemLink = K = field(K); column(ParentName; \"A. B\".Name) {{ IncludeCaption = true; }} }}
 }} }} }}"
     ));
     let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
@@ -265,6 +265,50 @@ report 50100 R {{ dataset {{ dataitem(\"A. B\"; T) {{
     let parent = &r.items[1].columns[0];
     assert_eq!((parent.item_field, parent.caption_field), (None, Some(1)));
     assert_eq!(r.assumes, [Assumption::ReportColumnDottedItemQualifier]);
+}
+
+/// The child item of the probe's `CParentName` cell has a name that holds a dot (`"Dq. Child"`, :86) and states one
+/// `Field = field(ParentField)` DataItemLink pair (:88). A child without a dot in its name, without a link, or with another
+/// link turns the report's dotted columns off.
+#[test]
+fn a_child_outside_the_probes_shape_turns_the_dotted_columns_off() {
+    for (child, on) in [
+        ("dataitem(\"C. D\"; T) { DataItemLink = K = field(K);", true),
+        ("dataitem(Kid; T) { DataItemLink = K = field(K);", false),
+        ("dataitem(\"C. D\"; T) {", false),
+        ("dataitem(\"C. D\"; T) { DataItemLink = K = field(K), Name = field(Name);", false),
+        ("dataitem(\"C. D\"; T) { DataItemLink = K = const(1);", false),
+    ] {
+        let (ws, l) = lower_src(&format!(
+            "{TABLE}
+report 50100 R {{ dataset {{ dataitem(\"A. B\"; T) {{
+    column(Admitted; \"A. B\".Qty) {{ IncludeCaption = true; }}
+    {child} column(ParentName; \"A. B\".Name) {{ IncludeCaption = true; }} }}
+}} }} }}"
+        ));
+        let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
+        let r = l.program.objects[oi].report.as_ref().unwrap();
+        assert_eq!(r.items[0].columns[0].item_field.is_some(), on, "{child}");
+        assert_eq!(r.assumes.is_empty(), !on, "{child}");
+    }
+}
+
+/// An own-item Decimal column that states DecimalPlaces is measured with exactly 4 : 4 (probe :82); another value turns the
+/// report's dotted columns off.
+#[test]
+fn a_column_decimal_places_other_than_4_4_keeps_the_report_on_mains_answer() {
+    for (places, on) in [("4 : 4", true), ("4:4", true), ("2 : 2", false), ("0 : 5", false)] {
+        let (ws, l) = lower_src(&format!(
+            "{TABLE}
+report 50100 R {{ dataset {{ dataitem(\"A. B\"; T) {{
+    column(Admitted; \"A. B\".Name) {{ IncludeCaption = true; }}
+    column(Places; \"A. B\".Qty) {{ DecimalPlaces = {places}; }}
+}} }} }}"
+        ));
+        let oi = ws.objects.iter().position(|o| o.name == "R").unwrap();
+        let r = l.program.objects[oi].report.as_ref().unwrap();
+        assert_eq!(r.items[0].columns[0].item_field.is_some(), on, "{places}");
+    }
 }
 
 /// Every other column with another dotted name keeps the whole report on main's answer (no field, no assumption): a Decimal
@@ -276,7 +320,7 @@ fn another_dotted_column_outside_the_measured_shape_keeps_the_report_on_mains_an
     let child = |column: &str| {
         format!(
             "dataitem(\"A. B\"; T) {{ column(Admitted; \"A. B\".Qty) {{ IncludeCaption = true; }}
-            dataitem(\"C. D\"; T) {{ {column} }} }}"
+            dataitem(\"C. D\"; T) {{ DataItemLink = K = field(K); {column} }} }}"
         )
     };
     for dataset in [
