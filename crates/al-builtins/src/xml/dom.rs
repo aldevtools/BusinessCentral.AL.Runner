@@ -33,6 +33,9 @@ pub enum XData {
         /// Parsed from `<a></a>`: written with an end tag although empty (xml/TestProbeXmlContracts.al:
         /// WriteTo_EmptyElementFromParsedText); `<a/>` and a created element are written `<a />`.
         open: bool,
+        /// A child was inserted into it (`edit::insert`). IsEmpty answers from `open` only while this is false: an open
+        /// element that got a child is not measured and keeps the answer of an element without children.
+        filled: bool,
     },
     Attribute {
         prefix: String,
@@ -146,13 +149,6 @@ pub(super) fn recv_write_to(r: Option<&mut Value>) -> Result<Handle, Signal> {
         return Err(uninitialized("XmlNode"));
     }
     recv_or_uninit(r, "XmlNode")
-}
-
-/// Whether an element with these children is written `<a />` and answers IsEmpty Yes: no children, and not parsed from
-/// `<a></a>` (xml/XmlElement.al:692-711 IsEmpty_States: `<a/>` and `<a x="1"/>` are empty, `<a></a>` is not and is
-/// written `<a></a>`; xml/TestProbeXmlContracts.al:WriteTo_EmptyElementFromParsedText).
-pub(super) fn self_closed(children: &[Handle], open: bool) -> bool {
-    children.is_empty() && !open
 }
 
 pub(super) fn new_node(data: XData) -> Handle {
@@ -307,6 +303,7 @@ pub(super) fn deep_clone(h: &Handle) -> Handle {
             attrs,
             children,
             open,
+            filled,
         } => XData::Element {
             prefix: prefix.clone(),
             local: local.clone(),
@@ -314,6 +311,7 @@ pub(super) fn deep_clone(h: &Handle) -> Handle {
             attrs: attrs.iter().map(deep_clone).collect(),
             children: children.iter().map(deep_clone).collect(),
             open: *open,
+            filled: *filled,
         },
         XData::Attribute {
             prefix,

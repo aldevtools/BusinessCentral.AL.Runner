@@ -618,8 +618,9 @@ impl Render<'_> {
                     attrs,
                     children,
                     open,
+                    filled,
                 } => Ok(format!(
-                    "element {} attributes {} children {} open {open}",
+                    "element {} attributes {} children {} open {open} filled {filled}",
                     content(&(prefix, local, ns)),
                     kids(self, attrs)?,
                     kids(self, children)?

@@ -127,11 +127,10 @@ pub(super) fn has_elements(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Valu
 pub(super) fn is_empty(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
     unassigned_element::check(&r, unassigned_element::Member::IsEmpty, a, c.ret_used())?;
     let h = recv(r)?;
-    let element = with(&h, |d| match d {
-        XData::Element { children, open, .. } => Some(self_closed(children, *open)),
-        _ => None,
-    });
-    Ok(Value::Boolean(element.unwrap_or_else(|| children_of(&h).is_empty())))
+    // xml/XmlElement.al:692-711 IsEmpty_States: `<a/>` and `<a x="1"/>` are empty, a parsed `<a></a>` is not. An open
+    // element that got a child later (`filled`) is not measured: it answers from its children, as every other node.
+    let parsed_open = with(&h, |d| matches!(d, XData::Element { open: true, filled: false, .. }));
+    Ok(Value::Boolean(!parsed_open && children_of(&h).is_empty()))
 }
 
 pub(super) fn inner_text_fn(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {

@@ -288,6 +288,7 @@ mod xml_clear_ref;
 mod xml_create_names;
 mod xml_doctype;
 mod xml_get_document_dropped;
+mod xml_is_empty_open;
 mod xml_nametable_assign;
 mod xml_node_list_clear;
 mod xml_ns_scopes;

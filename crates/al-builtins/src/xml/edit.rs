@@ -168,6 +168,9 @@ pub(super) fn insert(container: &Handle, at: Option<usize>, nodes: Vec<Handle>) 
                 });
             }
             _ => with(container, |d| {
+                if let XData::Element { filled, .. } = d {
+                    *filled = true;
+                }
                 if let XData::Document { children, .. } | XData::Element { children, .. } = d {
                     let pos = at.unwrap_or(children.len()).min(children.len());
                     children.insert(pos, n.clone());

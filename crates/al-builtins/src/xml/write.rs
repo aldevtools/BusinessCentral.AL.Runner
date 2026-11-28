@@ -147,6 +147,7 @@ impl Writer {
                 attrs,
                 children,
                 open,
+                ..
             } => Plan::Element {
                 prefix: prefix.clone(),
                 local: local.clone(),
@@ -361,7 +362,7 @@ impl Writer {
         self.out.push('<');
         self.out.push_str(&qname(&eff, local));
         self.out.push_str(&attr_text);
-        if self_closed(children, open) {
+        if children.is_empty() && !open {
             self.out.push_str(" />");
             self.level -= 1;
         } else {

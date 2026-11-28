@@ -495,6 +495,7 @@ impl Parser<'_> {
             attrs,
             children,
             open,
+            filled: false,
         }))
     }
 

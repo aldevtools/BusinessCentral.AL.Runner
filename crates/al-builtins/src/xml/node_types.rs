@@ -76,6 +76,7 @@ pub(super) fn element_create_name(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mu
         attrs: Vec::new(),
         children: Vec::new(),
         open: false,
+        filled: false,
     });
     insert(&el, None, content_nodes(&a[1..])?)?;
     Ok(tagged("XmlElement", el))
@@ -94,6 +95,7 @@ pub(super) fn element_create_ns(_: &mut dyn Ctx, _: Option<&mut Value>, a: &mut 
         attrs: Vec::new(),
         children: Vec::new(),
         open: false,
+        filled: false,
     });
     insert(&el, None, content_nodes(&a[2..])?)?;
     Ok(tagged("XmlElement", el))
