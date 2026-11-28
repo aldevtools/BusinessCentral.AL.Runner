@@ -141,18 +141,14 @@ impl Session {
                 after = Some(position(t, key, &row));
                 rows.push(row);
             }
-            // The order of the per-row code over two or more rows of a record sorted descending (Ascending(false) or
-            // SetAscending(Field, false)) is pinned only with a FlowField filter (record/crud/R6961DeleteAllFlowFilter.al:
-            // 258-266, `delete_all_flow_filtered`), not here (al-runner issue 7632). One row has no order.
+            // Over two or more rows of a record sorted descending, the row code runs in the record's scan order
+            // (delete_all_order.rs). A FlowField filter goes to `delete_all_flow_filtered` above. One row has no order.
             let descending = {
                 let r = rec.borrow();
                 !(r.ascending && r.field_descending == 0)
             };
             if (events || global || (run && trigger)) && descending && rows.len() >= 2 {
-                return unsupported(
-                    "DeleteAll with delete events, database triggers or OnDelete over two or more rows of a record sorted \
-                     descending: the order of the row code is not pinned",
-                );
+                return self.delete_all_in_scan_order(t, rec, cx, run, &filters, n);
             }
             // One fresh set of table globals for all rows, not the caller's
             // (ADR-021 decision 6; corpus probe TableGlobals_DeleteAll_TriggersRunOnOneInstanceForAllRows).
@@ -171,12 +167,7 @@ impl Session {
                     // record/crud/DeleteAllSkipsDeleted.al:DeleteAllTrue_FirstDeletesAnEarlierSibling_NoneEarlier.
                     continue;
                 }
-                let mut row = row;
-                crate::sqltime::read_back(&mut row);
-                let mut st = state_with_fields(rec, row.into());
-                st.filters.clear();
-                st.globals = shared.share();
-                self.delete_row(t, &Rc::new(RefCell::new(st)), run)?;
+                self.delete_row(t, &row_record(rec, row, &shared), run)?;
             }
             return Ok(Value::Null);
         }
@@ -203,4 +194,15 @@ impl Session {
             self.store.forget_emptied(cx, t);
         }
     }
+}
+
+/// The record a row-by-row DeleteAll deletes `row` through: `rec`'s state without its filters, holding `row` as the column
+/// reads it back, on the one set of table globals `shared` of all rows.
+pub(super) fn row_record(rec: &Rec, row: Vec<Value>, shared: &al_builtins::value::TableGlobals) -> Rec {
+    let mut row = row;
+    crate::sqltime::read_back(&mut row);
+    let mut st = state_with_fields(rec, row.into());
+    st.filters.clear();
+    st.globals = shared.share();
+    Rc::new(RefCell::new(st))
 }

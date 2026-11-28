@@ -360,7 +360,7 @@ pub(crate) struct QueryCache {
     replayed_rows: Entries<()>,
 }
 
-fn same_rows(a: &[Value], b: &[Value]) -> bool {
+pub(crate) fn same_rows(a: &[Value], b: &[Value]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.identical(y))
 }
 
