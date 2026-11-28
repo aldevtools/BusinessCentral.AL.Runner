@@ -640,21 +640,12 @@ fn run_codeunit_inner(
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
     // meet the ones carried over is not pinned, except for the run's one login on the hub (`login_once_on_hub`).
     let carries = isolation == TestIsolation::Disabled && !execute;
-    let login_once = login_once_on_hub(scratch.hub, isolation, execute, &company_open);
-    let company_open_marks = match login_once {
-        true => {
-            session.hold_login();
-            company_open_marks.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce)
-        }
-        false => company_open_marks,
-    };
-    if carries && (company_open.who.is_some() || company_open.login.is_some()) && !login_once {
-        return all(Outcome::NotRun(
-            "Disabled test isolation with a Company Triggers subscriber that writes when the test session opens \
-             the company: how its writes meet what an earlier codeunit left is not pinned"
-                .into(),
-        ));
-    }
+    let company_open_marks =
+        match carried_company_open(&mut session, scratch.hub, isolation, execute, carries, &company_open) {
+            Ok(true) => company_open_marks.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce),
+            Ok(false) => company_open_marks,
+            Err(why) => return all(Outcome::NotRun(why.into())),
+        };
     let changes_from = session.store_mut().change_counter();
     let row_versions_from = session.row_versions_handed_out();
     let carried_from = carries.then(|| session.capture_baseline());
@@ -1590,18 +1581,41 @@ fn login_once_on_hub(
         && company_open.login.is_some()
 }
 
+/// How what the session wrote when it opened the company meets what a Disabled codeunit carries: `Ok(true)` when the
+/// run's one login on the hub is held (`login_once_on_hub`, `Session::hold_login`), `Ok(false)` when nothing is carried
+/// or the session opened without writes, `Err` for the shapes not pinned.
+fn carried_company_open(
+    session: &mut Session,
+    hub: bool,
+    isolation: TestIsolation,
+    execute: bool,
+    carries: bool,
+    company_open: &crate::install::CompanyOpenWrites,
+) -> Result<bool, &'static str> {
+    if login_once_on_hub(hub, isolation, execute, company_open) {
+        session.hold_login();
+        return Ok(true);
+    }
+    match carries && (company_open.who.is_some() || company_open.login.is_some()) {
+        true => Err(
+            "Disabled test isolation with a Company Triggers subscriber that writes when the test session opens \
+             the company: how its writes meet what an earlier codeunit left is not pinned",
+        ),
+        false => Ok(false),
+    }
+}
+
 /// Why a codeunit is not run from what a Disabled codeunit on the hub left after the run's one login
 /// (`login_once_on_hub`): the probe measured later codeunits on the hub (`Scratch::hub_leg`) under Disabled and Codeunit
 /// isolation only (assumption `hub-disabled-login-once`, LgnDisabledLoginWrites.al:474, :553). `None`: one of those.
 fn login_held_unmeasured(hub_leg: bool, isolation: TestIsolation) -> Option<&'static str> {
-    let measured = hub_leg && (isolation == TestIsolation::Disabled || isolation == TestIsolation::Codeunit);
-    match (measured, hub_leg) {
-        (true, _) => None,
-        (false, true) => Some(
+    match (hub_leg, isolation) {
+        (true, TestIsolation::Disabled | TestIsolation::Codeunit) => None,
+        (true, _) => Some(
             "an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's one login \
              wrote, and what a later codeunit on the hub with this isolation sees of the login is not pinned",
         ),
-        (false, false) => Some(
+        (false, _) => Some(
             "an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's one login \
              wrote, and whether BC runs a login for this codeunit, which runner 130450 runs, and which login rows it sees \
              is not pinned",
