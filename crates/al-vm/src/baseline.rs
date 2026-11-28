@@ -44,6 +44,10 @@ pub struct Baseline {
     pub full_copies: Vec<String>,
     /// The rows whose SystemRowVersion is the Insert's, not BC's (`Session::restamped_rows`).
     restamped_rows: Vec<crate::state::RestampedRows>,
+    /// The data holds what the run's one login wrote: a codeunit under RequiredTestIsolation = Disabled on the
+    /// TestRunnerHub left it after its session's login (`Session::hold_login`). Not part of the bytes: such a baseline
+    /// stays on its thread.
+    pub login_held: bool,
     /// Names what the baseline holds: baselines with the same origin hold the same data. Each baseline made gets a
     /// number of its own; [`Baseline::with_origin`] gives a copy read from another's bytes that one's.
     origin: u64,
@@ -336,6 +340,8 @@ impl Baseline {
             last_stamp,
             workspace_installs,
             company_built,
+            // Not part of the bytes (see the field).
+            login_held: false,
             company_unknown,
             full_copies,
             restamped_rows,
@@ -420,6 +426,7 @@ impl Session {
             last_stamp: self.last_stamp,
             workspace_installs: None,
             company_built: self.company_built,
+            login_held: self.login_held,
             company_unknown: {
                 let mut v: Vec<(String, u32, String)> = self
                     .company_unknown
@@ -577,6 +584,7 @@ impl Session {
         self.last_stamp = b.last_stamp.min(self.now_millis());
         self.baseline_rows = b.install_rows.clone().unwrap_or_else(|| b.nonempty_tables());
         self.company_built = b.company_built;
+        self.login_held = b.login_held;
         self.company_unknown = b
             .company_unknown
             .iter()
@@ -593,6 +601,26 @@ impl Session {
             }
         }
         self.baseline_origin = Some((b.origin, self.store.change_counter()));
+    }
+
+    /// The session's data holds what the run's one login wrote (`Baseline::login_held`): what a later session starting
+    /// from a capture of it starts from.
+    pub fn hold_login(&mut self) {
+        self.login_held = true;
+    }
+
+    /// See [`Session::hold_login`].
+    pub fn login_held(&self) -> bool {
+        self.login_held
+    }
+
+    /// Puts back the data of `before`, a capture taken before the session's login ran, so that what the login wrote is
+    /// gone again; the marks the login left on isolated storage and number sequences stay (al-testrun `run.rs`
+    /// `open_company`).
+    pub fn undo_login_writes(&mut self, before: &Baseline) {
+        let marks = std::mem::take(&mut self.unmeasured);
+        self.restore_baseline(before);
+        self.unmeasured = marks;
     }
 
     /// The origin of the baseline the session started from ([`Session::restore_baseline`]), while no table changed

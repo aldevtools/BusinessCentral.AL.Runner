@@ -110,6 +110,7 @@ macro_rules! session_fields {
                 isolated_written_in_codeunit: HashSet<(String, String)>,
                 // The session's baseline bookkeeping (`restore_baseline`).
                 company_built: bool,
+                login_held: bool,
                 // What the session's own code wrote or resolved (lib.rs).
                 demo_written: HashSet<u32>,
                 gl_setup_written: bool,

@@ -102,6 +102,8 @@ impl Session {
             install_without_client: _,
             // Carried: `Baseline::company_built`.
             company_built: _,
+            // Carried: `Baseline::login_held`.
+            login_held: _,
             demo_written: _,
             gl_setup_written: _,
             setup_caption_read_early: _,

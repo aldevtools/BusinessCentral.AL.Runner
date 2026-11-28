@@ -254,6 +254,9 @@ fn open_company(
         moved_in: moved,
     };
     let gate = crate::login_start::run_gate(facts);
+    // The session starts from what a Disabled codeunit on the hub left after the run's one login
+    // (`login_once_on_hub`): BC runs no second login, so what this one writes is undone below.
+    let held = (scratch.hub && session.login_held()).then(|| session.capture_baseline());
     let replayed =
         (key.as_ref().filter(|_| !check)).and_then(|key| crate::login_start::replay(&engine, key, session, gate));
     let (wrote, hits) = match replayed {
@@ -297,6 +300,13 @@ fn open_company(
     };
     #[cfg(test)]
     crate::login_start::opened(session, &wrote, hits);
+    let hits = match held {
+        Some(before) => {
+            session.undo_login_writes(&before);
+            hits.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce)
+        }
+        None => hits,
+    };
     // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
     // a `WorkDate(d)` of the test still wins.
     if let Some(shift) = perturb.work_date {
@@ -621,9 +631,17 @@ fn run_codeunit_inner(
     }
     // What a Disabled codeunit leaves for the later codeunits is its writes from here on ([`CARRIED`]). With
     // Company Triggers subscribers each session writes on its own when it opens the company, and how those writes
-    // meet the ones carried over is not pinned.
+    // meet the ones carried over is not pinned, except for the run's one login on the hub (`login_once_on_hub`).
     let carries = isolation == TestIsolation::Disabled && !execute;
-    if carries && (company_open.who.is_some() || company_open.login.is_some()) {
+    let login_once = login_once_on_hub(scratch.hub, isolation, execute, &company_open);
+    let company_open_marks = match login_once {
+        true => {
+            session.hold_login();
+            company_open_marks.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce)
+        }
+        false => company_open_marks,
+    };
+    if carries && (company_open.who.is_some() || company_open.login.is_some()) && !login_once {
         return all(Outcome::NotRun(
             "Disabled test isolation with a Company Triggers subscriber that writes when the test session opens \
              the company: how its writes meet what an earlier codeunit left is not pinned"
@@ -1545,6 +1563,24 @@ fn not_run_after_panic(
         }
         out.push((name, outcome));
     }
+}
+
+/// A codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub (`hub`, BC 28 and later), whose session's login a
+/// dependency app's login code raised and wrote (`CompanyOpenWrites::login`), with no Company Triggers subscriber of the
+/// apps under test that wrote (`who`): the hub runs every codeunit in one session and the login once, and what the login
+/// wrote is outside every codeunit's isolation, so what the codeunit leaves is where the later codeunits start, the login
+/// rows as it left them (assumption `hub-disabled-login-once`, corpus PR PENDING: probe-disabled-isolation-login-writes,
+/// LgnDisabledLoginWrites.al:343, :474, :553, :623, :649).
+fn login_once_on_hub(
+    hub: bool,
+    isolation: TestIsolation,
+    execute: bool,
+    company_open: &crate::install::CompanyOpenWrites,
+) -> bool {
+    hub && isolation == TestIsolation::Disabled
+        && !execute
+        && company_open.who.is_none()
+        && company_open.login.is_some()
 }
 
 /// What a codeunit under Disabled isolation left for the later codeunits ([`CARRIED`]), from `start` on.

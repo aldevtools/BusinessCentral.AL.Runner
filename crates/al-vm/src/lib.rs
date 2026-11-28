@@ -920,6 +920,8 @@ pub struct Session {
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
+    /// The session's data holds what the run's one login wrote (`Baseline::login_held`).
+    pub(crate) login_held: bool,
     /// The `Engine::demo_tables` the running test's own code (not install code) wrote to (`records/op_inner.rs`): a read of
     /// one of the others is refused before the session's own code wrote it.
     demo_written: std::collections::HashSet<u32>,
@@ -1519,6 +1521,7 @@ impl Session {
             sessions_started: 0,
             install_without_client: false,
             company_built: false,
+            login_held: false,
             demo_written: Default::default(),
             gl_setup_written: false,
             setup_caption_read_early: false,
