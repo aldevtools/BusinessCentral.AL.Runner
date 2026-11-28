@@ -145,7 +145,10 @@ struct VersionNode {
     log: usize,
     via: al_builtins::value::VersionVia,
     failed_inserts: u32,
+    failed_insert_before_copy: bool,
     deleted: bool,
+    fields_replaced: bool,
+    carried_from: Option<al_builtins::value::VersionVia>,
 }
 
 /// `OwnReadAt`, with the store's change count as the fact the render compares: whether it is the record's store's count
@@ -385,7 +388,10 @@ impl Walker<'_> {
             source,
             via,
             failed_inserts,
+            failed_insert_before_copy,
             deleted,
+            fields_replaced,
+            carried_from,
         } = e;
         let VersionSource {
             version,
@@ -412,7 +418,10 @@ impl Walker<'_> {
             log: *log,
             via: *via,
             failed_inserts: *failed_inserts,
+            failed_insert_before_copy: *failed_insert_before_copy,
             deleted: *deleted,
+            fields_replaced: *fields_replaced,
+            carried_from: *carried_from,
         })
     }
 
@@ -587,7 +596,10 @@ impl Maker<'_> {
             }),
             via: e.via,
             failed_inserts: e.failed_inserts,
+            failed_insert_before_copy: e.failed_insert_before_copy,
             deleted: e.deleted,
+            fields_replaced: e.fields_replaced,
+            carried_from: e.carried_from,
         }
     }
 
