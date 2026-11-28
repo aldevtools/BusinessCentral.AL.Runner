@@ -287,14 +287,17 @@ al-runner test ./MyApp ./MyApp.Test --stability my-config.json --stability-repla
 ```
 
 Add `--filter` to repeat one test. The result is the same as in the full run, because
-the runtime is deterministic.
+the runtime is deterministic. The replay runs in the order its variant had: the
+`fresh` value of `isolation.singleInstance` in the default isolated order, every
+other variant in Business Central's order, whatever `--strict-order` says.
 
 ## Exit codes and output
 
 - Exit 1 when a test changes between pass and fail. `--stability-allow-flips` keeps
   the exit code of the base variant, for reports only.
 - `--junit FILE` writes one test suite per variant. The variant's values are its
-  properties. A flipped test fails with `outcome changed from pass under <id>`. Under
+  properties, with `orderMode`: `isolated` for the `fresh` value of
+  `isolation.singleInstance`, `bc` for every other variant. A flipped test fails with `outcome changed from pass under <id>`. Under
   `isolation.singleInstance` the message adds the reason in one line ("reads Flag of
   My Cache (app My App) that My Setter Test (50100) left", "took numbers from
   sequence S after test codeunit X", or "cause not known"). In the base variant's

@@ -1406,12 +1406,7 @@ fn test_inner(
     // `--stability-replay` (ADR-058): one variant as a normal run, in the order of its stability run (ADR-070 decision 7).
     let cell = format!("{}.{}-{}", chosen.target.bc.major, chosen.target.bc.minor, country);
     let replayed = crate::stability::replay(a, &cell)?;
-    // `--strict-order` (ADR-070); BcContainerHelper runs in one session (`TestDriver::one_session`).
-    let bc_order = replayed
-        .as_ref()
-        .map_or(a.strict_order || driver.one_session(), |v| v.perturb.in_bc_order());
-    // ADR-070: the mode the run states; a stability run's base variant runs in BC's order.
-    let order_mode = crate::order_mode::OrderMode::of(bc_order || (a.stability.is_some() && replayed.is_none()));
+    let (bc_order, order_mode) = crate::order_mode::OrderMode::of_run(a, driver, replayed.as_ref());
     if a.required_isolation && driver == al_testrun::runtime::TestDriver::BcContainerHelper {
         return Err("--isolation required follows the TestRunnerHub of the bc-linux driver; --test-driver bccontainerhelper has no hub".into());
     }
