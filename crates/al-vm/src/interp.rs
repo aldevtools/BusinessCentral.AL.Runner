@@ -1607,6 +1607,8 @@ impl Session {
                     Err(e) => return Err(e),
                 };
                 let v = arr.borrow()[flat].clone();
+                // An OutStream read from an array element (`dotnet::note_element_stream`).
+                crate::dotnet::note_element_stream(&mut self.dotnet, &v);
                 Ok(v)
             }
             ir::Place::Field(base, pos) => {
@@ -1861,6 +1863,7 @@ impl Session {
                                             first_write_truncates: false,
                                             file: false,
                                             dotnet_view: 0,
+                                            dotnet_rewritten: false,
                                             unread_content: false,
                                             assigned_unsaved: false,
                                             assigned_write: al_builtins::stream::AssignedWrite::No,
