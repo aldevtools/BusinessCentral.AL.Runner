@@ -1207,7 +1207,7 @@ pub(crate) struct CompanyOpenWrites {
     /// The tables the login's subscribers (`login`) wrote.
     pub login_tables: BTreeSet<u32>,
     /// What a test may not read in a session that starts from the run's one login a Disabled codeunit on the hub held
-    /// (al-testrun run.rs `held_reads`).
+    /// (al-testrun runtime/held_login.rs `held_reads`).
     pub held: Option<HeldReads>,
     /// The apps under test's own login subscribers ran where what BC's login does is not known (`login::Login::Own`):
     /// the tables they wrote, and why.
@@ -1297,7 +1297,7 @@ impl CompanyOpenWrites {
         if let Some(held) = self.held.as_ref().filter(|held| held.tables.contains(&t)) {
             return Some(format!(
                 "{}: this test read or wrote table {name} while it ran",
-                held.why
+                held.tables_why
             ));
         }
         let Some((_, why)) = self.watched_login.as_ref().filter(|(tables, _)| tables.contains(&t)) else {
@@ -1310,14 +1310,17 @@ impl CompanyOpenWrites {
 }
 
 /// What a test of a session that starts from the run's one login a Disabled codeunit on the hub held may not touch, and
-/// why (al-testrun run.rs `held_reads`): a test whose static reach touches one of `tables` or reads a global of one of
+/// why (al-testrun runtime/held_login.rs `held_reads`): a test whose static reach touches one of `tables` or reads a global of one of
 /// `singles` is not run; one whose reach is not known runs with `tables` watched, and is not run when it touched one.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct HeldReads {
     pub tables: BTreeSet<u32>,
+    /// Why a reader of `tables` is not run.
+    pub tables_why: &'static str,
     /// SingleInstance codeunits (object index).
     pub singles: BTreeSet<usize>,
-    pub why: &'static str,
+    /// Why a reader of `singles` is not run.
+    pub singles_why: &'static str,
 }
 
 impl HeldReads {
@@ -1334,7 +1337,7 @@ impl HeldReads {
             let name = CompanyOpenWrites::table_name(lowered, *o as u32);
             return Some(format!(
                 "{}: this test can read the SingleInstance codeunit {name}",
-                self.why
+                self.singles_why
             ));
         }
         if facts.unknown.is_some() {
@@ -1343,7 +1346,7 @@ impl HeldReads {
         let t = self.tables.intersection(&facts.touched).next()?;
         Some(format!(
             "{}: this test can read table {}",
-            self.why,
+            self.tables_why,
             CompanyOpenWrites::table_name(lowered, *t)
         ))
     }

@@ -718,7 +718,7 @@ fn a_handle_held_outside_the_globals_refuses() {
         .unwrap_or_else(|why| panic!("{}", why.reason()));
 }
 
-// The run's one login on the TestRunnerHub sets a group 1 filter in the corpus (al-testrun run.rs `thaw_held`): the image
+// The run's one login on the TestRunnerHub sets a group 1 filter in the corpus (al-testrun runtime/held_login.rs `thaw_held`): the image
 // carries it, and a later session reads it as the login's session does (here: the read another record's filter makes is
 // refused in both, FilterGroupOtherVariable.al measures no Count).
 #[test]
@@ -1099,6 +1099,29 @@ fn thaw_target_why_names_what_keeps_a_session_from_a_start() {
         s.thaw_target_why().is_some(),
         "a store watch keeps a session from a start"
     );
+}
+
+// The cell tap (`--junit`, `--cell-report`) is report only and set from the run's flags: a login whose tap recorded
+// nothing is imaged, a target with the tap on takes the image and keeps its own tap. A tap that recorded a cell still
+// refuses the image, and install code is still held to a tap that is off (`install_left`).
+#[test]
+fn a_cell_tap_that_recorded_nothing_is_imaged_and_the_target_keeps_its_own() {
+    let mut f = fx();
+    f.run("FillDatabase");
+    f.session.enable_cell_tap();
+    let image = image(&mut f.session);
+    let mut target = new_session(&f.session);
+    target.enable_cell_tap();
+    assert_eq!(target.thaw_target_why(), None);
+    target
+        .thaw_login_image(&image)
+        .expect("a target with the tap on takes the image");
+    assert!(target.coverage.cells.is_some(), "the target keeps its tap");
+    assert_eq!(target.install_refused_field(), Some("coverage"));
+    let mut g = fx();
+    g.session.enable_cell_tap();
+    g.session.coverage.cells.as_mut().expect("on").record.expected = 1;
+    assert_eq!(refused(&mut g), NotImaged::Field("coverage"));
 }
 
 // A record node's vectors (its field values, its filters) count in the image's kept bytes, so the number is no longer a

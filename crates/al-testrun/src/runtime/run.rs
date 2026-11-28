@@ -3,6 +3,10 @@
 //! Entry points: `run_codeunit`, `run_codeunit_isolated`, `run_codeunit_observed`,
 //! `run_codeunit_core`.
 use super::al_runner::run_unit;
+use super::held_login::{
+    self, carried_company_open, first_login, held_reads, later_runner_marks, login_held_unmeasured, login_once_on_hub,
+    login_rows_as_held, thaw_held,
+};
 use super::written::{
     self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,
 };
@@ -242,12 +246,18 @@ fn open_company(
             }
             if let Some(base) = base.filter(|_| login_once_on_hub(scratch.hub, isolation, false, &wrote)) {
                 let image = session.login_image(&base).map_err(|not| not.reason());
-                session.hold_login(image, Box::new((wrote.clone(), hits)));
+                let opened = held_login::HeldOpened::of(session, wrote.clone(), hits);
+                session.hold_login(image, Box::new(opened));
             }
             (wrote, hits)
         }
     };
-    wrote.held = held.as_deref().and_then(|h| held_reads(h, unmeasured, thaws, &wrote));
+    let rows_as_held = held
+        .as_deref()
+        .is_some_and(|h| unmeasured.is_none() && login_rows_as_held(h, isolation, session));
+    wrote.held = held
+        .as_deref()
+        .and_then(|h| held_reads(h, unmeasured, thaws, rows_as_held, &wrote));
     let hits = later_runner_marks(held.is_some(), scratch.hub_leg, isolation, hits);
     // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
     // a `WorkDate(d)` of the test still wins.
@@ -1588,152 +1598,6 @@ fn not_run_after_panic(
             });
         }
         out.push((name, outcome));
-    }
-}
-
-/// A codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub (`hub`, BC 28 and later), whose session's login a
-/// dependency app's login code raised and wrote (`CompanyOpenWrites::login`), with no Company Triggers subscriber of the
-/// apps under test that wrote (`who`): the hub runs every codeunit in one session and the login once, and what the login
-/// wrote is outside every codeunit's isolation, so what the codeunit leaves is where the later codeunits start, the login
-/// rows as it left them (assumption `hub-disabled-login-once`, corpus PR 1642: probe-disabled-isolation-login-writes,
-/// LgnDisabledLoginWrites.al:343, :474, :553, :623, :649).
-fn login_once_on_hub(
-    hub: bool,
-    isolation: TestIsolation,
-    execute: bool,
-    company_open: &crate::install::CompanyOpenWrites,
-) -> bool {
-    hub && isolation == TestIsolation::Disabled
-        && !execute
-        && company_open.who.is_none()
-        && company_open.login.is_some()
-}
-
-/// The session of a codeunit that `login_once_on_hub` would hold starts the run's login (LgnDisabledLoginWrites.al:343:
-/// one session, one login before the first codeunit): its data is the suite's install baseline, not what a test codeunit
-/// left (`Session::starts_from_what_a_codeunit_left`), and holds no login yet. A session that starts from data that
-/// holds the login keeps it (`Session::hold_login`); one that starts from what another codeunit left keeps main's
-/// refusal (`carried_company_open`).
-pub(super) fn first_login(hub: bool, isolation: TestIsolation, session: &Session) -> bool {
-    hub && isolation == TestIsolation::Disabled
-        && session.login_held().is_none()
-        && !session.starts_from_what_a_codeunit_left()
-}
-
-/// A session that starts from data holding the run's one login takes that login's session state from its image in place
-/// of a second login, and what the runner noted of it, marked (LgnDisabledLoginWrites.al:474, :553: no second login;
-/// SingleInstance state lasts for the session, TestCuP7BReader.al:24-37). `None`: no image, or the session is not a thaw
-/// target; nothing of it changed.
-fn thaw_held(
-    session: &mut Session,
-    held: &al_vm::HeldLogin,
-) -> Option<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits)> {
-    let (wrote, hits) = held_opened(held)?;
-    session.thaw_held_login().ok()?;
-    Some((
-        wrote.clone(),
-        hits.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce),
-    ))
-}
-
-/// What the runner noted when the held login's session opened the company (`open_company`, `Session::hold_login`).
-fn held_opened(
-    held: &al_vm::HeldLogin,
-) -> Option<&(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits)> {
-    held.opened.downcast_ref()
-}
-
-/// What a test of a session that starts from the run's one login (`held`) may not read: under runner 130450
-/// (`unmeasured`, its reason) the tables the held login and this session's own login wrote; on the hub without the held
-/// image (`thawed` false), the SingleInstance codeunits the held login left, whose state this session's own login set
-/// again. `None`: the image was thawed.
-pub(super) fn held_reads(
-    held: &al_vm::HeldLogin,
-    unmeasured: Option<&'static str>,
-    thawed: bool,
-    wrote: &crate::install::CompanyOpenWrites,
-) -> Option<crate::install::HeldReads> {
-    if thawed {
-        return None;
-    }
-    let Some(why) = unmeasured else {
-        return Some(crate::install::HeldReads {
-            tables: Default::default(),
-            singles: held.singles.iter().copied().collect(),
-            why: "an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's one \
-                  login wrote, and the session state that login set could not be kept for this codeunit: what its \
-                  SingleInstance codeunits hold is not pinned",
-        });
-    };
-    let written = |w: &crate::install::CompanyOpenWrites| {
-        let mut out = w.login_tables.clone();
-        out.extend(w.watched());
-        out
-    };
-    let mut tables = written(wrote);
-    if let Some((first, _)) = held_opened(held) {
-        tables.extend(written(first));
-    }
-    // The session's own login filled its SingleInstance codeunits again (LgnHeldLoginRunners.al:615): none refused.
-    Some(crate::install::HeldReads {
-        tables,
-        singles: Default::default(),
-        why,
-    })
-}
-
-/// How what the session wrote when it opened the company meets what a Disabled codeunit carries: `Ok(true)` when the
-/// run's one login on the hub is held (`login_once_on_hub`, `open_company`), `Ok(false)` when nothing is carried or the
-/// session opened without writes, `Err` for the shapes not pinned: among them a session that starts from what another
-/// codeunit left (`first_login`).
-pub(super) fn carried_company_open(
-    held: bool,
-    hub: bool,
-    isolation: TestIsolation,
-    execute: bool,
-    carries: bool,
-    company_open: &crate::install::CompanyOpenWrites,
-) -> Result<bool, &'static str> {
-    if held && login_once_on_hub(hub, isolation, execute, company_open) {
-        return Ok(true);
-    }
-    match carries && (company_open.who.is_some() || company_open.login.is_some()) {
-        true => Err(
-            "Disabled test isolation with a Company Triggers subscriber that writes when the test session opens \
-             the company: how its writes meet what an earlier codeunit left is not pinned",
-        ),
-        false => Ok(false),
-    }
-}
-
-/// Why a codeunit that starts from what a Disabled codeunit on the hub left after the run's one login
-/// (`login_once_on_hub`) may not read the tables that login and its own wrote (`held_reads`): runner 130450 runs it in
-/// a session of its own after every hub codeunit, whose login runs on what the hub codeunits committed and fills its
-/// SingleInstance codeunits again; the probe saw only that session's own login rows (assumption
-/// `hub-login-later-runners`, corpus PR 1644, LgnHeldLoginRunners.al:615, :665, :708). `None`: a codeunit on the hub
-/// (`Scratch::hub_leg`), under Disabled, Codeunit or Function isolation, which takes the held login's session state
-/// (LgnDisabledLoginWrites.al:474, :553; LgnHeldLoginRunners.al:451, :492, :531).
-pub(super) fn login_held_unmeasured(hub_leg: bool, isolation: TestIsolation) -> Option<&'static str> {
-    match (hub_leg, isolation) {
-        (true, TestIsolation::Disabled | TestIsolation::Codeunit | TestIsolation::Function) => None,
-        (false, TestIsolation::Disabled | TestIsolation::Codeunit | TestIsolation::Function) => Some(
-            "an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's one login \
-             wrote, and which login rows of other sessions a codeunit that runner 130450 runs sees is not pinned",
-        ),
-    }
-}
-
-/// The mark of a session that starts from the run's one login the probe of later runners measured
-/// (`login_held_unmeasured`): runner 130450, and Function isolation on the hub.
-fn later_runner_marks(
-    held: bool,
-    hub_leg: bool,
-    isolation: TestIsolation,
-    hits: al_builtins::assumptions::HitBits,
-) -> al_builtins::assumptions::HitBits {
-    match held && (!hub_leg || isolation == TestIsolation::Function) {
-        true => hits.with(al_builtins::assumptions::Assumption::HubLoginLaterRunners),
-        false => hits,
     }
 }
 

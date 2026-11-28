@@ -1,8 +1,10 @@
-//! The refusals around the run's one login a Disabled codeunit on the hub holds (run.rs `login_once_on_hub`,
+//! The refusals around the run's one login a Disabled codeunit on the hub holds (held_login.rs `login_once_on_hub`,
 //! assumption `hub-disabled-login-once`): which later codeunits are not measured, the carry refusal a session that
 //! starts from what another codeunit left keeps, and what a test of a held session may not read (`held_reads`). The
 //! neighbor apps `tests/neighbors/disabled-login-writes*` run the same shapes end to end.
-use super::run::{carried_company_open, first_login, held_reads, login_held_unmeasured};
+use super::held_login::{
+    HeldOpened, carried_company_open, first_login, held_reads, login_held_unmeasured, login_rows_as_held,
+};
 use super::*;
 use crate::install::CompanyOpenWrites;
 
@@ -29,11 +31,35 @@ fn login_wrote(l: &al_sema::lower::Lowered) -> CompanyOpenWrites {
 }
 
 fn held(l: &al_sema::lower::Lowered) -> al_vm::HeldLogin {
+    let (_, engine) = super::tests::engine_for(SRC);
+    held_in(l, &mut Session::new(engine))
+}
+
+/// The login held in `session`, whose data is what the login left.
+fn held_in(l: &al_sema::lower::Lowered, session: &mut Session) -> al_vm::HeldLogin {
+    let opened = HeldOpened::of(session, login_wrote(l), al_builtins::assumptions::HitBits::default());
     al_vm::HeldLogin {
         image: Err("none".into()),
         singles: vec![object(l, "Memo")],
-        opened: Box::new((login_wrote(l), al_builtins::assumptions::HitBits::default())),
+        opened: Box::new(opened),
     }
+}
+
+/// A session of `engine` whose committed data holds one row of `Login Row`, as the login left it.
+fn with_login_row(l: &al_sema::lower::Lowered, engine: &std::sync::Arc<al_vm::Engine>) -> Session {
+    use al_data::Store;
+    let mut session = Session::new(engine.clone());
+    let table = engine.tables[object(l, "Login Row")].clone().expect("a table");
+    let cx = al_data::AccessContext {
+        company: session.access_company().into(),
+        user: session.user_id().into(),
+    };
+    let row: Vec<al_builtins::value::Value> = (table.fields.iter())
+        .map(|f| al_builtins::value::Value::default_for(&f.ty))
+        .collect();
+    assert!(session.store_mut().insert(&cx, &table, row).is_ok());
+    session.commit_transaction();
+    session
 }
 
 /// Why each test of codeunit T is not run in a session with `wrote` (`None`: it runs).
@@ -95,7 +121,7 @@ fn a_runner_130450_codeunit_after_the_held_login_refuses_only_the_login_table_re
     let (l, engine) = super::tests::engine_for(SRC);
     let why = login_held_unmeasured(false, TestIsolation::Codeunit);
     let mut wrote = CompanyOpenWrites::default();
-    wrote.held = held_reads(&held(&l), why, false, &wrote);
+    wrote.held = held_reads(&held(&l), why, false, true, &wrote);
     let r = refusals(&l, &engine, &wrote);
     assert!(
         r[0].as_ref()
@@ -112,9 +138,48 @@ fn a_runner_130450_codeunit_after_the_held_login_refuses_only_the_login_table_re
 fn a_hub_codeunit_without_the_held_image_refuses_only_the_single_instance_reader() {
     let (l, engine) = super::tests::engine_for(SRC);
     let mut wrote = CompanyOpenWrites::default();
-    wrote.held = held_reads(&held(&l), None, false, &wrote);
+    wrote.held = held_reads(&held(&l), None, false, true, &wrote);
     let r = refusals(&l, &engine, &wrote);
     assert_eq!((&r[0], &r[1]), (&None, &None));
     assert!(r[2].as_ref().is_some_and(|w| w.contains("could not be kept")), "{r:?}");
-    assert!(held_reads(&held(&l), None, true, &wrote).is_none());
+    assert!(held_reads(&held(&l), None, true, true, &wrote).is_none());
+}
+
+// On the hub a Codeunit or Function codeunit whose login rows are as the held login left them is measured
+// (LgnDisabledLoginWrites.al:553; corpus PR 1644, :492, :531); after a Disabled codeunit changed them it is not (corpus
+// PR 1642, codeunits 87428 and 87429), and its readers of the login's tables are not run, whether the image was thawed
+// or not. A Disabled codeunit is measured either way (:474, :649).
+#[test]
+fn a_hub_codeunit_after_a_disabled_codeunit_changed_the_login_rows_refuses_their_readers() {
+    let (l, engine) = super::tests::engine_for(SRC);
+    let mut left = with_login_row(&l, &engine);
+    let held = held_in(&l, &mut left);
+    for isolation in [
+        TestIsolation::Codeunit,
+        TestIsolation::Function,
+        TestIsolation::Disabled,
+    ] {
+        assert!(
+            login_rows_as_held(&held, isolation, &mut left),
+            "{isolation:?}: rows as left"
+        );
+    }
+    let mut deleted = Session::new(engine.clone());
+    assert!(!login_rows_as_held(&held, TestIsolation::Codeunit, &mut deleted));
+    assert!(!login_rows_as_held(&held, TestIsolation::Function, &mut deleted));
+    assert!(login_rows_as_held(&held, TestIsolation::Disabled, &mut deleted));
+    let mut wrote = CompanyOpenWrites::default();
+    assert!(held_reads(&held, None, true, true, &wrote).is_none());
+    for thawed in [true, false] {
+        wrote.held = held_reads(&held, None, thawed, false, &wrote);
+        let r = refusals(&l, &engine, &wrote);
+        let login_row = r[0].as_deref().unwrap_or_default();
+        assert!(
+            login_row.contains("changed the rows the run's one login wrote"),
+            "{r:?}"
+        );
+        assert!(login_row.ends_with("this test can read table Login Row"), "{r:?}");
+        assert_eq!(r[1], None);
+        assert_eq!(r[2].is_some(), !thawed, "{r:?}");
+    }
 }

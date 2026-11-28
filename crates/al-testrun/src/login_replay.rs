@@ -28,6 +28,7 @@ mod rows_digest;
 use al_vm::{Engine, Session};
 pub(crate) use difference::differences;
 use difference::{KINDS, StoredRow, stored_rows};
+pub(crate) use rows_digest::committed_tables_digest;
 use std::sync::{Mutex, PoisonError};
 
 /// Why a session has no key ([`Key::of`]): it then runs its login.

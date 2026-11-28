@@ -1,5 +1,5 @@
 //! What the run's one login on the TestRunnerHub left in a session whose data a codeunit with RequiredTestIsolation =
-//! Disabled then carried ([`HeldLogin`], al-testrun run.rs `login_once_on_hub`): the session image of that login, the
+//! Disabled then carried ([`HeldLogin`], al-testrun runtime/held_login.rs `login_once_on_hub`): the session image of that login, the
 //! SingleInstance codeunits it left an instance of, and what the runner noted of the opening. A later session of the
 //! same run starts from the carried data with the held login's session state thawed in place of a second login
 //! ([`Session::thaw_held_login`]), or, where that is not possible, runs its login and has its writes undone
