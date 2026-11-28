@@ -31,8 +31,8 @@
 //! and the .NET write positions apart, SgDotNetStreams.al:154-172), so the next write marks the Blob
 //! (`al_builtins::stream::note_write`) and handing its stream to .NET again refuses, as on main after an overwrite.
 //!
-//! Every assumed rewrite needs the stamp of the stream handed to .NET. An OutStream copied (`:=`, a by-value parameter)
-//! loses it ([`unstamp_out_stream`]); one read from an array element never has it at .NET ([`note_element_stream`]): not
+//! Every assumed rewrite needs the stamp of the stream handed to .NET. An OutStream copied (`:=`, a by-value parameter, a
+//! procedure's return value) loses it ([`unstamp_out_stream`]); one read from an array element never has it at .NET ([`note_element_stream`]): not
 //! measured, so main's answer.
 //!
 //! Every other rewrite keeps main's answer: an Update archive's rewrite refuses, an overwrite marks the Blob
@@ -140,7 +140,7 @@ pub(super) fn fresh_update_seed(buf: &BlobBuf, opened_at: Option<u32>) -> bool {
 /// A copy of OutStream `v` was made: its stamp is dropped. The probes hand .NET a scalar OutStream variable that
 /// `CreateOutStream` wrote, directly (ZipBlobUpdateFreshOutStream.al:146-170) or through a `var` parameter bound to a local
 /// (ZipBlobUpdateBlobChanged.al:19-32, ZipBlobDotNetOverwrite.al:17-34), never a copy. The callers: `:=` of an OutStream
-/// (`exec::run`) and a by-value OutStream parameter (`Session::call`). The runner's copy shares the stream cell, so the
+/// (`exec::run`), a by-value OutStream parameter and a procedure's return value, named or by `exit` (`Session::call_inner`). The runner's copy shares the stream cell, so the
 /// original loses the stamp too: parts 1, 2 and 3 then give main's answer (`fresh_update_seed`, `Bridge::opened_at` in
 /// `rewrite_verdict`).
 pub(crate) fn unstamp_out_stream(v: &Value) {

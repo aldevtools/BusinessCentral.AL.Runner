@@ -22,7 +22,9 @@ codeunit 59454 "NB SZ R6 Helper"
     end;
 
     // Part 1 inside a procedure whose `var` OutStream parameter the caller bound to an array element: CreateOutStream and
-    // the archive both work on the parameter (the probe's `var` parameter shape, ZipBlobUpdateFreshOutStream.al:150-170).
+    // the archive both work on the parameter. Part 1's cells hand the local variable directly
+    // (ZipBlobUpdateFreshOutStream.al:146-172); the `var` parameter shape is measured in parts 2 and 3 only
+    // (ZipBlobUpdateBlobChanged.al:19-32, ZipBlobDotNetOverwrite.al:17-34).
     procedure MakeAndUpdate(var Buffer: Record "NB SZ Zip File" temporary; var Out: OutStream)
     var
         R2: Codeunit "NB SZ R2 Helper";

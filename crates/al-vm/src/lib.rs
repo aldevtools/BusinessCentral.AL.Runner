@@ -2757,6 +2757,8 @@ impl Session {
             (Some(t), None, None) => Value::default_for(t),
             (None, _, _) => Value::Null,
         };
+        // An OutStream a procedure returns is a copy (`dotnet::unstamp_out_stream`).
+        crate::dotnet::unstamp_out_stream(&value);
         frame.locals.truncate(r.params);
         Ok((value, frame.locals))
     }
