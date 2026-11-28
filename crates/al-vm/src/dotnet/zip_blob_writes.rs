@@ -31,9 +31,10 @@
 //! and the .NET write positions apart, SgDotNetStreams.al:154-172), so the next write marks the Blob
 //! (`al_builtins::stream::note_write`) and handing its stream to .NET again refuses, as on main after an overwrite.
 //!
-//! Every assumed rewrite needs the stamp of the stream handed to .NET. An OutStream copied (`:=`, a by-value parameter, a
-//! procedure's return value) loses it ([`unstamp_out_stream`]); one read from an array element never has it at .NET ([`note_element_stream`]): not
-//! measured, so main's answer.
+//! Every assumed rewrite needs the stamp of the stream handed to .NET, at the rewrite as when the bridge was made
+//! ([`still_stamped`]). An OutStream copied (`:=`, a by-value parameter, a procedure's return value), before or after
+//! .NET got it, loses it ([`unstamp_out_stream`]); one read from an array element never has it at .NET
+//! ([`note_element_stream`]): not measured, so main's answer (part 1, whose archive the constructor seeded, refuses).
 //!
 //! Every other rewrite keeps main's answer: an Update archive's rewrite refuses, an overwrite marks the Blob
 //! (`DOTNET_BRIDGE_OVERWRITTEN`). Not measured, so not served: another ZipArchiveMode over a fresh OutStream, the B
@@ -141,8 +142,8 @@ pub(super) fn fresh_update_seed(buf: &BlobBuf, opened_at: Option<u32>) -> bool {
 /// `CreateOutStream` wrote, directly (ZipBlobUpdateFreshOutStream.al:146-170) or through a `var` parameter bound to a local
 /// (ZipBlobUpdateBlobChanged.al:19-32, ZipBlobDotNetOverwrite.al:17-34), never a copy. The callers: `:=` of an OutStream
 /// (`exec::run`), a by-value OutStream parameter and a procedure's return value, named or by `exit` (`Session::call_inner`). The runner's copy shares the stream cell, so the
-/// original loses the stamp too: parts 1, 2 and 3 then give main's answer (`fresh_update_seed`, `Bridge::opened_at` in
-/// `rewrite_verdict`).
+/// original loses the stamp too: parts 1, 2 and 3 then give main's answer (`fresh_update_seed` before the bridge,
+/// [`still_stamped`] in `rewrite_verdict` after it).
 pub(crate) fn unstamp_out_stream(v: &Value) {
     if let Value::Library(al_builtins::library_kind::LibraryKind::OutStream, h) = v
         && let al_builtins::value::LibraryValue::OutStream(.., opened_at) = &mut *h.borrow_mut()
@@ -164,6 +165,24 @@ pub(crate) fn note_element_stream(state: &mut super::DotNetState, v: &Value) {
             cells.push(Rc::downgrade(h));
         }
     }
+}
+
+/// The bridge's stream still has the stamp it had when the bridge was made: no copy of it was made since and it was not
+/// read from an array element. A stream every holder dropped answers no: whether a copy was made is not known.
+fn still_stamped(state: &super::DotNetState, bridge: &Bridge) -> bool {
+    let Some(cell) = bridge.cell.upgrade() else {
+        return false;
+    };
+    let opened_at = match &*cell.borrow() {
+        al_builtins::value::LibraryValue::OutStream(.., opened_at) => *opened_at,
+        _ => None,
+    };
+    bridge.opened_at.is_some() && stamp_of(state, &cell, opened_at) == bridge.opened_at
+}
+
+/// The key of `blob` in `DotNetState::net_writes`: its address, unique while the entry holds the Blob.
+pub(super) fn blob_key(blob: &BlobRef) -> usize {
+    Arc::as_ptr(blob).cast::<()>() as usize
 }
 
 /// The stamp of the OutStream cell `h` handed to .NET: `opened_at`, or none for a cell read from an array element.
@@ -196,15 +215,14 @@ impl Session {
     /// Notes a .NET append or rewrite ([`NetWrite::before`]) once it reached its Blob (part 2 reads the newest one).
     pub(super) fn note_net_write(&mut self, mut write: NetWrite) {
         write.edits_after = write.blob.borrow().content_edits;
-        let writes = &mut self.dotnet.net_writes;
-        writes.retain(|w| !Arc::ptr_eq(&w.blob, &write.blob));
-        writes.push(write);
+        self.dotnet.net_writes.insert(blob_key(&write.blob), write);
     }
 
     /// The verdict on the rewrite of `bridge`, whose Blob held `before` bytes at the bridge's last reply.
     pub(super) fn rewrite_verdict(&self, bridge: &Bridge, before: usize, kind: Option<Rewrite>) -> Verdict {
         let buf = bridge.blob.borrow();
         let unchanged = buf.content_edits == bridge.edits && buf.bytes.len() == before && buf.render_pending.is_none();
+        let stamped = still_stamped(&self.dotnet, bridge);
         match kind {
             // The pin (8360): the Blob still holds the bridge's bytes, the AL position at their end.
             Some(Rewrite::ZipUpdate4)
@@ -216,23 +234,22 @@ impl Session {
                 Verdict::Replace
             }
             // Part 1.
-            Some(Rewrite::ZipUpdate4 | Rewrite::ZipUpdate) if bridge.fresh && unchanged && buf.write_pos == 0 => {
+            Some(Rewrite::ZipUpdate4 | Rewrite::ZipUpdate)
+                if bridge.fresh && stamped && unchanged && buf.write_pos == 0 =>
+            {
                 assume(Assumption::ZipBlobWrites);
                 Verdict::ReplaceAssumed
             }
             // Part 2.
             Some(Rewrite::ZipUpdate4)
-                if !bridge.fresh && bridge.opened_at.is_some() && self.changed_state_measured(bridge, before, &buf) =>
+                if !bridge.fresh && stamped && self.changed_state_measured(bridge, before, &buf) =>
             {
                 assume(Assumption::ZipBlobWrites);
                 Verdict::ReplaceAssumed
             }
             // Part 3: the bridge is the one AL handed its Blob to (the sidecar counts the writers of one bridge only).
             Some(Rewrite::Overwrite)
-                if bridge.origin_empty
-                    && bridge.opened_at.is_some()
-                    && unchanged
-                    && self.bridges_of(&bridge.blob) == 1 =>
+                if bridge.origin_empty && stamped && unchanged && self.bridges_of(&bridge.blob) == 1 =>
             {
                 assume(Assumption::ZipBlobWrites);
                 Verdict::ReplaceAssumed
@@ -263,11 +280,7 @@ impl Session {
         {
             return false;
         }
-        let newest = self
-            .dotnet
-            .net_writes
-            .iter()
-            .find(|w| Arc::ptr_eq(&w.blob, &bridge.blob));
+        let newest = self.dotnet.net_writes.get(&blob_key(&bridge.blob));
         let net_newest = newest.filter(|w| w.edits_after == buf.content_edits);
         // :98 Clear only: the first AL change since the bridge was made is a Clear of the Blob, and the newest change is
         // AL's (a Clear in place sets `cleared_at` to the edit count it leaves: al-builtins `native::values`).

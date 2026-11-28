@@ -106,7 +106,8 @@ const _: fn() = || {
 /// record the Blob, when the bridge was made (`zip_blob_writes::of_no_row`; a later Clear in place resets those flags);
 /// `update4_utf8`: the bridge is argument 0 of `ZipArchive(OutStream, Update, false, Encoding.UTF8)`
 /// (`zip_blob_writes::fresh_update_ctor`); `opened_at`: the stamp of the AL OutStream it was made from (which
-/// `Blob.CreateOutStream` made it, `LibraryValue::OutStream`).
+/// `Blob.CreateOutStream` made it, `LibraryValue::OutStream`), and `cell` that stream, whose stamp a copy made later drops
+/// (`zip_blob_writes::still_stamped`). Weak: the bridge must not count as a holder of the stream.
 struct Bridge {
     blob: BlobRef,
     edits: u32,
@@ -116,6 +117,7 @@ struct Bridge {
     of_no_row: bool,
     update4_utf8: bool,
     opened_at: Option<u32>,
+    cell: std::rc::Weak<RefCell<LibraryValue>>,
 }
 
 impl Bridge {
@@ -124,6 +126,7 @@ impl Bridge {
             blob,
             temp_record,
             opened_at,
+            cell,
             ..
         } = out;
         Bridge {
@@ -135,6 +138,7 @@ impl Bridge {
             of_no_row: zip_blob_writes::of_no_row(&blob.borrow()),
             update4_utf8,
             opened_at: *opened_at,
+            cell: Rc::downgrade(cell),
         }
     }
 
@@ -164,8 +168,8 @@ pub struct DotNetState {
     /// `availability()` of the host, asked once per session.
     available: Option<Result<(), String>>,
     bridges: HashMap<u64, Bridge>,
-    /// The newest .NET write through a bridge, per Blob (`zip_blob_writes`).
-    net_writes: Vec<zip_blob_writes::NetWrite>,
+    /// The newest .NET write through a bridge, per Blob (`zip_blob_writes`, keyed by `zip_blob_writes::blob_key`).
+    net_writes: HashMap<usize, zip_blob_writes::NetWrite>,
     /// The OutStreams read from an array element (`zip_blob_writes::note_element_stream`).
     element_streams: Vec<std::rc::Weak<RefCell<LibraryValue>>>,
     /// ADR-056: the workbook writers `WorkbookWriter.Create(fileName)` made, by handle: the file and the AL stream the writer
@@ -291,12 +295,14 @@ struct StreamBook {
     update4_utf8: bool,
 }
 
-/// An OutStream argument of a call: its position, its Blob, whether the stream was opened on a temporary record, and its stamp.
+/// An OutStream argument of a call: its position, its Blob, whether the stream was opened on a temporary record, its stamp
+/// and its cell.
 struct BookOut {
     arg: usize,
     blob: BlobRef,
     temp_record: bool,
     opened_at: Option<u32>,
+    cell: Rc<RefCell<LibraryValue>>,
 }
 
 impl StreamBook {
@@ -1653,6 +1659,7 @@ impl Session {
                         blob: blob.clone(),
                         temp_record: zip_blob_writes::opened_on_temp_record(open.as_deref()),
                         opened_at,
+                        cell: h.clone(),
                     });
                     // BC hands .NET the Blob's own stream: a ZipArchive in Read mode over an OutStream AL copied a zip into reads
                     // that zip (corpus tests/al-language-onprem-dotnet/dotnet/dotnet/WdZipArchiveOverOutStream.al:77-96
