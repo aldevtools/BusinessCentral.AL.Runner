@@ -96,7 +96,7 @@ fn the_measured_dotted_shapes_resolve_through_the_assumption() {
 /// The measured cells of part 2 (DataItemNamesDottedQualifier.al:383-400 at cf6884b9, labels :565-567, columns :596-633):
 /// Code, Integer, Text, Date and Enum fields with IncludeCaption; Decimal AutoFormatType 0 with DecimalPlaces 0:5 or
 /// alone, AutoFormatType 2 and 1 with AutoFormatExpression ''; a column without property over AutoFormatType 0 + DecimalPlaces
-/// 0:5 and over AutoFormatType 1 + AutoFormatExpression ''.
+/// 0:5 and over AutoFormatType 1 + AutoFormatExpression '', and over an Enum and a Date field (:395, :398, values :600, :614).
 #[test]
 fn the_measured_typed_dotted_shapes_resolve_through_the_assumption() {
     let (columns, assumes) = lowered(
@@ -115,9 +115,11 @@ fn the_measured_typed_dotted_shapes_resolve_through_the_assumption() {
     column(LQuantityNoProp; \"Dq. Line\".Q5) { }
     column(LCostAmountNoProp; \"Dq. Line\".Expr) { }
     column(DUnit; \"Dq. Line\".Unit) { IncludeCaption = true; }
+    column(LStatusNoProp; \"Dq. Line\".St) { }
+    column(LStartingDateNoProp; \"Dq. Line\".Due) { }
 } } }",
     );
-    let want = [14, 8, 0, 1, 16, 19, 20, 11, 17, 18, 21, 19, 11, 4];
+    let want = [14, 8, 0, 1, 16, 19, 20, 11, 17, 18, 21, 19, 11, 4, 14, 16];
     for ((name, field), pos) in columns.iter().zip(want) {
         assert_eq!(*field, Some(pos), "{name}");
     }
@@ -197,7 +199,8 @@ fn an_unmeasured_dotted_shape_keeps_mains_answer() {
         "column(UnitCurrency; \"A. B\".UnitCur) { IncludeCaption = true; }",
         "column(UnitNoCaption; \"A. B\".UnitNoCap) { IncludeCaption = true; }",
         "column(CodeNoProperty; \"A. B\".Code1) { }",
-        "column(EnumNoProperty; \"A. B\".St) { }",
+        "column(TextNoProperty; \"A. B\".Name) { }",
+        "column(EnumNoCaptionNoProperty; \"A. B\".StNoCap) { }",
         "column(UnitNoProperty; \"A. B\".UnitExpr) { }",
         "column(PlacesOverZero; \"A. B\".Q5) { DecimalPlaces = 4 : 4; }",
         "column(TextNoCaption; \"A. B\".Bare) { IncludeCaption = true; }",

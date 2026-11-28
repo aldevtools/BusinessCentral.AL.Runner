@@ -1309,7 +1309,8 @@ fn plain_own_field(f: &crate::members::FieldInfo, t: usize) -> bool {
 /// :596-633). [`plain_own_field`], and by type:
 /// - Text with a Caption (:31, :351), Date or Enum with a Caption (:352, :348), Code or Integer with or without one (:349,
 ///   :357, :350, :358), no DecimalPlaces, AutoFormatType or AutoFormatExpression, a column that states
-///   exactly IncludeCaption = true (:75, :383-393);
+///   exactly IncludeCaption = true (:75, :383-393); the Date and the Enum field also under a column without property
+///   (:395, :398, values :600, :614);
 /// - Decimal, with or without a Caption, by (AutoFormatType, AutoFormatExpression, DecimalPlaces): (none, none, any) under
 ///   IncludeCaption or a column DecimalPlaces (:32, :36, :37, :76, :80-82); (1, none, none) (:33, :77) and (0, none, none)
 ///   (:359, :394) under IncludeCaption; (0, none, 0:5) and (1, '', none) under IncludeCaption or no property (:353, :355,
@@ -1328,7 +1329,10 @@ fn dotted_qualifier_measured(f: &crate::members::FieldInfo, t: usize, column: &a
     let captioned = p("Caption").is_some();
     let formats = (p("AutoFormatType"), p("AutoFormatExpression"), p("DecimalPlaces"));
     let typed = match &f.ty {
-        Ty::Text(_) | Ty::Date | Ty::Enum(_) => captioned && formats == (None, None, None) && shape == IncludeCaption,
+        Ty::Text(_) => captioned && formats == (None, None, None) && shape == IncludeCaption,
+        Ty::Date | Ty::Enum(_) => {
+            captioned && formats == (None, None, None) && matches!(shape, IncludeCaption | NoProperty)
+        }
         Ty::Code(_) | Ty::Integer => formats == (None, None, None) && shape == IncludeCaption,
         Ty::Decimal => match (formats.0.as_deref(), formats.1.as_deref(), formats.2.as_deref()) {
             (None, None, _) => matches!(shape, IncludeCaption | DecimalPlaces),
