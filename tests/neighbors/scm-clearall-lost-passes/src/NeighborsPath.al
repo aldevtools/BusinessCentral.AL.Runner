@@ -1,8 +1,10 @@
 // Neighbors of the call path and the holder that open corpus PR 1650 measures for the never-called register tree
 // (assumption clear-all-uncalled-register-tree, ClearSharedCodeunitNeverCalledTree.al "CNC Owner" :287-347, "CNC Holder"
 // :349-419): the owner's OnRun reaches its ClearAll through two local procedures; a public procedure of a plain holder
-// that holds the register and the owner in globals runs the owner by the statement form. One fact flipped per test, each
-// refused as on main. The last test is the shape of "Whse.-Activity-Post" running "Sales-Post" (al-runner issue 8964).
+// that holds the register and the owner in globals runs the owner by the statement form. One fact flipped per test. The
+// four Assumed_ tests flip one of the four facts ClearSharedCodeunitNeverCalledShapes.al measures alone (owner in a local,
+// run from a local procedure, internal RunWithCheck, holder with a TableNo); the others refuse as on main. The last test
+// has all four facts but enters the holder by a public procedure, not by Run: refused (NeighborsShapes.al has the rest).
 codeunit 86976 "N Owner Modes"
 {
     TableNo = "CKK Row";
@@ -200,7 +202,7 @@ codeunit 86983 "N Path OwnerLocal"
     Subtype = Test;
 
     [Test]
-    procedure Refused_OwnerHeldByALocal()
+    procedure Assumed_OwnerHeldByALocal()
     var
         H: Codeunit "N Holder Modes";
     begin
@@ -214,7 +216,7 @@ codeunit 86984 "N Path HolderLocalProc"
     Subtype = Test;
 
     [Test]
-    procedure Refused_RunFromALocalProcedure()
+    procedure Assumed_RunFromALocalProcedure()
     var
         H: Codeunit "N Holder Modes";
     begin
@@ -228,7 +230,7 @@ codeunit 86986 "N Path Internal"
     Subtype = Test;
 
     [Test]
-    procedure Refused_InternalRunWithCheck()
+    procedure Assumed_InternalRunWithCheck()
     var
         H: Codeunit "N Holder Modes";
     begin
@@ -242,7 +244,7 @@ codeunit 86987 "N Path HolderTableNo"
     Subtype = Test;
 
     [Test]
-    procedure Refused_HolderWithTableNo()
+    procedure Assumed_HolderWithTableNo()
     var
         H: Codeunit "N Holder TableNo";
     begin

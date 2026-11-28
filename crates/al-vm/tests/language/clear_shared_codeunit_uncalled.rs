@@ -1,7 +1,7 @@
 //! ClearAll in a codeunit with a TableNo of a register tree that another variable shares and no call has made yet (open
-//! corpus PR 1650, ClearSharedCodeunitNeverCalledTree.al; assumption clear-all-uncalled-register-tree): the one other
-//! holder, a global of a plain codeunit that ran the owner, keeps the instance, flagged. Every other holder and call path
-//! refuses, as main does. The neighbor app tests/neighbors/scm-clearall-lost-passes runs the same shapes and their
+//! corpus PR 1650, ClearSharedCodeunitNeverCalledTree.al and ClearSharedCodeunitNeverCalledShapes.al; assumption
+//! clear-all-uncalled-register-tree): the one other holder, a global of the codeunit that ran the owner in a measured call
+//! path, keeps the instance, flagged. Every other holder and call path refuses, as main does. The neighbor app tests/neighbors/scm-clearall-lost-passes runs the same shapes and their
 //! neighbors against a main binary.
 
 use al_builtins::assumptions::{Assumption, take_hits};
@@ -36,10 +36,12 @@ codeunit 50104 Owner
 codeunit 50106 OwnerInternal
 {
     TableNo = Row;
-    var Reg: Codeunit Reg;
-    trigger OnRun() begin RunWithCheck(); end;
-    internal procedure RunWithCheck() begin ClearAllVariables(); end;
+    var Reg: Codeunit Reg; Mode: Integer;
+    trigger OnRun() begin if Mode = 1 then ClearAllPublic() else RunWithCheck(); end;
+    internal procedure RunWithCheck() begin if Mode = 2 then ClearAll() else ClearAllVariables(); end;
     local procedure ClearAllVariables() begin ClearAll(); end;
+    procedure ClearAllPublic() begin ClearAllVariables(); end;
+    procedure SetMode(M: Integer) begin Mode := M; end;
     procedure SetReg(var R: Codeunit Reg) begin Reg := R; end;
     procedure GetCnt(): Integer begin exit(Reg.GetCnt()); end;
 }
@@ -61,6 +63,8 @@ codeunit 50105 H
                 begin OI.SetReg(Reg); OI.Run(Row); Reg.SetCnt(5); exit(OI.GetCnt()); end;
             6:
                 begin O.SetReg(Reg); if O.Run(Row) then; end;
+            7, 8:
+                begin OI.SetMode(9 - Mode); OI.SetReg(Reg); OI.Run(Row); Reg.SetCnt(5); exit(OI.GetCnt()); end;
         end;
         Reg.SetCnt(5);
         exit(O.GetCnt());
@@ -80,16 +84,80 @@ codeunit 50105 H
 codeunit 50107 HTableNo
 {
     TableNo = Row;
-    var Reg: Codeunit Reg; O: Codeunit Owner;
+    var Reg: Codeunit Reg; O: Codeunit Owner; OI: Codeunit OwnerInternal; Got: Integer;
+    trigger OnRun() begin Got := Post(); end;
     procedure Post(): Integer
     var Row: Record Row temporary;
     begin
         Row."No." := 1; Row.Insert();
         O.SetReg(Reg); O.Run(Row); Reg.SetCnt(5); exit(O.GetCnt());
     end;
+    procedure PostInternal(): Integer
+    var Row: Record Row temporary;
+    begin
+        Row."No." := 1; Row.Insert();
+        OI.SetReg(Reg); OI.Run(Row); Reg.SetCnt(5); exit(OI.GetCnt());
+    end;
+    procedure GetGot(): Integer begin exit(Got); end;
+}
+// "Whse.-Activity-Post" running "Sales-Post": OnRun -> Locals local procedures -> the owner, a local of the last.
+codeunit 50109 HActivity
+{
+    TableNo = Row;
+    var Reg: Codeunit Reg; Locals: Integer; ByVar: Boolean; Got: Integer;
+    trigger OnRun() begin if Locals = 2 then Second() else Code(); end;
+    local procedure Code() begin if ByVar then PostPassing() else if Locals = 4 then Extra() else Second(); end;
+    local procedure Extra() begin Second(); end;
+    local procedure Second() begin PostSourceDocument(); end;
+    local procedure PostSourceDocument()
+    var Row: Record Row temporary; SalesPost: Codeunit OwnerInternal;
+    begin
+        Row."No." := 1; Row.Insert();
+        SalesPost.SetReg(Reg); SalesPost.Run(Row); Reg.SetCnt(5); Got := SalesPost.GetCnt();
+    end;
+    local procedure PostPassing() var SalesPost: Codeunit OwnerInternal; begin RunPassed(SalesPost); end;
+    local procedure RunPassed(var SalesPost: Codeunit OwnerInternal)
+    var Row: Record Row temporary;
+    begin
+        Row."No." := 1; Row.Insert();
+        SalesPost.SetReg(Reg); SalesPost.Run(Row); Reg.SetCnt(5); Got := SalesPost.GetCnt();
+    end;
+    procedure Set(L: Integer; V: Boolean) begin Locals := L; ByVar := V; end;
+    procedure GetGot(): Integer begin exit(Got); end;
+}
+// A plain codeunit between the test and the holder.
+codeunit 50110 Mid
+{
+    var X: Codeunit HActivity;
+    procedure Base(): Text var H: Codeunit H; begin exit(Format(H.Post(0))); end;
+    procedure Activity(): Text var Row: Record Row temporary; begin X.Set(3, false); X.Run(Row); exit(Format(X.GetGot())); end;
+}
+codeunit 50111 HLocalPair
+{
+    var Reg: Codeunit Reg;
+    procedure Post(): Integer begin exit(PostSourceDocument()); end;
+    local procedure PostSourceDocument(): Integer
+    var Row: Record Row temporary; SalesPost: Codeunit Owner;
+    begin
+        Row."No." := 1; Row.Insert();
+        SalesPost.SetReg(Reg); SalesPost.Run(Row); Reg.SetCnt(5); exit(SalesPost.GetCnt());
+    end;
+}
+codeunit 50112 HActivityPublic
+{
+    TableNo = Row;
+    var Reg: Codeunit Reg;
+    procedure Post(): Integer begin exit(PostSourceDocument()); end;
+    local procedure PostSourceDocument(): Integer
+    var Row: Record Row temporary; SalesPost: Codeunit OwnerInternal;
+    begin
+        Row."No." := 1; Row.Insert();
+        SalesPost.SetReg(Reg); SalesPost.Run(Row); Reg.SetCnt(5); exit(SalesPost.GetCnt());
+    end;
 }
 codeunit 50108 T
 {
+    Subtype = Test;
     procedure Measured(): Text var X: Codeunit H; begin exit(Format(X.Post(0))); end;
     procedure ClearAllInOnRun(): Text var X: Codeunit H; begin exit(Format(X.Post(1))); end;
     procedure OneLocalProcedure(): Text var X: Codeunit H; begin exit(Format(X.Post(2))); end;
@@ -99,6 +167,49 @@ codeunit 50108 T
     procedure GuardedRun(): Text var X: Codeunit H; begin exit(Format(X.Post(6))); end;
     procedure RunFromLocalProcedure(): Text var X: Codeunit H; begin exit(Format(X.ViaLocal())); end;
     procedure HolderWithTableNo(): Text var X: Codeunit HTableNo; begin exit(Format(X.Post())); end;
+    procedure HolderWithTableNoRun(): Text
+    var X: Codeunit HTableNo; Row: Record Row temporary;
+    begin
+        X.Run(Row);
+        exit(Format(X.GetGot()));
+    end;
+    procedure HolderWithTableNoGuardedRun(): Text
+    var X: Codeunit HTableNo; Row: Record Row temporary;
+    begin
+        if X.Run(Row) then;
+        exit(Format(X.GetGot()));
+    end;
+    procedure HolderWithTableNoInternal(): Text var X: Codeunit HTableNo; begin exit(Format(X.PostInternal())); end;
+    local procedure RunActivity(Locals: Integer; ByVar: Boolean): Text
+    var X: Codeunit HActivity; Row: Record Row temporary;
+    begin
+        X.Set(Locals, ByVar);
+        X.Run(Row);
+        exit(Format(X.GetGot()));
+    end;
+    procedure Activity(): Text begin exit(RunActivity(3, false)); end;
+    procedure ActivityFourLocals(): Text begin exit(RunActivity(4, false)); end;
+    procedure ActivityTwoLocals(): Text begin exit(RunActivity(2, false)); end;
+    procedure ActivityOwnerByVar(): Text begin exit(RunActivity(3, true)); end;
+    procedure ActivityGuarded(): Text
+    var X: Codeunit HActivity; Row: Record Row temporary;
+    begin
+        X.Set(3, false);
+        if X.Run(Row) then;
+        exit(Format(X.GetGot()));
+    end;
+    procedure ActivityByCodeunitId(): Text
+    var Row: Record Row temporary;
+    begin
+        Codeunit.Run(Codeunit::HActivity, Row);
+        exit('ran');
+    end;
+    procedure ActivityFromAPlainCodeunit(): Text var M: Codeunit Mid; begin exit(M.Activity()); end;
+    procedure BaseFromAPlainCodeunit(): Text var M: Codeunit Mid; begin exit(M.Base()); end;
+    procedure ActivityFromAPublicProcedure(): Text var X: Codeunit HActivityPublic; begin exit(Format(X.Post())); end;
+    procedure LocalProcedureAndLocalOwner(): Text var X: Codeunit HLocalPair; begin exit(Format(X.Post())); end;
+    procedure InternalWithClearAllInIt(): Text var X: Codeunit H; begin exit(Format(X.Post(7))); end;
+    procedure PublicProcedureBeforeClearAll(): Text var X: Codeunit H; begin exit(Format(X.Post(8))); end;
     procedure HolderIsALocal(): Text
     var R: Codeunit Reg; O: Codeunit Owner; Row: Record Row temporary;
     begin
@@ -122,10 +233,20 @@ fn tree(cell: &str) -> (String, bool) {
     (got, take_hits().contains(&Assumption::ClearAllUncalledRegisterTree))
 }
 
-// The measured shape: the owner keeps the shared instance, so the holder's write is read through the owner.
+// The measured shapes: the owner keeps the shared instance, so the holder's write is read through the owner.
 #[test]
-fn a_never_called_register_held_by_the_running_holder_stays_shared_flagged() {
-    assert_eq!(tree("Measured"), ("5".to_string(), true));
+fn a_never_called_register_in_a_measured_call_path_stays_shared_flagged() {
+    for cell in [
+        "Measured",
+        "HolderWithTableNo",
+        "HolderWithTableNoRun",
+        "RunFromLocalProcedure",
+        "OwnerInALocal",
+        "InternalProcedure",
+        "Activity",
+    ] {
+        assert_eq!(tree(cell), ("5".to_string(), true), "{cell}");
+    }
 }
 
 // A second other holder: no cell measures it, refused as main.
@@ -140,18 +261,29 @@ fn a_never_called_register_with_two_other_holders_refuses() {
     assert!(!hit);
 }
 
-// Every other holder and call path: refused as main.
+// Every other holder and call path: refused as main. Two facts of the probe without the others, the "Whse.-Activity-Post"
+// shape with another chain of local procedures (four is BC's own), a guarded Run or `Codeunit.Run(Codeunit::...)` of the
+// holder, a holder run from a codeunit that is no test codeunit, the owner passed by var, and other ClearAll paths.
 #[test]
 fn a_never_called_register_in_an_unmeasured_holder_or_path_refuses() {
     for cell in [
         "ClearAllInOnRun",
         "OneLocalProcedure",
-        "OwnerInALocal",
-        "InternalProcedure",
         "GuardedRun",
-        "RunFromLocalProcedure",
-        "HolderWithTableNo",
         "HolderIsALocal",
+        "HolderWithTableNoGuardedRun",
+        "HolderWithTableNoInternal",
+        "ActivityFourLocals",
+        "ActivityTwoLocals",
+        "ActivityOwnerByVar",
+        "ActivityGuarded",
+        "ActivityByCodeunitId",
+        "ActivityFromAPlainCodeunit",
+        "BaseFromAPlainCodeunit",
+        "ActivityFromAPublicProcedure",
+        "LocalProcedureAndLocalOwner",
+        "InternalWithClearAllInIt",
+        "PublicProcedureBeforeClearAll",
     ] {
         let (got, hit) = tree(cell);
         assert_refused(
