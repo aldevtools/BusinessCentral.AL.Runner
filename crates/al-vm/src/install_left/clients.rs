@@ -179,6 +179,10 @@ pub(crate) fn events_not_as_new(e: &EventState) -> Option<&'static str> {
         // `Session::no_client_test_session`, kept in step by `Session::sync_no_client_test_session`: once install code ended it
         // is what the run's session flags make it in a new session.
         no_client_test_session: _,
+        // `Session::set_own_login`: set by al-testrun on a test codeunit's session after it is made, never on install code's.
+        own_login: _,
+        // `Session::note_own_id_read`: noted only while `own_login` is set, so never in install code.
+        own_id_read: _,
     } = &**event_stats;
     let crate::order_trial::TrialState {
         allowed,
@@ -236,10 +240,11 @@ pub(crate) fn events_not_as_new(e: &EventState) -> Option<&'static str> {
     .find_map(|(holds, field)| (!holds).then_some(field))
 }
 
-/// Code coverage, the impact trace, the cell tap and the profiler: all off and nothing recorded. A run with one of them on
-/// keeps the install code in each codeunit's session (al-testrun `install_once.rs`); the cell tap is set from the session
-/// flags, so it fails here.
-pub(crate) fn coverage_as_new(c: &CoverageState) -> bool {
+/// Code coverage, the impact trace and the profiler: all off and nothing recorded; the cell tap off, or on with nothing
+/// recorded (a test takes its record, `Session::take_cell_record`). A run with one of the others on keeps the install code
+/// in each codeunit's session (al-testrun `install_once.rs`); so does a run with the cell tap on, which is set from the
+/// session flags: install code is held to a tap that is off besides (`session_fields.rs`, `coverage [install => ...]`).
+pub(crate) fn coverage_at_rest(c: &CoverageState) -> bool {
     let CoverageState {
         code_coverage,
         coverage_counts,
@@ -256,7 +261,7 @@ pub(crate) fn coverage_as_new(c: &CoverageState) -> bool {
         && recorder.as_new()
         && impact.borrow().is_none()
         && !impact_on
-        && cells.is_none()
+        && cells.as_ref().is_none_or(|tap| tap.record == Default::default())
         && profiler.is_none()
         && install_footprint.borrow().is_none()
         && !footprint_on

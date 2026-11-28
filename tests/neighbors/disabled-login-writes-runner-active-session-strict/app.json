@@ -1,0 +1,23 @@
+{
+  "id": "6d1f3c20-1a2b-4c3d-9e8f-d15ab1e00092",
+  "name": "Probe r2",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    {
+      "from": 52600,
+      "to": 52699
+    }
+  ],
+  "dependencies": [
+    {
+      "id": "63ca2fa4-4f03-4f2b-a480-172fef340d3f",
+      "name": "System Application",
+      "publisher": "Microsoft",
+      "version": "27.0.0.0"
+    }
+  ]
+}

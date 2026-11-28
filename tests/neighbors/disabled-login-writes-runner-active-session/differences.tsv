@@ -1,0 +1,19 @@
+# key	entry	version
+R1 A Disabled::A_LoginRowThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	28
+R1 F2 OnRun Writer 130450::F2_AllActiveSessions	ASSUMED hub-login-later-runners (main's answer, the own row only; whether the hub session's row is listed is not measured, runner issue 9393)	28
+R1 F2 OnRun Writer 130450::F2_GetOwnActiveSession	ASSUMED hub-login-later-runners (corpus PR 1644, LgnHeldLoginRunners.al:656, :664; own row: metadata/platform-tables/PlTSession.al:294, RvActiveSessionWrites.al:42-70)	28
+R1 F2 OnRun Writer 130450::F2_OwnActiveSessionRow	ASSUMED hub-login-later-runners (corpus PR 1644, LgnHeldLoginRunners.al:656, :664; own row: metadata/platform-tables/PlTSession.al:294, RvActiveSessionWrites.al:42-70)	28
+R1 F2 OnRun Writer 130450::F2_OwnSessionRow	ASSUMED hub-login-later-runners (corpus PR 1644, LgnHeldLoginRunners.al:656, :664; own row: metadata/platform-tables/PlTSession.al:294, RvActiveSessionWrites.al:42-70)	28
+R1 F2 OnRun Writer 130450::F2_OwnTableOnly	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:608, :656)	28
+R1 F3 Unrelated 130450::F3_IdAndLoginRows	REFUSED a codeunit that runner 130450 runs after another one after the held login answered its own session id, and whether the	28
+R1 F3 Unrelated 130450::F3_IdAndOtherTable	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:705, :710)	28
+R1 F3 Unrelated 130450::F3_LoginRowsWithoutId	ASSUMED hub-login-later-runners (not measured: the login row of the earlier runner-130450 codeunit, runner issue 9393)	28
+R1 A Disabled::A_LoginRowThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:348)	29
+R1 F2 OnRun Writer 130450::F2_AllActiveSessions	ASSUMED hub-login-later-runners (main's answer, the own row only; whether the hub session's row is listed is not measured, runner issue 9393)	29
+R1 F2 OnRun Writer 130450::F2_GetOwnActiveSession	ASSUMED hub-login-later-runners (corpus PR 1644, LgnHeldLoginRunners.al:656, :664; own row: metadata/platform-tables/PlTSession.al:294, RvActiveSessionWrites.al:42-70)	29
+R1 F2 OnRun Writer 130450::F2_OwnActiveSessionRow	ASSUMED hub-login-later-runners (corpus PR 1644, LgnHeldLoginRunners.al:656, :664; own row: metadata/platform-tables/PlTSession.al:294, RvActiveSessionWrites.al:42-70)	29
+R1 F2 OnRun Writer 130450::F2_OwnSessionRow	ASSUMED hub-login-later-runners (corpus PR 1644, LgnHeldLoginRunners.al:656, :664; own row: metadata/platform-tables/PlTSession.al:294, RvActiveSessionWrites.al:42-70)	29
+R1 F2 OnRun Writer 130450::F2_OwnTableOnly	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:608, :656)	29
+R1 F3 Unrelated 130450::F3_IdAndLoginRows	REFUSED a codeunit that runner 130450 runs after another one after the held login answered its own session id, and whether the	29
+R1 F3 Unrelated 130450::F3_IdAndOtherTable	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:705, :710)	29
+R1 F3 Unrelated 130450::F3_LoginRowsWithoutId	ASSUMED hub-login-later-runners (not measured: the login row of the earlier runner-130450 codeunit, runner issue 9393)	29

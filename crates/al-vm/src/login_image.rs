@@ -354,7 +354,8 @@ impl Session {
 
     /// The first fact of a thaw's target that the thaw does not write and that does not hold a new session's value, by
     /// the rules the image is taken by (`SessionParts::take`): the transaction state besides what a Commit leaves, the
-    /// event state besides what the image carries, the UI state, and the Temp Blob fields (the thaw adds its own).
+    /// event state besides what the image carries, the UI state, the group 1 state and the Temp Blob fields (the thaw adds
+    /// its own).
     fn unwritten_fact_why(&self) -> Option<&'static str> {
         if let Some(field) = crate::install_left::tx_not_as_new(&self.tx) {
             return Some(field);
@@ -364,6 +365,9 @@ impl Session {
         }
         if let Some(field) = crate::install_left::clients::events_not_as_new(&self.events) {
             return Some(field);
+        }
+        if !self.global_group1.as_new() {
+            return Some("global_group1");
         }
         (!self.temp_blob_impl_fields.as_new()).then_some("temp_blob_impl_fields")
     }

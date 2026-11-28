@@ -419,6 +419,7 @@ mod tests {
             expr_tys,
             reads_var_max_len: false,
             local: false,
+            internal: false,
         }
     }
 

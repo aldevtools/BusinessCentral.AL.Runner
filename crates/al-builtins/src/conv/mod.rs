@@ -12,7 +12,7 @@ mod rows;
 pub mod text_constant;
 mod variant;
 mod variant_records;
-mod variant_scalars;
+pub(crate) mod variant_scalars;
 
 pub use arith::arith_cell;
 pub(crate) use arith::datetime_fraction_error;

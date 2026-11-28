@@ -1679,7 +1679,7 @@ fn rewriting_host() -> Fake {
             value: DotNetValue::Null,
             by_ref: vec![],
             streams: StreamEffects {
-                replaced: vec![(9, 6, b"new".to_vec())],
+                replaced: vec![(9, 6, b"new".to_vec(), Some(al_host::dotnet::Rewrite::ZipUpdate4))],
                 ..Default::default()
             },
         }),
@@ -1731,7 +1731,7 @@ fn a_host_append_after_an_al_write_keeps_the_rewrite_refused() {
                 ..Default::default()
             },
             Req::Invoke(_, m, _) if m == "Dispose" => StreamEffects {
-                replaced: vec![(9, 8, b"new".to_vec())],
+                replaced: vec![(9, 8, b"new".to_vec(), Some(al_host::dotnet::Rewrite::ZipUpdate4))],
                 ..Default::default()
             },
             other => panic!("{other:?}"),
@@ -5165,8 +5165,14 @@ fn a_dotnet_datetime_refuses_the_members_that_read_its_kind() {
         ("ToString", "T := Dn.ToString('O');"),
         ("ToString", "T := Dn.ToString('yyyy-MM-ddTHH:mm:ssK');"),
         ("ToString", "T := Dn.ToString('HH:mm zzz');"),
-        ("ToUniversalTime", "Dn := Dn.ToUniversalTime();"),
-        ("ToLocalTime", "Dn := Dn.ToLocalTime();"),
+        ("ToBinary", "T := Format(Dn.ToBinary());"),
+        // Before 1601 .NET raises (not measured): main's refusal is kept (`datetime_utc_zone_member`).
+        (
+            "ToFileTime",
+            "Dn := CreateDateTime(DMY2Date(1, 1, 1600), 0T); T := Format(Dn.ToFileTime());",
+        ),
+        // The result of ToUniversalTime is served, its kind is not kept.
+        ("Kind", "Dn := Dn.ToUniversalTime(); T := Format(Dn.Kind);"),
     ] {
         let host = linux_zone_host();
         let r = run_with(
@@ -5179,6 +5185,45 @@ fn a_dotnet_datetime_refuses_the_members_that_read_its_kind() {
         assert!(
             why.contains(&format!("System.DateTime.{member}")) && why.contains("kind"),
             "{body}: {why}"
+        );
+        assert!(!reached(&host, member), "{body}: {:?}", host.calls());
+    }
+}
+
+/// Issues 9052 and 9092: `ToUniversalTime()`, `ToLocalTime()` and `ToFileTime()` give the same answer for every kind while the
+/// service tier's zone is UTC (corpus pull request 1653, DotNetDateTimeKind.al: Origin_AlParam :367 touniversal, tolocal
+/// `al=2023-01-15T12:00:00Z`, tofiletime `133182576000000000`); the runner answers them with no host call, flagged.
+#[test]
+fn a_dotnet_datetime_answers_the_utc_zone_conversions_without_the_host() {
+    use al_builtins::assumptions::{Assumption, take_hits};
+    let at = "CreateDateTime(DMY2Date(15, 1, 2023), 120000T)";
+    let vars = "Dn: DotNet ClrDateTime; Al: DateTime; T: Text;";
+    for (member, body, want) in [
+        (
+            "ToUniversalTime",
+            "Dn := Dn.ToUniversalTime(); Al := Dn; T := Format(Al, 0, 9);",
+            "2023-01-15T12:00:00Z",
+        ),
+        (
+            "ToLocalTime",
+            "Al := Dn.ToLocalTime(); T := Format(Al, 0, 9);",
+            "2023-01-15T12:00:00Z",
+        ),
+        ("ToFileTime", "T := Format(Dn.ToFileTime());", "133182576000000000"),
+    ] {
+        let host = linux_zone_host();
+        take_hits();
+        let r = run_with(
+            zone_cfg(&host, true),
+            vars,
+            &format!("Dn := {at}; {body} exit(T);"),
+            ": Text",
+        );
+        assert_eq!(text(r), want, "{body}");
+        assert_eq!(
+            take_hits(),
+            vec![Assumption::DotnetDatetimeUtcZoneConversions],
+            "{body}"
         );
         assert!(!reached(&host, member), "{body}: {:?}", host.calls());
     }

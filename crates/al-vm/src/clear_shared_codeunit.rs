@@ -13,6 +13,10 @@
 //! `state_stamp.rs`). Entry points: `Session::clear_shared_codeunit` (from the `Clear` site, `exec/run.rs`) and
 //! `Session::clear_all_in_place` (from `clear_all`).
 
+mod uncalled_tree;
+
+pub(crate) use uncalled_tree::RunCaller;
+
 use super::*;
 use crate::var_option::ArrayOf;
 use al_builtins::assumptions::{Assumption, assume};
@@ -113,6 +117,7 @@ impl Session {
                         Some(Store::TableNoSingle) => Assumption::ClearAllRegisterSingleInstance,
                         Some(Store::TableNoWhse) => Assumption::ClearAllWhseRegisterStore,
                         Some(Store::Tree) => Assumption::ClearAllRegisterTree,
+                        Some(Store::UncalledTree) => Assumption::ClearAllUncalledRegisterTree,
                         _ => Assumption::ClearSharedCodeunit,
                     });
                     self.reset_keeping_rows(rc);
@@ -662,10 +667,12 @@ impl Session {
     }
 
     /// The store shape of codeunit `store` held by `owner`: [`Session::store_kind`], else [`Store::Tree`] for the three
-    /// owner and store pairs of corpus PR 1620 (merged, not pinned) ([`Session::tree_pair`]).
+    /// owner and store pairs of corpus PR 1620 (merged, not pinned) ([`Session::tree_pair`]), else [`Store::UncalledTree`]
+    /// for the pair of open corpus PR 1650 ([`Session::uncalled_tree_pair`]).
     fn store_kind_in(&self, owner: usize, store: usize) -> Option<Store> {
         self.store_kind(store)
             .or_else(|| self.tree_pair(owner, store).then_some(Store::Tree))
+            .or_else(|| self.uncalled_tree_pair(owner, store).then_some(Store::UncalledTree))
     }
 
     /// Whether `ClearAll()` in `owner` of its global of codeunit `store` is one of the three cells of corpus PR 1620 (merged, not pinned)
@@ -747,6 +754,13 @@ impl Session {
                 "the plain owner is measured with nested codeunits three levels deep at most and no back link"
                     .to_string()
             }
+            (_, Some(Store::UncalledTree)) if !one_other_holder(rc) => {
+                "a holder other than the one variable the corpus measures shares the register".to_string()
+            }
+            (_, Some(Store::UncalledTree)) if !self.uncalled_tree_path(owner, rc) => {
+                "the ClearAll runs in a call path or a holder of the register other than the one the corpus measures"
+                    .to_string()
+            }
             (_, Some(Store::Kinds)) if !self.kinds_instances(rc, 0) => {
                 "an Interface global holds an instance of a codeunit that is no store of the measured kinds".to_string()
             }
@@ -799,6 +813,7 @@ impl Session {
             && (s != Store::Tree || self.tree_as_measured(rc, 0))
             && ((o, s) != (Owner::Plain, Store::TableNoKinds) || self.plain_owner_register(rc.borrow().object as usize))
             && (s != Store::Kinds || self.kinds_instances(rc, 0))
+            && (s != Store::UncalledTree || one_other_holder(rc) && self.uncalled_tree_path(owner, rc))
             // The store with one more Integer that no call made is measured for "CLQ Store Plus" only
             // (ClearSharedCodeunitOwnerKinds.al:183, StorePlus_UnusedAlias :684; ClearSharedCodeunitPlusUncalled.al), which
             // implements no interface: no Interface, List or Dictionary slot can share it.
@@ -1194,6 +1209,13 @@ fn temp_inserted_only(r: &RecordState) -> bool {
     r.load.buffer.is_none() && r.position.is_none() && r.last_modify.is_none() && r.failed_insert.is_none()
 }
 
+/// Whether store instance `rc`, met by `ClearAll()` in its owner, has exactly one holder besides the owner's global: the
+/// holder's global of ClearSharedCodeunitNeverCalledTree.al ("CNC Holder" :352, open corpus PR 1650). `ClearAll` takes a
+/// copy of the globals ([`Session::clear_all_in_place`]), so that is three holders.
+fn one_other_holder(rc: &Rc<RefCell<Instance>>) -> bool {
+    Rc::strong_count(rc) == 3
+}
+
 fn shared_table_refusal() -> Signal {
     Signal::unsupported(
         "ClearAll of a global variable that reaches a temporary table that another record shares, in a shape the corpus \
@@ -1330,13 +1352,23 @@ fn measured(owner: Owner, store: Store, holding: Holding, hold: TempHold) -> boo
         // Corpus PR 1619 (merged, not pinned) (assumption clear-all-whse-register-store), ClearSharedCodeunitWhseStore.al: the owner with a
         // TableNo, the register written before the ClearAll (Whse_OwnerClearAll_EveryLevel :356,
         // Whse_OwnerPrimes_OwnerClearAll :386, Whse_DirectSiWrite_OwnerClearAll :412, Kinds_OwnerClearAll :431,
-        // Deep_OwnerClearAll :451). Never called, only read and the plain owner are not measured: refused.
+        // Deep_OwnerClearAll :451). A record three levels deep holding field values and a filter: corpus PR 1634 (merged, not
+        // pinned) ClearSharedCodeunitDeepFields.al DeepFields_OnlyDepth3Filter_OwnerClearAll :320 (reset below plain codeunits,
+        // kept below a SingleInstance one, as `reset_once` does). Never called, only read and the plain owner are not
+        // measured: refused.
         (TableNo, TableNoWhse, Shared) => true,
         // Corpus PR 1620 (merged, not pinned) (assumption clear-all-register-tree), ClearSharedCodeunitWhseTree.al: the register "CWT Reg"
         // (:1023-1056) held by the plain owner "CWT Owner" (:1171-1174) alone, holding temporary rows; the owner's ClearAll
         // (Tree_OwnerClearAll_After :1362), the register's own (Tree_RegisterClearAll :1780) and P1's (Tree_PlainHolderOfSiClearAll
-        // :1864). Which owner goes with which store is [`Session::tree_pair`]'s. Shared and never called: refused.
+        // :1864). Which owner goes with which store is [`Session::tree_pair`]'s. A Run of the register that returned before
+        // the ClearAll: corpus PR 1634 (merged, not pinned) ClearSharedCodeunitRegisterRun.al RegRun_SetsGlobals_OwnerClearAll
+        // :202 (OnRun's globals reset, temporary rows kept). Shared and never called: refused.
         (Plain | TableNo, Tree, Written) => true,
+        // Open corpus PR 1650 (assumption clear-all-uncalled-register-tree), ClearSharedCodeunitNeverCalledTree.al: the owner
+        // with a TableNo, the register never called before the ClearAll (NeverCalled_OwnerClearAll_EveryGlobal :470 to
+        // NeverCalled_OwnerRunsInOnRun_ThenHolderRuns :623). Written or run before the ClearAll (WrittenBefore_* :494,
+        // RunBefore_* :645) is measured but not served: refused, as on main.
+        (TableNo, UncalledTree, SharedUncalled) => true,
         _ => false,
     }
 }
@@ -1593,6 +1625,9 @@ enum Store {
     /// A codeunit of the tree of corpus PR 1620 (merged, not pinned) (assumption clear-all-register-tree) that is no other store, held by an
     /// owner of a measured pair ([`Session::tree_pair`]); [`Session::store_kind_in`] alone gives it.
     Tree,
+    /// The register of a tree of open corpus PR 1650 (assumption clear-all-uncalled-register-tree) that is no other store,
+    /// held by an owner with a TableNo ([`Session::uncalled_tree_pair`]); [`Session::store_kind_in`] alone gives it.
+    UncalledTree,
 }
 
 /// How the instance of a store global is held when `ClearAll()` runs in its owner.
@@ -1643,6 +1678,7 @@ impl Store {
             Store::TableNoSingle => "a TableNo register with nested SingleInstance codeunits",
             Store::TableNoWhse => "a TableNo register in the shape of Whse. Jnl.-Register Line",
             Store::Tree => "a codeunit of the Whse. Jnl.-Register Line tree",
+            Store::UncalledTree => "a never-called Whse. Jnl.-Register Line tree",
         }
     }
 }
