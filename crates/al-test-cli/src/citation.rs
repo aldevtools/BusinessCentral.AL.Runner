@@ -8,11 +8,14 @@
 //! is a placeholder and is not checked.
 //!
 //! A pinned citation resolves when the pinned corpus has exactly one object of the kind and name (AL compares names
-//! without case), the object has the member, and the member's body holds the cell's literal. A `[Test]` member of a
-//! test codeunit is the case key (codeunit id, test name; ADR-065 amendment 1). A pending citation resolves when an
-//! entry of the assumption registry names its corpus pull request. At a pin move (`rewrite`), a citation resolved at
-//! the old pin goes to the new pin by the object's id: a test through the rename map (`rename_map.rs`), any other
-//! member and an object-level citation by its kind and id. Entry points: `find`, `Corpus`, `resolve`, `rewrite`.
+//! without case), the object has the member, and the cell is the first argument of an `Expect`, `Observe`,
+//! `ObserveError` or `Ignore` call in that member (`objects::cells`). A `[Test]` member of a test codeunit is the case
+//! key (codeunit id, test name; ADR-065 amendment 1). A pending citation resolves when an entry of the assumption
+//! registry names its corpus pull request. A token is written as it prints (`canonical`). At a pin move (`rewrite`,
+//! `carry`), a citation resolved at the old pin goes to the new pin: a test through the rename map (`rename_map.rs`);
+//! a codeunit and its other members by its id, unless the map moves the codeunit's tests to other codeunits and none
+//! stays (then to the one codeunit they all go to, else left with a note); any other object by its kind and id.
+//! Entry points: `find`, `Corpus`, `resolve`, `canonical`, `rewrite`, `carry`.
 
 use crate::oracle::CaseId;
 use crate::rename_map::RenameMap;
@@ -321,19 +324,20 @@ pub fn resolve(c: &Citation, corpus: &Corpus, pending_prs: &BTreeSet<u32>) -> Re
     }
 }
 
-/// `c` as it must be written: its object and member in the corpus's spelling, printed by `Display` (no `codeunit:`,
-/// a plain member unquoted), so a search for the printed token finds every citation of it. `None` for a pending
-/// citation; an error when it does not resolve.
-pub fn canonical(c: &Citation, corpus: &Corpus) -> Result<Option<Citation>, String> {
-    if c.status != Status::Pinned {
-        return Ok(None);
+/// `c` as it must be written, printed by `Display` (no `codeunit:`, a plain member unquoted),
+/// so a search for the printed token finds every citation of it. A pinned citation takes the corpus's spelling of its
+/// object and member; a pending one keeps its names as written (they are checked once its probe is pinned). An error
+/// when it does not resolve (`resolve`).
+pub fn canonical(c: &Citation, corpus: &Corpus, pending_prs: &BTreeSet<u32>) -> Result<Citation, String> {
+    if let Status::Pending(_) = c.status {
+        return resolve(c, corpus, pending_prs).map(|_| c.clone());
     }
     let (o, members) = lookup(c, corpus)?;
-    Ok(Some(Citation {
+    Ok(Citation {
         object: o.decl.name.clone(),
         member: members.first().map(|m| m.name.clone()),
         ..c.clone()
-    }))
+    })
 }
 
 /// The one object of `c`'s kind and name at `corpus`, and its members of `c`'s member name (none for an object-level
@@ -678,10 +682,24 @@ mod tests {
             ":\"LT Cites\"/\"First\"",
             ":\"LT Cites\"/first",
         ] {
-            let k = canonical(&one(&cite(bad)), &c).unwrap().unwrap();
+            let k = canonical(&one(&cite(bad)), &c, &BTreeSet::new()).unwrap();
             assert_ne!(k.to_string(), cite(bad), "{bad}");
         }
         let good = cite(":\"LT Cites\"/First#'cell of First'");
-        assert_eq!(canonical(&one(&good), &c).unwrap().unwrap().to_string(), good);
+        assert_eq!(canonical(&one(&good), &c, &BTreeSet::new()).unwrap().to_string(), good);
+    }
+
+    // Review r2 of PR 9432, C2: a pending token is written as it prints too (no `codeunit:`, a plain member unquoted;
+    // `find` already rejects an upper-case kind); its names are checked once the probe is pinned.
+    #[test]
+    fn a_pending_citation_not_in_its_printed_form_is_named() {
+        let (c, prs) = (corpus(&[]), BTreeSet::from([1650]));
+        for bad in ["-pr1650:codeunit:\"X\"/First", "-pr1650:\"X\"/\"First\""] {
+            let k = canonical(&one(&cite(bad)), &c, &prs).unwrap();
+            assert_ne!(k.to_string(), cite(bad), "{bad}");
+        }
+        let good = cite("-pr1650:\"X\"/First");
+        assert_eq!(canonical(&one(&good), &c, &prs).unwrap().to_string(), good);
+        assert!(canonical(&one(&good), &c, &BTreeSet::new()).is_err());
     }
 }
