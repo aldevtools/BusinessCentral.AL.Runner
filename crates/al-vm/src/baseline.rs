@@ -685,6 +685,7 @@ mod tests {
                 why: "why".to_string(),
             }]),
             company_built: true,
+            login_held: false,
             company_unknown: vec![("My Company".into(), 311, "why".into())],
             full_copies: vec!["Copy".into()],
             restamped_rows: vec![crate::state::RestampedRows {
@@ -738,6 +739,16 @@ mod tests {
                 built
             );
         }
+    }
+
+    // What a Disabled codeunit on the hub left after the run's one login stays marked on a copy for another thread; the
+    // bytes do not hold it: only install baselines, which never hold it, go through them.
+    #[test]
+    fn the_held_login_survives_a_freeze_but_not_the_bytes() {
+        let mut b = sample();
+        b.login_held = true;
+        assert!(b.freeze().unwrap().thaw(None).login_held);
+        assert!(!Baseline::from_bytes(&b.to_bytes().unwrap()).unwrap().login_held);
     }
 
     #[test]

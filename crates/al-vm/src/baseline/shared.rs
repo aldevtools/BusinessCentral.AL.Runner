@@ -73,7 +73,8 @@ impl Baseline {
             last_stamp: copy.last_stamp,
             workspace_installs: copy.workspace_installs,
             company_built: copy.company_built,
-            login_held: copy.login_held,
+            // Not part of the bytes (`Baseline::login_held`).
+            login_held: self.login_held,
             company_unknown: copy.company_unknown,
             full_copies: copy.full_copies,
             restamped_rows: copy.restamped_rows,

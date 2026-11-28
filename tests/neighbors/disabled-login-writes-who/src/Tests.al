@@ -36,3 +36,33 @@ codeunit 52611 "DLW B Disabled After Disabled"
     end;
 }
 
+
+codeunit 52619 "DLW P Untouched"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    RequiredTestIsolation = Disabled;
+
+    [Test]
+    procedure P_ReadsNothingOfTheLogin()
+    var
+        Assert: Codeunit "DLW Assert";
+    begin
+        Assert.Equal(2, 1 + 1, 'sum');
+    end;
+}
+
+codeunit 52620 "DLW Q Codeunit Untouched"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
+    RequiredTestIsolation = Codeunit;
+
+    [Test]
+    procedure Q_CodeunitReadsNothingOfTheLogin()
+    var
+        Assert: Codeunit "DLW Assert";
+    begin
+        Assert.Equal(2, 1 + 1, 'sum');
+    end;
+}

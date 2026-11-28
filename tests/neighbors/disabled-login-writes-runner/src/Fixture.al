@@ -1,5 +1,6 @@
-// The login writes one row per OnAfterLogin into "DLW Login Row" and reads table User Login, which the login code of
-// System Application writes, so the runner raises the login through System Application's code.
+// The login writes one row per OnAfterLogin into "DLW Login Row". A test codeunit that reads that table can see what the
+// login leaves, so the runner raises the login for it through System Application's code; P reads nothing the login or a
+// Company Triggers subscriber writes.
 table 52600 "DLW Login Row"
 {
     DataClassification = SystemMetadata;
@@ -37,12 +38,10 @@ codeunit 52600 "DLW Login Subs"
     local procedure AfterLogin()
     var
         Row: Record "DLW Login Row";
-        UserLogin: Record "User Login";
     begin
         if CurrentClientType() <> ClientType::Web then
             exit;
         Row.Init();
-        Row."User Logins" := UserLogin.Count();
         Row.Insert();
     end;
 }
