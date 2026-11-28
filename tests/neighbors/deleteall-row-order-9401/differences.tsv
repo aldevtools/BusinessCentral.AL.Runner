@@ -1,0 +1,22 @@
+# key	entry
+DRO Probe::OnDeleteOnly_PrimaryKey_Order	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+DRO Probe::OnDeleteOnly_SecondaryKey_Order	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+DRO Probe::OnDeleteOnly_OtherForms_Descending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+DRO Probe::EventsOnly_Order	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+DRO Probe::DatabaseTriggerOnly_Order	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+PZE Descending Test::DeleteAllDescending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+DRN Neighbors::SameAppExtensionOnDeleteOnlyDescending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+DRN Neighbors::MarkedOnlySecondaryKeyDescending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+DRN Neighbors::RowCodeInsertsOtherTableDescending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+DRN All Row Tests::AllRowCode_True_Descending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+DRN All Row Tests::AllRowCode_False_Descending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+DRN All Row Tests::AllRowCode_Temporary_Descending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+DRN Neighbors Writes::SubscriberOnlyTemporaryDescending	ASSUMED delete-all-row-code-scan-order (corpus PR 1659)
+# The next four rows differ only in the transaction-type assumption ids main carries. On main the test before them in
+# codeunit DRO Probe is refused mid-run, so the transaction type it left is not known, and the next test's writes carry
+# transaction-type-carries-to-next-test and commit-keeps-transaction-type (al-vm transaction_type.rs gate_read_only_type,
+# by design of that entry, not a leak). On head that test runs to its end, so the type is known and no id is carried.
+DRO Probe::AllRowCode_PrimaryKey_Order	REFUSED Global Triggers: table trigger mask 4 for DRO All Row
+DRO Probe::AllRowCode_SingleDelete_Control	REFUSED Global Triggers: table trigger mask 4 for DRO All Row
+DRO Probe::AllRowCode_OtherForms_Order	REFUSED Global Triggers: table trigger mask 4 for DRO All Row
+DRO Probe::OnDeleteOnly_NoRunTrigger_Descending	PINNED tests/al-language/record/crud/DeleteAllSkipsDeleted.al:246 (DeleteAll(false) runs no OnDelete; head's clean pass, see the note above)

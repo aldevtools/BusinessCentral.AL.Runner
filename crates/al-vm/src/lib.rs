@@ -38,7 +38,7 @@ mod state;
 pub(crate) use state::*;
 mod baseline;
 mod held_login;
-pub use held_login::{HeldLogin, OwnLogin};
+pub use held_login::{HeldLogin, HeldLogins, OwnLogin};
 mod hub_sequences;
 mod sequence_start;
 pub use sequence_start::{CommitBy, DataAccess, Interval, Reached, RefLoads, SequenceStart, TxPoint, TxPointKind};
@@ -292,8 +292,7 @@ pub struct Engine {
     /// Per table object, the positions of the fields `RecordRef.FieldCount` and `FieldIndex` enumerate, in their order
     /// (`refs.rs` `enumerable_fields`), worked out on first use: they depend on the program alone (al-runner issue 5911).
     pub(crate) enumerable_fields: Arc<[std::sync::OnceLock<Box<[usize]>>]>,
-    /// Names this engine among all those the process built: state shared between sessions of one
-    /// engine is keyed by it.
+    /// Names this engine among all those the process built: state shared between sessions of one engine is keyed by it.
     pub uid: u64,
     /// The lookups of `platform::objects::Catalog` by object name and id, built on the first ask. The program is shared
     /// with the siblings and does not change under them, so they share the lookups too.
@@ -882,13 +881,11 @@ pub struct Session {
     /// The table element records (by address) of linked elements with LinkFields whose link filter an export under
     /// SourceTableView moved into the view's group: their GetFilters reads '' afterwards (xmlports.rs, corpus PR 896).
     pub(crate) xp_link_hidden: Vec<usize>,
-    /// The routine and current statement position of every frame, parallel to `frames`
-    /// (`callstack.rs`).
+    /// The routine and current statement position of every frame, parallel to `frames` (`callstack.rs`).
     pub(crate) call_stack: Vec<CallFrame>,
     /// The object whose routine raised the last AL error that left a routine (the innermost frame of its call stack).
     pub(crate) error_raised_in: Option<usize>,
-    /// The test runner's frames below a test, in `Callstack` form (`callstack.rs`); empty
-    /// outside a test run.
+    /// The test runner's frames below a test, in `Callstack` form (`callstack.rs`); empty outside a test run.
     pub(crate) runner_frames: String,
     /// `faultsite.rs`: whether to record where errors and refusals leave from, and the last one.
     fault_trace: bool,
@@ -926,8 +923,8 @@ pub struct Session {
     /// The session's data comes from a baseline in which the company data codeunit built the company to its end
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
-    /// The session's data holds what the run's one login wrote (`Baseline::login_held`).
-    pub(crate) login_held: Option<std::sync::Arc<HeldLogin>>,
+    /// The logins whose writes the session's data holds (`Baseline::held_logins`).
+    pub(crate) held_logins: HeldLogins,
     /// The session's data is what a test codeunit left (`Baseline::codeunit_left`).
     pub(crate) codeunit_left: bool,
     /// The `Engine::demo_tables` the running test's own code (not install code) wrote to (`records/op_inner.rs`): a read of
@@ -1045,6 +1042,8 @@ pub struct Session {
     /// Per record handle, the `touched` flag of an `Insert(true)` or `Delete(true)` of the measured shape whose subscribers
     /// or extension trigger may still run (`records/ext_trigger_xrec.rs` `AtCall`, which drops its entry when the call ends).
     pub(crate) ext_before_watch: crate::records::ext_trigger_xrec::ExtBeforeWatch,
+    /// Per running row of a descending DeleteAll, whether its row code read a stored row or wrote a temporary table (`records/delete_all_order.rs`).
+    pub(crate) row_code_unmeasured: crate::records::delete_all_order::RowCodeUnmeasured,
     /// The xRecs of the table procedures that run on a record with an xRec they share with their caller or a running call
     /// (`ProcXrec::Shared` and `ProcXrec::SharedReadOnly`), innermost last.
     pub(crate) shared_proc_xrec: Vec<crate::records::Rec>,
@@ -1499,6 +1498,7 @@ impl Session {
             plain_proc_xrec: Vec::new(),
             ext_xrec_triggers: 0,
             ext_before_watch: Default::default(),
+            row_code_unmeasured: Default::default(),
             shared_proc_xrec: Vec::new(),
             iface_frames: Vec::new(),
             run_callers: Vec::new(),
@@ -1537,7 +1537,7 @@ impl Session {
             sessions_started: 0,
             install_without_client: false,
             company_built: false,
-            login_held: None,
+            held_logins: Default::default(),
             codeunit_left: false,
             demo_written: Default::default(),
             gl_setup_written: false,

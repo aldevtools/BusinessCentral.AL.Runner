@@ -828,6 +828,7 @@ impl Session {
         let base = match rec.borrow().dirty_base.clone() {
             Some(b) => b,
             None => {
+                self.note_row_code_read();
                 let cx = self.cx_for(rec, t)?;
                 let pk = t.primary_key(&fields);
                 let stored = self
