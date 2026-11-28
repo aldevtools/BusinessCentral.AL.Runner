@@ -11,5 +11,5 @@ DLW C Codeunit After Disabled::C_NoSecondLoginRow	ASSUMED hub-disabled-login-onc
 DLW D Disabled Deletes::D1_DeleteLoginRows	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:623)	29
 DLW D Disabled Deletes::D2_StayGone	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:623)	29
 DLW E Codeunit After Delete::E_LoginRowsStayGone	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:649)	29
-DLW H Function After Disabled::H_FunctionAfterDisabled	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:492, :531; login rows D deleted stay gone: LgnDisabledLoginWrites.al:623)	28
-DLW H Function After Disabled::H_FunctionAfterDisabled	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:492, :531; login rows D deleted stay gone: LgnDisabledLoginWrites.al:623)	29
+DLW H Function After Disabled::H_FunctionAfterDisabled	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:492, :531; login rows D deleted stay gone: LgnDisabledLoginWrites.al:623)	28
+DLW H Function After Disabled::H_FunctionAfterDisabled	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:492, :531; login rows D deleted stay gone: LgnDisabledLoginWrites.al:623)	29
