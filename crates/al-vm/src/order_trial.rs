@@ -244,6 +244,14 @@ impl Session {
         })
     }
 
+    /// The tables (object indexes) the install code of the apps under test may write. A subscriber whose install order is
+    /// not known and that stops unless it finds a row of an empty table of its own app outside this set does nothing in
+    /// either order (empty_reads.rs); its trial run must read nothing in this set (`trial_end`). `None`, or `Err` with
+    /// the routine that holds a RecordRef or a DataTransfer: not known.
+    pub fn set_install_written_tables(&mut self, tables: Option<InstallWritten>) {
+        self.events.install_written = tables;
+    }
+
     /// The `what` of [`Session::order_unknown_refusal`] for subscriber `(object, routine)` to `event` (`dispatch.rs`
     /// `event_targets`).
     pub(crate) fn order_unknown_subscriber(&self, event: &str, object: usize, routine: usize) -> String {

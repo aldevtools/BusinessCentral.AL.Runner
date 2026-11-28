@@ -1904,13 +1904,6 @@ impl Session {
         self.events.trial.guarded.clear();
     }
 
-    /// The tables (object indexes) the install code of the apps under test may write. A subscriber whose install order is
-    /// not known and that stops unless it finds a row of an empty table of its own app outside this set does nothing in
-    /// either order (empty_reads.rs). `None`, or `Err` with the routine that holds a RecordRef or a DataTransfer: not known.
-    pub fn set_install_written_tables(&mut self, tables: Option<InstallWritten>) {
-        self.events.install_written = tables;
-    }
-
     /// The company data codeunit runs (al-testrun baseline.rs): the rules that hold only while the company is built apply
     /// (owner decision 2026-10-22: `Report.SaveAsPdf` to a file runs the report and writes no file, reports.rs).
     pub fn set_company_build(&mut self, on: bool) {
