@@ -149,7 +149,7 @@ mod tests {
             attrs: Vec::new(),
             children: Vec::new(),
             open: false,
-        filled: false,
+            filled: false,
         })
     }
 

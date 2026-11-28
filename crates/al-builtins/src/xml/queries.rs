@@ -80,17 +80,14 @@ node_kind!(is_pi, as_pi, "XmlProcessingInstruction");
 /// An unassigned XmlNode is no text and no document, with no error (xml/XmlNodes.al:331-332 Node_Uninitialized `is_text`,
 /// `is_doc`; IsXmlText also after a SelectSingleNode that found nothing, xml/XmlXPathNamespaces.al:690
 /// SelectSingleNode_Missing_Into_Unassigned). IsXmlElement has its own pin in `is_element`.
-fn unassigned_node(r: &Option<&mut Value>) -> bool {
-    unassigned(r, "XmlNode")
-}
 pub(super) fn is_document(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NResult {
-    if unassigned_node(&r) {
+    if unassigned(&r, "XmlNode") {
         return Ok(Value::Boolean(false));
     }
     is_document_node(c, r, a)
 }
 pub(super) fn is_text(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> NResult {
-    if unassigned_node(&r) {
+    if unassigned(&r, "XmlNode") {
         return Ok(Value::Boolean(false));
     }
     let h = recv(r)?;

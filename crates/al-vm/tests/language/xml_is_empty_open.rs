@@ -19,8 +19,10 @@ fn a_parsed_open_element_is_not_empty() {
 
 #[test]
 fn a_parsed_open_element_after_a_child_was_added_and_removed_keeps_the_answer_of_no_children() {
-    let r = run("XmlDocument.ReadFrom('<a></a>', Doc); Doc.GetRoot(E); C := XmlElement.Create('b'); E.Add(C); C.Remove();
-         E.WriteTo(W); exit(Format(E.IsEmpty()) + ' ' + W);");
+    let r = run(
+        "XmlDocument.ReadFrom('<a></a>', Doc); Doc.GetRoot(E); C := XmlElement.Create('b'); E.Add(C); C.Remove();
+         E.WriteTo(W); exit(Format(E.IsEmpty()) + ' ' + W);",
+    );
     assert_eq!(r, "Yes <a></a>");
 }
 

@@ -52,8 +52,8 @@ pub(super) fn add(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> NR
     Ok(Value::Boolean(true))
 }
 
-/// `E.Add(E)`, one argument typed XmlElement, the result unused, of a [`lone_created_element`] adds a copy of `E` as it was before the call,
-/// with no error (xml/XmlElement.al:455-466 Add_Self_Error: `<a>` then holds `<a />`). An element with a parent is already
+/// `E.Add(E)`, one argument typed XmlElement, the result unused, of a [`lone_created_element`] adds a copy of `E` as it
+/// was before the call, with no error (xml/XmlElement.al:455-466 Add_Self_Error: `<a>` then holds `<a />`). An element with a parent is already
 /// copied by `content_nodes`; every other self add is not pinned and keeps `check_fits`'s refusal.
 fn self_copy(container: &Handle, node: Handle, single_statement: bool) -> Handle {
     if single_statement && Rc::ptr_eq(container, &node) && lone_created_element(&node) {
