@@ -104,6 +104,8 @@ impl Session {
             company_built: _,
             // Carried: `Baseline::login_held`.
             login_held: _,
+            // Carried: `Baseline::runner_login`.
+            runner_login: _,
             // Carried: `Baseline::codeunit_left`.
             codeunit_left: _,
             demo_written: _,

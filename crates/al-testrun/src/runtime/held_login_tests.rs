@@ -1,9 +1,9 @@
 //! The refusals around the run's one login a Disabled codeunit on the hub holds (held_login.rs `login_once_on_hub`,
 //! assumption `hub-disabled-login-once`): which later codeunits are not measured, the carry refusal a session that
-//! starts from what another codeunit left keeps, and what a test of a held session may not read (`held_reads`, `later_own_reads`). The
+//! starts from what another codeunit left keeps, and what a test of a held session may not read (`held_reads`, `kept_singles`). The
 //! neighbor apps `tests/neighbors/disabled-login-writes*` run the same shapes end to end.
 use super::held_login::{
-    HeldOpened, carried_company_open, first_login, held_reads, later_own_reads, login_rows_as_held, own_session_id,
+    HeldOpened, carried_company_open, first_login, held_reads, kept_singles, login_rows_as_held, own_session_id,
     runs_own_login,
 };
 use super::*;
@@ -43,7 +43,6 @@ fn held_in(l: &al_sema::lower::Lowered, session: &mut Session) -> al_vm::HeldLog
         image: Err("none".into()),
         singles: vec![object(l, "Memo")],
         opened: Box::new(opened),
-        own_logins: Default::default(),
     }
 }
 
@@ -114,22 +113,18 @@ fn only_a_session_from_the_install_baseline_starts_the_runs_login() {
     assert!(!first_login(true, TestIsolation::Disabled, &later));
 }
 
-// Runner 130450 runs each codeunit after the held login in a session of its own (corpus PR 1644, LgnHeldLoginRunners.al
-// :617, :664, :705: "same session as the snapshot" No; :622, :669, :710: one LOGIN row of that session): each answers a
-// SessionId of its own, not the hub session's and not an earlier one's. A hub codeunit, a session without a held login
-// and a scratch run keep the host's.
+// Runner 130450 runs every codeunit after the held login in one session, not the hub's (corpus PR 1657,
+// LgnRunnerSessions.al:423 not the hub's; :436 every earlier such codeunit had the same id): each answers the same
+// SessionId, not the hub session's. A hub codeunit, a session without a held login and a scratch run keep the host's.
 #[test]
-fn each_runner_130450_session_after_the_held_login_answers_a_session_id_of_its_own() {
+fn every_runner_130450_codeunit_after_the_held_login_answers_one_session_id() {
     let (l, _) = super::tests::engine_for(SRC);
     let held = held(&l);
     let hub = 1;
     let first = own_session_id(Some(&held), false, TestIsolation::Codeunit, false, hub).map(|o| o.id);
     let second = own_session_id(Some(&held), false, TestIsolation::Function, false, hub).map(|o| o.id);
     assert!(first.is_some_and(|id| id != hub), "{first:?}");
-    assert!(
-        second.is_some_and(|id| id != hub && Some(id) != first),
-        "{first:?} {second:?}"
-    );
+    assert_eq!(first, second);
     assert_eq!(
         own_session_id(Some(&held), true, TestIsolation::Codeunit, false, hub),
         None
@@ -141,19 +136,35 @@ fn each_runner_130450_session_after_the_held_login_answers_a_session_id_of_its_o
     );
 }
 
-// Under runner 130450 nothing is refused: the session runs its own login on the rows the hub codeunits committed and
-// sees those rows and its own login row (corpus PR 1644, LgnHeldLoginRunners.al:608, :656, :697), and its own login
-// filled the SingleInstance codeunit (:608).
+// A later codeunit of the session runner 130450 runs its codeunits in after the held login, whose login an earlier one
+// ran (corpus PR 1657, LgnRunnerSessions.al:424, :433): with that login's image thawed or its SingleInstance codeunits
+// kept from the codeunit before it, nothing is refused; with neither, the reader of a SingleInstance codeunit that
+// login left (its own login set it again, then was undone). The login rows count as that login left them only while
+// they are (:429-:434), whatever the isolation.
 #[test]
-fn a_runner_130450_codeunit_after_the_held_login_refuses_nothing() {
+fn a_later_runner_130450_codeunit_refuses_only_what_the_session_login_could_not_keep() {
     let (l, engine) = super::tests::engine_for(SRC);
+    let mut left = with_login_row(&l, &engine);
+    let runner = held_in(&l, &mut left);
+    assert!(held_reads(&runner, true, true).is_none());
     let wrote = CompanyOpenWrites {
-        held: held_reads(&held(&l), true, false, false),
+        held: held_reads(&runner, false, true),
         ..Default::default()
     };
-    assert!(wrote.held.is_none());
     let r = refusals(&l, &engine, &wrote);
-    assert_eq!((&r[0], &r[1], &r[2]), (&None, &None, &None), "{r:?}");
+    assert_eq!((&r[0], &r[1]), (&None, &None), "{r:?}");
+    assert!(r[2].as_ref().is_some_and(|w| w.contains("could not be kept")), "{r:?}");
+    assert!(kept_singles(&runner, true, true).is_some());
+    assert!(kept_singles(&runner, true, false).is_none());
+    assert!(kept_singles(&runner, false, true).is_none());
+    for isolation in [TestIsolation::Codeunit, TestIsolation::Disabled] {
+        assert!(login_rows_as_held(&runner, true, isolation, &mut left), "{isolation:?}");
+        let mut deleted = Session::new(engine.clone());
+        assert!(
+            !login_rows_as_held(&runner, true, isolation, &mut deleted),
+            "{isolation:?}"
+        );
+    }
 }
 
 // On the hub under Codeunit isolation without the held image only the reader of the SingleInstance codeunit is not
@@ -162,13 +173,13 @@ fn a_runner_130450_codeunit_after_the_held_login_refuses_nothing() {
 fn a_hub_codeunit_without_the_held_image_refuses_only_the_single_instance_reader() {
     let (l, engine) = super::tests::engine_for(SRC);
     let wrote = CompanyOpenWrites {
-        held: held_reads(&held(&l), false, false, true),
+        held: held_reads(&held(&l), false, true),
         ..Default::default()
     };
     let r = refusals(&l, &engine, &wrote);
     assert_eq!((&r[0], &r[1]), (&None, &None));
     assert!(r[2].as_ref().is_some_and(|w| w.contains("could not be kept")), "{r:?}");
-    assert!(held_reads(&held(&l), false, true, true).is_none());
+    assert!(held_reads(&held(&l), true, true).is_none());
 }
 
 // On the hub a Codeunit or Function codeunit whose login rows are as the held login left them is measured
@@ -186,80 +197,26 @@ fn a_hub_codeunit_after_a_disabled_codeunit_changed_the_login_rows_refuses_their
         TestIsolation::Disabled,
     ] {
         assert!(
-            login_rows_as_held(&held, isolation, &mut left),
+            login_rows_as_held(&held, false, isolation, &mut left),
             "{isolation:?}: rows as left"
         );
     }
     let mut deleted = Session::new(engine.clone());
-    assert!(!login_rows_as_held(&held, TestIsolation::Codeunit, &mut deleted));
-    assert!(!login_rows_as_held(&held, TestIsolation::Function, &mut deleted));
-    assert!(login_rows_as_held(&held, TestIsolation::Disabled, &mut deleted));
+    assert!(!login_rows_as_held(&held, false, TestIsolation::Codeunit, &mut deleted));
+    assert!(!login_rows_as_held(&held, false, TestIsolation::Function, &mut deleted));
+    assert!(login_rows_as_held(&held, false, TestIsolation::Disabled, &mut deleted));
     let mut wrote = CompanyOpenWrites::default();
-    assert!(held_reads(&held, false, true, true).is_none());
+    assert!(held_reads(&held, true, true).is_none());
     for thawed in [true, false] {
-        wrote.held = held_reads(&held, false, thawed, false);
+        wrote.held = held_reads(&held, thawed, false);
         let r = refusals(&l, &engine, &wrote);
         let login_row = r[0].as_deref().unwrap_or_default();
         assert!(
-            login_row.contains("changed the rows the run's one login wrote"),
+            login_row.contains("changed the rows the session's one login wrote"),
             "{r:?}"
         );
         assert!(login_row.ends_with("this test can read table Login Row"), "{r:?}");
         assert_eq!(r[1], None);
         assert_eq!(r[2].is_some(), !thawed, "{r:?}");
-    }
-}
-
-// A runner 130450 codeunit after another one (corpus PR 1644 does not measure whether they share one session): when its
-// login answered its id, the readers of the login tables, of the tables the carry left rows in and of the SingleInstance
-// codeunits its login left are not run before they start; otherwise only a test that answered the id and touched one of
-// those tables while it ran (`watch_hit`, `touched`). A reader of another table runs (LgnHeldLoginRunners.al:705, :710).
-#[test]
-fn a_later_runner_130450_codeunit_refuses_only_tests_that_combine_its_id_with_earlier_rows() {
-    let (l, engine) = super::tests::engine_for(SRC);
-    let held = held(&l);
-    let (login_row, other) = (object(&l, "Login Row") as u32, object(&l, "Other") as u32);
-    let wrote = CompanyOpenWrites {
-        held: Some(later_own_reads(
-            &held,
-            &login_wrote(&l),
-            None,
-            true,
-            vec![object(&l, "Memo")],
-        )),
-        ..Default::default()
-    };
-    let r = refusals(&l, &engine, &wrote);
-    assert!(
-        r[0].as_ref().is_some_and(|w| w.contains("answered its own session id")),
-        "{r:?}"
-    );
-    assert_eq!(r[1], None);
-    assert!(r[2].is_some(), "{r:?}");
-    let leak = [other].into();
-    let wrote = CompanyOpenWrites {
-        held: Some(later_own_reads(
-            &held,
-            &login_wrote(&l),
-            Some(&leak),
-            false,
-            vec![object(&l, "Memo")],
-        )),
-        ..Default::default()
-    };
-    let r = refusals(&l, &engine, &wrote);
-    assert_eq!((&r[0], &r[1], &r[2]), (&None, &None, &None), "{r:?}");
-    for (t, id_read, refused) in [
-        (login_row, true, true),
-        (login_row, false, false),
-        (other, true, true),
-        (other, false, false),
-    ] {
-        let hit = wrote.watch_hit(&[t].into(), true, id_read);
-        assert_eq!(
-            hit.and_then(|t| wrote.touched(t, &l, id_read)).is_some(),
-            refused,
-            "{t} {id_read}"
-        );
     }
 }

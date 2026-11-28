@@ -48,6 +48,9 @@ pub struct Baseline {
     /// TestRunnerHub left it after its session's login (`Session::hold_login`). Not part of the bytes; a frozen copy
     /// keeps it.
     pub login_held: Option<std::sync::Arc<crate::HeldLogin>>,
+    /// The data holds what the login of the session runner 130450 runs its codeunits in after the held login wrote
+    /// (`Session::hold_runner_login`). Not part of the bytes; a frozen copy keeps it.
+    pub runner_login: Option<std::sync::Arc<crate::HeldLogin>>,
     /// The data is what a test codeunit left: captured in a session that entered one (`Session::in_test_codeunit`) or
     /// that started from such data. Not part of the bytes (no such baseline goes through them); a frozen copy keeps it.
     pub codeunit_left: bool,
@@ -345,6 +348,7 @@ impl Baseline {
             company_built,
             // Not part of the bytes (see the field).
             login_held: None,
+            runner_login: None,
             codeunit_left: false,
             company_unknown,
             full_copies,
@@ -431,6 +435,7 @@ impl Session {
             workspace_installs: None,
             company_built: self.company_built,
             login_held: self.login_held.clone(),
+            runner_login: self.runner_login.clone(),
             codeunit_left: self.in_test_codeunit || self.codeunit_left,
             company_unknown: {
                 let mut v: Vec<(String, u32, String)> = self
@@ -590,6 +595,7 @@ impl Session {
         self.baseline_rows = b.install_rows.clone().unwrap_or_else(|| b.nonempty_tables());
         self.company_built = b.company_built;
         self.login_held = b.login_held.clone();
+        self.runner_login = b.runner_login.clone();
         self.codeunit_left = b.codeunit_left;
         self.company_unknown = b
             .company_unknown
@@ -672,6 +678,7 @@ mod tests {
             }]),
             company_built: true,
             login_held: None,
+            runner_login: None,
             codeunit_left: false,
             company_unknown: vec![("My Company".into(), 311, "why".into())],
             full_copies: vec!["Copy".into()],
@@ -737,8 +744,8 @@ mod tests {
             image: Err("none".into()),
             singles: vec![3],
             opened: Box::new(()),
-            own_logins: Default::default(),
         }));
+        b.runner_login = b.login_held.clone();
         assert!(
             b.freeze()
                 .unwrap()
@@ -746,6 +753,7 @@ mod tests {
                 .login_held
                 .is_some_and(|h| h.singles == [3])
         );
+        assert!(b.freeze().unwrap().thaw(None).runner_login.is_some());
         assert!(
             Baseline::from_bytes(&b.to_bytes().unwrap())
                 .unwrap()

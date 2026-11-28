@@ -1,8 +1,8 @@
 //! The run's one login on the TestRunnerHub that a codeunit with RequiredTestIsolation = Disabled holds (assumption
 //! `hub-disabled-login-once`, corpus PR 1642; later runners: `hub-login-later-runners`, corpus PR 1644): which codeunit
 //! holds it (`login_once_on_hub`, `first_login`), how a later session takes it (`thaw_held`), which later codeunits run
-//! their own login (`runs_own_login`), in a session of their own (`own_session_id`), or see other rows (`login_rows_as_held`) and what their tests may not read
-//! (`held_reads`), and how a Disabled codeunit's login writes meet what it carries (`carried_company_open`). Called by
+//! their own login (`runs_own_login`), in the one session runner 130450 runs them in (`own_session_id`; corpus PR 1657),
+//! or see other rows (`login_rows_as_held`) and what their tests may not read (`held_reads`), and how a Disabled codeunit's login writes meet what it carries (`carried_company_open`). Called by
 //! run.rs `open_company` and `run_codeunit_inner`. Entry points: `HeldOpened::of`, `held_reads`.
 
 use super::*;
@@ -36,16 +36,17 @@ pub(super) fn first_login(hub: bool, isolation: TestIsolation, session: &Session
         && !session.starts_from_what_a_codeunit_left()
 }
 
-/// A session that starts from data holding the run's one login takes that login's session state from its image in place
-/// of a second login, and what the runner noted of it, marked (LgnDisabledLoginWrites.al:471, :546: no second login;
-/// SingleInstance state lasts for the session, TestCuP7BReader.al:24-37). `None`: no image, or the session is not a thaw
-/// target; nothing of it changed.
+/// A session that starts from data holding a login it shares (`held`: the run's one login, or the login of the session
+/// runner 130450 runs its codeunits in, al-vm `Session::runner_login`) takes that login's session state from its image in
+/// place of a second login, and what the runner noted of it, marked (LgnDisabledLoginWrites.al:471, :546: no second
+/// login; SingleInstance state lasts for the session, TestCuP7BReader.al:24-37; runner 130450: corpus PR 1657,
+/// LgnRunnerSessions.al:424, :426). `None`: no image, or the session is not a thaw target; nothing of it changed.
 pub(super) fn thaw_held(
     session: &mut Session,
     held: &al_vm::HeldLogin,
 ) -> Option<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits)> {
     let opened = held_opened(held)?;
-    session.thaw_held_login().ok()?;
+    session.thaw_held_login(held).ok()?;
     Some((
         opened.wrote.clone(),
         opened
@@ -90,39 +91,75 @@ fn written(w: &crate::install::CompanyOpenWrites) -> std::collections::BTreeSet<
     out
 }
 
-/// Whether a codeunit on the hub that starts from the run's one login (`held`) sees the rows that login wrote as the
-/// codeunits before it left them, as the probe measured: under Disabled isolation whether or not an earlier Disabled
-/// codeunit changed them (LgnDisabledLoginWrites.al:471, :636); under Codeunit or Function isolation only when the
-/// committed rows of those tables equal the ones the login left (LgnDisabledLoginWrites.al:546; corpus PR 1644,
-/// LgnHeldLoginRunners.al:491, :528). A Codeunit or Function codeunit after a Disabled codeunit changed them: `false`,
-/// and its tests may not read them (`held_reads`), as main refused them; the probe measures only a delete of every
-/// login row (LgnDisabledLoginWrites.al:663, :694, :720), not yet served here.
-pub(super) fn login_rows_as_held(held: &al_vm::HeldLogin, isolation: TestIsolation, session: &mut Session) -> bool {
-    match isolation {
-        TestIsolation::Disabled => true,
-        TestIsolation::Codeunit | TestIsolation::Function => held_opened(held).is_some_and(|opened| {
-            let now = crate::login_replay::committed_tables_digest(session.store_mut(), &written(&opened.wrote));
-            matches!((now, &opened.rows), (Ok(now), Some(left)) if now == *left)
-        }),
+/// Whether a codeunit that starts from a login it shares (`held`, [`shared_login`]) sees the rows that login wrote as the
+/// codeunits before it left them, as the probe measured. On the hub (`own_login` false): under Disabled isolation whether
+/// or not an earlier Disabled codeunit changed them (LgnDisabledLoginWrites.al:471, :546, :636); under Codeunit or
+/// Function isolation only when the committed rows of those tables equal the ones the login left (LgnDisabledLoginWrites.al:546;
+/// corpus PR 1644, LgnHeldLoginRunners.al:491, :528). A Codeunit or Function codeunit after a Disabled codeunit changed
+/// them: `false`, and its tests may not read them (`held_reads`), as main refused them; the probe measures only a delete
+/// of every login row (LgnDisabledLoginWrites.al:663, :694, :720), not yet served here. In the session runner 130450 runs
+/// its codeunits in after the held login (`own_login`), whatever the isolation, only when those rows equal the ones its
+/// login left: the probe measures the later codeunits of that session where no earlier one changed them (corpus PR 1657,
+/// LgnRunnerSessions.al:429-434).
+pub(super) fn login_rows_as_held(
+    held: &al_vm::HeldLogin,
+    own_login: bool,
+    isolation: TestIsolation,
+    session: &mut Session,
+) -> bool {
+    match (own_login, isolation) {
+        (false, TestIsolation::Disabled) => true,
+        (true, _) | (false, TestIsolation::Codeunit | TestIsolation::Function) => {
+            held_opened(held).is_some_and(|opened| {
+                let now = crate::login_replay::committed_tables_digest(session.store_mut(), &written(&opened.wrote));
+                matches!((now, &opened.rows), (Ok(now), Some(left)) if now == *left)
+            })
+        }
     }
 }
 
-/// What a test of a session that starts from the run's one login (`held`) may not read: on the hub, the tables the held
-/// login wrote when their rows are not as the probe measured them (`rows_as_held` false, `login_rows_as_held`), and
-/// without the held image (`thawed` false) the SingleInstance codeunits the held login left, whose state this session's
-/// own login set again. Under runner 130450 (`own_login`, `runs_own_login`) nothing: its session's own login ran on the
-/// rows the hub codeunits committed, so it sees them as the Disabled codeunit left them and one login row of its own,
-/// and its SingleInstance codeunits as that login filled them (corpus PR 1644, LgnHeldLoginRunners.al:608, :656, :697).
-/// `None`: nothing.
-pub(super) fn held_reads(
+/// The login a session shares with the codeunits before it in its session, when its data holds it: on the hub the run's
+/// one login (al-vm `Session::login_held`); in the session runner 130450 runs its codeunits in after the held login
+/// (`own_login`) the login of that session, which its first codeunit ran (al-vm `Session::runner_login`; corpus PR 1657,
+/// LgnRunnerSessions.al:424, :426: one login in that session, :433 one login row of it after the hub's). `None`: the
+/// session runs a login of its own (the first codeunit runner 130450 runs after the held login, or no login is held).
+pub(super) fn shared_login(session: &Session, own_login: bool) -> Option<std::sync::Arc<al_vm::HeldLogin>> {
+    match own_login {
+        true => session.runner_login(),
+        false => session.login_held(),
+    }
+}
+
+/// A codeunit runner 130450 runs after the held login, in the session where an earlier one ran its login (`held`,
+/// [`shared_login`]), whose SingleInstance codeunits came from the codeunit before it in that session (`moved_in`:
+/// `--strict-order`, run.rs `LANE_SINGLES`): it keeps them, as BC's one session does (corpus PR 1657,
+/// LgnRunnerSessions.al:424, :436), and takes what the runner noted of that login in place of a second one, marked.
+/// `None`: anything else.
+pub(super) fn kept_singles(
     held: &al_vm::HeldLogin,
     own_login: bool,
+    moved_in: bool,
+) -> Option<(crate::install::CompanyOpenWrites, al_builtins::assumptions::HitBits)> {
+    let opened = held_opened(held).filter(|_| own_login && moved_in)?;
+    Some((
+        opened.wrote.clone(),
+        opened
+            .hits
+            .with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce),
+    ))
+}
+
+/// What a test of a session that starts from a login it shares (`held`, see [`thaw_held`]) may not read: the tables that
+/// login wrote when their rows are not as the probe measured them (`rows_as_held` false, `login_rows_as_held`), and
+/// without its image (`thawed` false) the SingleInstance codeunits that login left, whose state this session's own login
+/// set again. The first codeunit runner 130450 runs after the held login runs the login of its session on the rows the hub
+/// codeunits committed and reads nothing of the held one: no call (corpus PR 1644, LgnHeldLoginRunners.al:608, :656,
+/// :697). `None`: nothing.
+pub(super) fn held_reads(
+    held: &al_vm::HeldLogin,
     thawed: bool,
     rows_as_held: bool,
 ) -> Option<crate::install::HeldReads> {
-    if own_login {
-        return None;
-    }
     let reads = crate::install::HeldReads {
         tables: match rows_as_held {
             true => Default::default(),
@@ -130,64 +167,18 @@ pub(super) fn held_reads(
                 .map(|opened| written(&opened.wrote))
                 .unwrap_or_default(),
         },
-        tables_why: "an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub changed the rows \
-                     the run's one login wrote, and what a codeunit with Codeunit or Function isolation sees of them \
-                     then is not pinned",
+        tables_why: "an earlier codeunit of this session changed the rows the session's one login wrote, and what a \
+                     later codeunit with Codeunit or Function isolation, or under runner 130450, sees of them then is \
+                     not pinned",
         singles: match thawed {
             true => Default::default(),
             false => held.singles.iter().copied().collect(),
         },
-        singles_why: "an earlier codeunit with RequiredTestIsolation = Disabled on the TestRunnerHub left what the run's \
-                      one login wrote, and the session state that login set could not be kept for this codeunit: what \
-                      its SingleInstance codeunits hold is not pinned",
-        ..Default::default()
+        singles_why: "an earlier codeunit of this session left what the session's one login wrote, and the session \
+                      state that login set could not be kept for this codeunit: what its SingleInstance codeunits hold \
+                      is not pinned",
     };
     (!reads.tables.is_empty() || !reads.singles.is_empty()).then_some(reads)
-}
-
-/// What a test of a session that runner 130450 made for a login of its own after another such session (al-vm
-/// `OwnLogin::after_another`) may not combine with the session's own id. Whether the two codeunits share one session is
-/// not measured (assumption `hub-login-later-runners`; corpus PR 1644 compares each with the hub session only,
-/// LgnHeldLoginRunners.al:664, :705), so an id answered in one is not known to relate to what the other wrote: the
-/// login tables, where every such session's login wrote a row with its id (`written`, of the held login and of this
-/// one, `wrote`; :710), and the tables the carry this codeunit starts from left rows in (`leak`, `Scratch::leak`).
-/// When this session's login answered its id (`login_read_id`), a test whose static reach touches one of those tables or
-/// reads a global of a SingleInstance codeunit that login left an instance of (`singles`), with its reach unknown, or
-/// that touched one of the tables while it ran, is not run (`HeldReads::tables`, `singles`). Otherwise a test that
-/// touched one of the tables while it ran is not run when the session answered its id by then, in its OnRun or a test
-/// (`HeldReads::id_tables`, `CompanyOpenWrites::watch_hit`). The id itself is the session's own (:705, :710), and a
-/// test that reads only other tables runs.
-pub(super) fn later_own_reads(
-    held: &al_vm::HeldLogin,
-    wrote: &crate::install::CompanyOpenWrites,
-    leak: Option<&std::collections::BTreeSet<u32>>,
-    login_read_id: bool,
-    singles: Vec<usize>,
-) -> crate::install::HeldReads {
-    let mut tables = written(wrote);
-    tables.extend(
-        held_opened(held)
-            .map(|opened| written(&opened.wrote))
-            .unwrap_or_default(),
-    );
-    tables.extend(leak.into_iter().flatten().copied());
-    const WHY: &str = "a codeunit that runner 130450 runs after another one after the held login answered its own \
-                       session id, and whether the two share one session is not measured (assumption \
-                       `hub-login-later-runners`)";
-    crate::install::HeldReads {
-        tables: match login_read_id {
-            true => tables.clone(),
-            false => Default::default(),
-        },
-        tables_why: WHY,
-        singles: match login_read_id {
-            true => singles.into_iter().collect(),
-            false => Default::default(),
-        },
-        singles_why: WHY,
-        id_tables: tables,
-        id_why: WHY,
-    }
 }
 
 /// How what the session wrote when it opened the company meets what a Disabled codeunit carries: `Ok(true)` when the
@@ -215,7 +206,7 @@ pub(super) fn carried_company_open(
 }
 
 /// Whether a codeunit that starts from what a Disabled codeunit on the hub left after the run's one login
-/// (`login_once_on_hub`) runs a login of its own: `true` when runner 130450 runs it, in a session of its own after every
+/// (`login_once_on_hub`) runs a login of its own: `true` when runner 130450 runs it, in another session than the hub's after every
 /// hub codeunit, whose login runs on what the hub codeunits committed (assumption `hub-login-later-runners`, corpus PR
 /// 1644, LgnHeldLoginRunners.al:608, :656, :697). `false`: a codeunit on the hub (`Scratch::hub_leg`), under Disabled,
 /// Codeunit or Function isolation, which takes the held login's session state (LgnDisabledLoginWrites.al:471, :546;
@@ -228,10 +219,11 @@ pub(super) fn runs_own_login(hub_leg: bool, isolation: TestIsolation) -> bool {
 }
 
 /// The session of a codeunit that runs a login of its own on the run's one login (`held`; `runs_own_login`, not a
-/// scratch run: `execute`): runner 130450 runs it in another session than the hub codeunits (assumption
-/// `hub-login-later-runners`; corpus PR 1644, LgnHeldLoginRunners.al:664, :705 "same session as the snapshot" No, and
-/// :669, :710 one LOGIN row of that session), a new one for each codeunit, whose id is not the hub session's (`host_id`)
-/// nor an earlier one's (al-vm `HeldLogin::next_own_login`). `None`: the session answers the host's id.
+/// scratch run: `execute`): runner 130450 runs every such codeunit in one session, another than the hub's (assumption
+/// `hub-login-later-runners`; corpus PR 1657, LgnRunnerSessions.al:423 not the hub's; :436 every earlier such codeunit had
+/// the same id; :428 the same id in OnRun), whose id is not the hub session's (`host_id`, al-vm `OwnLogin::after`). That
+/// session logs in once, in the first of them; the later ones take that login (`open_company`, al-vm
+/// `Session::runner_login`). `None`: the session answers the host's id.
 pub(super) fn own_session_id(
     held: Option<&al_vm::HeldLogin>,
     hub_leg: bool,
@@ -239,13 +231,13 @@ pub(super) fn own_session_id(
     execute: bool,
     host_id: i32,
 ) -> Option<al_vm::OwnLogin> {
-    let held = held.filter(|_| !execute && runs_own_login(hub_leg, isolation))?;
-    Some(held.next_own_login(host_id))
+    held.filter(|_| !execute && runs_own_login(hub_leg, isolation))?;
+    Some(al_vm::OwnLogin::after(host_id))
 }
 
 /// `host` with the session id of [`own_session_id`]: `SessionId()`, the Session and Active Session rows and the ids of
 /// the background sessions it starts all follow it. `None`: `host` as it is. The session made on it is told too
-/// (run.rs `session_from`, al-vm `Session::set_own_login`), so its readers refuse what is not measured of it.
+/// (run.rs `session_from`, al-vm `Session::set_own_login`), so `Session.StopSession` of the hub session refuses.
 pub(super) fn in_own_session(host: al_host::Host, own: Option<al_vm::OwnLogin>) -> al_host::Host {
     match own {
         Some(own) => host.with_identity_overrides(al_host::IdentityOverrides {

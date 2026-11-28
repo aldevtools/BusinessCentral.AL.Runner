@@ -4,8 +4,8 @@
 //! `run_codeunit_core`.
 use super::al_runner::run_unit;
 use super::held_login::{
-    self, carried_company_open, first_login, held_reads, in_own_session, later_own_reads, later_runner_marks,
-    login_once_on_hub, login_rows_as_held, own_session_id, thaw_held,
+    self, carried_company_open, first_login, held_reads, in_own_session, kept_singles, later_runner_marks,
+    login_once_on_hub, login_rows_as_held, own_session_id, shared_login, thaw_held,
 };
 use super::written::{
     self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,
@@ -221,51 +221,47 @@ fn open_company(
     if steps.execute {
         return Ok(Default::default());
     }
-    // The run's one login a Disabled codeunit on the hub held (`login_once_on_hub`): a later hub codeunit takes its
-    // session state in place of a second login; one runner 130450 runs runs its own login on the held rows, in a session
-    // of its own (`own_session_id`, set when the session was made).
+    // The login the session shares (`shared_login`): on the hub the run's one login a Disabled codeunit held
+    // (`login_once_on_hub`); in the session runner 130450 runs its codeunits in after it (`own_session_id`, set when the
+    // session was made) the login of that session, which its first codeunit runs.
     let held = session.login_held();
     let own_login = steps.own_session.is_some();
-    let thawed = held
-        .as_deref()
-        .filter(|_| !own_login)
-        .and_then(|h| thaw_held(session, h));
+    let shared = shared_login(session, own_login);
+    let thawed =
+        (shared.as_deref()).and_then(|h| kept_singles(h, own_login, steps.moved_in).or_else(|| thaw_held(session, h)));
     let thaws = thawed.is_some();
     let (mut wrote, hits) = match thawed {
         Some(opened) => opened,
         None => {
-            // On the hub BC runs no second login (LgnDisabledLoginWrites.al:471, :546): what this one writes is undone.
-            let before = (held.is_some() && !own_login).then(|| session.capture_baseline());
-            // The session before the run's first login, for the image a Disabled codeunit holds (`first_login`).
-            let base = first_login(scratch.hub, isolation, session).then(|| session.login_base());
+            // BC runs no second login in a session (LgnDisabledLoginWrites.al:471, :546; corpus PR 1657,
+            // LgnRunnerSessions.al:424): what this one writes is undone.
+            let before = shared.is_some().then(|| session.capture_baseline());
+            // The session before its first login, for the image the later codeunits of the session take: the run's
+            // first (`first_login`), or the first runner 130450 runs after the held login.
+            let first_runner = own_login && shared.is_none();
+            let base = (first_runner || first_login(scratch.hub, isolation, session)).then(|| session.login_base());
             let (wrote, mut hits) = run_login(start, session, skipped_installs, perturb, scratch, after_refusal)?;
             if let Some(before) = before {
                 session.undo_login_writes(&before);
                 hits = hits.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce);
             }
-            if let Some(base) = base.filter(|_| login_once_on_hub(scratch.hub, isolation, false, &wrote)) {
+            if let Some(base) =
+                base.filter(|_| first_runner || login_once_on_hub(scratch.hub, isolation, false, &wrote))
+            {
                 let image = session.login_image(&base).map_err(|not| not.reason());
-                let opened = held_login::HeldOpened::of(session, wrote.clone(), hits);
-                session.hold_login(image, Box::new(opened));
+                let opened = Box::new(held_login::HeldOpened::of(session, wrote.clone(), hits));
+                match first_runner {
+                    true => session.hold_runner_login(image, opened),
+                    false => session.hold_login(image, opened),
+                }
             }
             (wrote, hits)
         }
     };
-    let rows_as_held = held
+    let rows_as_held = shared
         .as_deref()
-        .is_some_and(|h| !own_login && login_rows_as_held(h, isolation, session));
-    wrote.held = held
-        .as_deref()
-        .and_then(|h| match steps.own_session.filter(al_vm::OwnLogin::after_another) {
-            Some(_) => Some(later_own_reads(
-                h,
-                &wrote,
-                scratch.leak.as_deref(),
-                session.own_id_read(),
-                session.single_instances(),
-            )),
-            None => held_reads(h, own_login, thaws, rows_as_held),
-        });
+        .is_some_and(|h| login_rows_as_held(h, own_login, isolation, session));
+    wrote.held = shared.as_deref().and_then(|h| held_reads(h, thaws, rows_as_held));
     let hits = later_runner_marks(held.is_some(), scratch.hub_leg, isolation, hits);
     // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
     // a `WorkDate(d)` of the test still wins.
@@ -737,8 +733,7 @@ fn run_codeunit_inner(
             }
             // What the partner dependency apps' login subscribers left is watched too (`partner_login.rs`).
             let partner = &company_open.partner_login;
-            let id_tables = company_open.held.iter().flat_map(|held| held.id_tables.iter());
-            let watched = with_skipped(leak.iter().chain(partner.watched()).chain(id_tables), &skipped_installs);
+            let watched = with_skipped(leak.iter().chain(partner.watched()), &skipped_installs);
             session.store_mut().watch(watched);
             // Al-runner issue 5698: the time limit (CPU time, the wall backstop and the Sleep budget) applies to OnRun too,
             // with a budget of its own: its time counts toward no test method. A limit is tooling (ADR-009), not something
@@ -764,11 +759,6 @@ fn run_codeunit_inner(
                 return Err(on_run_refused(format!("OnRun: {why}")));
             }
             (partner.after_on_run(&hits, lowered)).map_err(|why| on_run_refused(format!("OnRun: {why}")))?;
-            // An OnRun that combined the session's own id with what an earlier runner 130450 session wrote
-            // (`later_own_reads`): what it left is not known.
-            if let Some(why) = company_open.id_read_hit(&hits, lowered, session.own_id_read()) {
-                return Err(on_run_refused(format!("OnRun: {why}")));
-            }
             match ran {
                 // NavTestCodeunit.DoRunAsync commits after a declared OnRun
                 // (codeunits/TestTestCodeunitOnRun.al).
@@ -1255,15 +1245,14 @@ fn run_codeunit_inner(
             // A read or write of any table an earlier Disabled codeunit left rows in is noted in `leak_hits`, whatever watched
             // table the test touched first (review of al-runner issue 7717, round five, probe p13).
             let touched = session.store_mut().watch_hits();
-            let id_read = session.own_id_read();
-            let hit = company_open.watch_hit(&touched, began, id_read);
+            let hit = company_open.watch_hit(&touched, began);
             // A test that read or wrote a table install code that could not run touches, through a path its record
             // variables do not show (a RecordRef): not run, as the static check does for a record variable (al-runner
             // issue 8115, scenario s03b).
             let skipped_hit = began
                 .then(|| skipped_install_hit(&skipped_installs, &touched, Marked))
                 .flatten();
-            let outcome = match (hit.and_then(|t| company_open.touched(t, lowered, id_read)))
+            let outcome = match (hit.and_then(|t| company_open.touched(t, lowered)))
                 .or_else(|| skipped_hit.map(|(_, why)| why.clone()))
             {
                 Some(why) => Outcome::NotRun(why),

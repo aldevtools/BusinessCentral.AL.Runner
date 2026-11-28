@@ -924,6 +924,9 @@ pub struct Session {
     pub(crate) company_built: bool,
     /// The session's data holds what the run's one login wrote (`Baseline::login_held`).
     pub(crate) login_held: Option<std::sync::Arc<HeldLogin>>,
+    /// The session's data holds what the login of the session runner 130450 runs its codeunits in after the held login
+    /// wrote (`Baseline::runner_login`).
+    pub(crate) runner_login: Option<std::sync::Arc<HeldLogin>>,
     /// The session's data is what a test codeunit left (`Baseline::codeunit_left`).
     pub(crate) codeunit_left: bool,
     /// The `Engine::demo_tables` the running test's own code (not install code) wrote to (`records/op_inner.rs`): a read of
@@ -1529,6 +1532,7 @@ impl Session {
             install_without_client: false,
             company_built: false,
             login_held: None,
+            runner_login: None,
             codeunit_left: false,
             demo_written: Default::default(),
             gl_setup_written: false,

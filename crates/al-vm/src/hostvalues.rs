@@ -160,16 +160,14 @@ impl Session {
             },
             ids::DATABASE_USERID_1 => Ok(Value::Text(self.host.identity.user_id().into())),
             ids::DATABASE_USERSECURITYID_1 => Ok(Value::Guid(self.host.identity.user_security_id())),
-            ids::DATABASE_SESSIONID_1 => {
-                self.note_own_id_read();
-                Ok(Value::Integer(self.session_id()))
-            }
+            ids::DATABASE_SESSIONID_1 => Ok(Value::Integer(self.session_id())),
             // An id no session has is not active (session-system/TestSessionComplete.al:45-52: 99999; metadata/platform-tables/
-            // PlTSession.al:295-296: 0 and 2147483647); the running session is (PlTSession.al:294 SessionId_Relations).
+            // PlTSession.al:295-296: 0 and 2147483647); the running session is (PlTSession.al:294 SessionId_Relations). In
+            // the session runner 130450 runs its codeunits in after the held login, the hub session is not (assumption
+            // `hub-login-later-runners`, corpus PR 1657, LgnRunnerSessions.al:439).
             ids::SESSION_ISSESSIONACTIVE_1 => match args.first() {
-                Some(Value::Integer(n)) => self
-                    .own_login_other_session(*n, "Session.IsSessionActive")
-                    .map(|()| Value::Boolean(*n == self.session_id())),
+                Some(Value::Integer(n)) if *n == self.session_id() => Ok(Value::Boolean(true)),
+                Some(Value::Integer(n)) if *n != self.session_id() => Ok(Value::Boolean(false)),
                 other => unsupported(format!(
                     "Session.IsSessionActive({other}): only an id other than the running session's is pinned",
                     other = other.describe()
@@ -179,9 +177,9 @@ impl Session {
             // 0, a negative id, a huge id and the id a refused StartSession left (metadata/session-system/
             // P94Session.al:Stop_*). The running session's own id is never stopped there and is not pinned: refused.
             ids::SESSION_STOPSESSION_1 => match args.first() {
-                Some(Value::Integer(n)) if *n != self.session_id() => self
-                    .own_login_other_session(*n, "Session.StopSession")
-                    .map(|()| Value::Boolean(false)),
+                Some(Value::Integer(n)) if *n != self.session_id() => {
+                    self.stop_of_hub_session(*n).map(|()| Value::Boolean(false))
+                }
                 other => unsupported(format!(
                     "Session.StopSession({other}): only an id other than the running session's is pinned",
                     other = other.describe()
