@@ -453,9 +453,8 @@ impl Session {
         };
         let table = rec.borrow().table as usize;
         let (o, i) = (outer.depth, self.call_stack.len());
-        let objects = &self.engine.program.objects;
-        let outer_field = objects[self.frames[o]].routines[self.call_stack[o].routine].field;
-        let caller = o.checked_sub(1).map(|c| (&objects[self.frames[c]], &objects[self.frames[c]].routines[self.call_stack[c].routine]));
+        let outer_field = self.routine_at(o).1.field;
+        let caller = o.checked_sub(1).map(|c| self.routine_at(c));
         let measured = outer.site == from_al
             && caller.is_some_and(|(ob, r)| Self::is_test_codeunit(ob) && !r.is_trigger && r.attributes.is_empty())
             && o + 1 + NESTING_PROCEDURES_ASSIGNED == i

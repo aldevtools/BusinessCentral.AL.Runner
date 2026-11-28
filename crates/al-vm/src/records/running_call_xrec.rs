@@ -312,12 +312,7 @@ impl Session {
         }
         let objects = &self.engine.program.objects;
         let tries = (base..caller)
-            .filter(|&i| {
-                Self::has_attribute(
-                    &objects[self.frames[i]].routines[self.call_stack[i].routine],
-                    "TryFunction",
-                )
-            })
+            .filter(|&i| Self::has_attribute(self.routine_at(i).1, "TryFunction"))
             .count();
         Self::is_test_codeunit(&objects[self.frames[base]])
             && self.tx.try_depth == tries
@@ -330,21 +325,13 @@ impl Session {
         let objects = &self.engine.program.objects;
         let (o, cf) = (self.frames[i], self.call_stack[i]);
         let r = &objects[o].routines[cf.routine];
-        let only = |names: &[&str]| {
-            r.attributes
-                .iter()
-                .all(|a| names.iter().any(|n| a.name.eq_ignore_ascii_case(n)))
-        };
+        let named = |a: &al_ir::Attribute, names: &[&str]| names.iter().any(|n| a.name.eq_ignore_ascii_case(n));
+        let only = |names: &[&str]| r.attributes.iter().all(|a| named(a, names));
         if cf.event || self.iface_frames.contains(&i) {
             return false;
         }
         if i == base {
-            let measured = |a: &al_ir::Attribute| {
-                ["Test", "HandlerFunctions"]
-                    .iter()
-                    .any(|n| a.name.eq_ignore_ascii_case(n))
-                    || Self::scope_on_prem(a)
-            };
+            let measured = |a: &al_ir::Attribute| named(a, &["Test", "HandlerFunctions"]) || Self::scope_on_prem(a);
             return Self::has_attribute(r, "Test") && r.attributes.iter().all(measured);
         }
         if o == self.frames[base] {
@@ -352,11 +339,8 @@ impl Session {
         }
         let trigger_at = |j: usize, kind: ObjKind, name: &str| {
             j < caller && {
-                let t = &objects[self.frames[j]].routines[self.call_stack[j].routine];
-                objects[self.frames[j]].kind == kind
-                    && !self.call_stack[j].event
-                    && t.is_trigger
-                    && t.name.eq_ignore_ascii_case(name)
+                let (ob, t) = self.routine_at(j);
+                ob.kind == kind && !self.call_stack[j].event && t.is_trigger && t.name.eq_ignore_ascii_case(name)
             }
         };
         match objects[o].kind {
@@ -385,6 +369,12 @@ impl Session {
     /// not pinned yet: `Caller_ScopeOnPremTest_IntegrationEvent`, `Caller_ScopeOnPremTestWithHandler_Nested`).
     fn scope_on_prem(a: &al_ir::Attribute) -> bool {
         a.name.eq_ignore_ascii_case("Scope") && a.args == [al_ir::Const::Text("OnPrem".to_string())]
+    }
+
+    /// The object and the routine frame `d` runs.
+    pub(super) fn routine_at(&self, d: usize) -> (&al_ir::Object, &Routine) {
+        let ob = &self.engine.program.objects[self.frames[d]];
+        (ob, &ob.routines[self.call_stack[d].routine])
     }
 
     fn has_attribute(r: &Routine, name: &str) -> bool {
@@ -535,7 +525,7 @@ impl Session {
         if i - o - 1 > NESTING_PROCEDURES_MEASURED || !self.field_on_validate_at(table, o) {
             return None;
         }
-        let field = |d: usize| self.engine.program.objects[self.frames[d]].routines[self.call_stack[d].routine].field;
+        let field = |d: usize| self.routine_at(d).1.field;
         (field(o) != field(i) && self.own_procedures_between(table, o, i)).then_some((outer, inner_run))
     }
 
@@ -572,9 +562,8 @@ impl Session {
     /// that its own transaction inserted and wrote nothing to since (`inserted_unwritten_in_tx`). A Find, a GetBySystemId, a
     /// Get of a committed row, a Get of a row the open transaction modified or a TransferFields refuse.
     fn measured_buffer(&self, r: &RecordState) -> bool {
-        let get_of_own_insert = |o: &al_builtins::value::RowOrigin| {
-            o.read_in_write_tx && o.by_get && self.inserted_unwritten_in_tx(r)
-        };
+        let get_of_own_insert =
+            |o: &al_builtins::value::RowOrigin| o.read_in_write_tx && o.by_get && self.inserted_unwritten_in_tx(r);
         Self::buffer_of_own_write(r, |o| (!o.read_in_write_tx && !o.by_get) || get_of_own_insert(o))
     }
 
