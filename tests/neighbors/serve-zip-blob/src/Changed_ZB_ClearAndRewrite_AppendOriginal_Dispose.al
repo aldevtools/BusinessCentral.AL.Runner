@@ -1,4 +1,5 @@
 // From corpus PR 1633 (probe-9246-zip-blob), ZipBlobUpdateBlobChanged.al.
+// Served bytes 0-34 contradicted by corpus PR 1640 D6; refused until a cell measures this shape's bytes (al-runner issue 9351).
 codeunit 59412 "NB SZ Changed 59412"
 {
     Subtype = Test;

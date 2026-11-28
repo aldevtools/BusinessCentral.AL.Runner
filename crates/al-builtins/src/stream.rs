@@ -1143,7 +1143,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         }
     }
     let b = blob_of(r)?;
-    {
+    let edits = {
         // The content stays (:BlobField_CreateOutStream_DoesNotEmptyExistingData).
         let mut buf = b.borrow_mut();
         buf.dotnet_view = 0;
@@ -1151,7 +1151,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.content_edits = buf.content_edits.wrapping_add(1);
         let empty = buf.bytes.is_empty();
         let edits = buf.content_edits;
-        buf.line_breaks.note_out_open(enc, empty, edits);
+        buf.line_breaks.note_out_open(enc, empty);
         if !buf.loaded && buf.db_row {
             // A record read from the database without CalcFields: the stream replaces the stored content at its first
             // write, and leaves it while nothing is written (BlobCalcFieldsLength.al:222, :350). The Blob stays unloaded
@@ -1181,9 +1181,9 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.loaded = true;
         buf.refetch = false;
         buf.persisted = false;
-    }
-    let stamp = Some(b.borrow().content_edits);
-    set_stream(&a[0], LibraryValue::OutStream(b, enc, None, stamp))?;
+        edits
+    };
+    set_stream(&a[0], LibraryValue::OutStream(b, enc, None, Some(edits)))?;
     Ok(Value::Null)
 }
 
@@ -2745,7 +2745,6 @@ fn copy_stream(ctx: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> NRe
     let (out, _) = out_buf(Some(&mut a[0]))?;
     let bytes = with_in(Some(&mut a[1]), |s| Ok(s.drain()))?;
     write_bytes(&out, &bytes);
-    crate::stream_line_breaks::note_copy_through(&a[0]);
     Ok(Value::Boolean(true))
 }
 

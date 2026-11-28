@@ -267,6 +267,7 @@ codeunit 59428 "NB SZ Changed StoredNew 59428"
     end;
 }
 
+// Served bytes 0-34 contradicted by corpus PR 1640 D6; refused until a cell measures this shape's bytes (al-runner issue 9351).
 codeunit 59429 "NB SZ Changed DeclTemp 59429"
 {
     Subtype = Test;
