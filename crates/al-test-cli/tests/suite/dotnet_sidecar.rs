@@ -2207,3 +2207,74 @@ fn the_rgba_replace_keeps_every_mark_of_rendered_content() {
     }
     sess.close();
 }
+
+// ---- The formatting state the sidecar started with (al-runner pull request 9427, review round 1) ----------------------
+
+const LONG_TIME: &str = "h:mm:ss\u{202F}tt";
+
+fn current_format(sess: &mut dyn DotNetSession) -> DotNetTarget {
+    let culture = sess
+        .get_property(st("System.Globalization.CultureInfo"), "CurrentCulture")
+        .unwrap();
+    let format = sess
+        .get_property(DotNetTarget::Instance(handle_of(&culture)), "DateTimeFormat")
+        .unwrap();
+    DotNetTarget::Instance(handle_of(&format))
+}
+
+#[test]
+fn the_formatting_is_at_start_until_al_changes_the_culture_or_its_formats_and_again_when_set_back() {
+    let mut cfg = config();
+    cfg.reuse = Some(al_test_cli::dotnet::Reuse::Off);
+    let Some(h) = host_with(cfg) else { return };
+    let mut sess = h.open_session(&DotNetSessionConfig::default());
+    let culture_type = st("System.Globalization.CultureInfo");
+    assert!(sess.formatting_at_start(), "a fresh process");
+    let format = current_format(&mut *sess);
+    let pattern = sess.get_property(format.clone(), "LongTimePattern").unwrap().value;
+    assert_eq!(pattern, DotNetValue::Str(LONG_TIME.into()), "ICU's en-US");
+    sess.set_property(format.clone(), "LongTimePattern", DotNetValue::Str("HH:mm:ss".into()))
+        .unwrap();
+    assert!(!sess.formatting_at_start(), "a format set in place");
+    sess.set_property(format, "LongTimePattern", pattern).unwrap();
+    assert!(sess.formatting_at_start(), "the format set back");
+    let start = sess.get_property(culture_type.clone(), "CurrentCulture").unwrap();
+    let start = DotNetValue::Handle {
+        handle: handle_of(&start),
+        ty: "System.Globalization.CultureInfo".into(),
+    };
+    let other = sess
+        .construct(&ty("System.Globalization.CultureInfo"), vec![s("en-US")])
+        .unwrap();
+    let other = DotNetValue::Handle {
+        handle: handle_of(&other),
+        ty: "System.Globalization.CultureInfo".into(),
+    };
+    sess.set_property(culture_type.clone(), "CurrentCulture", other)
+        .unwrap();
+    assert!(!sess.formatting_at_start(), "another culture object, even an en-US one");
+    sess.set_property(culture_type, "CurrentCulture", start).unwrap();
+    assert!(sess.formatting_at_start(), "the start culture set back");
+    sess.close();
+}
+
+#[test]
+fn a_process_whose_session_changed_a_date_format_in_place_is_recycled() {
+    let Some(h) = reuse_host() else { return };
+    let mut a = h.open_session(&DotNetSessionConfig::default());
+    let format = current_format(&mut *a);
+    a.set_property(format, "LongTimePattern", DotNetValue::Str("HH:mm:ss".into()))
+        .unwrap();
+    a.close();
+    let mut b = h.open_session(&DotNetSessionConfig::default());
+    let format = current_format(&mut *b);
+    assert_eq!(
+        b.get_property(format, "LongTimePattern").unwrap().value,
+        DotNetValue::Str(LONG_TIME.into()),
+        "the next session does not see the pattern"
+    );
+    assert!(b.formatting_at_start());
+    b.close();
+    let st = h.stats();
+    assert_eq!((st.started, st.reused, st.reset_dirty), (2, 0, 1), "{st:?}");
+}

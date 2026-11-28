@@ -312,6 +312,8 @@ macro_rules! session_fields {
                 plain_proc_xrec => |s: &Session| s.plain_proc_xrec.is_empty(),
                 ext_xrec_triggers => |s: &Session| s.ext_xrec_triggers == 0,
                 ext_before_watch => |s: &Session| s.ext_before_watch.borrow().is_empty(),
+                // Pushed and popped around one row of a descending DeleteAll (`records/delete_all_order.rs`).
+                row_code_unmeasured => |s: &Session| s.row_code_unmeasured.borrow().is_empty(),
                 shared_proc_xrec => |s: &Session| s.shared_proc_xrec.is_empty(),
                 iface_frames => |s: &Session| s.iface_frames.is_empty(),
                 run_callers => |s: &Session| s.run_callers.is_empty(),

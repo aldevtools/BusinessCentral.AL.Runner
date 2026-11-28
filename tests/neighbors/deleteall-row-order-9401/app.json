@@ -1,0 +1,17 @@
+{
+  "id": "94010000-0000-4000-8000-000000000001",
+  "name": "Neighbors deleteall-row-order-9401",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "idRanges": [
+    { "from": 69160, "to": 69163 },
+    { "from": 90660, "to": 90667 },
+    { "from": 91640, "to": 91644 },
+    { "from": 94010, "to": 94040 }
+  ],
+  "dependencies": [
+    { "id": "94010000-0000-4000-8000-000000000002", "name": "DRN Xapp Base", "publisher": "AL Runner", "version": "1.0.0.0" }
+  ]
+}

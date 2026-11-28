@@ -54,6 +54,8 @@ public sealed class Server
                     return Ok(new JsonObject { ["reusable"] = false, ["dirty"] = new JsonArray("no baseline") });
                 return Ok(guard.Reset(used));
             }
+            case "formatting":
+                return Ok(guard?.FormattingAtStart() ?? false);
             case "release":
                 marshal.Release(req["handles"]!.AsArray());
                 return Ok(null);
