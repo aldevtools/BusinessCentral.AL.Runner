@@ -22,6 +22,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 mod blob_filter;
+mod blob_saves;
 mod boolean_filter_error;
 mod delete_all;
 mod delete_all_flow;
@@ -1396,6 +1397,24 @@ impl Session {
             })
     }
 
+    /// [`Session::fail_unique`] of an Insert. The flag hides the values of a unique index an Insert into a database table with
+    /// a Blob field breaks (errors/last-error/InsertDuplicateKeyExcludeFlag.al:121). Other tables are not pinned.
+    fn fail_unique_insert(&mut self, rec: &Rec, t: &TableDef, key: usize, row: &[Value]) -> Result<Value, Signal> {
+        let r = self.fail_unique(t, key, row);
+        if self.has_blob_field(t) && !rec.borrow().temporary {
+            return r.map_err(|s| {
+                redact_error(
+                    s,
+                    format!(
+                        "There is already a record in table {} that has the same values in a unique index for the following fields: <redacted>",
+                        self.caption(t)
+                    ),
+                )
+            });
+        }
+        r
+    }
+
     /// The refusal of a unique index; only the start of BC's message is pinned.
     fn fail_unique(&mut self, t: &TableDef, key: usize, row: &[Value]) -> Result<Value, Signal> {
         if self.ret_used {
@@ -1842,6 +1861,12 @@ impl Session {
         if rec.borrow().temp_id.is_none() {
             for (pos, v) in row.iter_mut().enumerate() {
                 if let Value::Blob(b) = v {
+                    // A row an Insert stored with no Blob through the assumption (`records/blob_saves.rs`): its read is flagged.
+                    if b.borrow().never_loaded_insert {
+                        al_builtins::assumptions::assume(
+                            al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored,
+                        );
+                    }
                     *b = self.copy_blob_db_row(&t, pos, b);
                 }
             }
@@ -1909,16 +1934,6 @@ impl Session {
         }
         self.note_replayed_load(rec);
         self.auto_calculate(rec)
-    }
-
-    /// Marks the Blobs that hold content, in the stored row and in the record, as stored by an `Insert` (`inserted`) or not (a `Modify`).
-    fn mark_blobs_inserted(rec: &Rec, stored: &[Value], inserted: bool) {
-        for v in stored.iter().chain(rec.borrow().fields.iter()) {
-            if let Value::Blob(b) = v {
-                let mut b = b.borrow_mut();
-                b.inserted = inserted && !b.bytes.is_empty();
-            }
-        }
     }
 
     /// The Date, Time and DateTime values of a database table's row as its SQL columns hold them (`sqltime`), and its Decimal
@@ -2017,6 +2032,15 @@ impl Session {
                     .get(&cx, &t, &pk)
                     .map_err(|e| Signal::unsupported(format!("{e}")))?;
             }
+            // A database record whose Insert did not store its Blob never loaded keeps answering HasValue Yes and reading
+            // empty while the row's Blob is (`records/blob_saves.rs`, I4 of corpus pull request 1631, S1 to S6 of 1654).
+            if !temporary
+                && buf.borrow().never_loaded_insert
+                && self.unloaded_view_kept(rec, stored.as_ref().map(|r| &r[pos]))
+            {
+                al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored);
+                continue;
+            }
             // A row this variable inserted and that is gone (an error inside ASSERTERROR rolled the Insert back) leaves the Blob empty, whatever a
             // stream wrote since (recordref-fieldref/PnE08RecordMisc.al:TestField_Blob `af219`).
             // A buffer that holds no unsaved write and differs from the stored row was left behind by another variable's
@@ -2070,6 +2094,12 @@ impl Session {
             // showed `*` after `Copy1 := Row`, and CalcFields reads nothing back
             // (types/ProbeTypeFormsAndFilters.al:FormatRecord_AssignmentCopiesBlobBytes, BC 27.5).
             let (bytes, pending, inserted) = match stored.as_ref().map(|row| row[pos].clone()) {
+                // A row an Insert stored from a Blob never loaded (`blobs_to_insert`) loads empty: a temporary row keeps the
+                // buffer (T12, T13, I1), a database row holds an empty Blob with the mark; each read of it is flagged.
+                Some(Value::Blob(src)) if src.borrow().never_loaded_insert => {
+                    al_builtins::assumptions::assume(al_builtins::assumptions::Assumption::BlobNeverLoadedNotStored);
+                    (Vec::new(), None, false)
+                }
                 Some(Value::Blob(src)) => {
                     let src = src.borrow();
                     (src.bytes.clone(), src.render_pending.clone(), src.inserted)

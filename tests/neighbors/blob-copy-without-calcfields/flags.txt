@@ -1,0 +1,3 @@
+# Two companies, so Case 23 can read a row in another company.
+--companies
+CRONUS International Ltd.,NB Other Co

@@ -115,6 +115,11 @@ pub struct BlobBuf {
     /// ([`unread_content_blob`]): `Format` shows `*` (text/text-methods/Y49FieldRefIntoText.al:383) and a comparison
     /// sees a Blob with content (`blob_compare`). A copy does not keep it.
     pub unread_content: bool,
+    /// An Insert did not store this Blob the record never loaded (al-vm `records/blob_saves.rs`, assumption
+    /// `blob-never-loaded-not-stored`, issue 9286, corpus pull request 1631): the bytes stay, so it answers HasValue Yes. A
+    /// temporary row's buffer loads empty at `CalcFields` (T12, T13, I1); a database record's own keeps it (I4). A stream
+    /// write clears it; a copy does not keep it.
+    pub never_loaded_insert: bool,
     /// A Write of a value other than a Text went through a UTF-16 OutStream to this buffer. A UTF-16 Read(Text) of such bytes
     /// reads less than StreamReadMatrix.al shows for the same bytes written through a stream of the default encoding
     /// (streams/PnE04Streams.al:162-183 `utf16` and `utf16terminated` read `4|w` of 77 00 F6 00 72 00, :237-250 `utf16len4`
@@ -448,6 +453,7 @@ pub fn new_blob() -> BlobRef {
         dotnet_view: 0,
         dotnet_rewritten: false,
         unread_content: false,
+        never_loaded_insert: false,
         assigned_unsaved: false,
         assigned_write: AssignedWrite::No,
         utf16_binary: false,
@@ -475,32 +481,15 @@ pub fn unread_content_blob() -> BlobRef {
 
 pub fn copy_blob(b: &BlobRef, loaded: bool) -> BlobRef {
     let b = b.borrow();
+    // The marks a copy keeps; every other field starts as a buffer's default (not written, not a row's, no stream).
     std::sync::Arc::new(BlobCell::new(BlobBuf {
         bytes: b.bytes.clone(),
-        write_pos: 0,
         loaded,
         fetched: loaded,
-        refetch: false,
-        persisted: false,
-        temp_row: false,
-        uncompressed: false,
-        written: false,
-        written_base: None,
         render_pending: b.render_pending.clone(),
         inserted: b.inserted,
-        temp_inserted: false,
-        db_row: false,
-        first_write_truncates: false,
-        file: false,
-        dotnet_view: 0,
-        dotnet_rewritten: false,
-        unread_content: false,
-        assigned_unsaved: false,
-        assigned_write: AssignedWrite::No,
         utf16_binary: b.utf16_binary,
-        unicode_read: None,
-        content_edits: 0,
-        line_breaks: Default::default(),
+        ..Default::default()
     }))
 }
 
@@ -515,6 +504,7 @@ pub fn copy_for_assignment(b: &BlobRef) -> BlobRef {
     copy.dotnet_rewritten = false;
     copy.temp_inserted = false;
     copy.assigned_unsaved = false;
+    copy.never_loaded_insert = false;
     copy.line_breaks = crate::stream_line_breaks::LineBreakHistory::cleared(copy.content_edits);
     std::sync::Arc::new(BlobCell::new(copy))
 }
@@ -565,6 +555,7 @@ fn write_bytes_at(b: &BlobRef, bytes: &[u8]) -> bool {
     buf.unicode_read = None;
     buf.assigned_unsaved = false;
     buf.assigned_write = AssignedWrite::No;
+    buf.never_loaded_insert = false;
     if !buf.written {
         buf.written_base = Some(buf.bytes.clone());
     }
@@ -1246,6 +1237,7 @@ pub(crate) fn create_empty_in_stream(a: &mut [Value]) -> Result<(), Signal> {
         dotnet_view: 0,
         dotnet_rewritten: false,
         unread_content: false,
+        never_loaded_insert: false,
         assigned_unsaved: false,
         assigned_write: AssignedWrite::No,
         utf16_binary: false,

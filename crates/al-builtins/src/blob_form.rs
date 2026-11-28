@@ -33,6 +33,7 @@ const ASSIGNED_UNSAVED: u32 = 1 << 12;
 const UNREAD_CONTENT: u32 = 1 << 13;
 const UTF16_BINARY: u32 = 1 << 14;
 const DOTNET_REWRITTEN: u32 = 1 << 15;
+const NEVER_LOADED_INSERT: u32 = 1 << 16;
 
 /// Appends every field of `b`.
 pub(crate) fn put(b: &BlobBuf, out: &mut Vec<u8>) {
@@ -58,6 +59,7 @@ pub(crate) fn put(b: &BlobBuf, out: &mut Vec<u8>) {
         assigned_unsaved,
         assigned_write,
         unread_content,
+        never_loaded_insert,
         utf16_binary,
         unicode_read,
         content_edits,
@@ -80,6 +82,7 @@ pub(crate) fn put(b: &BlobBuf, out: &mut Vec<u8>) {
         (*file, FILE),
         (*assigned_unsaved, ASSIGNED_UNSAVED),
         (*unread_content, UNREAD_CONTENT),
+        (*never_loaded_insert, NEVER_LOADED_INSERT),
         (*utf16_binary, UTF16_BINARY),
         (*dotnet_rewritten, DOTNET_REWRITTEN),
     ];
@@ -149,6 +152,7 @@ pub(crate) fn read(r: &mut Reader) -> Option<BlobBuf> {
         assigned_unsaved: on(ASSIGNED_UNSAVED),
         assigned_write,
         unread_content: on(UNREAD_CONTENT),
+        never_loaded_insert: on(NEVER_LOADED_INSERT),
         utf16_binary: on(UTF16_BINARY),
         unicode_read,
         content_edits: r.u32()?,
@@ -217,6 +221,7 @@ impl BlobBuf {
             assigned_unsaved,
             assigned_write,
             unread_content,
+            never_loaded_insert,
             utf16_binary,
             unicode_read,
             content_edits,
@@ -247,6 +252,7 @@ impl BlobBuf {
             ("assigned_unsaved", *assigned_unsaved == other.assigned_unsaved),
             ("assigned_write", *assigned_write == other.assigned_write),
             ("unread_content", *unread_content == other.unread_content),
+            ("never_loaded_insert", *never_loaded_insert == other.never_loaded_insert),
             ("utf16_binary", *utf16_binary == other.utf16_binary),
             ("unicode_read", *unicode_read == other.unicode_read),
             ("content_edits", *content_edits == other.content_edits),
@@ -298,6 +304,7 @@ mod tests {
             assigned_unsaved: true,
             assigned_write: AssignedWrite::NeverInsertedEmpties,
             unread_content: true,
+            never_loaded_insert: true,
             utf16_binary: true,
             unicode_read: Some(Encoding::Windows),
             content_edits: 7,
@@ -323,6 +330,40 @@ mod tests {
     }
 
     #[test]
+    fn copy_blob_keeps_only_the_listed_fields() {
+        // The fields `copy_blob` does not carry over; every other one it keeps. A new `BlobBuf` field shows up here until
+        // `copy_blob` decides whether a copy keeps it.
+        let a = every_field_set();
+        let copy = crate::stream::copy_blob(&std::sync::Arc::new(crate::stream::BlobCell::new(a.clone())), false);
+        let dropped = a.differing_fields(&copy.borrow());
+        assert_eq!(
+            dropped,
+            vec![
+                "write_pos",
+                "refetch",
+                "persisted",
+                "temp_row",
+                "uncompressed",
+                "written",
+                "written_base",
+                "temp_inserted",
+                "db_row",
+                "first_write_truncates",
+                "file",
+                "dotnet_view",
+                "dotnet_rewritten",
+                "assigned_unsaved",
+                "assigned_write",
+                "unread_content",
+                "never_loaded_insert",
+                "unicode_read",
+                "content_edits",
+                "line_breaks",
+            ]
+        );
+    }
+
+    #[test]
     fn the_comparison_names_each_field_that_differs_and_no_value() {
         let a = every_field_set();
         assert_eq!(a.differing_fields(&a.clone()), Vec::<&str>::new());
@@ -334,7 +375,7 @@ mod tests {
         let all = a.differing_fields(&crate::stream::new_blob().borrow());
         assert_eq!(
             all.len(),
-            25,
+            26,
             "every field of the set buffer is apart from a new one's: {all:?}"
         );
     }

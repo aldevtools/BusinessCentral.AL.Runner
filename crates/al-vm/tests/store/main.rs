@@ -8,6 +8,7 @@ mod blob_assign_then_calcfields;
 mod blob_calcfields_after_run;
 mod blob_clear_shared_xrec;
 mod blob_field_assign_copy;
+mod blob_insert_unloaded;
 mod blob_length_large;
 mod blob_length_sign;
 mod blob_roundtrip_after_insert;

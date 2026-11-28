@@ -597,16 +597,7 @@ impl Session {
                             self.note_explicit_key(&t, a, &row, &cx.company);
                         }
                     }
-                    let r = self.fail_unique(&t, unique_key, &row);
-                    // The flag hides the values of a unique index an Insert into a table with a Blob field breaks
-                    // (errors/last-error/InsertDuplicateKeyExcludeFlag.al:121). Other tables are not pinned.
-                    if self.has_blob_field(&t) && !rec.borrow().temporary {
-                        return r.map_err(|s| redact_error(s, format!(
-                            "There is already a record in table {} that has the same values in a unique index for the following fields: <redacted>",
-                            self.caption(&t)
-                        )));
-                    }
-                    return r;
+                    return self.fail_unique_insert(rec, &t, unique_key, &row);
                 }
                 let mut view = self.stored_view(&t, &row);
                 // A temporary row keeps the FlowFilter values the Insert wrote (`flow_filter_positions`).
@@ -628,7 +619,7 @@ impl Session {
                     return self.insert_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
                 let empty_blob = Self::temp_insert_blobs(rec, &stored);
-                Self::mark_blobs_inserted(rec, &stored, true);
+                let never_loaded = Self::blobs_to_insert(rec, &mut stored);
                 let before = self.store.change_counter();
                 // The SQL counters' buffer before their first read (sqlcount.rs, `SqlCounters::pre_insert`).
                 let pre_ops = (!self.sql.active && !rec.borrow().temporary).then(al_data::memory::store_ops);
@@ -645,37 +636,9 @@ impl Session {
                         }
                         self.note_insert(rec, &t, before);
                         self.queue_stored_row(rec, &t);
-                        Self::note_empty_blob_insert(rec, &t, empty_blob);
-                        Self::clear_blob_written(rec);
+                        Self::blobs_after_insert(rec, &t, empty_blob, &never_loaded);
                         rec.borrow_mut().inserted = true;
-                        if !rec.borrow().temporary {
-                            let company = rec.borrow().company.clone();
-                            if !self
-                                .tx
-                                .open
-                                .tables_inserted
-                                .iter()
-                                .any(|(o, c)| *o == t.object && *c == company)
-                            {
-                                self.tx.open.tables_inserted.push((t.object, company));
-                            }
-                        }
-                        let version = t
-                            .fields
-                            .iter()
-                            .position(|f| f.id == 2_000_000_005)
-                            .map(|i| rec.borrow().fields[i].clone());
-                        if let Some(Value::BigInteger(v)) = version {
-                            self.set_own_insert_origin(&t, rec, v);
-                        }
-                        // The Blob content an Insert of a temporary record stored is persisted, as one a Modify stored (see Rename).
-                        if rec.borrow().temp_id.is_some() {
-                            for v in &rec.borrow().fields {
-                                if let Value::Blob(b) = v {
-                                    b.borrow_mut().persisted = true;
-                                }
-                            }
-                        }
+                        self.note_inserted_row(&t, rec);
                         if let (Some(a), false) = (auto, taken) {
                             self.note_explicit_key(&t, a, &row, &cx.company);
                         }
@@ -934,7 +897,7 @@ impl Session {
                     let shape = (caller, stored_row.is_some(), run);
                     return self.fail_modify_sql_range(rec, &t, bad, shape, (old_version, stamped));
                 }
-                Self::mark_blobs_inserted(rec, &stored, false);
+                Self::blobs_to_modify(rec, &mut stored, stored_row.as_deref());
                 let before = self.store.change_counter();
                 match self
                     .store_for(rec)?
@@ -2162,7 +2125,15 @@ impl Session {
                                 .iter()
                                 .enumerate()
                                 .filter(|(_, v)| matches!(v, Value::Blob(_)))
-                                .map(|(i, _)| (i, self.default_value(&t.fields[i].ty)))
+                                .map(|(i, _)| {
+                                    (
+                                        i,
+                                        Self::blob_after_temp_rename(
+                                            &old_fields[i],
+                                            self.default_value(&t.fields[i].ty),
+                                        ),
+                                    )
+                                })
                                 .collect();
                             let mut r = rec.borrow_mut();
                             for (i, empty) in own {
@@ -2330,6 +2301,31 @@ fn valid_find_direction(which: &str) -> bool {
 }
 
 impl Session {
+    /// After an Insert stored the row of `rec`: the open transaction notes the table (and company) it inserted into, and
+    /// the record takes its row version as its own Insert's (`set_own_insert_origin`).
+    fn note_inserted_row(&mut self, t: &TableDef, rec: &Rec) {
+        if !rec.borrow().temporary {
+            let company = rec.borrow().company.clone();
+            if !self
+                .tx
+                .open
+                .tables_inserted
+                .iter()
+                .any(|(o, c)| *o == t.object && *c == company)
+            {
+                self.tx.open.tables_inserted.push((t.object, company));
+            }
+        }
+        let version = t
+            .fields
+            .iter()
+            .position(|f| f.id == 2_000_000_005)
+            .map(|i| rec.borrow().fields[i].clone());
+        if let Some(Value::BigInteger(v)) = version {
+            self.set_own_insert_origin(t, rec, v);
+        }
+    }
+
     /// The marks `record_op_inner` checks before a method runs, and the page view mark a method ends
     /// (`consistent_marks/page_view.rs`): the view of a by-value copy (`records/by_value_view.rs`
     /// `by_value_view_marks`); and Copy, CopyFilters, TransferFields and the like from a record `copy_refused_mark` names, which
