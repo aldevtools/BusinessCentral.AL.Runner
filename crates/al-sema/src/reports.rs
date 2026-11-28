@@ -2211,7 +2211,8 @@ mod tests {
                 column(A; Rec.D05) { } column(B; \"A.B\".\"C.D\") { } column(C; D05) { } column(D; A.B.C) { }
                 column(E; \"Unit Amt.\") { } column(F; Rec.D05 * 2) { } column(G; \"A \"\"x\"\"\".F) { } } } }",
         );
-        let sources: Vec<(Vec<String>, Option<(String, String)>)> = l.items[0]
+        type Parsed = (Vec<String>, Option<(String, String)>);
+        let sources: Vec<Parsed> = l.items[0]
             .section
             .sections()
             .map(|c| {
