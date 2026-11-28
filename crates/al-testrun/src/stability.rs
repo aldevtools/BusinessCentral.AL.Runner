@@ -417,6 +417,13 @@ impl Perturb {
         *self == Perturb::default()
     }
 
+    /// ADR-070 decision 7: whether the variant runs in BC's order (`RunOptions::strict_order`). A variant of the
+    /// dimension `isolation.singleInstance = fresh` is the default isolated run; every other variant runs in BC's order.
+    /// The stability run (`CorpusRuntime::try_run_variants`), `--stability-replay` and the reports read it.
+    pub fn in_bc_order(&self) -> bool {
+        !self.single_fresh
+    }
+
     /// The host values of the variant as text, empty when they are a normal run's: the key of an install baseline,
     /// which install code builds under these values (ADR-058 section 7).
     pub fn host_key(&self) -> String {

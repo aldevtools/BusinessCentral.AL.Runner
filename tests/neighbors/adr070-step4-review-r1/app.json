@@ -1,0 +1,13 @@
+{
+  "id": "b1c6f7a2-5d3e-4f80-9a1b-070400000003",
+  "name": "Neighbors ADR-070 step 4 review round 1, isolated order",
+  "publisher": "al-runner neighbors",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [
+    { "from": 50300, "to": 50399 }
+  ],
+  "dependencies": []
+}

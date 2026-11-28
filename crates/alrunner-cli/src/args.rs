@@ -1034,9 +1034,9 @@ ISOLATION
                          that fails because it needs state an earlier codeunit sets on Business
                          Central gets an order hint: the SingleInstance codeunit, its app, the
                          variable, the codeunit that sets it and this option (console, JUnit
-                         property `orderHint`, JSON `orderHint`). Test codeunits that take or read
-                         numbers after another codeunit took some are listed (`number order:`
-                         lines, JUnit property `numberSequenceOrder`). Fix such a test: set up the
+                         property `orderHint`, JSON `orderHint`); so does a failed test that took
+                         numbers from a sequence an earlier codeunit also took from. Passing tests
+                         that read such state are counted in one line. Fix such a test: set up the
                          state it needs in its own codeunit's Initialize, or clear the
                          SingleInstance codeunit there.
                          With this option the state and the numbers carry as on Business Central.
@@ -1060,7 +1060,9 @@ ISOLATION
                          codeunits of different suites; within a suite the rules above apply in
                          the file's order. A codeunit in no suite runs as a session of its own. A
                          codeunit in several suites runs once. Without this option the whole run
-                         is one session. Format: docs/manual/cli-reference.md, \"Test suites file\".
+                         is one session. In the default order mode it only changes the hints;
+                         with --strict-order it sets what runs in one walk. Format:
+                         docs/manual/cli-reference.md, \"Test suites file\".
                          In `serve`: the runTests field `testSuites` (the file's path).
 
 EXIT CODES

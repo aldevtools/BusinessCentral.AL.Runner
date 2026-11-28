@@ -312,6 +312,7 @@ fn walk_routine<V: RefVisitor>(r: &mut Routine, v: &mut V) {
         expr_tys: _,
         reads_var_max_len: _,
         local: _,
+        internal: _,
     } = r;
     field_opt(v, field, TableOf::Trigger);
     for a in attributes {
@@ -1195,6 +1196,7 @@ fn walk_report_column<V: RefVisitor>(c: &mut ReportColumn, table: TableOf, v: &m
         source_syntax: _,
         places_table,
         places_field,
+        field_unit_amount_format: _,
     } = c;
     field_opt(v, field, table);
     field_opt(v, places_field, TableOf::object(*places_table));

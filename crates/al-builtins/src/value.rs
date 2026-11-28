@@ -703,7 +703,8 @@ pub struct RecordState {
     /// commits of the session then). A stale buffer from the Insert of the transaction the last Commit closed may still be
     /// written (record/TestRecordStaleBufferWrite.al:395-690, `Session::stale_verdict`).
     pub row_origin: Option<RowOrigin>,
-    /// Where the buffer's row version came from, for the Modify after a failed guarded Insert (see [`VersionEntry`]).
+    /// Where the buffer's row version came from, for the Modify after a failed guarded Insert and the xRec of a nested
+    /// Validate (see [`VersionEntry`]).
     pub version_entry: VersionEntry,
     /// The variable's own Insert and its own Get of that row after it (see [`OwnRead`]).
     pub own_read: OwnRead,
@@ -831,8 +832,9 @@ pub struct OwnReadAt {
     pub store_changes: u64,
 }
 
-/// Where a buffer's row version came from, read only by the Modify after a failed guarded Insert (al-vm
-/// `stale_own_modify.rs` `check_failed_insert_stale`, al-runner issue 8721). A clone of the record state marks it
+/// Where a buffer's row version came from, read by the Modify after a failed guarded Insert (al-vm
+/// `stale_own_modify.rs` `check_failed_insert_stale`, al-runner issue 8721) and by the xRec of a nested Validate (al-vm
+/// `records/nested_validate.rs` `buffer_version_measured`). A clone of the record state marks it
 /// [`VersionVia::Cloned`]; `:=`, Record.Copy, a by-value parameter and RecordRef.GetTable carry it as themselves
 /// ([`VersionEntry::carried`]). Empty when no read or write of the buffer gave it its version (a TransferFields with
 /// the key copies one: the buffer neither read nor wrote that row).
@@ -852,17 +854,24 @@ impl VersionEntry {
             source: Rc::new(source),
             via: VersionVia::Own,
             failed_inserts: 0,
+            failed_insert_before_copy: false,
             deleted: false,
+            fields_replaced: false,
+            carried_from: None,
         }))
     }
 
-    /// The entry a copy of the buffer takes, made by `via`: the same source, no failed Insert of its own yet.
+    /// The entry a copy of the buffer takes, made by `via`: the same source, no failed Insert of its own yet, and
+    /// whether the buffer or a copy it came from had one.
     pub fn carried(&self, via: VersionVia) -> VersionEntry {
         VersionEntry(self.0.as_ref().map(|h| HeldVersion {
             source: Rc::clone(&h.source),
             via,
             failed_inserts: 0,
+            failed_insert_before_copy: h.failed_insert_before_copy || h.failed_inserts > 0,
             deleted: h.deleted,
+            fields_replaced: h.fields_replaced,
+            carried_from: Some(h.via),
         }))
     }
 
@@ -883,8 +892,16 @@ pub struct HeldVersion {
     pub via: VersionVia,
     /// The guarded Inserts of this copy at this version that answered false.
     pub failed_inserts: u32,
+    /// A copy this copy was made from, directly or through other copies, had a guarded Insert at this version that
+    /// answered false before the copy ([`HeldVersion::failed_inserts`] counts only this copy's own).
+    pub failed_insert_before_copy: bool,
     /// The variable deleted its row since.
     pub deleted: bool,
+    /// Another record's fields replaced the buffer's since it got the version, by a writer that keeps the version
+    /// (al-vm `Session::note_fields_from_other_record`: RecordRef.SetTable, Page.GetRecord, Page.SetSelectionFilter, TransferFields; a copy keeps it).
+    pub fields_replaced: bool,
+    /// The copy that this copy was made from held the version by this way (`None`: the version's own variable).
+    pub carried_from: Option<VersionVia>,
 }
 
 /// One [`VersionEntry`]'s source: the version, how it reached the buffer, and the open transaction at that moment.
@@ -2000,13 +2017,24 @@ pub enum LibraryValue {
     XmlNamespaces(crate::xml::NsScopes),
     /// An InStream: a snapshot being read.
     InStream(crate::stream::InState),
-    /// An OutStream: appends to a Blob buffer. The last part is what the VM kept when the stream was opened on a Blob field of
-    /// a temporary record ([`crate::stream::OutOpen`]).
+    /// An OutStream: appends to a Blob buffer. The third part is what the VM kept when the stream was opened on a Blob field
+    /// of a temporary record ([`crate::stream::OutOpen`]). The last part is the buffer's
+    /// [`crate::stream::BlobBuf::content_edits`] right after the `Blob.CreateOutStream` that made this stream (`None` for a
+    /// stream made otherwise): every OutStream of one Blob shares its buffer, so this tells them apart (al-vm
+    /// `zip_blob_writes`).
     OutStream(
         crate::stream::BlobRef,
         crate::stream::Encoding,
         Option<Rc<crate::stream::OutOpen>>,
+        Option<u32>,
     ),
+}
+
+impl LibraryValue {
+    /// An OutStream on `blob` that no `Blob.CreateOutStream` of a temporary record's field made.
+    pub fn out_stream(blob: crate::stream::BlobRef, enc: crate::stream::Encoding) -> Self {
+        LibraryValue::OutStream(blob, enc, None, None)
+    }
 }
 
 impl Value {
@@ -2482,5 +2510,19 @@ mod version_entry_tests {
         assert_eq!(per_copy(&own), (VersionVia::Own, 1, true));
         assert_eq!(per_copy(&cloned), (VersionVia::Cloned, 0, true));
         assert_eq!(per_copy(&by_value), (VersionVia::ByValue, 0, true));
+    }
+
+    /// A copy starts with no failed Insert of its own, but keeps that a copy it was made from had one, through any
+    /// number of copies (Copilot comment on train PR 9412: the nested-Validate gate reads it).
+    #[test]
+    fn a_copy_keeps_a_failed_insert_of_the_copy_it_came_from() {
+        let fresh = own_entry(vec![Value::Integer(1)]);
+        let before = |e: &VersionEntry| e.0.as_ref().expect("an entry").failed_insert_before_copy;
+        let assigned = fresh.carried(VersionVia::Assigned);
+        let again = assigned.carried(VersionVia::Assigned);
+        assert_eq!((before(&fresh), before(&assigned), before(&again)), (false, true, true));
+        let mut clean = own_entry(vec![Value::Integer(1)]);
+        clean.0.as_mut().expect("an entry").failed_inserts = 0;
+        assert!(!before(&clean.carried(VersionVia::Assigned)));
     }
 }

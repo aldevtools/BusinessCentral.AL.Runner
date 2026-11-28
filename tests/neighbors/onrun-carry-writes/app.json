@@ -1,0 +1,11 @@
+{
+  "id": "6d1f3c20-1a2b-4c3d-9e8f-762200000001",
+  "name": "Neighbors onrun-carry-writes",
+  "publisher": "AL Runner",
+  "version": "1.0.0.0",
+  "platform": "27.0.0.0",
+  "runtime": "16.0",
+  "target": "OnPrem",
+  "idRanges": [ { "from": 86900, "to": 86930 } ],
+  "dependencies": []
+}

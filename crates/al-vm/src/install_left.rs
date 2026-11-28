@@ -73,6 +73,7 @@ impl Session {
             xp_pass_views: _,
             frames: _,
             next_interface_call: _,
+            next_own_locals: _,
             xp_unlinked_passes: _,
             xp_link_hidden: _,
             call_stack: _,
@@ -102,6 +103,10 @@ impl Session {
             install_without_client: _,
             // Carried: `Baseline::company_built`.
             company_built: _,
+            // Carried: `Baseline::login_held`.
+            login_held: _,
+            // Carried: `Baseline::codeunit_left`.
+            codeunit_left: _,
             demo_written: _,
             gl_setup_written: _,
             setup_caption_read_early: _,
@@ -168,6 +173,7 @@ impl Session {
             ext_before_watch: _,
             shared_proc_xrec: _,
             iface_frames: _,
+            run_callers: _,
             cx: _,
             // Carried: `Baseline::install_rows` (the session has no baseline, so it is empty).
             baseline_rows: _,
@@ -212,6 +218,7 @@ impl Session {
             test_object: _,
             http_policy: _,
             scratch_messages: _,
+            test_local_blob_fields: _,
             tdd_reached: _,
             global_group1: _,
             // Set by the caller after the install code (al-testrun run.rs: capture, debugger).
@@ -385,6 +392,7 @@ impl Session {
             [
                 (self.variant_refs.as_new(), "variant_refs"),
                 (self.temp_blob_impl_fields.as_new(), "temp_blob_impl_fields"),
+                (self.global_group1.is_empty(), "global_group1"),
             ]
             .into_iter()
             .find_map(|(holds, field)| (!holds).then_some(field))
@@ -447,7 +455,7 @@ impl Session {
 /// The first field of the transaction state, as `tx.<field>`, that does not hold what a new session holds
 /// ([`crate::state::TxState::fresh`]); `None` when each does. Not checked: what a Commit leaves for a later test to read
 /// (`phase`, `transaction_type`, `type_origin`, `lock_timeout`, `lock_timeout_duration`, `committed_row_version`,
-/// `commit_counter`, `write_counts`, `rolled_back`, `last_commit_wrote`), which the callers decide: no transaction is
+/// `commit_counter`, `write_counts`, `ended`, `rolled_back`, `last_commit_wrote`), which the callers decide: no transaction is
 /// open and no call left anything behind.
 pub(crate) fn tx_not_as_new(tx: &crate::state::TxState) -> Option<&'static str> {
     let crate::state::TxState {
@@ -464,6 +472,7 @@ pub(crate) fn tx_not_as_new(tx: &crate::state::TxState) -> Option<&'static str> 
         committed_row_version: _,
         commit_counter: _,
         write_counts: _,
+        ended: _,
         rolled_back: _,
         rollback_unpinned,
         rollback_kind,

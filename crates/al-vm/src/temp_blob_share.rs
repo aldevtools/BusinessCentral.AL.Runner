@@ -258,7 +258,7 @@ impl Session {
     /// After `Blob.CreateOutStream` ran: the stream keeps what [`Session::temp_blob_share_guard`] saw at its open.
     #[inline(never)]
     pub(crate) fn temp_blob_attach_open(&mut self, p: PendingOpen) {
-        if let LibraryValue::OutStream(_, _, kept) = &mut *p.stream.borrow_mut() {
+        if let LibraryValue::OutStream(_, _, kept, _) = &mut *p.stream.borrow_mut() {
             *kept = Some(Rc::new(p.open));
             STREAMS_KEPT.store(true, Ordering::Relaxed);
         }
@@ -287,7 +287,7 @@ impl Session {
             // Every write through such a stream passes here: what main's path needs is read under the borrow, and the
             // stream's open (its key) is copied only for the checks past it.
             let (b, open) = match &*h.borrow() {
-                LibraryValue::OutStream(b, _, Some(open)) => {
+                LibraryValue::OutStream(b, _, Some(open), _) => {
                     let b = b.clone();
                     if own_holders_only(&b, open) {
                         continue;

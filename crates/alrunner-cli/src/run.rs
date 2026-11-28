@@ -81,7 +81,7 @@ fn fold(s: &str) -> String {
 }
 
 /// `Codeunit<ID>.<Method>`, the name AL Runner v2 reports and accepts.
-fn qualified(codeunit: u32, test: &str) -> String {
+pub(crate) fn qualified(codeunit: u32, test: &str) -> String {
     format!("Codeunit{codeunit}.{test}")
 }
 
@@ -1403,6 +1403,10 @@ fn test_inner(
             .has(al_version::Gate::TestRunnerHubRequiredIsolationFrom28);
     // ADR-074: BcContainerHelper runs every test codeunit through the runner codeunit; it has no TestRunnerHub.
     let driver = a.test_driver.unwrap_or_default();
+    // `--stability-replay` (ADR-058): one variant as a normal run, in the order of its stability run (ADR-070 decision 7).
+    let cell = format!("{}.{}-{}", chosen.target.bc.major, chosen.target.bc.minor, country);
+    let replayed = crate::stability::replay(a, &cell)?;
+    let (bc_order, order_mode) = crate::order_mode::OrderMode::of_run(a, driver, replayed.as_ref());
     if a.required_isolation && driver == al_testrun::runtime::TestDriver::BcContainerHelper {
         return Err("--isolation required follows the TestRunnerHub of the bc-linux driver; --test-driver bccontainerhelper has no hub".into());
     }
@@ -1419,6 +1423,7 @@ fn test_inner(
         say!("{}", style::bold(&crate::version::line()));
         // ADR-061 section 3: the seed before the first test, so a run that never ends still shows it.
         say!("{}", crate::seed::line(run_seed));
+        say!("{}", order_mode.line());
     }
     // Setup details: --verbose only (see HELP, "Output").
     if a.verbose {
@@ -1676,8 +1681,7 @@ fn test_inner(
         no_client: a.no_client,             // issue 7564
         allow_write_in_try_functions: a.allow_write_in_try_functions, // issue 7143
         dependencies_published_global: a.dependencies_published_global, // issue 7169
-        // `--strict-order` (ADR-070); BcContainerHelper runs in one session (`TestDriver::one_session`).
-        strict_order: a.strict_order || driver.one_session(),
+        strict_order: bc_order,
         test_suites, // `--test-suites FILE` (ADR-066 amendment 6)
         memory: crate::memory_budget::budget(a.max_memory, warm.is_none() && debug.is_none()), // `--max-memory`
         private_baseline: std::env::var_os("AL_PRIVATE_BASELINE").is_some(), // ADR-069 decision 11
@@ -1688,7 +1692,7 @@ fn test_inner(
         company_data: company_data.clone(),
         workspace_cache: crate::workspace_layer::options(a, &inputs),
         compile_cache: compile_cache_on.then(|| compile_cache(a, &country)),
-        // Left at their defaults: `single_fresh_check` (set per variant in stability mode, ADR-058 amendment 1), `perturb`, `check_baseline_rule`.
+        // Left at their defaults: `perturb` (set per variant in stability mode), `check_baseline_rule`.
         ..Default::default()
     };
     login_replay.apply(&mut opts);
@@ -1715,9 +1719,8 @@ fn test_inner(
     };
     // `--stability` (ADR-058): the variants of the config, run over one compile; `--stability-replay`: one variant as a
     // normal run.
-    let cell = format!("{}.{}-{}", chosen.target.bc.major, chosen.target.bc.minor, country);
     let stability_plan = crate::stability::plan(a, &cell)?;
-    if let Some(v) = crate::stability::replay(a, &cell)? {
+    if let Some(v) = replayed {
         opts.perturb = v.perturb;
     }
     if (stability_plan.is_some() || a.stability_replay.is_some()) && warm.is_some() {
@@ -1889,7 +1892,7 @@ fn test_inner(
         let mut out = crate::stability::compare(plan, &seen);
         // ADR-058 amendment 1: order dependence through SingleInstance state, from the base variant's tracking.
         let own: Vec<String> = inputs.iter().map(|i| i.json.id.clone()).collect();
-        let si = crate::stability_si::SiReport::new(rt.single_carried(), &own, plan);
+        let si = crate::stability_si::SiReport::of_runs(&rt, &variant_rts, &own, plan, &seen);
         out.with_single_instance(plan, si, &seen[0]);
         (plan, per_variant, seen, out)
     });
@@ -1998,13 +2001,9 @@ fn test_inner(
             );
         }
     }
-    // ADR-066 amendment 7, option 2: a re-run skipped for the length of its chain is said with or without `--timings`
-    // (`--timings` prints it with the other lane lines).
-    if !a.timings {
-        // ADR-066 amendment 12, decision 3: and the numbers list (`--timings` prints it with the chain lines).
-        for line in p.chain.run_output_lines() {
-            eprintln!("{line}");
-        }
+    // ADR-070 decision 4: the passing tests that read carried state, with or without `--timings`.
+    for line in p.chain.run_output_lines() {
+        eprintln!("{line}");
     }
     if rt.panics > 0 {
         eprintln!(
@@ -2152,6 +2151,7 @@ fn test_inner(
     if let (Some(path), Some((plan, per_variant, _, out))) = (&a.junit, &stability) {
         write_file(
             path,
+            // Each variant's testsuite has the order mode it ran in (`stability::junit`).
             &crate::seed::junit_license(
                 &crate::seed::junit(&crate::stability::junit(plan, per_variant, out), run_seed),
                 &license,
@@ -2163,20 +2163,19 @@ fn test_inner(
         write_file(
             path,
             &crate::unpinned::junit(
-                &crate::seed::junit_license(
+                &order_mode.junit(&crate::seed::junit_license(
                     &crate::seed::junit(
-                        &output::junit_with(
+                        &output::junit(
                             &with_skipped,
                             bc_build.as_deref(),
                             total_time.as_secs_f64(),
                             &|cu, t| disabled.as_ref().is_some_and(|d| d.is_disabled(cu, t)),
                             &rt.phases.baseline_assumptions,
-                            &|r| output::order_properties(&rt.phases.chain, r),
                         ),
                         run_seed,
                     ),
                     &license,
-                ),
+                )),
                 crate::unpinned::enabled(),
             ),
         )?;
@@ -2339,13 +2338,13 @@ fn test_inner(
         ));
         w.report = Some(Report {
             doc: serde_json::from_str(&crate::unpinned::json(
-                crate::seed::json(
+                order_mode.json(crate::seed::json(
                     crate::affected::with_selection(
                         output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
                         affected.as_ref(),
                     ),
                     run_seed,
-                ),
+                )),
                 crate::unpinned::enabled(),
                 crate::unpinned::count(results.iter().map(|r| &r.outcome)),
             ))
@@ -2395,7 +2394,7 @@ fn test_inner(
     }
     if let Some(target) = &a.output_json {
         let doc = crate::unpinned::json(
-            crate::seed::json(
+            order_mode.json(crate::seed::json(
                 crate::seed::json_license(
                     crate::affected::with_selection(
                         output::json_tdd(&results, code, total_time.as_secs_f64(), tdd_stubs),
@@ -2404,7 +2403,7 @@ fn test_inner(
                     &license,
                 ),
                 run_seed,
-            ),
+            )),
             crate::unpinned::enabled(),
             crate::unpinned::count(results.iter().map(|r| &r.outcome)),
         );

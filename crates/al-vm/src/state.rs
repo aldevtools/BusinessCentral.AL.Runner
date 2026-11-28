@@ -46,6 +46,9 @@ pub(crate) struct TxState {
     pub(crate) commit_counter: u64,
     /// The Record writes noted in the whole session, never reset (`version_entry.rs`).
     pub(crate) write_counts: WriteCounts,
+    /// How many open transactions have ended, at a Commit or a rollback (`Session::end_open_transaction`): a position in
+    /// `open.writes` holds only while this is unchanged (`WriteLogMark`).
+    pub(crate) ended: u64,
     /// A rollback ran since the last Commit.
     pub(crate) rolled_back: bool,
     /// Why a rollback since the last Commit is not one the stale-buffer rule knows (`Session::note_rollback_for_stale_rule`);
@@ -413,6 +416,33 @@ impl WriteCounts {
     }
 }
 
+/// A position in the open transaction's write log (`OpenTx::writes`), with the transaction it was taken in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WriteLogMark {
+    ended: u64,
+    len: usize,
+}
+
+impl TxState {
+    /// The end of the write log now.
+    pub(crate) fn write_log_mark(&self) -> WriteLogMark {
+        WriteLogMark {
+            ended: self.ended,
+            len: self.open.writes.len(),
+        }
+    }
+
+    /// The Record writes noted since `mark`; `None` when the transaction `mark` was taken in has ended since (a Commit or a
+    /// rollback emptied the log, so the writes since then are not all in it).
+    pub(crate) fn writes_since(&self, mark: WriteLogMark) -> Option<&[TxWrite]> {
+        if mark.ended == self.ended {
+            self.open.writes.get(mark.len..)
+        } else {
+            None
+        }
+    }
+}
+
 /// One Record write to the database store: the store's change counter before and after it.
 #[derive(Clone, Debug)]
 pub(crate) struct TxWrite {
@@ -459,6 +489,7 @@ impl TxState {
             committed_row_version: 0,
             commit_counter: 0,
             write_counts: WriteCounts::default(),
+            ended: 0,
             rolled_back: false,
             rollback_unpinned: None,
             rollback_kind: None,
@@ -985,6 +1016,18 @@ mod open_tx_tests {
         assert!(!tx.open.is_clear());
         tx.open = Default::default();
         assert!(tx.open.is_clear());
+    }
+
+    /// A position in the write log reads the writes after it only within its transaction: once a Commit or rollback ended
+    /// it, the log no longer holds the writes before that end.
+    #[test]
+    fn a_write_log_mark_reads_nothing_after_its_transaction_ended() {
+        let mut tx = TxState::fresh();
+        let mark = tx.write_log_mark();
+        assert_eq!(tx.writes_since(mark).map(<[_]>::len), Some(0));
+        tx.ended += 1;
+        assert!(tx.writes_since(mark).is_none());
+        assert_eq!(tx.writes_since(tx.write_log_mark()).map(<[_]>::len), Some(0));
     }
 
     /// A load reads the verdict of its table without a scan of the write log (al-runner issue 8721: 20000 Inserts and
