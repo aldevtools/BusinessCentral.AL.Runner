@@ -1,3 +1,9 @@
 # key	entry	version
 R1 A Disabled::A_LoginRowThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:343)	28
 R1 A Disabled::A_LoginRowThenWrite	ASSUMED hub-disabled-login-once (corpus PR 1642: probe-disabled-isolation-login-writes, LgnDisabledLoginWrites.al:343)	29
+R1 F2 OnRun Writer 130450::F2_OwnTableOnly	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:615, :665)	28
+R1 F3 Unrelated 130450::F3_OtherTableOnly	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:665)	28
+R1 H2 Function Unrelated::H2_OtherTableOnly	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:492)	28
+R1 F2 OnRun Writer 130450::F2_OwnTableOnly	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:615, :665)	29
+R1 F3 Unrelated 130450::F3_OtherTableOnly	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:665)	29
+R1 H2 Function Unrelated::H2_OtherTableOnly	ASSUMED hub-login-later-runners (corpus PR 1644: probe-held-login-across-runners, LgnHeldLoginRunners.al:492)	29

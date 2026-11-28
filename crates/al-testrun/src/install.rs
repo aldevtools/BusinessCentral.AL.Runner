@@ -1233,6 +1233,12 @@ impl CompanyOpenWrites {
         lowered.program.objects.get(t as usize).map_or("?", |o| o.name.as_str())
     }
 
+    /// Whether [`CompanyOpenWrites::refuses`] can refuse any routine: a subscriber wrote, or the session starts from the
+    /// run's one login (`held`). `false` spares the reach facts.
+    pub fn can_refuse(&self) -> bool {
+        self.who.is_some() || self.held.is_some()
+    }
+
     /// Why a routine whose static reach is `facts` is not run: its reach can read a table a subscriber wrote. `None` when
     /// no subscriber wrote, the routine cannot see the writes, or its reach is not known: then the routine runs with the
     /// written tables watched, and [`CompanyOpenWrites::touched`] decides after it ran. The tables of `watched_login` are

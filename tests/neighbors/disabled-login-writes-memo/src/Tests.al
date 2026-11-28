@@ -53,8 +53,8 @@ table 52604 "R5 Own"
     }
 }
 
-// Runner 130450 runs it after A; its OnRun writes, so it starts from what A left. Its test reads the memo the one login
-// filled: refused (what BC runs for it is not measured).
+// Runner 130450 runs it after A, in a session of its own whose login fills the memo again on A's row: BC gives memo 1
+// (corpus PR 1644, LgnHeldLoginRunners.al:615). Main runs it without A's row (A not run) and fails.
 codeunit 52620 "R5 F Memo 130450"
 {
     Subtype = Test;
@@ -73,11 +73,11 @@ codeunit 52620 "R5 F Memo 130450"
         Memo: Codeunit "DLW Memo";
         Assert: Codeunit "DLW Assert";
     begin
-        Assert.Equal(0, Memo.Get(), 'memo');
+        Assert.Equal(1, Memo.Get(), 'memo its own login filled');
     end;
 }
 
-// As F, but its test reads the table the login wrote: refused.
+// As F, but its test reads the table the login wrote: refused (the login rows of other sessions are not measured).
 codeunit 52621 "R5 G Login Rows 130450"
 {
     Subtype = Test;

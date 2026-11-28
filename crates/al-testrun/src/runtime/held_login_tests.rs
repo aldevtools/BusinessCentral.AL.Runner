@@ -45,12 +45,13 @@ fn refusals(l: &al_sema::lower::Lowered, engine: &al_vm::Engine, wrote: &Company
         .collect()
 }
 
+// Runner 130450 is the one start after the held login whose login rows are not measured (corpus PR 1644, :615, :665,
+// :708 measure each session's own rows only); every hub isolation thaws the held login (:451, :492, :531).
 #[test]
-fn runner_130450_and_hub_function_codeunits_after_the_held_login_are_not_measured() {
+fn only_runner_130450_codeunits_after_the_held_login_are_not_measured() {
     let runner = login_held_unmeasured(false, TestIsolation::Codeunit).expect("runner 130450");
-    assert!(runner.contains("which runner 130450 runs"), "{runner}");
-    let function = login_held_unmeasured(true, TestIsolation::Function).expect("hub Function");
-    assert!(function.contains("on the hub with this isolation"), "{function}");
+    assert!(runner.contains("login rows of other sessions"), "{runner}");
+    assert_eq!(login_held_unmeasured(true, TestIsolation::Function), None);
     assert_eq!(login_held_unmeasured(true, TestIsolation::Disabled), None);
     assert_eq!(login_held_unmeasured(true, TestIsolation::Codeunit), None);
 }
@@ -86,10 +87,11 @@ fn only_a_session_from_the_install_baseline_starts_the_runs_login() {
     assert!(!first_login(true, TestIsolation::Disabled, &later));
 }
 
-// Under runner 130450 (or Function on the hub) a test that reads the table the login wrote or the SingleInstance
-// codeunit it left is not run; the test that reads neither runs, as on main.
+// Under runner 130450 a test that reads the table the login wrote is not run; the test that reads another table runs,
+// as on main, and so does the reader of the SingleInstance codeunit: the session's own login filled it (corpus PR 1644,
+// :615).
 #[test]
-fn an_unmeasured_codeunit_after_the_held_login_refuses_only_its_readers() {
+fn a_runner_130450_codeunit_after_the_held_login_refuses_only_the_login_table_readers() {
     let (l, engine) = super::tests::engine_for(SRC);
     let why = login_held_unmeasured(false, TestIsolation::Codeunit);
     let mut wrote = CompanyOpenWrites::default();
@@ -100,12 +102,7 @@ fn an_unmeasured_codeunit_after_the_held_login_refuses_only_its_readers() {
             .is_some_and(|w| w.ends_with("this test can read table Login Row")),
         "{r:?}"
     );
-    assert_eq!(r[1], None);
-    assert!(
-        r[2].as_ref()
-            .is_some_and(|w| w.ends_with("SingleInstance codeunit Memo")),
-        "{r:?}"
-    );
+    assert_eq!((&r[1], &r[2]), (&None, &None));
     assert!(wrote.watched().contains(&(object(&l, "Login Row") as u32)));
 }
 
