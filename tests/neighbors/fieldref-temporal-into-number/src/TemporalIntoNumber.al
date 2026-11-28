@@ -29,6 +29,12 @@ table 50320 "FT Row"
         field(5; IntT; Integer) { }
     }
     keys { key(PK; K) { Clustered = true; } }
+
+    procedure CurrFieldNoFrom(var FR: FieldRef): Integer
+    begin
+        CurrFieldNo := FR.Value();
+        exit(CurrFieldNo);
+    end;
 }
 
 codeunit 50321 "FT Tests"
@@ -598,8 +604,7 @@ codeunit 50321 "FT Tests"
         Row: Record "FT Row";
     begin
         FR := Src(RR, 2, 20260115D);
-        Row.CurrFieldNo := FR.Value();
-        Error('got [%1]', Row.CurrFieldNo);
+        Error('got [%1]', Row.CurrFieldNoFrom(FR));
     end;
 
     [Test]
