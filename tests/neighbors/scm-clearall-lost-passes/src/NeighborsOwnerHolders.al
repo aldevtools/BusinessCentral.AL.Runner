@@ -58,6 +58,23 @@ codeunit 86917 "N Holder Shared Owner"
         SalesPost.Run(Row);
     end;
 
+    procedure PostFn(): Integer
+    var
+        Row: Record "CKK Row" temporary;
+    begin
+        Row."No." := 1;
+        Row.Insert();
+        Owner.SetReg(Reg);
+        GetOwner().Run(Row);
+        Reg.SetCnt(5);
+        exit(Owner.GetCnt());
+    end;
+
+    local procedure GetOwner(): Codeunit "N Owner Modes"
+    begin
+        exit(Owner);
+    end;
+
     procedure PostLocalKept(): Integer
     var
         Row: Record "CKK Row" temporary;
@@ -124,6 +141,21 @@ codeunit 86937 "N Owners Test"
     begin
         H.SetOwner(O);
         if H.Post() <> 5 then
+            Error('not shared');
+    end;
+}
+
+codeunit 87006 "N Owners FnResult"
+{
+    Subtype = Test;
+
+    // The Run's receiver is the result of a procedure, not a variable: refused, as on main.
+    [Test]
+    procedure Refused_OwnerRunThroughProcedureResult()
+    var
+        H: Codeunit "N Holder Shared Owner";
+    begin
+        if H.PostFn() <> 5 then
             Error('not shared');
     end;
 }

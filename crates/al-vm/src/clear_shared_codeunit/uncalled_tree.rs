@@ -154,11 +154,12 @@ impl Session {
     pub(crate) fn codeunit_run_noting_caller(
         &mut self,
         rc: Rc<RefCell<Instance>>,
+        receiver: Option<&al_ir::Arg>,
         values: &[Value],
         guarded: bool,
         f: &Frame,
     ) -> Result<Value, Signal> {
-        let held = self.held_by(f, &rc);
+        let held = self.held_by(f, &rc, receiver);
         self.run_callers.push(RunCaller {
             at: self.call_stack.len(),
             caller: Rc::downgrade(&f.instance),
@@ -177,9 +178,10 @@ impl Session {
     }
 
     /// Which one variable of frame `f` declared as `rc`'s codeunit holds `rc`: exactly one global of its instance and no
-    /// declared local, or exactly one declared local (not a parameter, not the return value) and no global; and no other
-    /// variable anywhere holds `rc` ([`HELD_AT_RUN`]).
-    fn held_by(&self, f: &Frame, rc: &Rc<RefCell<Instance>>) -> Option<Held> {
+    /// declared local, or exactly one declared local (not a parameter, not the return value) and no global; no other
+    /// variable anywhere holds `rc` ([`HELD_AT_RUN`]); and the `Run`'s receiver is that variable itself, not a procedure
+    /// result or another expression of the same instance.
+    fn held_by(&self, f: &Frame, rc: &Rc<RefCell<Instance>>, receiver: Option<&al_ir::Arg>) -> Option<Held> {
         let globals = self.globals_holding(&f.instance, rc);
         let r = &self.engine.program.objects[f.object].routines[f.routine];
         let locals = f
@@ -189,11 +191,36 @@ impl Session {
             .enumerate()
             .filter(|&(i, (v, s))| i >= r.params && r.ret_local != Some(i) && holds(v, &s.ty, rc))
             .count();
-        match (Rc::strong_count(rc), globals, locals) {
-            (HELD_AT_RUN, 1, 0) => Some(Held::HolderGlobal),
-            (HELD_AT_RUN, 0, 1) => Some(Held::RunningLocal),
+        let Some(al_ir::Arg::Ref(place)) = receiver else {
+            return None;
+        };
+        match (Rc::strong_count(rc), globals, locals, place) {
+            (HELD_AT_RUN, 1, 0, al_ir::Place::Global(g)) if self.global_holds(&f.instance, *g, rc) => {
+                Some(Held::HolderGlobal)
+            }
+            (HELD_AT_RUN, 0, 1, al_ir::Place::Local(l))
+                if *l >= r.params
+                    && r.ret_local != Some(*l)
+                    && f.locals
+                        .get(*l)
+                        .zip(r.locals.get(*l))
+                        .is_some_and(|(v, s)| holds(v, &s.ty, rc)) =>
+            {
+                Some(Held::RunningLocal)
+            }
             _ => None,
         }
+    }
+
+    /// Whether global `g` of `instance` is declared as `rc`'s codeunit and holds `rc`.
+    fn global_holds(&self, instance: &Rc<RefCell<Instance>>, g: usize, rc: &Rc<RefCell<Instance>>) -> bool {
+        let instance = instance.borrow();
+        let globals = &self.engine.program.objects[instance.object as usize].globals;
+        instance
+            .globals
+            .get(g)
+            .zip(globals.get(g))
+            .is_some_and(|(v, d)| holds(v, &d.ty, rc))
     }
 
     /// Whether the `ClearAll()` in `owner` that meets register instance `rc` runs in a call path corpus PR 1650 measures

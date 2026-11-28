@@ -37,6 +37,7 @@ impl Session {
         id: al_builtins::builtin_id::BuiltinId,
         class: al_builtins::builtin_id::Class,
         recv: Option<Value>,
+        receiver: Option<&ir::Arg>,
         values: Vec<Value>,
         ret_used: bool,
         f: &mut Frame,
@@ -73,7 +74,7 @@ impl Session {
         // The receiver moves into the Run, so the run instance's reference count is the one of main.
         match recv {
             Some(Value::Codeunit(rc)) if id == ids::CODEUNIT_RUN_1 => {
-                self.codeunit_run_noting_caller(rc, &values, ret_used, f)
+                self.codeunit_run_noting_caller(rc, receiver, &values, ret_used, f)
             }
             recv => self.codeunit_run(id, recv, &values, ret_used),
         }

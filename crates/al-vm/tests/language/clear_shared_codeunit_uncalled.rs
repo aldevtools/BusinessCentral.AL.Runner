@@ -176,6 +176,12 @@ codeunit 50113 HShared
     begin
         Row."No." := 1; Row.Insert(); SalesPost.Run(Row);
     end;
+    procedure PostFn(): Integer var Row: Record Row temporary;
+    begin
+        Row."No." := 1; Row.Insert();
+        O.SetReg(Reg); GetOwner().Run(Row); Reg.SetCnt(5); exit(O.GetCnt());
+    end;
+    local procedure GetOwner(): Codeunit Owner begin exit(O); end;
     procedure PostLocalKept(): Integer
     var Row: Record Row temporary; LocalO: Codeunit Owner; K: Codeunit Keeper;
     begin
@@ -275,6 +281,7 @@ codeunit 50108 T
         X.SetOwner(O);
         exit(Format(X.Post()));
     end;
+    procedure OwnerRunThroughProcedureResult(): Text var X: Codeunit HShared; begin exit(Format(X.PostFn())); end;
     procedure LocalOwnerAlsoHeldBySingleInstanceGlobal(): Text var X: Codeunit HShared; begin exit(Format(X.PostLocalKept())); end;
     procedure ChainOnAnotherOwnerInstance(): Text var X: Codeunit HOther; begin exit(Format(X.Post())); end;
     procedure HolderIsALocal(): Text
@@ -372,6 +379,7 @@ fn a_never_called_register_whose_owner_two_variables_hold_refuses() {
         "HolderGlobalRunThroughVarParameter",
         "HolderGlobalRunThroughValueParameter",
         "OwnerAlsoHeldByTheTest",
+        "OwnerRunThroughProcedureResult",
         "LocalOwnerAlsoHeldBySingleInstanceGlobal",
     ]
     .into_iter()
