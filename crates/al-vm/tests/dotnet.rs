@@ -1679,7 +1679,7 @@ fn rewriting_host() -> Fake {
             value: DotNetValue::Null,
             by_ref: vec![],
             streams: StreamEffects {
-                replaced: vec![(9, 6, b"new".to_vec())],
+                replaced: vec![(9, 6, b"new".to_vec(), Some(al_host::dotnet::Rewrite::ZipUpdate4))],
                 ..Default::default()
             },
         }),
@@ -1731,7 +1731,7 @@ fn a_host_append_after_an_al_write_keeps_the_rewrite_refused() {
                 ..Default::default()
             },
             Req::Invoke(_, m, _) if m == "Dispose" => StreamEffects {
-                replaced: vec![(9, 8, b"new".to_vec())],
+                replaced: vec![(9, 8, b"new".to_vec(), Some(al_host::dotnet::Rewrite::ZipUpdate4))],
                 ..Default::default()
             },
             other => panic!("{other:?}"),

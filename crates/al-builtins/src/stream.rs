@@ -1143,13 +1143,14 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         }
     }
     let b = blob_of(r)?;
-    {
+    let edits = {
         // The content stays (:BlobField_CreateOutStream_DoesNotEmptyExistingData).
         let mut buf = b.borrow_mut();
         buf.dotnet_view = 0;
         // An InStream created before reads a buffer a new OutStream may write over (`stream_line_breaks`).
         buf.content_edits = buf.content_edits.wrapping_add(1);
         let empty = buf.bytes.is_empty();
+        let edits = buf.content_edits;
         buf.line_breaks.note_out_open(enc, empty);
         if !buf.loaded && buf.db_row {
             // A record read from the database without CalcFields: the stream replaces the stored content at its first
@@ -1159,7 +1160,7 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
             buf.write_pos = 0;
             buf.refetch = false;
             drop(buf);
-            set_stream(&a[0], LibraryValue::OutStream(b, enc, None))?;
+            set_stream(&a[0], LibraryValue::OutStream(b, enc, None, Some(edits)))?;
             return Ok(Value::Null);
         }
         // That case writes over content the record holds. Another unloaded Blob (a temporary record's, a copy of an unloaded
@@ -1180,8 +1181,9 @@ fn blob_create_out(_: &mut dyn Ctx, mut r: Option<&mut Value>, a: &mut [Value]) 
         buf.loaded = true;
         buf.refetch = false;
         buf.persisted = false;
-    }
-    set_stream(&a[0], LibraryValue::OutStream(b, enc, None))?;
+        edits
+    };
+    set_stream(&a[0], LibraryValue::OutStream(b, enc, None, Some(edits)))?;
     Ok(Value::Null)
 }
 

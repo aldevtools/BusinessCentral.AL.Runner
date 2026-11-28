@@ -153,6 +153,11 @@ impl LineBreakHistory {
         })
     }
 
+    /// [`BlobBuf::content_edits`] when the buffer was made or cleared.
+    pub fn cleared_at(&self) -> u32 {
+        self.base_edits
+    }
+
     /// Whether the buffer holds what one `WriteText(Text)` through the one `CreateOutStream` of the default encoding on it empty
     /// wrote, and nothing else edited it since it was made or cleared (al-vm `blob_transfer::assigned_write`).
     pub fn one_text_write(&self, content_edits: u32) -> bool {

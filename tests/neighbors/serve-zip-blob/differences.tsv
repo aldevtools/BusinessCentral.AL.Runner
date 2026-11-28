@@ -1,0 +1,14 @@
+# key	entry
+NB SZ Changed 59413::ZB_ClearOnly_Dispose	ASSUMED zip-blob-writes (corpus PR 1633)
+NB SZ Changed 59416::ZB_TwoArchives_SameOutStream	ASSUMED zip-blob-writes (corpus PR 1633)
+NB SZ Fresh 59404::ZB_StoredCalcFields_Update4_Modify	ASSUMED zip-blob-writes (corpus PR 1633)
+NB SZ Fresh 59406::ZB_StoredCalcFields_Update4_NoModify	ASSUMED zip-blob-writes (corpus PR 1633)
+NB SZ Fresh 59407::ZB_Temp_Update4	ASSUMED zip-blob-writes (corpus PR 1633)
+NB SZ Fresh 59408::ZB_Temp_Update2	ASSUMED zip-blob-writes (corpus PR 1633)
+NB SZ Fresh 59409::ZB_Temp_Update3	ASSUMED zip-blob-writes (corpus PR 1633)
+NB SZ Overwrite 59417::ZB_Overwrite48_AtPosition0	ASSUMED zip-blob-writes (corpus PR 1633)
+NB SZ Overwrite 59418::ZB_SetLength10	ASSUMED zip-blob-writes (corpus PR 1633)
+NB SZ Overwrite 59420::ZB_Stored_Overwrite48_AtPosition0	ASSUMED zip-blob-writes (corpus PR 1633)
+NB SZ Fresh ALWrite 59427::ZB_Temp_FreshOutStream_Update4_ALWriteBeforeDispose	REFUSED DotNet System.IO.Compression.ZipArchive.Dispose: a .NET rewrite of an OutStream AL wrote into since the call before
+NB SZ R1 Fresh 59433::Fresh_ClearBeforeDispose	REFUSED DotNet System.IO.Compression.ZipArchive.Dispose: a .NET rewrite of an OutStream AL wrote into since the call before
+NB SZ R1 Overwrite 59431::Overwrite_SecondCycleAtPosition0	ASSUMED zip-blob-writes (corpus PR 1633: the first cycle is the measured one; the second keeps main's mark)

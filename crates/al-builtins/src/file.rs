@@ -361,7 +361,7 @@ fn create_out_stream(_: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) ->
         Ok((s.blob.clone(), s.enc))
     })?;
     match &a[0] {
-        Value::Library(_, h) => *h.borrow_mut() = LibraryValue::OutStream(blob, enc, None),
+        Value::Library(_, h) => *h.borrow_mut() = LibraryValue::out_stream(blob, enc),
         other => return unsupported(format!("a stream variable was expected, got {}", other.describe())),
     }
     Ok(Value::Null)
