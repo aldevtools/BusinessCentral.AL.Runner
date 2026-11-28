@@ -64,6 +64,8 @@ pub struct Layout {
     pub object_properties: Vec<(String, String)>,
     /// The lower-case names of the object's own triggers (OnPreXmlPort, OnInitXmlPort, ...).
     pub object_triggers: Vec<String>,
+    /// The port is a measured layout whose Namespaces no element uses (`measured_shapes::unused_prefixes`).
+    pub unused_prefixes: bool,
 }
 
 mod containers;
@@ -225,6 +227,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
         request_page: false,
         object_properties: Vec::new(),
         object_triggers: obj.triggers().map(|t| t.name().to_ascii_lowercase()).collect(),
+        unused_prefixes: false,
     };
     let (mut default_namespace, mut use_default_namespace) = (None::<String>, Some(false));
     let mut bc_namespace = false;
@@ -465,6 +468,7 @@ pub fn layout(obj: &ast::Object) -> Layout {
             out.run_reasons.push(why);
         }
     }
+    out.unused_prefixes = measured_shapes::unused_prefixes(&out);
     if bc_namespace {
         bc_default_namespace(&mut out, own_namespace, utf8, obj.id());
     }
@@ -526,6 +530,11 @@ fn bc_default_namespace(out: &mut Layout, own_namespace: Option<String>, utf8: b
         && udn_attributes_pinned(out);
     let unpinned = if out.format != ir::XmlFormat::Xml {
         Some("a text format")
+    } else if out.unused_prefixes {
+        // Namespaces that no element uses: the elements are in the port's namespace and the root declares the prefixes
+        // before it (`declare_namespaces`; corpus PR 1663, xmlports/shapes-properties/XpUnusedNsPrefix.al
+        // XUP_TwoUnused_Export :359, XUP_UdnNoDn_Export :444; assumption `xmlport-unused-namespace-prefix`).
+        None
     } else if named_prefixes_on_fields {
         None
     } else if udn_root_prefix && out.direction == ir::XmlDirection::Import {
@@ -1321,8 +1330,9 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
         import_unsupported: import_reasons,
         // A linked table element with MaxOccurs = Unbounded and a root text element with MinOccurs = Once are pinned by
         // xmlports/shapes-properties/QrXpContainerOccurs.al TS_Linked_Unbounded_* and TS_RootOnce_* (were assumptions
-        // `xmlport-linked-max-unbounded`, `xmlport-root-min-occurs-once`); no layout rests on an assumption now.
-        assumes: Vec::new(),
+        // `xmlport-linked-max-unbounded`, `xmlport-root-min-occurs-once`). A port whose Namespaces no element uses rests on one
+        // (`measured_shapes::unused_prefixes`); al-vm reads it to know the port's import.
+        assumes: measured_shapes::unused_prefixes_assumes(layout),
         request_page: layout.request_page,
     }
 }
@@ -1330,7 +1340,8 @@ pub fn build(cx: &Context, mut reasons: Vec<String>) -> ir::XmlPort {
 /// Pinned: one declared namespace that a field element of the port uses (YXmlPortProps.al:
 /// NodeProperties_Export_NamesPrefixesAutoCalc); beside a used one or the empty prefix `""`, also a namespace no element uses:
 /// the root still declares it (xmlports/shapes-properties/BdXmlPort.al:407 `q`; xmlports/shapes-properties/
-/// Y17XmlPortNamespacesTests.al:60 `u`). A prefix that is not declared and every namespace unused are not pinned. A prefix on a
+/// Y17XmlPortNamespacesTests.al:60 `u`). Every namespace unused runs in the layouts `measured_shapes::unused_prefixes` names
+/// (corpus PR 1663, an assumption) and is refused elsewhere; a prefix that is not declared is not pinned. A prefix on a
 /// field attribute alone is pinned (xmlports/shapes-properties/Y83XpNsTests.al:Ns_PrefixAttrOnly, needs the corpus bump).
 fn namespace_reasons(layout: &Layout, nodes: &[ir::XmlNode], run_reasons: &mut Vec<String>) {
     let used: Vec<&str> = nodes.iter().filter_map(|n| n.ns_prefix.as_deref()).collect();
@@ -1342,7 +1353,8 @@ fn namespace_reasons(layout: &Layout, nodes: &[ir::XmlNode], run_reasons: &mut V
             ) && n.ns_prefix.as_deref() == Some(prefix)
         })
     };
-    let any_used = layout.namespaces.iter().any(|(p, _)| p.is_empty() || element_uses(p));
+    // A measured layout whose Namespaces no element uses (corpus PR 1663, assumption `xmlport-unused-namespace-prefix`).
+    let any_used = layout.unused_prefixes || layout.namespaces.iter().any(|(p, _)| p.is_empty() || element_uses(p));
     for (prefix, _) in &layout.namespaces {
         if !any_used && !element_uses(prefix) {
             run_reasons.push(format!(
@@ -1545,6 +1557,74 @@ mod tests {
         );
         assert!(!no_attr("Import", "").run_reasons.is_empty());
         assert!(!no_attr("Both", "UseLax = true;").run_reasons.is_empty());
+    }
+
+    #[test]
+    fn namespaces_no_element_uses_run_in_the_measured_layouts_only() {
+        // Corpus PR 1663, XpUnusedNsPrefix.al: the reporter's port (:54) and one fact flipped at a time.
+        let port = |props: &str, schema: &str| {
+            layout_of(&format!(
+                "xmlport 7 X {{ Format = Xml; UseRequestPage = false; {props} schema {{ {schema} }} }}"
+            ))
+        };
+        let ns = "Namespaces = xsd = 'urn:xsd', xsi = 'urn:xsi';";
+        let dn = "DefaultNamespace = 'urn:o'; UseDefaultNamespace = true;";
+        let leaf = "textelement(Response) { textelement(Status) { trigger OnBeforePassVariable() begin Status := 'ok'; end; } }";
+        let table = "textelement(Items) { tableelement(Rw; Cust) { XmlName = 'Item'; fieldattribute(Id; Rw.X) { } fieldelement(Name; Rw.Y) { } } }";
+        let served = |l: &Layout| l.unused_prefixes && l.run_reasons.is_empty();
+        let reporter = port(&format!("Direction = Export; Encoding = UTF8; {dn} {ns}"), leaf);
+        assert!(served(&reporter), "{:?}", reporter.run_reasons);
+        assert_eq!(reporter.default_ns.as_deref(), Some("urn:o"));
+        assert!(!reporter.udn_root_prefix);
+        let own = port(
+            &format!("Direction = Export; Encoding = UTF8; UseDefaultNamespace = true; {ns}"),
+            leaf,
+        );
+        assert_eq!(
+            own.default_ns.as_deref(),
+            Some("urn:microsoft-dynamics-nav/xmlports/x7")
+        );
+        let plain = port(&format!("Direction = Export; Encoding = UTF8; {ns}"), leaf);
+        assert!(served(&plain) && plain.default_ns.is_none());
+        assert!(served(&port(
+            &format!("Direction = Both; Encoding = UTF8; {dn} {ns}"),
+            table
+        )));
+        // Not measured: Direction = Both with the text leaf, Import, UTF16 without a default namespace, three prefixes, no
+        // Encoding, UseLax, a text format, the empty prefix, a table element with MinOccurs.
+        for (props, schema) in [
+            (
+                format!("Direction = Both; Encoding = UTF8; {dn} {ns}"),
+                leaf.to_string(),
+            ),
+            (
+                format!("Direction = Import; Encoding = UTF8; {dn} {ns}"),
+                table.to_string(),
+            ),
+            (format!("Direction = Export; Encoding = UTF16; {ns}"), leaf.to_string()),
+            (
+                format!(
+                    "Direction = Export; Encoding = UTF8; {dn} Namespaces = a = 'urn:a', b = 'urn:b', c = 'urn:c';"
+                ),
+                leaf.to_string(),
+            ),
+            (format!("Direction = Export; {dn} {ns}"), leaf.to_string()),
+            (
+                format!("Direction = Export; Encoding = UTF8; UseLax = true; {dn} {ns}"),
+                leaf.to_string(),
+            ),
+            (
+                "Direction = Export; Encoding = UTF8; Namespaces = \"\" = 'urn:e', xsd = 'urn:xsd';".to_string(),
+                leaf.to_string(),
+            ),
+            (
+                format!("Direction = Export; Encoding = UTF8; {dn} {ns}"),
+                table.replace("XmlName = 'Item';", "MinOccurs = Zero;"),
+            ),
+        ] {
+            let l = port(&props, &schema);
+            assert!(!l.unused_prefixes, "{props} {schema}");
+        }
     }
 
     #[test]

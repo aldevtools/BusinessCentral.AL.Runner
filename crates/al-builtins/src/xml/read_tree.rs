@@ -121,9 +121,16 @@ pub(crate) fn read_tree(text: &str) -> Result<Result<crate::xmlport::Elem, Optio
 /// (`UseDefaultNamespace = true`, al-builtins xmlport.rs `parse_in_namespace`). Pinned shapes only
 /// (xmlports/shapes-properties/BdXmlPort.al:499): every element in `want`, by default or by a prefix; the root elsewhere; the
 /// root's first child in no namespace. Anything else in another namespace, and any other namespace declaration, is refused.
+///
+/// `root_decls`: the prefixes of a port whose Namespaces no element uses (al-sema xmlports/measured_shapes.rs
+/// `unused_prefixes`, assumption `xmlport-unused-namespace-prefix`, corpus PR 1663 XpUnusedNsPrefix.al XUP_Both_ExportImport
+/// :486). Then only the documents of that cell are read: a root in `want` that declares exactly these prefixes, in this order,
+/// with every element in `want` (the port's own export), and a root in no namespace without attributes (`RootElsewhere`).
+/// Every other document is refused. Empty: the rule above.
 pub(crate) fn read_tree_in(
     text: &str,
     want: &str,
+    root_decls: &[(String, String)],
 ) -> Result<Result<crate::xmlport::InNamespace, Option<String>>, String> {
     use crate::xmlport::{Elem, InNamespace, Node};
     fn element(h: &Handle) -> (String, String) {
@@ -138,7 +145,9 @@ pub(crate) fn read_tree_in(
             .filter(|c| with(c, |d| matches!(d, XData::Element { .. })))
             .collect()
     }
-    fn convert(h: &Handle, want: &str) -> Result<Elem, String> {
+    const UNUSED_PREFIXES_OTHER: &str =
+        "an XmlPort document other than the measured ones, for a port whose Namespaces no element uses (not pinned)";
+    fn convert(h: &Handle, want: &str, root_decls: &[(String, String)]) -> Result<Elem, String> {
         let (local, ns) = element(h);
         if ns != want {
             return Err("an XmlPort document with an element outside the port's namespace (not pinned)".into());
@@ -162,6 +171,9 @@ pub(crate) fn read_tree_in(
             if declaration && v == want {
                 continue;
             }
+            if p == "xmlns" && root_decls.iter().any(|(q, u)| *q == l && *u == v) {
+                continue;
+            }
             if declaration || !p.is_empty() || !n.is_empty() {
                 return Err(
                     "an XmlPort document with another namespace declaration or a prefixed attribute (not pinned)"
@@ -177,7 +189,7 @@ pub(crate) fn read_tree_in(
                 XData::CData(t) => Some(Some((t.clone(), true))),
                 _ => Some(None),
             }) {
-                None => out.children.push(Node::Elem(convert(&c, want)?)),
+                None => out.children.push(Node::Elem(convert(&c, want, &[])?)),
                 Some(Some((t, cdata))) => {
                     out.text_source = out.text_source.with(cdata);
                     out.children.push(Node::Text(t));
@@ -199,6 +211,31 @@ pub(crate) fn read_tree_in(
         .next()
         .ok_or("a document without a root element")?;
     let (local, ns) = element(&root);
+    let root_attrs = with(&root, |d| match d {
+        XData::Element { attrs, .. } => attrs.clone(),
+        _ => unreachable!("the root is an element"),
+    });
+    if !root_decls.is_empty() {
+        let declared: Vec<(String, String)> = root_attrs
+            .iter()
+            .filter_map(|a| {
+                with(a, |d| match d {
+                    XData::Attribute {
+                        prefix, local, value, ..
+                    } if prefix == "xmlns" => Some((local.clone(), value.clone())),
+                    _ => None,
+                })
+            })
+            .collect();
+        let measured = if ns == want {
+            declared == root_decls
+        } else {
+            ns.is_empty() && root_attrs.is_empty()
+        };
+        if !measured {
+            return Err(UNUSED_PREFIXES_OTHER.into());
+        }
+    }
     if ns != want {
         return Ok(Ok(InNamespace::RootElsewhere(local)));
     }
@@ -219,13 +256,19 @@ pub(crate) fn read_tree_in(
         _ => None,
     });
     if let Some(attr) = prefixed {
+        if !root_decls.is_empty() {
+            return Err(UNUSED_PREFIXES_OTHER.into());
+        }
         return Ok(Ok(InNamespace::RootAttributeInNamespace(attr)));
     }
     if let Some(first) = elements(&root).first() {
         let (child, child_ns) = element(first);
         if child_ns.is_empty() {
+            if !root_decls.is_empty() {
+                return Err(UNUSED_PREFIXES_OTHER.into());
+            }
             return Ok(Ok(InNamespace::FirstChildInNone { root: local, child }));
         }
     }
-    convert(&root, want).map(|e| Ok(InNamespace::Tree(e)))
+    convert(&root, want, root_decls).map(|e| Ok(InNamespace::Tree(e)))
 }

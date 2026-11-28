@@ -1,5 +1,6 @@
 //! XmlPort layouts that run only as their corpus file measures them. Each predicate requires, by equality, the facts every
-//! port of that file has; the result is stored on the IR node and read by al-vm. Every other layout keeps main's result.
+//! port of that file has; the result is stored on the IR node (or, for a probe not pinned yet, as the port's assumption) and
+//! read by al-vm. Every other layout keeps main's result.
 
 use super::{Context, INERT_OBJECT_PROPERTIES, Layout, bool_prop, split_source_at_dot, table_object};
 use crate::members::FieldClass;
@@ -7,10 +8,10 @@ use crate::types::Ty;
 use al_ir as ir;
 use ir::XmlNodeKind as K;
 
-/// The port's own properties are `required` (lower-case name and value), each once, and besides them only `Format = Xml`,
-/// `UseRequestPage = false` (as every probe port declares them) and the properties that change nothing
-/// (`INERT_OBJECT_PROPERTIES`).
-fn port_properties(layout: &Layout, required: &[(&str, &str)]) -> bool {
+/// The port's own properties are `required` (lower-case name and value), each once, the names of `free` each once with any
+/// value, and besides them only `Format = Xml`, `UseRequestPage = false` (as every probe port declares them) and the
+/// properties that change nothing (`INERT_OBJECT_PROPERTIES`).
+fn port_properties(layout: &Layout, required: &[(&str, &str)], free: &[&str]) -> bool {
     let props = &layout.object_properties;
     let once = |name: &str, value: &str| {
         props
@@ -20,8 +21,10 @@ fn port_properties(layout: &Layout, required: &[(&str, &str)]) -> bool {
             == 1
     };
     required.iter().all(|(n, v)| once(n, v))
+        && free.iter().all(|f| props.iter().filter(|(n, _)| n == f).count() == 1)
         && props.iter().all(|(n, v)| {
             required.iter().any(|(r, _)| r == n)
+                || free.contains(&n.as_str())
                 || (n == "format" && v.eq_ignore_ascii_case("xml"))
                 || (n == "userequestpage" && bool_prop(v) == Some(false))
                 || INERT_OBJECT_PROPERTIES.contains(&n.as_str())
@@ -98,6 +101,7 @@ fn import_layout_triggered(layout: &Layout, i: usize) -> Option<usize> {
     let shared = port_properties(
         layout,
         &[("direction", "import"), ("encoding", "utf8"), ("formatevaluate", "xml")],
+        &[],
     ) && layout.format == ir::XmlFormat::Xml
         && table_below_root(layout, t)
         && (node_properties(layout, t, &[]) || node_properties(layout, t, &[("UseTemporary", "true")]))
@@ -172,7 +176,7 @@ pub(super) fn text_attr_export(cx: &Context, layout: &Layout, i: usize) -> bool 
     };
     let one_such = kids(layout, t).into_iter().filter(|&k| with_attr(k)).count() == 1;
     let element_triggers = triggers(layout, i);
-    port_properties(layout, &[("direction", "export"), ("formatevaluate", "xml")])
+    port_properties(layout, &[("direction", "export"), ("formatevaluate", "xml")], &[])
         && layout.format == ir::XmlFormat::Xml
         && n.kind == K::Text
         && table_below_root(layout, t)
@@ -205,4 +209,147 @@ fn measured_attr_field(cx: &Context, layout: &Layout, attr: usize, t: usize, wit
         .is_some_and(|f| {
             f.class == FieldClass::Normal && (f.ty == Ty::Boolean || (with_trigger && matches!(f.ty, Ty::Text(_))))
         })
+}
+
+/// The schema layouts of xmlports/shapes-properties/XpUnusedNsPrefix.al (corpus PR 1663, not pinned yet). Every node
+/// declares nothing unless named here.
+#[derive(Clone, Copy, PartialEq)]
+enum NsLayout {
+    /// A root text element over one text leaf whose only trigger is OnBeforePassVariable (:40-49).
+    TextLeaf,
+    /// A root text element over a text attribute (NamespacePrefix naming a declared prefix, OnBeforePassVariable), then the
+    /// text leaf (:221-238).
+    TextAttrLeaf,
+    /// A root text element over one table element (an XmlName at most, no trigger) with a field attribute and then a field
+    /// element of it, neither with properties or triggers (:278-286).
+    TableAttrField,
+}
+
+/// The default namespace properties of a port of that file.
+#[derive(Clone, Copy, PartialEq)]
+enum NsDefault {
+    /// DefaultNamespace and UseDefaultNamespace = true (:34-35).
+    DnUdn,
+    /// Neither property (:134-140).
+    Neither,
+    /// DefaultNamespace and UseDefaultNamespace = false (:164-165).
+    DnNoUdn,
+    /// UseDefaultNamespace = true alone (:190).
+    UdnNoDn,
+}
+
+/// The measured cells: layout, default namespace, Encoding, Direction and the number of Namespaces prefixes.
+const UNUSED_PREFIX_CELLS: &[(NsLayout, NsDefault, &str, &str, usize)] = &[
+    // Port :28, XUP_OneUnused_Export :351.
+    (NsLayout::TextLeaf, NsDefault::DnUdn, "utf8", "export", 1),
+    // Port :54, XUP_TwoUnused_Export :359, XUP_TwoUnused_ReadByLine :367, XUP_TwoUnused_InstanceExport :389.
+    (NsLayout::TextLeaf, NsDefault::DnUdn, "utf8", "export", 2),
+    // Port :134, XUP_NoDefault_Export :428.
+    (NsLayout::TextLeaf, NsDefault::Neither, "utf8", "export", 2),
+    // Port :158, XUP_DnNoUdn_Export :436.
+    (NsLayout::TextLeaf, NsDefault::DnNoUdn, "utf8", "export", 2),
+    // Port :184, XUP_UdnNoDn_Export :444.
+    (NsLayout::TextLeaf, NsDefault::UdnNoDn, "utf8", "export", 2),
+    // Port :209, XUP_TextAttr_Export :452.
+    (NsLayout::TextAttrLeaf, NsDefault::DnUdn, "utf8", "export", 2),
+    // Port :266, XUP_Table_Export :469.
+    (NsLayout::TableAttrField, NsDefault::DnUdn, "utf8", "export", 2),
+    // Port :291, XUP_TwoUnusedUtf16_Export :478.
+    (NsLayout::TextLeaf, NsDefault::DnUdn, "utf16", "export", 2),
+    // Port :317, XUP_Both_ExportImport :486.
+    (NsLayout::TableAttrField, NsDefault::DnUdn, "utf8", "both", 2),
+];
+
+/// The port is a cell of xmlports/shapes-properties/XpUnusedNsPrefix.al (corpus PR 1663, assumption
+/// `xmlport-unused-namespace-prefix`): Format = Xml, Namespaces of named prefixes only, no element and no field attribute
+/// with NamespacePrefix (a text attribute in `NsLayout::TextAttrLeaf` only), no port trigger and no request page, and its
+/// layout, default namespace, Encoding, Direction and prefix count are one row of `UNUSED_PREFIX_CELLS`. Besides those the
+/// port declares only what `port_properties` lets through.
+pub(super) fn unused_prefixes(layout: &Layout) -> bool {
+    let named = !layout.namespaces.is_empty() && layout.namespaces.iter().all(|(p, _)| !p.is_empty());
+    let Some(shape) = ns_layout(layout) else {
+        return false;
+    };
+    named
+        && layout.format == ir::XmlFormat::Xml
+        && layout.object_triggers.is_empty()
+        && !layout.request_page
+        && UNUSED_PREFIX_CELLS
+            .iter()
+            .any(|&(cell, default, encoding, direction, count)| {
+                cell == shape
+                    && count == layout.namespaces.len()
+                    && ns_port_properties(layout, default, encoding, direction)
+            })
+}
+
+/// The port's assumption when it is such a cell (`ir::XmlPort::assumes`; al-vm reads it to know the port's import).
+pub(super) fn unused_prefixes_assumes(layout: &Layout) -> Vec<al_builtins::assumptions::Assumption> {
+    layout
+        .unused_prefixes
+        .then_some(al_builtins::assumptions::Assumption::XmlportUnusedNamespacePrefix)
+        .into_iter()
+        .collect()
+}
+
+fn ns_port_properties(layout: &Layout, default: NsDefault, encoding: &str, direction: &str) -> bool {
+    let mut required = vec![("direction", direction), ("encoding", encoding)];
+    let (udn, dn) = match default {
+        NsDefault::DnUdn => (Some("true"), true),
+        NsDefault::Neither => (None, false),
+        NsDefault::DnNoUdn => (Some("false"), true),
+        NsDefault::UdnNoDn => (Some("true"), false),
+    };
+    if let Some(value) = udn {
+        required.push(("usedefaultnamespace", value));
+    }
+    let free: &[&str] = if dn {
+        &["namespaces", "defaultnamespace"]
+    } else {
+        &["namespaces"]
+    };
+    port_properties(layout, &required, free)
+}
+
+/// The `NsLayout` of the port's schema, all of it, or `None`.
+fn ns_layout(layout: &Layout) -> Option<NsLayout> {
+    let n = &layout.nodes;
+    let root = n
+        .first()
+        .filter(|r| r.parent.is_none() && r.kind == K::Text)
+        .map(|_| 0)?;
+    let bare = |i: usize| node_properties(layout, i, &[]) && !layout.has_children(i);
+    let passes = |i: usize| triggers(layout, i) == ["onbeforepassvariable"];
+    let leaf = |i: usize| n[i].kind == K::Text && bare(i) && passes(i);
+    let attr = |i: usize| {
+        let prefix = layout
+            .property(i, "NamespacePrefix")
+            .map(|p| crate::scan::unquote_xmlport(&p));
+        n[i].kind == K::TextAttr
+            && n[i].section.properties().count() == 1
+            && prefix.is_some_and(|p| layout.namespaces.iter().any(|(q, _)| *q == p))
+            && !layout.has_children(i)
+            && passes(i)
+    };
+    let field = |i: usize, t: usize, kind: K| {
+        n[i].kind == kind && of_table(layout, i, t) && bare(i) && triggers(layout, i).is_empty()
+    };
+    let table = |t: usize| {
+        n[t].kind == K::Table
+            && n[t]
+                .section
+                .properties()
+                .all(|p| p.name().eq_ignore_ascii_case("XmlName"))
+            && triggers(layout, t).is_empty()
+            && matches!(kids(layout, t)[..], [a, f] if field(a, t, K::FieldAttr) && field(f, t, K::Field))
+    };
+    if !node_properties(layout, root, &[]) || !triggers(layout, root).is_empty() {
+        return None;
+    }
+    match (kids(layout, root).as_slice(), n.len()) {
+        (&[l], 2) if leaf(l) => Some(NsLayout::TextLeaf),
+        (&[a, l], 3) if attr(a) && leaf(l) => Some(NsLayout::TextAttrLeaf),
+        (&[t], 4) if table(t) => Some(NsLayout::TableAttrField),
+        _ => None,
+    }
 }

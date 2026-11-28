@@ -377,7 +377,11 @@ impl Session {
             return self.xp_import_record(inst, schema, top, &root, true, false);
         }
         let root_triggers = Self::xp_root_triggers_pinned(schema, top)?;
-        self.xp_import_container(inst, schema, top, &root)?;
+        let walked = self.xp_import_container(inst, schema, top, &root);
+        if unused_prefix_port(xp) && matches!(walked, Err(Signal::Error(_))) {
+            return unsupported("XmlPort import error in a port whose Namespaces no element uses (not pinned)");
+        }
+        walked?;
         // The root's OnAfterAssignVariable runs after everything (xmlports/shapes-properties/Y83XpMiscTests.al
         // ContainerTriggers_Nested 'import full': `...hdr-aav;root-aav;`). After a Break or Quit it is not pinned.
         if root_triggers {
@@ -412,7 +416,8 @@ impl Session {
                 "XmlPort import with UseDefaultNamespace into a port whose root is not a text element (not pinned)",
             );
         }
-        match al_builtins::xmlport::parse_in_namespace(text, ns) {
+        let root_decls: &[(String, String)] = if unused_prefix_port(xp) { &xp.namespaces } else { &[] };
+        match al_builtins::xmlport::parse_in_namespace(text, ns, root_decls) {
             Ok(InNamespace::Tree(e)) => Ok(Ok(e)),
             Ok(InNamespace::RootElsewhere(local)) if local == root_node.xml_name => Err(xerr(
                 format!("The element <{local}> cannot be found in the object description."),
@@ -1470,4 +1475,12 @@ fn declares_latin1(bytes: &[u8]) -> bool {
         && head
             .split_once("?>")
             .is_some_and(|(decl, _)| decl.contains("encoding=\"iso-8859-1\"") || decl.contains("encoding='iso-8859-1'"))
+}
+
+/// A port whose Namespaces no element uses, in a layout corpus PR 1663 measures (al-sema xmlports/measured_shapes.rs
+/// `unused_prefixes`, which gives the port this assumption): its import reads only the documents
+/// XpUnusedNsPrefix.al XUP_Both_ExportImport :486 measures (`xml::read_tree_in`) and refuses every error after the root.
+fn unused_prefix_port(xp: &ir::XmlPort) -> bool {
+    xp.assumes
+        .contains(&al_builtins::assumptions::Assumption::XmlportUnusedNamespacePrefix)
 }

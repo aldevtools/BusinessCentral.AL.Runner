@@ -1,0 +1,11 @@
+XmlportUnusedNamespacePrefix => {
+    id: "xmlport-unused-namespace-prefix",
+    assumed: "An Xml port whose Namespaces property declares one or two named prefixes that no element uses, in one of the measured layouts (al-sema xmlports/measured_shapes.rs `unused_prefixes`: a root text element over one text leaf with OnBeforePassVariable, over a text attribute with NamespacePrefix and a text leaf, or over one table element with a field attribute and a field element; DefaultNamespace with UseDefaultNamespace = true, neither, DefaultNamespace with UseDefaultNamespace = false, or UseDefaultNamespace = true alone; Encoding UTF8, UTF16 for the reporter's layout; Direction = Export, Direction = Both for the table layout): the export declares every prefix on the root in the order of the property, then the root's attributes (written without prefix), then the default xmlns (the DefaultNamespace with UseDefaultNamespace = true, BC's namespace of the port with UseDefaultNamespace = true alone, none otherwise). The Direction = Both port imports a document whose root declares exactly the port's prefixes and the default namespace, every element in it, and fails a document whose root is in no namespace and has no attributes with XmlPortElementNotFound. Any other document, and any error after the root is read, refuses.",
+    tests: "No Microsoft test. An outside report (al-runner issue 9423) names the reporter's layout: DefaultNamespace, UseDefaultNamespace = true, Namespaces xsd and xsi, text elements Response > Status.",
+    probe: "Corpus PR 1663, tests/al-language/xmlports/shapes-properties/XpUnusedNsPrefix.al: ports at :28, :54, :134, :158, :184, :209, :266, :291, :317; tests XUP_OneUnused_Export :351, XUP_TwoUnused_Export :359, XUP_TwoUnused_ReadByLine :367, XUP_TwoUnused_InstanceExport :389, XUP_NoDefault_Export :428, XUP_DnNoUdn_Export :436, XUP_UdnNoDn_Export :444, XUP_TextAttr_Export :452, XUP_Table_Export :469, XUP_TwoUnusedUtf16_Export :478, XUP_Both_ExportImport :486; measured identical on the three supported majors.",
+    awaiting: Awaiting {
+        issues: &[9423],
+        files: &["tests/al-language/xmlports/shapes-properties/XpUnusedNsPrefix.al"],
+        since: "2026-11-28",
+    },
+}
