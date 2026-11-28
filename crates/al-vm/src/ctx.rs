@@ -340,6 +340,12 @@ impl al_builtins::native::Ctx for Session {
     fn held_by_temp_blob_impl(&self, b: &al_builtins::stream::BlobRef) -> bool {
         self.temp_blob_impl_fields.holds(b)
     }
+    fn held_by_temporary_table_test_local(&self, b: &al_builtins::stream::BlobRef) -> bool {
+        self.test_local_blob_fields.holds(b)
+    }
+    fn temporary_table_blob_line_breaks_measured(&self) -> bool {
+        al_version::temporary_table_blob_line_breaks_measured(self.engine.target.as_ref())
+    }
     fn calling_object(&self) -> Option<(String, String)> {
         let obj = *self.frames.last()?;
         let o = &self.engine.program.objects[obj];

@@ -517,6 +517,16 @@ pub trait Ctx: FormatCtx {
     fn held_by_temp_blob_impl(&self, _b: &crate::stream::BlobRef) -> bool {
         false
     }
+    /// Whether `b` is the Blob field of a live record of a `TableType = Temporary` table in a local variable of a `[Test]`
+    /// method, the field a CreateInStream or CreateOutStream of that method opened a stream on (al-vm
+    /// `temp_blob_impl_field`).
+    fn held_by_temporary_table_test_local(&self, _b: &crate::stream::BlobRef) -> bool {
+        false
+    }
+    /// `al_version::temporary_table_blob_line_breaks_measured` for the run's target. Without a target nothing is measured.
+    fn temporary_table_blob_line_breaks_measured(&self) -> bool {
+        false
+    }
     /// The app name and object name of the AL routine that made the current call.
     fn calling_object(&self) -> Option<(String, String)> {
         None
