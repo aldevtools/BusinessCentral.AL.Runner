@@ -9,3 +9,5 @@ Logo Shapes Tests::Baseline16x8_Measured	ASSUMED app-logo-jpeg-sizes (corpus PR 
 Logo Shapes Tests::Baseline400x300_Measured	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
 Logo Shapes Tests::Progressive535x534_Measured	ASSUMED app-logo-jpeg-sizes (corpus PR 1594)	29
 Logo Shapes Tests::NameOfRowWithAssumedLogo	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a clean pass on main becomes flagged: the mark is per row)	29
+Logo Shapes Tests::DescriptionOfAssumedLogo	REFUSED the value of field 'Description' of platform table 'Media' is not known for the logo of app	27
+Logo Shapes Tests::DescriptionOfAssumedLogo	REFUSED the value of field 'Description' of platform table 'Media' is not known for the logo of app	29

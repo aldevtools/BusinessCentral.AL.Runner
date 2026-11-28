@@ -33,8 +33,6 @@ codeunit 50160 "Logo Shapes Tests"
             Error('mime %1', Media."Mime Type");
         if (Media.Width <> Width) or (Media.Height <> Height) then
             Error('size %1 x %2', Media.Width, Media.Height);
-        if Media.Description <> '' then
-            Error('description');
         Media.CalcFields(Content);
         Media.Content.CreateInStream(InS);
         while not InS.EOS() do begin
@@ -89,6 +87,24 @@ codeunit 50160 "Logo Shapes Tests"
     procedure Progressive16x8_NotMeasured()
     begin
         CheckLogo('9111b000-0000-4000-8000-000000000007', 16, 8, 9857, 'image/jpeg');
+    end;
+
+    // A read of Media.Description of an assumed logo: corpus PR 1594 does not observe it, so head refuses (main refuses the logo).
+    [Test]
+    procedure DescriptionOfAssumedLogo()
+    var
+        App: Record "Published Application";
+        Media: Record Media;
+        AppId: Guid;
+    begin
+        Evaluate(AppId, '9111b000-0000-4000-8000-000000000002');
+        App.SetRange(ID, AppId);
+        App.SetRange("Tenant Visible", true);
+        App.FindFirst();
+        Media.SetRange(ID, App.Logo.MediaId());
+        Media.FindFirst();
+        if Media.Description <> '' then
+            Error('description');
     end;
 
     // A read of the Name of the row of an app whose logo is assumed: the row read is flagged (the mark is per row).

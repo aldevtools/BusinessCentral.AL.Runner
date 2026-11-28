@@ -80,7 +80,11 @@ codeunit 50184 "Logo Icon Tests"
         Media.FindFirst();
         Media.CalcFields(Content);
         Media.Content.CreateInStream(InS);
-        Holder."No." := 1;
+        // One row per call: the tests of a codeunit share the database.
+        if GuidDescription then
+            Holder."No." := 1
+        else
+            Holder."No." := 2;
         if GuidDescription then
             Holder.Picture.ImportStream(InS, Id)
         else
