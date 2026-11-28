@@ -1,9 +1,9 @@
 //! The run's one login on the TestRunnerHub that a codeunit with RequiredTestIsolation = Disabled holds (assumption
 //! `hub-disabled-login-once`, corpus PR 1642; later runners: `hub-login-later-runners`, corpus PR 1644): which codeunit
 //! holds it (`login_once_on_hub`, `first_login`), how a later session takes it (`thaw_held`), which later codeunits run
-//! their own login (`runs_own_login`) or see other rows (`login_rows_as_held`) and what their tests may not read (`held_reads`), and how
-//! a Disabled codeunit's login writes meet what it carries (`carried_company_open`). Called by run.rs `open_company` and
-//! `run_codeunit_inner`. Entry points: `HeldOpened::of`, `held_reads`.
+//! their own login (`runs_own_login`) or see other rows (`login_rows_as_held`) and what their tests may not read
+//! (`held_reads`), and how a Disabled codeunit's login writes meet what it carries (`carried_company_open`). Called by
+//! run.rs `open_company` and `run_codeunit_inner`. Entry points: `HeldOpened::of`, `held_reads`.
 
 use super::*;
 
