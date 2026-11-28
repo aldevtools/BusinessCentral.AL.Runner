@@ -927,9 +927,7 @@ pub struct Session {
     pub(crate) held_logins: HeldLogins,
     /// The session's data is what a test codeunit left (`Baseline::codeunit_left`).
     pub(crate) codeunit_left: bool,
-    /// The `Engine::demo_tables` the running test's own code (not install code) wrote to and whose write stands
-    /// (`records/op_inner.rs`, `records/demo_written.rs`): a read of one of the others is refused before the session's own
-    /// code wrote it.
+    /// The demo tables the running test's own code wrote, while the write stands (`records/demo_written.rs`).
     demo_written: crate::records::demo_written::DemoWritten,
     /// The running test's own code (not install code) wrote General Ledger Setup (table 98), before any caption of areas 1 or 101
     /// was resolved (`setup_caption_read_early`): such captions read the test's row (`refuse_setup_caption`).
