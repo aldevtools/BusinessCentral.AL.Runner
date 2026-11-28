@@ -194,7 +194,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0133",
-        "reported only for the assignment form `X.M := v` of a builtin method whose one form takes one XML value, given an XML collection (check/infer.rs; case 2372), and from runtime 17.0 for a RecordRef variable as the record of `Page.Run` and `Page.RunModal` with two arguments and `Report.Run` with four (check/recordref_record_arg.rs; case 1634); other argument conversions are not judged.",
+        "reported only for the assignment form `X.M := v` of a builtin method whose one form takes one XML value, given an XML collection (check/infer.rs; case 2372), and from runtime 17.0 for a RecordRef variable or parameter as the record of `Page.Run` and `Page.RunModal` with two arguments, `Page.Run` with a field number, `Report.Run`, `Report.RunModal` and `Xmlport.Run` with four and `Codeunit.Run` with two, the object given by an Integer (check/recordref_record_arg.rs; case 1634, cases 3862-3868 on corpus pull request 1645); other argument conversions are not judged.",
     ),
     (
         "AL0196",
@@ -218,7 +218,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0175",
-        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for `=`, `<>`, `<`, `+`, `-` and `+=` (and `Char - Text` of must-not-compile 0500, and a Variant variable against an Integer literal or an enum value of 0502, and an Integer variable `+=` or `-=` a `FieldRef.Value()` call: check/joker_compound.rs, al-runner issue 9283, assumption `integer-compound-assign-fieldref-value`); any other call operand, any other literal right operand, other operators and DotNet operands (the .NET type behind the alias decides) are not decided.",
+        "reported for the operand shapes and types of the implicit-conversion compile matrix (check/conv.rs, tests/conversion_matrix.rs: variables, parameters, fields, literals, enum values, option members and test page control values of the scalar, text, date, Guid, RecordId, Variant, TextBuilder, Media, enum and interface types), for `=`, `<>`, `<`, `+`, `-` and `+=` (and `Char - Text` of must-not-compile 0500, and a Variant variable against an Integer literal or an enum value of 0502, and a compound assignment of a FieldRef's value into an Integer (`+=`, `-=`, `*=`, `/=`) or a Decimal, BigInteger or Text (`+=`) variable: check/joker_compound.rs, al-runner issue 9283, assumption `compound-assign-fieldref-value`); any other call operand, any other literal right operand, other operators and DotNet operands (the .NET type behind the alias decides) are not decided.",
     ),
     (
         "AL0369",
@@ -242,7 +242,7 @@ pub const NOT_CHECKED: &[(&str, &str)] = &[
     ),
     (
         "AL0666",
-        "reported for a catalog method newer than the app's runtime (check/calls.rs: cases 0364, 0365, 0576, 0620, 0621, 0640, 0664, 0665, 1200, 1824), for those `Page.Run`, `Page.RunModal` and `Report.Run` calls with a RecordRef record below runtime 17.0 (check/recordref_record_arg.rs: case 1633) and for the properties, data types, attributes and object types alc-features.txt measured (features.rs: cases 0684, 0777, 0778, 0799 to 0804, 0995 to 0997, 1431); a feature or element kind the table has no AL0666 row for is not decided.",
+        "reported for a catalog method newer than the app's runtime (check/calls.rs: cases 0364, 0365, 0576, 0620, 0621, 0640, 0664, 0665, 1200, 1824), for those `Page.Run`, `Page.RunModal` and `Report.Run` calls with a RecordRef record from runtime 4.1 to below 17.0 (check/recordref_record_arg.rs: case 1633, measured down to 4.0 on corpus pull request 1645) and for the properties, data types, attributes and object types alc-features.txt measured (features.rs: cases 0684, 0777, 0778, 0799 to 0804, 0995 to 0997, 1431); a feature or element kind the table has no AL0666 row for is not decided.",
     ),
 ];
 

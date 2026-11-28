@@ -1213,14 +1213,24 @@ fn a_recordref_as_the_record_of_page_run_is_al0666_at_runtime_16() {
 }
 
 #[test]
-fn a_recordref_as_the_record_of_page_run_below_the_runtime_floor_is_refused() {
-    // Below the runtimes the corpus covers, what the AL compiler reports is not measured: AR1007, not a guess.
+fn a_recordref_as_the_record_of_page_run_is_al0666_down_to_runtime_4_1_and_refused_below() {
+    // The AL compilers of BC 28 and 29 report AL0666 for the 1633 shape at every runtime from 4.0 to 16.1; at 4.0 an app
+    // that depends on the Base Application does not compile at all (`'dependencies.id' is not available in runtime
+    // version '4.0'`), so below 4.1 the runner refuses (corpus pull request 1645, review round 1).
     let src = cu("procedure P() var RecRef: RecordRef; begin Page.Run(Page::\"RR List\", RecRef); end;");
-    let got = diags_declared("29", "15.0", &[RECREF_RUN_OBJECTS, &src]);
+    for at in ["15.0", "4.1"] {
+        assert_eq!(
+            diags_declared("29", at, &[RECREF_RUN_OBJECTS, &src]),
+            vec![format!(
+                "AL0666 'Run' is not available in runtime version '{at}'. The supported runtime versions are: '17.0' or greater."
+            )]
+        );
+    }
+    let got = diags_declared("29", "4.0", &[RECREF_RUN_OBJECTS, &src]);
     assert_eq!(got.len(), 1, "{got:?}");
     assert!(
         got[0].starts_with(
-            "AR1007 `Run` takes a RecordRef as its record, which the AL compiler rejects; the app declares runtime 15.0"
+            "AR1007 `Run` takes a RecordRef as its record, which the AL compiler rejects; the app declares runtime 4.0"
         ),
         "{got:?}"
     );
@@ -1291,4 +1301,94 @@ fn an_integer_assigned_a_fieldref_value_compiles() {
     // al-runner issue 9283: `I := FR.Value()` compiles.
     let src = fieldref_value_into_integer("I := FR.Value();");
     assert_eq!(diags_declared("29", "18.0", &[TABLE, &src]), Vec::<String>::new());
+}
+
+// The other forms the AL compilers of BC 27, 28 and 29 reject (corpus pull request 1645, must-not-compile 3850-3868).
+const RECREF_RUN_MORE_OBJECTS: &str = "xmlport 50910 \"RR Port\" { schema { textelement(Root) { tableelement(Row; \"RR Row\") { fieldelement(Id; Row.Id) { } } } } }";
+
+#[test]
+fn a_recordref_parameter_var_parameter_or_global_as_the_record_of_page_run_is_al0133() {
+    // must-not-compile 3862-3864.
+    let three = "Page.Run(Page::\"RR List\", RecRef); Page.RunModal(Page::\"RR List\", RecRef); \
+         Report.Run(Report::\"RR Report\", false, false, RecRef);";
+    let want = vec![
+        "AL0133 Argument 2: cannot convert from 'RecordRef' to 'Table'",
+        "AL0133 Argument 2: cannot convert from 'RecordRef' to 'Table'",
+        "AL0133 Argument 4: cannot convert from 'RecordRef' to 'var Table'",
+    ];
+    for src in [
+        cu(&format!("procedure P(RecRef: RecordRef) begin {three} end;")),
+        cu(&format!("procedure P(var RecRef: RecordRef) begin {three} end;")),
+        cu(&format!("var RecRef: RecordRef; procedure P() begin {three} end;")),
+    ] {
+        assert_eq!(diags_for("29", &[RECREF_RUN_OBJECTS, &src]), want, "{src}");
+    }
+}
+
+#[test]
+fn a_recordref_as_the_record_of_the_other_run_calls_is_al0133_from_runtime_17() {
+    // must-not-compile 3865-3868: Page.Run with a field number, Report.RunModal, Xmlport.Run and Codeunit.Run.
+    let cases = [
+        (
+            "Page.Run(Page::\"RR List\", RecRef, 1);",
+            "Argument 2: cannot convert from 'RecordRef' to 'Table'",
+        ),
+        (
+            "Report.RunModal(Report::\"RR Report\", false, false, RecRef);",
+            "Argument 4: cannot convert from 'RecordRef' to 'var Table'",
+        ),
+        (
+            "Xmlport.Run(Xmlport::\"RR Port\", false, false, RecRef);",
+            "Argument 4: cannot convert from 'RecordRef' to 'var Table'",
+        ),
+        (
+            "Codeunit.Run(Codeunit::C, RecRef);",
+            "Argument 2: cannot convert from 'RecordRef' to 'var Table'",
+        ),
+    ];
+    for (call, text) in cases {
+        let src = cu(&format!("procedure P() var RecRef: RecordRef; begin {call} end;"));
+        let files = [RECREF_RUN_OBJECTS, RECREF_RUN_MORE_OBJECTS, &src];
+        assert_eq!(diags_for("29", &files), vec![format!("AL0133 {text}")], "{call}");
+        assert_eq!(diags_for("28", &files), vec![format!("AL0133 {text}")], "{call}");
+        // Below runtime 17.0 these calls are not measured: they compile as before.
+        assert_eq!(diags_declared("29", "16.0", &files), Vec::<String>::new(), "{call}");
+    }
+}
+
+fn joker_compound(decl: &str, globals: &str, stmt: &str) -> String {
+    cu(&format!(
+        "{globals}procedure P({decl}) var RecRef: RecordRef; FR: FieldRef; FieldRefs: array[2] of FieldRef; \
+         I: Integer; D: Decimal; B: BigInteger; T: Text; begin RecRef.Open(50900); FR := RecRef.Field(2); \
+         FieldRefs[1] := FR; {stmt} end;"
+    ))
+}
+
+#[test]
+fn every_compound_assignment_of_a_fieldref_value_is_al0175() {
+    // must-not-compile 3850-3861: the left forms, the right forms and the contrasts.
+    let cases = [
+        ("Par: Integer", "", "Par += FR.Value();", "+=", "Integer"),
+        ("var Par: Integer", "", "Par += FR.Value();", "+=", "Integer"),
+        ("", "var G: Integer; ", "G += FR.Value();", "+=", "Integer"),
+        ("", "", "I += RecRef.Field(2).Value();", "+=", "Integer"),
+        ("", "", "I += FieldRefs[1].Value();", "+=", "Integer"),
+        ("ParFR: FieldRef", "", "I += ParFR.Value();", "+=", "Integer"),
+        ("", "", "D += FR.Value();", "+=", "Decimal"),
+        ("", "", "B += FR.Value();", "+=", "BigInteger"),
+        ("", "", "T += FR.Value();", "+=", "Text"),
+        ("", "", "I += FR.Value;", "+=", "Integer"),
+        ("", "", "I *= FR.Value();", "*=", "Integer"),
+        ("", "", "I /= FR.Value();", "/=", "Integer"),
+    ];
+    for (decl, globals, stmt, op, left) in cases {
+        let src = joker_compound(decl, globals, stmt);
+        assert_eq!(
+            diags_for("29", &[TABLE, &src]),
+            vec![format!(
+                "AL0175 Operator '{op}' cannot be applied to operands of type '{left}' and 'Joker'"
+            )],
+            "{stmt}"
+        );
+    }
 }

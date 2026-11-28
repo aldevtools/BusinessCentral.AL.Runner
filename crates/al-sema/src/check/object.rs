@@ -909,7 +909,7 @@ impl<'a> Checker<'a> {
                 if al_syntax::ast::significant_green_tokens(node).any(|t| t.kind == SyntaxKind::PlusAssign) {
                     self.conv_compound_add(sc, lhs, target, rhs, source);
                 }
-                self.al_integer_compound_joker(sc, node, lhs, target, rhs);
+                self.al_compound_joker(sc, node, lhs, target, rhs);
                 // `X := Target.Missing()` and `X += Target.Missing()`: the type of the target (ADR-051 decision 3).
                 let (target, rhs) = (target.clone(), rhs.clone());
                 self.tdd_settle(sc, &rhs, &target);

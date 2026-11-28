@@ -1,0 +1,26 @@
+CompoundAssignFieldrefValue => {
+    id: "compound-assign-fieldref-value",
+    assumed: "A compound assignment whose right side reads the value of a FieldRef does not compile: the value is typed Joker, and the AL compiler reports AL0175 (`Operator '<op>' cannot be applied to operands of type '<left>' and 'Joker'`) at the statement (al-sema `check/joker_compound.rs`). Judged for a left side that is a local, a parameter, a `var` parameter or a global of type Integer with `+=`, `-=`, `*=` or `/=`, or of type Decimal, BigInteger or Text without a length with `+=`; and a right side `X.Value()` without arguments or `X.Value` without parentheses, X a FieldRef variable or parameter, `RecRef.Field(n)` or an element of an array of FieldRef. Each fact is measured on its own against the base shape (a local Integer += a local FieldRef's Value()); their combinations are taken as independent. `I := FR.Value()` compiles. Other left types, operators and right sides are not judged and compile as before. A compile refusal ends before any test runs, so it carries no flagged-pass mark.",
+    tests: "No Microsoft test. al-runner issue 9283: AL compiler 18.0.43.1464 at runtime 16.0 and 18.0 and AL compiler 18.1.43.24897 at 18.0 reject `I += FR.Value()` and `I -= FR.Value()` with AL0175 at the statement. Corpus pull request 1645, round 1: must-not-compile 3834, 3835 and 3850-3861 give that AL0175 on AL compiler 16.2.28.57946 at runtime 16.0, 17.0.34.45391 at 17.0 and 18.0.43.1464 at 18.0, each with the platform symbols of its own release: an Integer parameter, var parameter and global on the left; RecRef.Field(2).Value(), an array FieldRef element and a FieldRef parameter on the right; Decimal, BigInteger and Text +=, I += FR.Value without parentheses, I *= and I /=. tests/al-language/record/PZFindDirections.al:76 compiles a plain assignment from a FieldRef value.",
+    probe: "Corpus PR https://github.com/aldevtools/BusinessCentral.AL.Language.Tests/pull/1645 (open, not yet pinned): must-not-compile 3834, 3835 and 3850-3861.",
+    awaiting: Awaiting {
+        issues: &[9283],
+        files: &[
+            "tests/must-not-compile/cases/3834-integer-plus-assign-fieldref-value.al",
+            "tests/must-not-compile/cases/3835-integer-minus-assign-fieldref-value.al",
+            "tests/must-not-compile/cases/3850-integer-parameter-plus-assign-fieldref-value.al",
+            "tests/must-not-compile/cases/3851-integer-var-parameter-plus-assign-fieldref-value.al",
+            "tests/must-not-compile/cases/3852-integer-global-plus-assign-fieldref-value.al",
+            "tests/must-not-compile/cases/3853-integer-plus-assign-recordref-field-value.al",
+            "tests/must-not-compile/cases/3854-integer-plus-assign-fieldref-array-element-value.al",
+            "tests/must-not-compile/cases/3855-integer-plus-assign-fieldref-parameter-value.al",
+            "tests/must-not-compile/cases/3856-decimal-plus-assign-fieldref-value.al",
+            "tests/must-not-compile/cases/3857-biginteger-plus-assign-fieldref-value.al",
+            "tests/must-not-compile/cases/3858-text-plus-assign-fieldref-value.al",
+            "tests/must-not-compile/cases/3859-integer-plus-assign-fieldref-value-without-parentheses.al",
+            "tests/must-not-compile/cases/3860-integer-times-assign-fieldref-value.al",
+            "tests/must-not-compile/cases/3861-integer-divide-assign-fieldref-value.al",
+        ],
+        since: "2026-11-28",
+    },
+}
