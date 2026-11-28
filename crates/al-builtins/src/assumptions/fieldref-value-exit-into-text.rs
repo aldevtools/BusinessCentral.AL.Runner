@@ -1,11 +1,14 @@
 FieldRefValueExitIntoText => {
     id: "fieldref-value-exit-into-text",
-    assumed: "On every supported BC major, in an en-US session, exit(FR.Value()) from a procedure that returns a Code or Text, for an Integer, BigInteger (the timestamp field 0 too), Decimal, Enum, Option, Boolean, Date or Duration field, gives the value's Format text as T := FR.Value() does: upper-cased into a Code, the Enum's and Option's caption, and StringLengthExceeded when the text is longer than the Code or Text.",
-    tests: "Corpus PR https://github.com/aldevtools/BusinessCentral.AL.Language.Tests/pull/1629 (merged at 778b8fc1, not yet pinned), recordref-fieldref/fieldref-value-convert/FvcTimestampField.al:443 ExitValue_NumberFields, :466 ExitValue_EnumOptionFields, :485 ExitValue_OtherFields and :214 Field0_InsertedRow, measured on a local Business Central and on every supported major by the corpus CI; al-runner issue 9285, with the reporter's own measurement of the timestamp on a local Business Central.",
-    probe: "Pin corpus PR 1629 with the next corpus bump. Not measured, so as before: another field type, another session language or format region, and a value in a Variant variable (which keeps its TypeConversion error).",
+    assumed: "On every supported major, in an en-US session, exit(FR.Value()) from a procedure that returns a Code or Text, for an Integer, BigInteger (the timestamp field 0 too), Decimal, Enum, Option, Boolean, Date or Duration field, gives the value's Format text, as FieldRef.Validate converts it: upper-cased into a Code, an Option's OptionCaption, an Enum member's Caption or else its name, a Decimal with its thousands separator, and StringLengthExceeded when the text is longer than the Code or a bounded Text. A parenthesized exit((FR.Value())) is the same.",
+    tests: "Corpus PR https://github.com/aldevtools/BusinessCentral.AL.Language.Tests/pull/1629 (merged at 778b8fc1, not yet pinned), recordref-fieldref/fieldref-value-convert/FvcTimestampField.al:443 ExitValue_NumberFields, :466 ExitValue_EnumOptionFields, :485 ExitValue_OtherFields and :214 Field0_InsertedRow, measured on a local Business Central and on every supported major by the corpus CI; the follow-up corpus probe, recordref-fieldref/fieldref-value-convert/FvcExitValueMore.al:142-280 ExitValue_* (Decimals of 1000 or more, an OptionCaption, an Enum member without a Caption, Text[3] and Text[30] returns), measured on a local Business Central; al-runner issue 9285, with the reporter's own measurement of the timestamp on a local Business Central.",
+    probe: "Pin corpus PR 1629 and the follow-up probe with the next corpus bumps. Not measured: another field type (converts as before), and another session language or format region, or a major the corpus does not cover, where a number or an Enum refuses. A value in a Variant variable keeps its TypeConversion error, as FvcTimestampField.al variant_to_code measures.",
     awaiting: Awaiting {
-        issues: &[9285],
-        files: &["tests/al-language/recordref-fieldref/fieldref-value-convert/FvcTimestampField.al"],
+        issues: &[9285, 9305],
+        files: &[
+            "tests/al-language/recordref-fieldref/fieldref-value-convert/FvcTimestampField.al",
+            "tests/al-language/recordref-fieldref/fieldref-value-convert/FvcExitValueMore.al",
+        ],
         since: "2026-11-27",
     },
 }
