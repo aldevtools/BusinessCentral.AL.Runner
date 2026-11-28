@@ -110,7 +110,6 @@ macro_rules! session_fields {
                 isolated_written_in_codeunit: HashSet<(String, String)>,
                 // The session's baseline bookkeeping (`restore_baseline`).
                 company_built: bool,
-                login_held: bool,
                 // What the session's own code wrote or resolved (lib.rs).
                 demo_written: HashSet<u32>,
                 gl_setup_written: bool,
@@ -167,6 +166,9 @@ macro_rules! session_fields {
                 // The login replay key holds it in a field of its own (al-testrun `Key::test_codeunit`), not in the
                 // state lines, so the check can compare the logins of two test codeunits.
                 test_object [own_key_field],
+                // The run's one login a Disabled codeunit on the hub carried (`held_login.rs`): set by al-testrun
+                // `open_company` and carried by the baselines; an image keeps the target's own.
+                login_held,
             }
             counter {
                 // Read only as a difference around one call, never by AL code: `page_run_close.rs`,

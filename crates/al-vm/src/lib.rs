@@ -37,6 +37,8 @@ mod single_unmeasured;
 mod state;
 pub(crate) use state::*;
 mod baseline;
+mod held_login;
+pub use held_login::HeldLogin;
 mod hub_sequences;
 mod sequence_start;
 pub use sequence_start::{CommitBy, DataAccess, Interval, Reached, RefLoads, SequenceStart, TxPoint, TxPointKind};
@@ -921,7 +923,7 @@ pub struct Session {
     /// (`Baseline::company_built`).
     pub(crate) company_built: bool,
     /// The session's data holds what the run's one login wrote (`Baseline::login_held`).
-    pub(crate) login_held: bool,
+    pub(crate) login_held: Option<std::sync::Arc<HeldLogin>>,
     /// The `Engine::demo_tables` the running test's own code (not install code) wrote to (`records/op_inner.rs`): a read of
     /// one of the others is refused before the session's own code wrote it.
     demo_written: std::collections::HashSet<u32>,
@@ -1521,7 +1523,7 @@ impl Session {
             sessions_started: 0,
             install_without_client: false,
             company_built: false,
-            login_held: false,
+            login_held: None,
             demo_written: Default::default(),
             gl_setup_written: false,
             setup_caption_read_early: false,

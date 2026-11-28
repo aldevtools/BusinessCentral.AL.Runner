@@ -1204,6 +1204,11 @@ pub(crate) struct CompanyOpenWrites {
     pub tables: BTreeSet<u32>,
     /// The first subscriber of the login (a dependency app's, `login.rs`) that wrote: its writes stay in the session.
     pub login: Option<String>,
+    /// The tables the login's subscribers (`login`) wrote.
+    pub login_tables: BTreeSet<u32>,
+    /// What a test may not read in a session that starts from the run's one login a Disabled codeunit on the hub held
+    /// (al-testrun run.rs `held_reads`).
+    pub held: Option<HeldReads>,
     /// The apps under test's own login subscribers ran where what BC's login does is not known (`login::Login::Own`):
     /// the tables they wrote, and why.
     pub watched_login: Option<(BTreeSet<u32>, &'static str)>,
@@ -1233,6 +1238,9 @@ impl CompanyOpenWrites {
     /// written tables watched, and [`CompanyOpenWrites::touched`] decides after it ran. The tables of `watched_login` are
     /// only watched: in Microsoft's apps the static reach of nearly every write reaches them (`login.rs`).
     pub fn refuses(&self, facts: &crate::runtime::written::ReachFacts, lowered: &Lowered) -> Option<String> {
+        if let Some(why) = self.held.as_ref().and_then(|held| held.refuses(facts, lowered)) {
+            return Some(why);
+        }
         self.who.as_ref()?;
         if facts.unknown.is_some() {
             return None;
@@ -1245,6 +1253,7 @@ impl CompanyOpenWrites {
     /// `own_login`, and those of `partner_login`.
     pub fn watched(&self) -> BTreeSet<u32> {
         let mut out = self.tables.clone();
+        out.extend(self.held.iter().flat_map(|held| held.tables.iter().copied()));
         out.extend(self.watched_login.iter().flat_map(|(t, _)| t.iter().copied()));
         out.extend(self.own_login.iter().copied());
         out.extend(self.partner_login.watched());
@@ -1264,7 +1273,11 @@ impl CompanyOpenWrites {
         }
         let partner = self.partner_login.test_hit(hits);
         (hits.iter())
-            .find(|t| self.tables.contains(t) || self.watched_login.as_ref().is_some_and(|(w, _)| w.contains(t)))
+            .find(|t| {
+                self.tables.contains(t)
+                    || self.held.as_ref().is_some_and(|held| held.tables.contains(t))
+                    || self.watched_login.as_ref().is_some_and(|(w, _)| w.contains(t))
+            })
             .copied()
             .or(partner)
     }
@@ -1275,12 +1288,44 @@ impl CompanyOpenWrites {
         if self.tables.contains(&t) {
             return Some(self.reason(&format!("this test read or wrote table {name} while it ran")));
         }
+        if let Some(held) = self.held.as_ref().filter(|held| held.tables.contains(&t)) {
+            return Some(format!("{}: this test read or wrote table {name} while it ran", held.why));
+        }
         let Some((_, why)) = self.watched_login.as_ref().filter(|(tables, _)| tables.contains(&t)) else {
             return self.partner_login.touched(t, lowered);
         };
         Some(format!(
             "{why}: the login subscribers of the apps under test ran before the first test and wrote table {name}, which this test read or wrote"
         ))
+    }
+}
+
+/// What a test of a session that starts from the run's one login a Disabled codeunit on the hub held may not touch, and
+/// why (al-testrun run.rs `held_reads`): a test whose static reach touches one of `tables` or reads a global of one of
+/// `singles` is not run; one whose reach is not known runs with `tables` watched, and is not run when it touched one.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct HeldReads {
+    pub tables: BTreeSet<u32>,
+    /// SingleInstance codeunits (object index).
+    pub singles: BTreeSet<usize>,
+    pub why: &'static str,
+}
+
+impl HeldReads {
+    fn refuses(&self, facts: &crate::runtime::written::ReachFacts, lowered: &Lowered) -> Option<String> {
+        let single = match &facts.unknown {
+            Some(_) => self.singles.first(),
+            None => facts.globals_read.iter().map(|(o, _)| o).find(|o| self.singles.contains(o)),
+        };
+        if let Some(o) = single {
+            let name = CompanyOpenWrites::table_name(lowered, *o as u32);
+            return Some(format!("{}: this test can read the SingleInstance codeunit {name}", self.why));
+        }
+        if facts.unknown.is_some() {
+            return None;
+        }
+        let t = self.tables.intersection(&facts.touched).next()?;
+        Some(format!("{}: this test can read table {}", self.why, CompanyOpenWrites::table_name(lowered, *t)))
     }
 }
 
@@ -1425,6 +1470,7 @@ fn open_test_session_company(
         // :161): it is not refused, only noted for the carry rule of Disabled isolation (`run.rs`).
         if lowered.dependency[o] {
             wrote.login.get_or_insert(name);
+            wrote.login_tables.extend(changed);
         } else {
             wrote.tables.extend(changed);
             wrote.who.get_or_insert(name);
