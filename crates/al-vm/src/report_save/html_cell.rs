@@ -37,6 +37,7 @@ pub(super) const HTML_HASH_CELL: Facts = Facts {
     extensions: Extensions::None,
     triggers: Triggers::None,
     sole_layout: true,
+    own_layout: true,
     init_triggers: false,
     custom: false,
     company_build: false,

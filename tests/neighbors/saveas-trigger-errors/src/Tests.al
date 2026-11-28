@@ -263,6 +263,18 @@ codeunit 97120 "NBS Tests"
     end;
 
     [Test]
+    procedure ProcessingOnly_WithWordLayoutProperty_WordBoolean_NotMeasured()
+    begin
+        BooleanForm(Report::"NBS Processing Word Prop Rpt", 1, ReportFormat::Word, 'false ReportProcessingOnly/Report 97124 is a processing-only report. Output cannot be rendered and saved to a file.');
+    end;
+
+    [Test]
+    procedure ProcessingOnly_WithRenderingWordNoDefault_WordStatement_NotMeasured()
+    begin
+        Statement(Report::"NBS Processing Rendering Rpt", 1, ReportFormat::Word, 'raised ReportProcessingOnly/Report 97125 is a processing-only report. Output cannot be rendered and saved to a file.');
+    end;
+
+    [Test]
     procedure Rdlc_OnPreReportError_PdfBoolean_MainsRule()
     begin
         BooleanForm(Report::"NBS Rdlc Rpt", 1, ReportFormat::Pdf, 'false Dialog/N1');

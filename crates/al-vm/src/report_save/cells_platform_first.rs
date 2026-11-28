@@ -93,6 +93,8 @@ pub(super) fn platform_first_rows(t: &mut Vec<Cell>) {
             layout: Is(Layout::NotRdlc),
             decl: Is(Decl::Legacy),
             processing_only: Is(true),
+            // No layout of its own, as both measured reports (PnH6SaveAs.al:32, "SAE Processing Rpt").
+            own_layout: Is(false),
             ..base(answer, format)
         };
         t.push(cell(key, Answer::Dataset, Events::NotRaised(&[]), evidence));
