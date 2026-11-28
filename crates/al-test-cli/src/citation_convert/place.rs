@@ -50,6 +50,26 @@ impl<'a> File<'a> {
             .or((!self.objects.is_empty()).then_some(0))
     }
 
+    /// The one member named `name` (AL names ignore case), for a citation by name (`File.al:Name`).
+    pub fn named(&self, name: &str) -> Result<Target, String> {
+        let mut found = self.objects.iter().enumerate().flat_map(|(o, obj)| {
+            obj.members
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| m.name.eq_ignore_ascii_case(name))
+                .map(move |(member, _)| Target::Member {
+                    object: o,
+                    member,
+                    cell: None,
+                })
+        });
+        match (found.next(), found.next()) {
+            (Some(t), None) => Ok(t),
+            (None, _) => Err(format!("no member is named `{name}`")),
+            (Some(_), Some(_)) => Err(format!("several members are named `{name}`")),
+        }
+    }
+
     /// What the line ranges name, in order and without repeats. A single line inside a test gets its cell when the
     /// line holds one observation; a range keeps its members (its blank and comment lines name the object) and cites the
     /// codeunit when it spans more than [`MANY_TESTS`] tests and at least half of them.

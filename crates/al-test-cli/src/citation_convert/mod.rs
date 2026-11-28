@@ -109,7 +109,7 @@ pub fn convert(
     let found: Vec<Found> = files
         .into_par_iter()
         .map(|(path, text)| {
-            let cites = old::find(&text, path.extension().is_some_and(|e| e == "rs"));
+            let cites = old::find(&text, old::Form::of(&path));
             let pins = cite_pins(&repo, &path, &text, &cites)?;
             Ok(Found {
                 path,
@@ -238,23 +238,45 @@ fn spliced<'n>(before: &str, new: &'n str) -> (usize, &'n str) {
     }
 }
 
-/// The quoted names of a citing line: AL literals as written (`'cell'`) and the text in backticks without its double
-/// quotes (`` `"First Test"` `` gives `First Test`).
+/// The quoted names of a citing line: AL literals as written (`'cell'`; an apostrophe inside a word opens or closes
+/// none) and the text in backticks without its double quotes (`` `"First Test"` `` gives `First Test`).
 fn quotes(line: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for (mark, keep) in [('\'', true), ('`', false)] {
-        // The text between a pair of marks: every odd part, when a mark closes it.
-        let parts: Vec<&str> = line.split(mark).collect();
-        for q in (1..parts.len().saturating_sub(1))
-            .step_by(2)
-            .map(|k| parts[k].trim_matches('"'))
-        {
-            if !q.is_empty() {
-                out.push(if keep { format!("'{q}'") } else { q.to_string() });
-            }
+    let b = line.as_bytes();
+    let word = |i: Option<usize>| i.and_then(|i| b.get(i)).is_some_and(u8::is_ascii_alphanumeric);
+    let marks: Vec<usize> = (0..b.len())
+        .filter(|&i| b[i] == b'\'' && !(word(i.checked_sub(1)) && word(Some(i + 1))))
+        .collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut k = 0;
+    while k + 1 < marks.len() {
+        let (open, close) = (marks[k], marks[k + 1]);
+        if word(open.checked_sub(1)) || word(Some(close + 1)) {
+            k += 1;
+            continue;
+        }
+        if close > open + 1 {
+            out.push(line[open..=close].to_string());
+        }
+        k += 2;
+    }
+    // The text between a pair of backticks: every odd part, when a backtick closes it.
+    let parts: Vec<&str> = line.split('`').collect();
+    for q in (1..parts.len().saturating_sub(1))
+        .step_by(2)
+        .map(|k| parts[k].trim_matches('"'))
+    {
+        if !q.is_empty() {
+            out.push(q.to_string());
         }
     }
     out
+}
+
+/// Whether the quoted names of a citing line hold cell literal `cell` (`'x'`), as an AL literal or in backticks.
+fn quoted(quotes: &[String], cell: &str) -> bool {
+    quotes
+        .iter()
+        .any(|q| q == cell || q.as_str() == cell.trim_matches('\''))
 }
 
 /// The 1-based line of byte `at`.
@@ -293,6 +315,9 @@ fn citing_files(root: &Path, paths: &[PathBuf]) -> Result<Vec<(PathBuf, String)>
     Ok(out)
 }
 
+/// What one old citation became: its tokens, class and the file and pin read; or the class and note it is left with.
+type Outcome = Result<(String, Class, String), (Class, String)>;
+
 /// What one file's conversion reads.
 struct Ctx<'a> {
     new: &'a Corpus,
@@ -309,15 +334,12 @@ impl Ctx<'_> {
     fn file(&self, f: &Found) -> (String, Vec<Row>) {
         let (text, cites) = (f.text.as_str(), f.cites.as_slice());
         let line = |c: &old::OldCite| line_of(text, c.at.start);
-        let results: Vec<Result<(String, Class), (Class, String)>> = cites
+        let results: Vec<Outcome> = cites
             .iter()
             .zip(&f.pins)
             .map(|(c, pins)| match cited_file(c, cites) {
                 _ if !c.in_comment => Err((Class::InCode, String::new())),
-                _ if c.odd => Err((
-                    Class::HandFix,
-                    "the text after the path does not read as a line list".into(),
-                )),
+                _ if c.doubt.is_some() => Err((Class::HandFix, c.doubt.unwrap_or_default().into())),
                 None => Err((Class::Orphan, String::new())),
                 Some(cited) => self.checked(pins, cited, c, &quotes(citing_line(text, c))),
             })
@@ -342,13 +364,14 @@ impl Ctx<'_> {
                 note: String::new(),
             };
             match &results[k] {
-                Ok((new, class)) if !held => {
+                Ok((new, class, read_at)) if !held => {
                     let (drop, new) = spliced(&text[last..c.at.start], new);
                     out.push_str(&text[last..c.at.start - drop]);
                     out.push_str(new);
                     last = c.at.end;
                     row.new = Some(new.to_string());
                     row.class = *class;
+                    row.note = read_at.clone();
                 }
                 Ok(_) => row.note = "another citation of its group needs a hand fix".into(),
                 Err((class, note)) => {
@@ -372,16 +395,12 @@ impl Ctx<'_> {
     }
 
     /// The tokens of citation `c` read at its first pin, when the same lines name the same at the blame pin and at the
-    /// next pin that changed the file (review r1 of PR 9432, step-3 note 2); a hand fix otherwise.
-    fn checked(
-        &self,
-        pins: &Pins,
-        cited: &str,
-        c: &old::OldCite,
-        quotes: &[String],
-    ) -> Result<(String, Class), (Class, String)> {
+    /// next pin that changed the file (review r1 of PR 9432, step-3 note 2), with the file and pin read; a hand fix
+    /// otherwise. A member cited by name is read at the first pin only: a name does not drift with the lines, and a
+    /// later rename is what `citation::carry` follows.
+    fn checked(&self, pins: &Pins, cited: &str, c: &old::OldCite, quotes: &[String]) -> Outcome {
         let at = self.at(&pins.first, cited)?;
-        let (token, class) = self.one(at, &c.lines, c.bare, quotes)?;
+        let (token, class) = self.one(at, c, quotes)?;
         let blame = (pins.blame != pins.first)
             .then(|| self.at(&pins.blame, cited).ok())
             .flatten();
@@ -389,9 +408,9 @@ impl Ctx<'_> {
             ("the blame pin", blame),
             ("the next pin that changed the file", self.next.get(at)),
         ];
-        for (what, other) in others {
+        for (what, other) in others.into_iter().filter(|_| c.member.is_none()) {
             let Some(o) = other else { continue };
-            let t = match self.one(o, &c.lines, c.bare, quotes) {
+            let t = match self.one(o, c, quotes) {
                 Ok((t, _)) => t,
                 Err((_, e)) => format!("nothing ({e})"),
             };
@@ -406,31 +425,37 @@ impl Ctx<'_> {
                 ));
             }
         }
-        Ok((token, class))
+        Ok((token, class, format!("read at {} at {}", at.path, short(&at.pin))))
     }
 
-    /// The tokens for `lines` of the file at `at`; a hand fix when the citing text quotes a name the file has outside
-    /// the lines.
-    fn one(
-        &self,
-        at: &At,
-        lines: &[(u32, u32)],
-        bare: bool,
-        quotes: &[String],
-    ) -> Result<(String, Class), (Class, String)> {
+    /// The tokens for what citation `c` names in the file at `at` (its lines, its member, or the file); a hand fix when
+    /// the citing text quotes a name the file has outside the lines.
+    fn one(&self, at: &At, c: &old::OldCite, quotes: &[String]) -> Result<(String, Class), (Class, String)> {
         let hand = |e: String| (Class::HandFix, format!("{} at {}: {e}", at.path, short(&at.pin)));
         let file = &self.parsed[at];
-        let targets = if lines.is_empty() {
+        let mut targets = if let Some(name) = &c.member {
+            vec![file.named(name).map_err(hand)?]
+        } else if c.lines.is_empty() {
             vec![Target::Object(
                 file.main_object().ok_or_else(|| hand("no object".into()))?,
             )]
         } else {
-            file.targets(lines).map_err(hand)?
+            file.targets(&c.lines).map_err(hand)?
         };
         if let Some(q) = file.quoted_elsewhere(&targets, quotes) {
             return Err(hand(format!(
                 "the citing text quotes {q}, which the file has outside the cited lines"
             )));
+        }
+        // A cell only when the citing text quotes its literal: a line off by one names the next cell of the same test.
+        for t in &mut targets {
+            if let Target::Member {
+                cell: cell @ Some(_), ..
+            } = t
+                && !cell.as_deref().is_some_and(|c| quoted(quotes, c))
+            {
+                *cell = None;
+            }
         }
         let mut tokens: Vec<String> = Vec::new();
         let mut class = Class::Range;
@@ -441,7 +466,7 @@ impl Ctx<'_> {
                 tokens.push(token);
             }
         }
-        if lines.is_empty() && !bare {
+        if c.lines.is_empty() && c.member.is_none() && !c.bare {
             class = Class::File;
         } else if tokens.len() > 1 {
             class = Class::Range;
@@ -575,5 +600,10 @@ mod tests {
             ["'one cell'", "First Test"]
         );
         assert!(quotes("// T.al:9, nothing quoted").is_empty());
+        // An apostrophe inside a word opens no literal.
+        assert_eq!(
+            quotes("// the test's cell 'one' and the row's 'two'."),
+            ["'one'", "'two'"]
+        );
     }
 }

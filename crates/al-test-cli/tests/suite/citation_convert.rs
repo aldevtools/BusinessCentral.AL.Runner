@@ -80,7 +80,7 @@ fn runner_commit(r: &Path, pin: &str, files: &[(&str, &str)]) {
     git(r, &["commit", "-qm", "r"]);
 }
 
-const CITES: &str = "// TOne.al:8 is the first test's cell.
+const CITES: &str = "// TOne.al:8 is the first test's cell 'one'.
 // TOne.al:12 is the second test.
 // TOne.al:3 is not in a test.
 // TOne.al:4 is blank.
@@ -90,6 +90,8 @@ const CITES: &str = "// TOne.al:8 is the first test's cell.
 // TOne.al:12 checks 'one', which is the other test's cell.
 // Nowhere.al:1 is no corpus file.
 const S: &str = \"TOne.al:8\";
+// TOne.al:8 without its literal is the test: a line off by one would cite another cell.
+// TOne.al:Second names its test by name, TOne.al:Nothing no member.
 ";
 
 struct Fixture {
@@ -163,6 +165,9 @@ fn each_old_citation_converts_at_its_pin_or_is_left_with_a_reason() {
             (8, Class::HandFix, None),
             (9, Class::NotCorpus, None),
             (10, Class::InCode, None),
+            (11, Class::Test, Some("corpus:\"LT One Renamed\"/First")),
+            (12, Class::Test, Some("corpus:\"LT One Renamed\"/SecondRenamed")),
+            (12, Class::HandFix, None),
         ],
         "{rows:#?}"
     );
@@ -175,6 +180,9 @@ fn each_old_citation_converts_at_its_pin_or_is_left_with_a_reason() {
     assert!(note(4).contains("is blank"), "{}", note(4));
     assert!(note(6).contains("the next pin that changed the file"), "{}", note(6));
     assert!(note(8).contains("quotes 'one'"), "{}", note(8));
+    // A converted row names the file and the pin it was read at: TMoved.al before its move, at pin 1.
+    let pin1 = git(&f.root, &["rev-parse", "HEAD~1:corpus"]);
+    assert_eq!(note(5), format!("read at tests/app/TMoved.al at {}", &pin1[..10]));
     // A dry run writes nothing.
     assert_eq!(std::fs::read_to_string(f.root.join("src/a.rs")).unwrap(), CITES);
 }
@@ -199,7 +207,7 @@ fn a_conversion_writes_the_tokens_and_a_second_run_finds_only_what_was_left() {
     let first = rows(&f, false);
     let text = std::fs::read_to_string(f.root.join("src/a.rs")).unwrap();
     assert!(
-        text.starts_with("// corpus:\"LT One Renamed\"/First#'one' is the first test's cell.\n"),
+        text.starts_with("// corpus:\"LT One Renamed\"/First#'one' is the first test's cell 'one'.\n"),
         "{text}"
     );
     assert!(text.contains("// TOne.al:3 is not in a test."), "{text}");
