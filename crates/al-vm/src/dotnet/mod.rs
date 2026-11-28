@@ -171,7 +171,7 @@ pub struct DotNetState {
     /// The newest .NET write through a bridge, per Blob (`zip_blob_writes`, keyed by `zip_blob_writes::blob_key`).
     net_writes: HashMap<usize, zip_blob_writes::NetWrite>,
     /// The OutStreams read from an array element (`zip_blob_writes::note_element_stream`).
-    element_streams: Vec<std::rc::Weak<RefCell<LibraryValue>>>,
+    element_streams: zip_blob_writes::ElementStreams,
     /// ADR-056: the workbook writers `WorkbookWriter.Create(fileName)` made, by handle: the file and the AL stream the writer
     /// writes into instead. `Close` makes the bytes the file.
     open_workbooks: HashMap<DotNetHandle, (String, BlobRef)>,
@@ -231,7 +231,7 @@ impl DotNetState {
             && bridges.is_empty()
             && net_writes.is_empty()
             // A list of gone cells answers as an empty one.
-            && element_streams.iter().all(|w| w.strong_count() == 0)
+            && element_streams.all_gone()
             && open_workbooks.is_empty()
             && closed_workbooks.is_empty()
             && worksheets.is_empty()

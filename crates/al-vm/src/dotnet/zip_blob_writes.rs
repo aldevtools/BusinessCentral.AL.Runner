@@ -33,7 +33,8 @@
 //!
 //! Every assumed rewrite needs the stamp of the stream handed to .NET, at the rewrite as when the bridge was made
 //! ([`still_stamped`]). An OutStream copied (`:=`, a by-value parameter, a procedure's return value), before or after
-//! .NET got it, loses it ([`unstamp_out_stream`]); one read from an array element never has it at .NET
+//! .NET got it, loses it ([`unstamp_out_stream`]); one opened again, on its Blob or on another, no longer has it (the
+//! stream's Blob and stamp are read together); one read from an array element never has it at .NET
 //! ([`note_element_stream`]): not measured, so main's answer (part 1, whose archive the constructor seeded, refuses).
 //!
 //! Every other rewrite keeps main's answer: an Update archive's rewrite refuses, an overwrite marks the Blob
@@ -159,22 +160,51 @@ pub(crate) fn unstamp_out_stream(v: &Value) {
 /// that read).
 pub(crate) fn note_element_stream(state: &mut super::DotNetState, v: &Value) {
     if let Value::Library(al_builtins::library_kind::LibraryKind::OutStream, h) = v {
-        if !noted_element_stream(state, h) {
-            let cells = &mut state.element_streams;
-            cells.retain(|w| w.strong_count() > 0);
-            cells.push(Rc::downgrade(h));
-        }
+        state.element_streams.note(h);
     }
 }
 
-/// The bridge's stream still has the stamp it had when the bridge was made: no copy of it was made since and it was not
-/// read from an array element. A stream every holder dropped answers no: whether a copy was made is not known.
+type StreamCell = Rc<std::cell::RefCell<al_builtins::value::LibraryValue>>;
+
+/// The OutStream cells [`note_element_stream`] noted, by address. Each entry holds a `Weak` of its cell, which keeps the
+/// cell's allocation, so no other cell takes that address while the entry stays. Cells every holder dropped are pruned
+/// when the map has doubled since the last prune, so a note and a lookup take constant time on average.
+#[derive(Default)]
+pub(super) struct ElementStreams {
+    cells: std::collections::HashMap<usize, std::rc::Weak<std::cell::RefCell<al_builtins::value::LibraryValue>>>,
+    prune_at: usize,
+}
+
+impl ElementStreams {
+    fn note(&mut self, h: &StreamCell) {
+        if self.cells.insert(Rc::as_ptr(h) as usize, Rc::downgrade(h)).is_none() && self.cells.len() >= self.prune_at {
+            self.cells.retain(|_, w| w.strong_count() > 0);
+            self.prune_at = 2 * self.cells.len().max(8);
+        }
+    }
+
+    fn contains(&self, h: &StreamCell) -> bool {
+        self.cells.contains_key(&(Rc::as_ptr(h) as usize))
+    }
+
+    /// No noted cell is still held (a map of gone cells answers as an empty one: `DotNetState::as_new`).
+    pub(super) fn all_gone(&self) -> bool {
+        self.cells.values().all(|w| w.strong_count() == 0)
+    }
+}
+
+/// The bridge's stream still is the open it was when the bridge was made: the cell is on the bridge's Blob with the same
+/// stamp, so no copy of it was made since, it was not opened again (a stamp counts the edits of one Blob only, so a
+/// `CreateOutStream` on another Blob can give the same number) and it was not read from an array element. A stream every
+/// holder dropped answers no: whether a copy was made is not known.
 fn still_stamped(state: &super::DotNetState, bridge: &Bridge) -> bool {
     let Some(cell) = bridge.cell.upgrade() else {
         return false;
     };
     let opened_at = match &*cell.borrow() {
-        al_builtins::value::LibraryValue::OutStream(.., opened_at) => *opened_at,
+        al_builtins::value::LibraryValue::OutStream(blob, .., opened_at) if Arc::ptr_eq(blob, &bridge.blob) => {
+            *opened_at
+        }
         _ => None,
     };
     bridge.opened_at.is_some() && stamp_of(state, &cell, opened_at) == bridge.opened_at
@@ -186,23 +216,8 @@ pub(super) fn blob_key(blob: &BlobRef) -> usize {
 }
 
 /// The stamp of the OutStream cell `h` handed to .NET: `opened_at`, or none for a cell read from an array element.
-pub(super) fn stamp_of(
-    state: &super::DotNetState,
-    h: &Rc<std::cell::RefCell<al_builtins::value::LibraryValue>>,
-    opened_at: Option<u32>,
-) -> Option<u32> {
-    opened_at.filter(|_| !noted_element_stream(state, h))
-}
-
-/// Whether [`note_element_stream`] noted the OutStream cell `h`.
-fn noted_element_stream(
-    state: &super::DotNetState,
-    h: &Rc<std::cell::RefCell<al_builtins::value::LibraryValue>>,
-) -> bool {
-    state
-        .element_streams
-        .iter()
-        .any(|w| std::ptr::eq(w.as_ptr(), Rc::as_ptr(h)))
+pub(super) fn stamp_of(state: &super::DotNetState, h: &StreamCell, opened_at: Option<u32>) -> Option<u32> {
+    opened_at.filter(|_| !state.element_streams.contains(h))
 }
 
 /// Part 2's Blob: no read or Insert gave the record that Blob. Read when the bridge is made: a Clear in place gives the
@@ -297,5 +312,40 @@ impl Session {
             }
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use al_builtins::value::LibraryValue;
+
+    fn cell() -> StreamCell {
+        Rc::new(std::cell::RefCell::new(LibraryValue::OutStream(
+            Arc::new(al_builtins::stream::BlobCell::new(BlobBuf::default())),
+            al_builtins::stream::Encoding::Utf8,
+            None,
+            Some(1),
+        )))
+    }
+
+    #[test]
+    fn a_noted_cell_stays_noted_while_held_and_dropped_cells_are_pruned() {
+        let mut noted = ElementStreams::default();
+        let kept = cell();
+        noted.note(&kept);
+        for _ in 0..100 {
+            noted.note(&cell());
+        }
+        assert!(noted.contains(&kept));
+        assert!(!noted.contains(&cell()));
+        assert!(
+            noted.cells.len() < 100,
+            "dropped cells are pruned: {}",
+            noted.cells.len()
+        );
+        assert!(!noted.all_gone());
+        drop(kept);
+        assert!(noted.all_gone());
     }
 }

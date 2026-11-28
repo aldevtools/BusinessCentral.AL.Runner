@@ -19,3 +19,4 @@ NB SZ R4 After Rewrite 59449::Overwrite48_ThenSecondStreamWriter	ASSUMED zip-blo
 NB SZ R4 After Rewrite 59449::Fresh_Update4_Dispose_ThenALWriteText	REFUSED a Blob whose bytes a DotNet call wrote over after it had handed them back
 NB SZ R6 Holders 59455::Overwrite48_OverVarScalar	ASSUMED zip-blob-writes (corpus PR 1633, ZipBlobDotNetOverwrite.al:17-49: the measured overwrite through a scalar var OutStream parameter)
 NB SZ R8 Copied 59459::Fresh_Update4_CopyAfterCtor	REFUSED DotNet System.IO.Compression.ZipArchive.Dispose: a .NET rewrite of an OutStream AL wrote into since the call before
+NB SZ R9 Reopened 59460::Fresh_Update4_ReopenOther	REFUSED DotNet System.IO.Compression.ZipArchive.Dispose: a .NET rewrite of an OutStream AL wrote into since the call before
