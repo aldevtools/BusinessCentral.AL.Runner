@@ -1773,6 +1773,8 @@ pub struct ErrorInfoState {
     pub page_no: i32,
     /// The dictionary the test assigned, held by reference.
     pub custom_dimensions: Option<Value>,
+    /// How many actions `AddAction` and `AddNavigationAction` added; they are never run.
+    pub actions: u32,
     /// How the ErrorInfo was built, for `GetLastErrorText(true)` after `FieldError(Field, ErrorInfo)`.
     pub built: ErrorInfoBuilt,
 }

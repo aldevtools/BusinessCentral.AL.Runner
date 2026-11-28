@@ -86,6 +86,7 @@ pub(crate) struct ErrorInfoNode {
     field_no: i32,
     page_no: i32,
     custom_dimensions: Option<Frozen>,
+    actions: u32,
     built: ErrorInfoBuilt,
     /// The `Callstack` a collected error carries, kept by the cell in a thread-local side table (al-builtins
     /// errorinfo.rs `CALLSTACKS`), not in the state.
@@ -195,6 +196,7 @@ impl Walker<'_> {
             field_no,
             page_no,
             custom_dimensions,
+            actions,
             built,
         } = e;
         let opt = |w: &mut Self, v: &Option<al_builtins::value::Value>, what: &str| {
@@ -215,6 +217,7 @@ impl Walker<'_> {
             field_no: *field_no,
             page_no: *page_no,
             custom_dimensions: opt(self, custom_dimensions, "custom dimensions")?,
+            actions: *actions,
             built: *built,
             callstack: None,
         })
@@ -298,6 +301,7 @@ impl Maker<'_> {
             field_no: e.field_no,
             page_no: e.page_no,
             custom_dimensions: opt(&e.custom_dimensions),
+            actions: e.actions,
             built: e.built,
         }
     }

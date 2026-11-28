@@ -145,6 +145,7 @@ fn fresh(message: String, collectible: bool) -> ErrorInfoState {
         field_no: 0,
         page_no: 0,
         custom_dimensions: None,
+        actions: 0,
         built: ErrorInfoBuilt::Other,
     }
 }
@@ -335,7 +336,7 @@ fn add_action(c: &mut dyn Ctx, r: Option<&mut Value>, a: &mut [Value]) -> Out {
     if method.eq_ignore_ascii_case("Run") {
         add_run_action(c, codeunit, &method)?;
     }
-    set(r, |_| ())
+    set(r, |s| s.actions += 1)
 }
 
 /// `AddAction` whose method is `Run` (assumption `errorinfo-add-action-run`, corpus PR 1601
@@ -373,7 +374,7 @@ fn add_run_action(c: &dyn Ctx, codeunit: i32, method: &str) -> Result<(), Signal
 }
 
 fn add_navigation_action(_: &mut dyn Ctx, r: Option<&mut Value>, _: &mut [Value]) -> Out {
-    set(r, |_| ())
+    set(r, |s| s.actions += 1)
 }
 
 /// `Error(ErrorInfo)`: raises the message as it is for a client error
@@ -382,38 +383,48 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
     let Some(info @ Value::Library(_, cell)) = a.first() else {
         return unsupported(format!("Error with {} as an ErrorInfo", a.first().describe()));
     };
-    let (message, internal, collectible) = match &*cell.borrow() {
-        LibraryValue::ErrorInfo(s) => (s.message.clone(), s.error_type == Some(1), s.collectible),
+    let (message, internal, collectible, measured) = match &*cell.borrow() {
+        LibraryValue::ErrorInfo(s) => (
+            s.message.clone(),
+            s.error_type == Some(1),
+            s.collectible,
+            internal_text_measured(s),
+        ),
         _ => return unsupported("Error with an ErrorInfo nobody created"),
     };
     // An internal error hides its message behind a fixed text and a correlation id (session/
     // TestProbeSessionMiscContracts.al:ErrorInfo_ErrorClientAndInternal; the id changes from run to run). Collected, its Message
     // is that text with a line break before the id (errors/PnBErrorsCollections.al:329-358 `internal message`).
-    let (message, collected_message) = if internal {
-        let g = c.new_guid();
-        let id = crate::pagefmt::guid_text(&g);
-        (
-            format!("{INTERNAL_ERROR_TEXT}\\Correlation ID: {id}"),
-            Some(format!("{INTERNAL_ERROR_TEXT}\r\nCorrelation ID: {id}")),
-        )
-    } else {
-        (message, None)
-    };
+    let braced = internal.then(|| crate::pagefmt::guid_text(&c.new_guid()));
     // A collectible error inside a `[ErrorBehavior(Collect)]` scope is kept and execution goes on
     // (errors/errorinfo/TestErrorInfoType.al:448-459); a non-collectible one unwinds even there (:474-490).
     if collectible {
-        let collected = match &collected_message {
-            Some(m) => {
+        let collected = match &braced {
+            Some(braced) => {
                 let copy = copy_of(info).expect("an ErrorInfo");
-                set_message_of(&copy, m);
+                set_message_of(
+                    &copy,
+                    &format!(
+                        "{INTERNAL_ERROR_TEXT}\r\nCorrelation ID: {}",
+                        shown_id(braced, measured)
+                    ),
+                );
                 copy
             }
             None => info.clone(),
         };
         if c.collect_error(&collected) {
+            assume_measured(measured);
             return Ok(Value::Null);
         }
     }
+    // Raised, a collectible one is measured only inside a collecting scope (the return above).
+    let measured = matches!((measured, collectible), (true, false));
+    assume_measured(measured);
+    let message = match &braced {
+        Some(braced) => format!("{INTERNAL_ERROR_TEXT}\\Correlation ID: {}", shown_id(braced, measured)),
+        None => message,
+    };
     // The flag's text for any classification, the default one, custom dimensions included (P86LastError.al:54, :88-104,
     // :121, :145, :169).
     Err(Signal::Error(Box::new(crate::native::AlError {
@@ -422,6 +433,42 @@ pub fn raise(c: &mut dyn Ctx, _: Option<&mut Value>, a: &mut [Value]) -> Out {
         origin: crate::native::ErrorOrigin::Redacted(crate::native::PERSONAL_DATA_REMOVED.into()),
         ..Default::default()
     })))
+}
+
+/// Whether an `ErrorInfo` is an Internal one of a shape the probe measured (assumption `errorinfo-internal-text`, corpus PR
+/// 1666 errors/errorinfo/ErrorInfoInternalText.al): any Message and DetailedMessage, every other property as a fresh ErrorInfo
+/// has it, and no action. Any other Internal shape keeps the braced id.
+fn internal_text_measured(s: &ErrorInfoState) -> bool {
+    s.error_type == Some(1)
+        && s.title.is_empty()
+        && s.control_name.is_empty()
+        && s.verbosity == 1
+        && s.data_classification == 0
+        && s.table_id == 0
+        && s.record_id.is_none()
+        && s.system_id.is_none()
+        && s.field_no == 0
+        && s.page_no == 0
+        && s.custom_dimensions.is_none()
+        && s.actions == 0
+}
+
+/// The correlation id of an Internal error. A measured shape (assumption `errorinfo-internal-text`, corpus PR 1666
+/// ErrorInfoInternalText.al:177-187, :352-362) shows 36 characters, lower case hex with dashes and no braces; any other
+/// shape keeps the braced form.
+fn shown_id(braced: &str, measured: bool) -> &str {
+    if measured {
+        braced.trim_matches(['{', '}'])
+    } else {
+        braced
+    }
+}
+
+/// Marks a measured Internal error as running through the assumption, where it is collected or raised.
+fn assume_measured(measured: bool) {
+    if measured {
+        crate::assumptions::assume(crate::assumptions::Assumption::ErrorInfoInternalText);
+    }
 }
 
 /// The text an Internal error shows instead of its message (session-system/TestProbeSessionMiscContracts.al:

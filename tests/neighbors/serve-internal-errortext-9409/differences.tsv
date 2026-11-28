@@ -1,0 +1,13 @@
+# key	entry
+LT EIT Internal Text::Internal_Asserterror_MessageMethod_Text	ASSUMED errorinfo-internal-text (corpus PR 1666)
+LT EIT Internal Text::Internal_Asserterror_Create_Text	ASSUMED errorinfo-internal-text (corpus PR 1666)
+LT EIT Internal Text::Internal_Asserterror_NoMessage_Text	ASSUMED errorinfo-internal-text (corpus PR 1666)
+LT EIT Internal Text::Internal_Asserterror_DetailedMessage_Text	ASSUMED errorinfo-internal-text (corpus PR 1666)
+LT EIT Internal Text::Internal_LastErrorTextForms_SameRaise	ASSUMED errorinfo-internal-text (corpus PR 1666)
+LT EIT Internal Text::Internal_TryFunction_Text	ASSUMED errorinfo-internal-text (corpus PR 1666)
+LT EIT Internal Text::Internal_CodeunitRun_Text	ASSUMED errorinfo-internal-text (corpus PR 1666)
+LT EIT Internal Text::Internal_Collected_Message	ASSUMED errorinfo-internal-text (corpus PR 1666)
+LT EIT Internal Text::Internal_CollectedLeave_Text	ASSUMED errorinfo-internal-text (corpus PR 1666)
+LT EIT Internal Text::Internal_TwoRaises_IdsDiffer	ASSUMED errorinfo-internal-text (corpus PR 1666)
+NB EIT Neighbors::Measured_Reference_Bare	ASSUMED errorinfo-internal-text (corpus PR 1666)
+NB EIT Neighbors::Uncaught_FailureText	ASSUMED errorinfo-internal-text (corpus PR 1666; the failure text of an uncaught raise is its GetLastErrorText)
