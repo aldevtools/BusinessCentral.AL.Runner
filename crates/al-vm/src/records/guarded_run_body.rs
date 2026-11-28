@@ -43,6 +43,9 @@ pub(crate) struct GuardedBody {
     /// A guarded run started inside this one (read by `consistent_marks/page_view.rs`: a nested run's raise and an inner
     /// Commit's error end the run alike).
     pub(crate) runs_inside: bool,
+    /// The Consistent(false) marks a `Consistent(true)` lifted while this run ran (`Session::set_consistent`), with who set,
+    /// released and marked them again: `consistent_marks/arg_facts.rs` reads what the record argument did to them.
+    pub(crate) lifted: Vec<crate::consistent_marks::ConsistentMark>,
 }
 
 impl Session {
@@ -64,6 +67,7 @@ impl Session {
                 marks_dropped_inside: false,
                 commit_behavior_at_start: self.tx.commit_behavior,
                 runs_inside: false,
+                lifted: Vec::new(),
             });
         }
     }

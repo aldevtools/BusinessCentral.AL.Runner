@@ -5,11 +5,12 @@
 //! gets main's result.
 //!
 //! Entry points: `Session::mark_page_view` (by the page open), `page_view_ended` (by `record_op_inner`),
-//! `Session::page_view_run_end` (by `Session::guarded_run_end_marks`), `Session::page_view_action_code` (by the test page's
-//! action invoke).
+//! `Session::page_view_arg` and `Session::page_view_run_end` (by `Session::guarded_run_end_marks`),
+//! `Session::page_view_action_code` (by the test page's action invoke). The page view facts are `page_view_arg`, also read
+//! by the `guarded-run-consistent-arg` check of the end path (`ArgFacts::end_measured`).
 
 use super::page_args::PageArgShape;
-use super::{ArgFilter, MarkState, RunArg, RunEnd, RunStart};
+use super::{ArgFacts, ArgFilter, ArgTable, MarkState, RunArg, RunEnd, RunStart};
 use crate::Session;
 use crate::pages::{PageState, page_of};
 use crate::records::Rec;
@@ -57,44 +58,59 @@ impl Session {
         })));
     }
 
-    /// The end of a guarded run in the cells' shape: `Some` with the result when the shape is measured, `None` to keep
-    /// main's result. `top_level` is whether no other guarded run runs; `no_commit` whether nothing committed since the start.
-    pub(super) fn page_view_run_end(
-        &mut self,
-        start: &RunStart,
-        end: RunEnd,
-        after: &[(u32, MarkState)],
-        top_level: bool,
-        no_commit: bool,
-    ) -> Option<Option<Signal>> {
+    /// The argument of the guarded run `start` (`facts` as it ends) in the cells' page view shape (Page_OrderDirect_Fails
+    /// :1125, Page_OrderCardDirect_Fails :1170; the copy cells :675-:1110 are the ones this gate leaves out): the
+    /// database Rec of a List or Document page without an extension itself, opened with OpenView, whose view filter is
+    /// still the one the page set, run from that page's OnAction through one codeunit method (`run_by_action_method`), with
+    /// no guarded run started inside, the argument left as it was, its table named by no mark and every mark set by a
+    /// database variable other than it. `guarded_run_end_marks` takes it once, for `page_view_run_end` and
+    /// `ArgFacts::end_measured`.
+    pub(super) fn page_view_arg(&self, start: &RunStart, facts: &ArgFacts) -> bool {
         let RunArg::Record {
             table,
             temporary: false,
             filter: ArgFilter::Page(PageArgShape::PageView),
-        } = start.arg
+        } = facts.arg
         else {
-            return None;
+            return false;
         };
-        let arg = start.arg_record?;
-        let run_shape = top_level && no_commit && start.marks.is_empty() && !start.runs_inside && arg.filters_kept();
-        // One mark on another table (GPC M), held by the database variable that set it, which is not the argument.
-        let one_mark = match (after, self.tx.open.inconsistent.as_slice()) {
-            ([(t, MarkState::Marked)], [m]) => {
-                let by_arg = m.by.upgrade().is_some_and(|b| Rc::ptr_eq(&b, &arg.rec));
-                *t == m.table && *t != table && m.by_database && !by_arg
-            }
-            _ => false,
+        let Some(arg) = start.arg_record else {
+            return false;
         };
-        let mark = arg.rec.borrow().page_view.0.clone()?;
+        let Some(mark) = arg.rec.borrow().page_view.0.clone() else {
+            return false;
+        };
         // The argument is the page's Rec itself, which the action method got as its parameter (`OrderDirect` :484). A
         // `Record.Copy` of it (:475, :486) is measured only as a local of that method made in that method, which this gate
         // cannot tell from a global copy made in an earlier call; it keeps main's result.
         let is_page_rec = mark.origin.upgrade().is_some_and(|o| Rc::ptr_eq(&o, &arg.rec));
         let now = group2(&arg.rec.borrow());
         let view_kept = mark.group2.len() == now.len() && mark.group2.iter().zip(&now).all(|(a, b)| same_filter(a, b));
-        let in_action = self.run_by_action_method(mark.open_id, start.caller_frame, table)
-            && self.page_view_page(mark.page as usize);
-        if !(run_shape && one_mark && is_page_rec && view_kept && in_action) {
+        // The marked table is another one (GPC M), marked by a database variable that is not the argument.
+        let marks = facts.table == ArgTable::Unmarked && facts.database_set;
+        !start.runs_inside
+            && facts.kept
+            && marks
+            && is_page_rec
+            && view_kept
+            && self.run_by_action_method(mark.open_id, start.caller_frame, table)
+            && self.page_view_page(mark.page as usize)
+    }
+
+    /// The end of a guarded run in the cells' shape: `Some` with the result when the shape is measured, `None` to keep
+    /// main's result. `page_view` is `page_view_arg`; `top_level` is whether no other guarded run runs; `no_commit` whether
+    /// nothing committed since the start.
+    pub(super) fn page_view_run_end(
+        &mut self,
+        start: &RunStart,
+        page_view: bool,
+        end: RunEnd,
+        after: &[(u32, MarkState)],
+        top_level: bool,
+        no_commit: bool,
+    ) -> Option<Option<Signal>> {
+        let run_shape = top_level && no_commit && start.marks.is_empty() && matches!(after, [(_, MarkState::Marked)]);
+        if !(run_shape && page_view) {
             return None;
         }
         match end {

@@ -882,6 +882,7 @@ impl Session {
                 arg_record: arg_record.as_ref(),
                 marks_dropped_inside: body.as_ref().is_some_and(|b| b.marks_dropped_inside),
                 runs_inside: body.as_ref().is_some_and(|b| b.runs_inside),
+                lifted: body.as_ref().map_or(&[], |b| b.lifted.as_slice()),
                 caller_frame,
             };
             if let Some(e) = self.guarded_run_end_marks(start, end)? {
