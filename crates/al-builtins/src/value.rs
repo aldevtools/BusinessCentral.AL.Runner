@@ -892,7 +892,7 @@ pub struct HeldVersion {
     /// The variable deleted its row since.
     pub deleted: bool,
     /// Another record's fields replaced the buffer's since it got the version, by a writer that keeps the version
-    /// (al-vm `Session::replace_record_fields`: RecordRef.SetTable, Page.GetRecord, Page.SetSelectionFilter; a copy keeps it).
+    /// (al-vm `Session::note_fields_from_other_record`: RecordRef.SetTable, Page.GetRecord, Page.SetSelectionFilter, TransferFields; a copy keeps it).
     pub fields_replaced: bool,
     /// The copy that this copy was made from held the version by this way (`None`: the version's own variable).
     pub carried_from: Option<VersionVia>,

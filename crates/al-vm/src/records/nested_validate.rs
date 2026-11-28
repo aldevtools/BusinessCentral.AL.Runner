@@ -100,9 +100,9 @@ pub(crate) struct ValidateRun {
     /// The OnBeforeValidateEvent returned with the fields in `entered`, the field having no table extension validate trigger
     /// (`Session::validate_event`).
     pub(crate) kept_by_before_event: bool,
-    /// Whether another record's fields replaced the record's own since the Validate started (`Session::replace_record_fields`:
-    /// an assignment or a write-back, `RecordRef.SetTable`, `Page.GetRecord`, `Page.SetSelectionFilter`); no cell of
-    /// assumption `xrec-table-proc-routes` measures those writers.
+    /// Whether another record's fields replaced the record's own since the Validate started
+    /// (`Session::note_fields_from_other_record`: an assignment or a write-back, `RecordRef.SetTable`, `Page.GetRecord`,
+    /// `Page.SetSelectionFilter`, `TransferFields`); no cell of assumption `xrec-table-proc-routes` measures those writers.
     pub(crate) whole_write: bool,
     /// The source of the row version the record's buffer held when the Validate started (`HeldVersion::source`): a nested
     /// Validate shares the xRec only while the buffer still holds it (`Session::nested_validate_xrec`).
@@ -307,14 +307,25 @@ impl Session {
     }
 
     /// Puts `fields`, taken from another record, into the record `rec` (its state `d`, borrowed) in place of its own, and notes
-    /// that on every running Validate of `rec` (`ValidateRun::whole_write`). The one owner for each writer of a whole record
-    /// into a record variable that is no record method (those note `Session::note_record_op_under_validate`): an assignment
-    /// and a write-back (`interp.rs` `write_as_general`), `RecordRef.SetTable` (`refs.rs`), `Page.GetRecord`
-    /// (`page_get_record.rs`) and `Page.SetSelectionFilter` (`pageops.rs`). It also notes the write on a running
-    /// `Insert(true)` or `Delete(true)` of `rec` (`Session::note_ext_before_touch`), and marks the buffer's row version
-    /// `HeldVersion::fields_replaced` (an assignment then puts its source's version in its place). Returns the fields it
-    /// replaced.
+    /// that (`Session::note_fields_from_other_record`). The one owner for each writer of a whole record into a record variable
+    /// that is no record method (those note `Session::note_record_op_under_validate`): an assignment and a write-back
+    /// (`interp.rs` `write_as_general`), `RecordRef.SetTable` (`refs.rs`), `Page.GetRecord` (`page_get_record.rs`) and
+    /// `Page.SetSelectionFilter` (`pageops.rs`). It also notes the write on a running `Insert(true)` or `Delete(true)` of `rec`
+    /// (`Session::note_ext_before_touch`). An assignment then puts its source's version in place of the marked one. Returns
+    /// the fields it replaced.
     pub(crate) fn replace_record_fields(&mut self, rec: &Rec, d: &mut RecordState, fields: Fields) -> Fields {
+        self.note_fields_from_other_record(rec, d);
+        if !self.ext_before_watch.borrow().is_empty() {
+            self.note_ext_before_touch(None, rec);
+        }
+        std::mem::replace(&mut d.fields, fields)
+    }
+
+    /// Notes that another record's fields went into the record `rec` (its state `d`, borrowed), which keeps its row version:
+    /// on every running Validate of `rec` (`ValidateRun::whole_write`) and on the buffer's row version
+    /// (`HeldVersion::fields_replaced`). The writers: `Session::replace_record_fields` and `Record.TransferFields`
+    /// (`recmeta.rs`), which keeps the version unless it takes the key from a record of the same table.
+    pub(crate) fn note_fields_from_other_record(&mut self, rec: &Rec, d: &mut RecordState) {
         let handle = Rc::as_ptr(rec) as usize;
         for v in self.validate_sites.iter_mut().filter(|v| v.handle == handle) {
             v.whole_write = true;
@@ -322,10 +333,6 @@ impl Session {
         if let Some(h) = d.version_entry.0.as_mut() {
             h.fields_replaced = true;
         }
-        if !self.ext_before_watch.borrow().is_empty() {
-            self.note_ext_before_touch(None, rec);
-        }
-        std::mem::replace(&mut d.fields, fields)
     }
 
     /// The depth of the call stack the trigger of the one Validate of the record at `handle` runs at, when that Validate is a
@@ -483,13 +490,15 @@ impl Session {
     }
 
     /// Whether the buffer `r` of the nest whose outermost Validate's trigger runs in frame `o` (the nest's Validates `runs`)
-    /// holds a row version the cells of record/validate/XRecNestedValidateShapes.al measured, each inserting in the test that
-    /// validates and writing no whole record into the buffer (no `:=` into it, RecordRef.SetTable, Page.GetRecord or
-    /// Page.SetSelectionFilter) after the Insert: the version its own variable's Insert gave it, with no Modify, Rename, read
-    /// or Delete since (every cell but one inserts with the variable it validates, :775); or that version taken by `:=`
-    /// straight from that variable, validated from a `[MessageHandler]` (Validate_FromMessageHandler_OneXRec, :1876). In
-    /// both, the buffer holds when the nested Validate starts the version it held when the outermost one started: no cell
-    /// inserts, reads or writes the record in the outer trigger.
+    /// holds a row version as the cells of record/validate/XRecNestedValidateShapes.al did, each inserting in the test that
+    /// validates: the version its own variable's Insert gave it in the running test, with no guarded Insert that answered
+    /// false, no Delete and no other record's fields written into the buffer since (`HeldVersion::fields_replaced`: `:=`,
+    /// RecordRef.SetTable, Page.GetRecord, Page.SetSelectionFilter, TransferFields), the variable's later Modify, Rename and
+    /// reads each giving it a new version source (every cell but one inserts with the variable it validates, :775); or that
+    /// version taken by `:=` straight from that variable, validated from a `[MessageHandler]`
+    /// (Validate_FromMessageHandler_OneXRec, :1876). In both, the buffer holds when the nested Validate starts the version
+    /// source it held when the outermost one started (`ValidateRun::version_at_start`), and no running Validate of the nest
+    /// saw another record's fields written into the record (`ValidateRun::whole_write`).
     fn buffer_version_measured(&self, r: &RecordState, o: usize, runs: &[&ValidateRun]) -> bool {
         let Some(h) = r.version_entry.0.as_ref() else {
             return false;
@@ -500,9 +509,16 @@ impl Session {
             .as_ref()
             .is_some_and(|s| Rc::ptr_eq(s, &h.source));
         let no_whole_write = runs.iter().all(|v| !v.whole_write);
-        let arm = match (h.via, h.source.how, h.deleted, h.fields_replaced, h.carried_from) {
-            (VersionVia::Own, VersionHow::OwnInsert, false, false, None) => true,
-            (VersionVia::Assigned, VersionHow::OwnInsert, false, false, Some(VersionVia::Own)) => {
+        let arm = match (
+            h.via,
+            h.source.how,
+            h.failed_inserts,
+            h.deleted,
+            h.fields_replaced,
+            h.carried_from,
+        ) {
+            (VersionVia::Own, VersionHow::OwnInsert, 0, false, false, None) => true,
+            (VersionVia::Assigned, VersionHow::OwnInsert, 0, false, false, Some(VersionVia::Own)) => {
                 self.attribute_names(o - 1) == ["messagehandler"]
             }
             _ => false,
