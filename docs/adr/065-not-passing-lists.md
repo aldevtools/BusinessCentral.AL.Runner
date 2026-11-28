@@ -302,11 +302,10 @@ files):
 This tightens section 3 for mapped cases and leaves it as it is for cases removed without a map line. It never adds a
 line for a case that passed.
 
-## Amendment 2 (Proposed, 2026-11-28): the citation token and its check
+## Amendment 2 (Accepted, owner 2026-11-28): the citation token and its check
 
-Status: Proposed. Step 2 of the corpus-detach plan. It changes how code comments, assumption entries and docs cite
-the corpus (CLAUDE.md hard rule 3 says `file:line`), so it waits for the owner. Until it is accepted the new form is
-only allowed in the modules this step converts.
+Status: Accepted (owner, 2026-11-28). Step 2 of the corpus-detach plan. It changes how code comments, assumption
+entries and docs cite the corpus (CLAUDE.md hard rule 3 says `file:line` until step 3 converts the citations).
 
 **Token.** A citation by name is one token:
 
