@@ -11,6 +11,11 @@ table 17 "G/L Entry"
     fields { field(1; "Entry No."; Integer) { } field(4; "Posting Date"; Date) { } }
     keys { key(PK; "Entry No.") { } }
 }
+table 79 "Company Information"
+{
+    fields { field(1; "Primary Key"; Code[10]) { } }
+    keys { key(PK; "Primary Key") { } }
+}
 codeunit 69989 R
 {
     procedure Plain(): Text
@@ -67,6 +72,62 @@ codeunit 69989 R
         GLEntry.DeleteAll();
         exit('');
     end;
+    // al-runner issue 9277: a write that asserterror rolls back leaves the table as it was.
+    procedure RolledBackWriteThenIsEmpty(): Text
+    var GLEntry: Record "G/L Entry";
+    begin
+        asserterror begin
+            GLEntry."Entry No." := 5;
+            GLEntry.Insert();
+            Error('x');
+        end;
+        exit(Format(GLEntry.IsEmpty()));
+    end;
+    procedure RolledBackDeleteAllThenIsEmpty(): Text
+    var GLEntry: Record "G/L Entry";
+    begin
+        asserterror begin
+            GLEntry.DeleteAll();
+            Error('x');
+        end;
+        exit(Format(GLEntry.IsEmpty()));
+    end;
+    procedure CommittedWriteThenRolledBackWriteThenIsEmpty(): Text
+    var GLEntry: Record "G/L Entry";
+    begin
+        GLEntry."Entry No." := 1;
+        GLEntry.Insert();
+        Commit();
+        asserterror begin
+            GLEntry."Entry No." := 5;
+            GLEntry.Insert();
+            Error('x');
+        end;
+        exit(Format(GLEntry.IsEmpty()));
+    end;
+    procedure RolledBackWriteThenCount(): Text
+    var Info: Record "Company Information";
+    begin
+        asserterror begin
+            Info."Primary Key" := 'X';
+            Info.Insert();
+            Error('x');
+        end;
+        exit(Format(Info.Count()));
+    end;
+    procedure CommittedWriteThenRolledBackWriteThenCount(): Text
+    var Info: Record "Company Information";
+    begin
+        Info."Primary Key" := 'A';
+        Info.Insert();
+        Commit();
+        asserterror begin
+            Info."Primary Key" := 'X';
+            Info.Insert();
+            Error('x');
+        end;
+        exit(Format(Info.Count()));
+    end;
     procedure InsertThenDeleteOne(): Text
     var GLEntry: Record "G/L Entry";
     begin
@@ -81,9 +142,11 @@ codeunit 69989 R
 fn session(demo: bool) -> impl Fn(&str) -> Result<al_builtins::value::Value, Signal> {
     let l = al_testkit::compile(SRC);
     let mut engine = al_testkit::engine(&l);
-    let t = l.program.objects.iter().position(|o| o.name == "G/L Entry").unwrap();
     if demo {
-        std::sync::Arc::get_mut(&mut engine).unwrap().demo_tables.insert(t);
+        for name in ["G/L Entry", "Company Information"] {
+            let t = l.program.objects.iter().position(|o| o.name == name).unwrap();
+            std::sync::Arc::get_mut(&mut engine).unwrap().demo_tables.insert(t);
+        }
     }
     let oi = l.program.objects.iter().position(|o| o.name == "R").unwrap();
     move |routine: &str| {
@@ -291,4 +354,30 @@ fn an_onrun_delete_all_on_an_empty_store_counts_as_a_change() {
     s.start_test_method();
     let inst = s.instance(oi);
     refused(s.call(oi, ri("Plain"), inst, vec![]).map(|(v, _)| v));
+}
+
+// al-runner issue 9277. asserterror rolls back the writes since the last Commit (codeunits/TestScopeIsolationContracts.al:
+// Test04AssertErrorLocalVarChangesNotAffectCaller :81-101; codeunits/run-onrun/QuCommitIsolation.al:28, X07): the table
+// holds what it held before, so the pinned IsEmpty of the corpus company answers as it does with no write
+// (RlWorkDateAtStart.al:40/:48), not from the runtime's rows.
+#[test]
+fn a_rolled_back_write_of_gl_entry_keeps_the_pinned_answer() {
+    assert_eq!(text(session(true)("RolledBackWriteThenIsEmpty")), "No");
+    assert_eq!(text(session(true)("RolledBackDeleteAllThenIsEmpty")), "No");
+}
+
+// A Count of a demo table after a rolled-back write is the shape with no write: the demo-row refusal.
+#[test]
+fn a_rolled_back_write_of_a_demo_table_keeps_the_refusal_of_count() {
+    refused(session(true)("RolledBackWriteThenCount"));
+}
+
+// A committed write stands through a later rollback (QuCommitIsolation.al:28, X07): the reads answer from the runtime's rows, as after any own write.
+#[test]
+fn a_committed_write_stands_through_a_later_rollback() {
+    assert_eq!(
+        text(session(true)("CommittedWriteThenRolledBackWriteThenIsEmpty")),
+        "No"
+    );
+    assert_eq!(text(session(true)("CommittedWriteThenRolledBackWriteThenCount")), "1");
 }

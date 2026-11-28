@@ -94,6 +94,7 @@ canon_by_debug!(
     crate::blob_transfer::Sources,
     crate::EncryptionKey,
     crate::HeldLogins,
+    crate::records::demo_written::DemoWritten,
 );
 
 impl<T: std::fmt::Debug> Canon for Option<T> {

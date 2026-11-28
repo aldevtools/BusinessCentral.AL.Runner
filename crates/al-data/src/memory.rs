@@ -189,13 +189,18 @@ pub struct MemStore {
     /// rollback (and a snapshot), so it holds exactly while that DeleteAll stands.
     emptied: crate::pmap::PMap<Slot, ()>,
     committed_emptied: crate::pmap::PMap<Slot, ()>,
-    /// The tables (object index, in any company) the runtime marked as written ([`MemStore::note_written`]). Never cleared:
-    /// every copy of the store (a clone, a snapshot, a frozen store, the bytes of a baseline) keeps it with the rows.
+    /// The tables (object index, in any company) the runtime marked as written ([`MemStore::note_written`]). It follows
+    /// `tables` through commit and rollback, so a rolled-back write leaves no mark (al-runner issue 9277; asserterror undoes
+    /// the writes since the last Commit, codeunits/run-onrun/QuCommitIsolation.al:28, X07), and every copy of the store (a
+    /// clone, a snapshot, a frozen store, the bytes of a baseline) keeps it with the rows.
     written: std::collections::BTreeSet<u32>,
+    committed_written: std::collections::BTreeSet<u32>,
     /// The change counter each table of `written` got when this store marked it ([`MemStore::note_written`]): a mark set
     /// without a row change (a DeleteAll of an empty table) still counts as a change of the table
-    /// ([`MemStore::tables_changed_since`]). A copy made from bytes starts with the mark and no stamp.
+    /// ([`MemStore::tables_changed_since`]). It follows `written` through commit and rollback. A copy made from bytes and
+    /// a thawed frozen store start with the mark and no stamp.
     written_stamps: std::collections::BTreeMap<u32, u64>,
+    committed_written_stamps: std::collections::BTreeMap<u32, u64>,
     /// The primary keys of a big table in the order of one of its other keys, as of a shape stamp. Shared by the clones
     /// of the store, so a session restored to a snapshot finds the orders built since the snapshot was taken (al-runner
     /// issue 5884: each test session asks for the last G/L entry by Posting Date). Safe to share because a stamp is
@@ -952,7 +957,7 @@ impl MemStore {
 
     /// The table objects (in any company) whose rows changed after the change counter was `counter`, and whose change a
     /// rollback has not undone (`versions` follows rollback), with the tables [`MemStore::note_written`] marked after it
-    /// (the mark is never undone).
+    /// that a rollback has not undone either.
     pub fn tables_changed_since(&self, counter: u64) -> std::collections::BTreeSet<u32> {
         self.footprint_changes_since(counter);
         let marked = self
@@ -1714,6 +1719,8 @@ impl Store for MemStore {
         self.committed_dropped_backed_companies = self.dropped_backed_companies.clone();
         self.committed_source_stamps = self.source_stamps.clone();
         self.committed_emptied = self.emptied.clone();
+        self.committed_written = self.written.clone();
+        self.committed_written_stamps = self.written_stamps.clone();
     }
 
     fn rollback(&mut self) {
@@ -1728,6 +1735,8 @@ impl Store for MemStore {
         self.dropped_backed_companies = self.committed_dropped_backed_companies.clone();
         self.source_stamps = self.committed_source_stamps.clone();
         self.emptied = self.committed_emptied.clone();
+        self.written = self.committed_written.clone();
+        self.written_stamps = self.committed_written_stamps.clone();
     }
 }
 

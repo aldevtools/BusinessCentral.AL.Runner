@@ -300,7 +300,7 @@ fn every_plain_field_the_login_may_change_comes_back() {
     s.waited_ms = 1234;
     s.encrypted.insert("plain".into(), "cipher".into());
     s.tdd_reached.insert("stub".into());
-    s.demo_written.insert(18);
+    s.demo_written.note(18);
     let mut twin = round_trip(s);
     assert_eq!(twin.global_language(), 1031);
     assert_eq!(twin.work_date, Some(738_000));

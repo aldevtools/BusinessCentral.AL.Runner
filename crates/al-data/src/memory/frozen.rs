@@ -251,6 +251,7 @@ impl FrozenStore {
             emptied: self.emptied.clone(),
             committed_emptied: self.emptied.clone(),
             written: self.written.clone(),
+            committed_written: self.written.clone(),
             dropped_backed_companies: self.dropped_backed_companies.clone(),
             committed_dropped_backed_companies: self.dropped_backed_companies.clone(),
             unknown_cols: self.unknown_cols.clone(),

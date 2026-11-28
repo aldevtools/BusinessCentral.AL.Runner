@@ -31,8 +31,9 @@ impl Session {
     /// (test-framework/RlWorkDateAtStart.al:40 read, :48 expected, BC 27.5, 28.5, 29.0). `IsEmpty` depends only on the
     /// stored rows. It answers only while no code wrote G/L Entry into the store's data since the corpus database
     /// (`MemStore::was_written`, marked below and carried with the rows by every copy of the store: a baseline, its bytes,
-    /// a snapshot; so install code of the shared install step, an earlier codeunit or test method and a background
-    /// session count) and the running test has not either (`demo_written`): a Delete, DeleteAll or Truncate may remove
+    /// a snapshot, and undone with them by a rollback; so install code of the shared install step, an earlier codeunit or
+    /// test method and a background session count) and the running test has not either (`demo_written`, which a rollback
+    /// undoes too, al-runner issue 9277): a Delete, DeleteAll or Truncate may remove
     /// demo rows the runtime does not hold. The
     /// pinned shape only: database record, session's own company (no
     /// ChangeCompany), no filter in any filter group, not MarkedOnly, outside install code. Count, Find and every other
@@ -41,7 +42,7 @@ impl Session {
     fn demo_gl_entry_is_empty(&self, method: RecordOp, t: &TableDef, rec: &Rec) -> bool {
         if !(method == RecordOp::IsEmpty
             && self.engine.demo_tables.contains(&(t.object as usize))
-            && !self.demo_written.contains(&t.object)
+            && !self.demo_written.contains(t.object)
             && !self.store.was_written(t.object)
             && self.table_id(t) == Some(17))
         {
@@ -126,7 +127,7 @@ impl Session {
                     self.store.note_written(t.object);
                 }
                 if !self.install_scope {
-                    self.demo_written.insert(t.object);
+                    self.demo_written.note(t.object);
                 }
             } else if (matches!(method, RecordOp::Count | RecordOp::IsEmpty)
                 || (self.engine.program.objects[t.object as usize].id == Some(crate::platform::MEDIA_RESOURCES)
@@ -142,7 +143,7 @@ impl Session {
                             | RecordOp::CountApprox
                             | RecordOp::CalcSums
                     )))
-                && !self.demo_written.contains(&t.object)
+                && !self.demo_written.contains(t.object)
                 && !self.demo_gl_entry_is_empty(method, &t, rec)
             {
                 return unsupported(format!(
