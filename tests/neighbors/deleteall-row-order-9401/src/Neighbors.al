@@ -124,6 +124,11 @@ codeunit 94017 "DRN Ctl"
         Seen += Entry;
     end;
 
+    procedure CurrentMode(): Text
+    begin
+        exit(Mode);
+    end;
+
     procedure Take() Result: Text
     begin
         Result := Seen;
@@ -185,6 +190,19 @@ codeunit 94017 "DRN Ctl"
             'commit':
                 if Id = 3 then
                     Commit();
+            'insert-outside':
+                if Id = 4 then begin
+                    Other.Id := 20;
+                    Other.Insert(false);
+                end;
+            'modify-self':
+                if Id = 3 then begin
+                    Other.Get(Id);
+                    Other.Name := 'changed';
+                    Other.Modify(false);
+                end;
+            'read-count':
+                Add('c' + Format(Other.Count()));
         end;
     end;
 }

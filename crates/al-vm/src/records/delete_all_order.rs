@@ -3,10 +3,10 @@
 //! then the next row (al-runner issue 9401; assumption `delete-all-row-code-scan-order`, corpus PR 1659).
 //!
 //! `scan_order_measured` is the one predicate for the record and table facts the probe measured; everything else keeps
-//! main's refusal. While it runs, every row must be the row the scan finds at that moment, unchanged, and no row the
-//! filters see may come up after the last one: then a delete that follows a live cursor and one that follows the rows
-//! found at the start give the same rows, so row code that writes other rows of the table changes nothing the probe did
-//! not measure, or the run refuses. An error raised by the row code refuses too (not measured).
+//! main's refusal. While it runs, the row code of each row may write no row of the table but the row's own Delete, and
+//! may not commit, roll back or raise an error (none of that is measured): else the run refuses with main's text, and
+//! the assumption is noted only for a run that got to its end. With no other write to the table, the rows found at the
+//! start are the rows a live cursor would find.
 //!
 //! Entry point: `Session::delete_all_in_scan_order`, called by `delete_all_selected` (delete_all.rs).
 
@@ -24,7 +24,8 @@ impl Session {
     /// - a key of one field over a primary key of one field, no ad hoc key (`PK; Id` and `ByGrp; Grp`, :38-41);
     /// - `Ascending(false)` with no field set by `SetAscending` (:276, :326), or `SetAscending` of the one field of a
     ///   secondary key to false on an ascending record (:332-333, `SetCurrentKey(Grp)`);
-    /// - every table extension delete trigger in the table's own app (tableextension 90664, :113-135).
+    /// - every table extension delete trigger in the table's own app (tableextension 90664, :113-135);
+    /// - a table of the normal type (no `TableType`, :28-111), in the session's company (no `ChangeCompany`).
     fn scan_order_measured(&self, t: &TableDef, rec: &Rec) -> bool {
         let table_of_an_app = self.engine.program.objects[t.object as usize]
             .id
@@ -38,65 +39,86 @@ impl Session {
             .iter()
             .flat_map(|n| self.ext_triggers(t, n))
             .all(|(e, _)| self.engine.program.objects[e].app == app);
-        table_of_an_app && one_field_keys && direction && own_app_extensions
+        let normal_table = matches!(
+            self.engine.object_facts[t.object as usize].table_type,
+            None | Some(al_ir::TableType::Normal)
+        );
+        let own_company = r.company.is_none();
+        table_of_an_app && one_field_keys && direction && own_app_extensions && normal_table && own_company
     }
 
     /// `DeleteAll(run)` of `rec` on `t` with row code (delete events, the OnDatabaseDelete global trigger, or OnDelete with
-    /// `run`), sorted descending, over `found` rows the filters see (`n` counts the filtered rows without marks).
+    /// `run`), sorted descending, over two or more rows.
     /// Per row it runs `delete_row`: OnBeforeDeleteEvent, the table extension's OnBeforeDelete, OnDelete, the extension's
     /// OnDelete, OnDatabaseDelete (not for a temporary record), the extension's OnAfterDelete, OnAfterDeleteEvent; with
-    /// `run` false the events (RunTrigger No) and OnDatabaseDelete only (DeleteAllRowCodeOrder.al:543-547, :610-613).
-    /// The rows go in the scan order: `Ascending(false)` reverses the primary key inside equal key values too, the
-    /// `SetAscending` of the key field only that field (:345-349); with a filter, MarkedOnly, a temporary record and a
-    /// RecordRef alike (:301-307, :394-399).
+    /// `run` false the events (RunTrigger No) and OnDatabaseDelete only (DeleteAllRowCodeOrder.al:543-547, :610-613), the
+    /// same sequence as one Delete (:566-567), then the next row. The rows go in the scan order: `Ascending(false)` reverses
+    /// the primary key inside equal key values too, the `SetAscending` of the key field only that field (:345-349); with a
+    /// filter, MarkedOnly, a temporary record and a RecordRef alike (:301-307, :394-399). The probe's row code writes no
+    /// row of the table and does not commit; a write to another table is measured on corpus master
+    /// (record/crud/RecordPathsUnpinned.al:41-47, :195-241). So once a row's code wrote a row of the table (the row itself,
+    /// one it has still to visit or one outside the filter), committed or rolled back, or raised an error, the run refuses
+    /// with main's text, and the assumption is noted only for a run that got to its end.
+    /// `rows` are the rows the caller's forward scan found: the record's order for `SetAscending`, the reverse of it for
+    /// `Ascending(false)`.
     pub(super) fn delete_all_in_scan_order(
         &mut self,
         t: &TableDef,
         rec: &Rec,
-        cx: &al_data::AccessContext,
         run: bool,
-        filters: &[FieldFilter],
-        n: usize,
+        mut rows: Vec<Vec<Value>>,
     ) -> Result<Value, Signal> {
         if !self.scan_order_measured(t, rec) {
             return unsupported(UNMEASURED);
         }
-        assume(Assumption::DeleteAllRowCodeScanOrder);
-        let (key, ascending) = (rec.borrow().key, rec.borrow().ascending);
-        let mut rows = Vec::new();
-        let mut after = None;
-        while let Some(row) = self.scan(rec, t, ascending, after.take())? {
-            after = Some(position(t, key, &row));
-            rows.push(row);
+        if !rec.borrow().ascending {
+            rows.reverse();
         }
-        let found = rows.len();
         // One fresh set of table globals for all rows (ADR-021 decision 6), as the other row-by-row DeleteAll.
         let shared = al_builtins::value::TableGlobals::new_shared();
-        let mut cursor: Option<Vec<Value>> = None;
         for row in rows {
-            let live = self.scan(rec, t, ascending, cursor.clone())?;
-            if !live.is_some_and(|l| crate::query_cache::same_rows(&l, &row)) {
-                return unsupported(
-                    "DeleteAll sorted descending whose row code deleted, changed or inserted a row it had still to visit: not pinned",
-                );
-            }
-            cursor = Some(position(t, key, &row));
+            let mark = self.tx.write_log_mark();
+            let temp_writes = self.temp_table_writes(rec)?;
             match self.delete_row(t, &super::delete_all::row_record(rec, row, &shared), run) {
-                Err(Signal::Error(_)) => {
-                    return unsupported("an error raised by the row code of a DeleteAll sorted descending: not pinned");
-                }
+                Err(Signal::Error(_)) => return unsupported(UNMEASURED),
                 other => other?,
             };
+            if !self.wrote_only_its_delete(t, rec, mark, temp_writes)? {
+                return unsupported(UNMEASURED);
+            }
         }
-        let left = self
-            .store_for(rec)?
-            .count(cx, t, filters)
-            .map_err(|e| Signal::unsupported(format!("{e}")))?;
-        if self.scan(rec, t, ascending, cursor)?.is_some() || left + found != n {
-            return unsupported(
-                "DeleteAll sorted descending whose row code inserted or changed rows its filters see: not pinned",
-            );
-        }
+        assume(Assumption::DeleteAllRowCodeScanOrder);
         Ok(Value::Null)
+    }
+
+    /// The writes the temporary table of `rec` took so far (its own store); 0 for a database record.
+    fn temp_table_writes(&mut self, rec: &Rec) -> Result<u64, Signal> {
+        match rec.borrow().temporary {
+            true => Ok(self.store_for(rec)?.writes()),
+            false => Ok(0),
+        }
+    }
+
+    /// Whether one row of the DeleteAll, since `mark` (and `temp_writes`, [`Self::temp_table_writes`]), wrote exactly one row
+    /// of `t`, its own Delete, and the transaction went on (no Commit, no rollback: the write log of `mark` is still open).
+    fn wrote_only_its_delete(
+        &mut self,
+        t: &TableDef,
+        rec: &Rec,
+        mark: crate::state::WriteLogMark,
+        temp_writes: u64,
+    ) -> Result<bool, Signal> {
+        let Some(writes) = self.tx.writes_since(mark) else {
+            return Ok(false);
+        };
+        if rec.borrow().temporary {
+            return Ok(self.store_for(rec)?.writes() == temp_writes + 1);
+        }
+        let company = rec.borrow().company.clone();
+        let own = writes
+            .iter()
+            .filter(|w| w.table == t.object && w.company == company)
+            .count();
+        Ok(own == 1)
     }
 }

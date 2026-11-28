@@ -148,7 +148,7 @@ impl Session {
                 !(r.ascending && r.field_descending == 0)
             };
             if (events || global || (run && trigger)) && descending && rows.len() >= 2 {
-                return self.delete_all_in_scan_order(t, rec, cx, run, &filters, n);
+                return self.delete_all_in_scan_order(t, rec, run, rows);
             }
             // One fresh set of table globals for all rows, not the caller's
             // (ADR-021 decision 6; corpus probe TableGlobals_DeleteAll_TriggersRunOnOneInstanceForAllRows).
