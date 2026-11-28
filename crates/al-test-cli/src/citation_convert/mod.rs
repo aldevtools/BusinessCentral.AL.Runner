@@ -212,6 +212,31 @@ fn cite_pins(repo: &Repo, path: &Path, text: &str, cites: &[old::OldCite]) -> Re
         .collect())
 }
 
+/// The pins besides its first that a citation is read at, each once and none its first: its blame pin, and for a bare
+/// continuation (keyed by its whole line, so a prose edit moves its first pin) its parent citation's first and blame pins
+/// (review r2 of PR 9454, follow-up).
+fn other_pins<'p>(pins: &'p Pins, parent: Option<&'p Pins>) -> Vec<(&'static str, &'p str)> {
+    let first = pins.first.as_deref().ok();
+    let candidates = [
+        ("the blame pin", Some(pins.blame.as_str())),
+        (
+            "the parent citation's first pin",
+            parent.and_then(|p| p.first.as_deref().ok()),
+        ),
+        ("the parent citation's blame pin", parent.map(|p| p.blame.as_str())),
+    ];
+    let mut out: Vec<(&'static str, &'p str)> = Vec::new();
+    for (what, pin) in candidates {
+        if let Some(pin) = pin
+            && Some(pin) != first
+            && !out.iter().any(|(_, p)| *p == pin)
+        {
+            out.push((what, pin));
+        }
+    }
+    out
+}
+
 /// The file a citation in prose names: its own, or for a bare continuation its parent's; `None` in code or orphaned.
 fn cited_file<'c>(c: &old::OldCite, cites: &'c [old::OldCite]) -> Option<&'c str> {
     let f = if c.bare {
@@ -335,7 +360,10 @@ impl Ctx<'_> {
                 _ if !c.in_comment => Err((Class::InCode, String::new())),
                 _ if c.doubt.is_some() => Err((Class::HandFix, c.doubt.unwrap_or_default().into())),
                 None => Err((Class::Orphan, String::new())),
-                Some(cited) => self.checked(pins, cited, c, &quotes(c.line_in(text))),
+                Some(cited) => {
+                    let parent = c.bare.then(|| c.parent.map(|p| &f.pins[p])).flatten();
+                    self.checked(&other_pins(pins, parent), pins, cited, c, &quotes(c.line_in(text)))
+                }
             })
             .collect();
         // A group (a file citation and its continuations) with a hand fix stays whole.
@@ -391,45 +419,50 @@ impl Ctx<'_> {
         }
     }
 
-    /// The tokens of citation `c` read at its first pin, when the same lines name the same at the blame pin and at the
-    /// next pin that changed the file (review r1 of PR 9432, step-3 note 2), with the file and pin read; a hand fix
-    /// otherwise, also when one of those pins cannot be read (review r1 of PR 9454, M1). A member cited by name is read
-    /// at the first pin only: a name does not drift with the lines, and a later rename is what `citation::carry` follows.
-    fn checked(&self, pins: &Pins, cited: &str, c: &old::OldCite, quotes: &[String]) -> Outcome {
+    /// The tokens of citation `c` read at its first pin, when the same lines name the same at each of `others` (the blame
+    /// pin, review r1 of PR 9432, step-3 note 2; a bare continuation's parent pins, [`other_pins`]) and at the next pin
+    /// that changed the file, with the file and pin read; a hand fix otherwise, also when one of those pins cannot be read
+    /// (review r1 of PR 9454, M1). A member cited by name is read at the first pin only: a name does not drift with the
+    /// lines, and a later rename is what `citation::carry` follows.
+    fn checked(
+        &self,
+        others: &[(&str, &str)],
+        pins: &Pins,
+        cited: &str,
+        c: &old::OldCite,
+        quotes: &[String],
+    ) -> Outcome {
         let first = pins.first.as_ref().map_err(|why| (Class::HandFix, why.clone()))?;
         let at = self.at(first, cited)?;
         let (token, class) = self.one(at, c, quotes)?;
         if c.member.is_some() {
             return Ok((token, class, format!("read at {} at {}", at.path, short(&at.pin))));
         }
-        let unread = |what: &str, why: String| (Class::HandFix, format!("{what} cannot be read: {why}"));
-        let blame = match (pins.blame != *first).then(|| self.at(&pins.blame, cited)) {
-            None => None,
-            Some(Ok(b)) => Some(b),
-            Some(Err((_, why))) => {
-                return Err(unread(
-                    &format!("the blame pin ({})", short(&pins.blame)),
-                    if why.is_empty() {
+        let mut read: Vec<(String, &At)> = Vec::new();
+        for &(what, pin) in others {
+            match self.at(pin, cited) {
+                Ok(o) => read.push((what.to_string(), o)),
+                Err((_, why)) => {
+                    let why = if why.is_empty() {
                         format!("it has no `{cited}`")
                     } else {
                         why
-                    },
-                ));
+                    };
+                    return Err((Class::HandFix, format!("{what} ({}) cannot be read: {why}", short(pin))));
+                }
             }
-        };
-        let next = match &self.next[at] {
-            Next::Same => None,
-            Next::Changed(n) => Some(n),
+        }
+        match &self.next[at] {
+            Next::Same => {}
+            Next::Changed(n) => read.push(("the next pin that changed the file".into(), n)),
             Next::Lost(last) => {
                 return Err((
                     Class::HandFix,
                     format!("{} cannot be followed after {}", at.path, short(last)),
                 ));
             }
-        };
-        let others = [("the blame pin", blame), ("the next pin that changed the file", next)];
-        for (what, other) in others {
-            let Some(o) = other else { continue };
+        }
+        for (what, o) in read {
             let t = match self.one(o, c, quotes) {
                 Ok((t, _)) => t,
                 Err((_, e)) => format!("nothing ({e})"),
@@ -598,6 +631,34 @@ pub fn summary(rows: &[Row]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review r2 of PR 9454 (follow-up): a bare continuation is keyed by its whole line, so a prose edit moves its first
+    /// pin; it is also read at its parent citation's pins, and a hand fix when they disagree.
+    #[test]
+    fn a_bare_continuation_is_read_at_its_parents_pins_too() {
+        let pins = |first: &str, blame: &str| Pins {
+            first: Ok(first.into()),
+            blame: blame.into(),
+        };
+        let own = pins("b", "c");
+        let parent = pins("a", "c");
+        assert_eq!(
+            other_pins(&own, Some(&parent)),
+            [("the blame pin", "c"), ("the parent citation's first pin", "a")]
+        );
+        // A file citation, or pins that are all the first: nothing else to read.
+        assert_eq!(other_pins(&own, None), [("the blame pin", "c")]);
+        assert!(other_pins(&pins("a", "a"), Some(&pins("a", "a"))).is_empty());
+        // A parent whose first pin cannot be told holds the group anyway; its blame pin is still read.
+        let lost = Pins {
+            first: Err("x".into()),
+            blame: "d".into(),
+        };
+        assert_eq!(
+            other_pins(&pins("a", "a"), Some(&lost)),
+            [("the parent citation's blame pin", "d")]
+        );
+    }
 
     #[test]
     fn the_prose_in_front_of_a_citation_is_not_repeated() {

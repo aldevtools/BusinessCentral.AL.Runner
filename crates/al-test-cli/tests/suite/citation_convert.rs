@@ -454,3 +454,42 @@ fn a_citation_written_ahead_of_its_pin_bump_is_read_at_the_first_pin_with_the_fi
     assert_eq!(r.new.as_deref(), Some("corpus:\"LT New\"/First"), "{r:#?}");
     assert_eq!(r.note, format!("read at tests/app/TNew.al at {}", short(&pin2)));
 }
+
+/// A bare continuation is keyed by its whole line, so a reworded line moves its first pin (review r2 of PR 9454,
+/// follow-up). Written at pin 1 (`:14` is `Second`), reworded at pin 2 (where line 14 is `Mid`): it is also read at its
+/// parent citation's pins, and a hand fix when they disagree.
+#[test]
+fn a_reworded_bare_continuation_is_read_at_its_parents_pins_too() {
+    let (_d, root, c) = start();
+    let pin1 = corpus_commit(
+        &c,
+        &[("tests/app/TBr.al", &tests(51000, "LT Br", &["First", "Second"]))],
+        &[],
+    );
+    runner_commit(
+        &root,
+        &pin1,
+        &[("src/a.rs", "// TBr.al:8 is the first test,\n// and :14 the second.\n")],
+    );
+    let pin2 = corpus_commit(
+        &c,
+        &[("tests/app/TBr.al", &tests(51000, "LT Br", &["First", "Mid", "Second"]))],
+        &[],
+    );
+    runner_commit(
+        &root,
+        &pin2,
+        &[(
+            "src/a.rs",
+            "// TBr.al:8 is the first test,\n// and :14 the second one.\n",
+        )],
+    );
+    let rows = convert_with(&root, &[]);
+    let bare = rows.iter().find(|r| r.old == ":14").unwrap();
+    assert_eq!((bare.class, bare.new.as_deref()), (Class::HandFix, None), "{rows:#?}");
+    let parent = format!(
+        "the parent citation's first pin ({}) reads corpus:\"LT Br\"/Second",
+        short(&pin1)
+    );
+    assert!(bare.note.contains(&parent), "{}", bare.note);
+}

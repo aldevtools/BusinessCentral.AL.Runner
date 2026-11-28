@@ -118,16 +118,26 @@ impl<'a> File<'a> {
             .position(|o| line_of(o.span.start) == first && last <= line_of(o.span.end.saturating_sub(1)))
     }
 
-    /// A single cited line that names nothing by itself (blank, or a lone brace) is an error: the line count was
-    /// likely taken at another pin.
+    /// A single cited line that names nothing by itself (blank, a lone brace, or `end;` as the last line of a member's
+    /// span: its body's close) is an error: the line count was likely taken at another pin.
     fn lone_line(&self, line: usize) -> Result<(), String> {
         let Some(&start) = self.starts.get(line.wrapping_sub(1)) else {
             return Ok(());
         };
         let end = self.starts.get(line).copied().unwrap_or(self.text.len());
+        let line_of = |at: usize| self.starts.partition_point(|&s| s <= at);
         match self.text[start..end].trim() {
             "" => Err(format!("line {line} is blank")),
             "{" | "}" => Err(format!("line {line} is a lone brace")),
+            t if t.eq_ignore_ascii_case("end;") => match self
+                .objects
+                .iter()
+                .flat_map(|o| &o.members)
+                .find(|m| line_of(m.span.end.saturating_sub(1)) == line)
+            {
+                Some(m) => Err(format!("line {line} is the end of {}", m.name)),
+                None => Ok(()),
+            },
             _ => Ok(()),
         }
     }
@@ -300,7 +310,7 @@ table 50101 \"LT Place Table\"
         // The attribute line belongs to its test; the comment above a helper to the helper.
         assert_eq!(t(&[(6, 6)]), Ok(vec![member(0, None)]));
         assert_eq!(t(&[(13, 13)]), Ok(vec![member(1, None)]));
-        assert_eq!(t(&[(16, 16)]), Ok(vec![member(1, None)]));
+        assert_eq!(t(&[(15, 15)]), Ok(vec![member(1, None)]));
         assert_eq!(t(&[(26, 26)]), Ok(vec![Target::Object(1)]));
     }
 
@@ -346,6 +356,19 @@ table 50101 \"LT Place Table\"
         assert!(t(&[(99, 99)]).unwrap_err().contains("past the end"));
         assert!(t(&[(23, 23)]).unwrap_err().contains("is blank"));
         assert!(t(&[(25, 25)]).unwrap_err().contains("lone brace"));
+        // A member's closing `end;` names nothing by itself either (review r2 of PR 9454, H2), also in a list; the
+        // line after a test's `[Test]` still names the test, and a range may end on the `end;`.
+        assert!(t(&[(11, 11)]).unwrap_err().contains("line 11 is the end of First"));
+        assert!(
+            t(&[(9, 9), (21, 21)])
+                .unwrap_err()
+                .contains("line 21 is the end of Second")
+        );
+        assert_eq!(t(&[(19, 19)]), Ok(vec![member(2, None)]));
+        assert_eq!(t(&[(19, 21)]), Ok(vec![member(2, None)]));
+        // A member without a body ends on its declaration line, which names it.
+        let src = "interface \"LT I\"\n{\n    procedure Do();\n}\n";
+        assert_eq!(File::new(src).targets(&[(3, 3)]), Ok(vec![member(0, None)]));
         // A test codeunit's line outside its tests (`Subtype = Test;`); a table's is its object.
         assert!(
             t(&[(4, 4)])

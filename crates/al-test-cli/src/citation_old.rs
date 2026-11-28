@@ -85,12 +85,11 @@ pub fn find(text: &str, form: Form) -> Vec<OldCite> {
         if let Some(m) = &member {
             end = dot + 4 + m.len();
         }
-        // `File.al:12:5` (no list), `File.al:Pk*_Order` (a pattern of names), or a list whose next part does not read.
+        // `File.al:12:5` (no list), `File.al:Pk*_Order` (a pattern of names), or a path or list that names more lines.
         let odd = match (&member, lines.is_empty()) {
             (Some(_), _) => b.get(end) == Some(&b'*'),
             (None, true) => {
-                (b.get(dot + 3) == Some(&b':') && b.get(dot + 4).is_some_and(u8::is_ascii_digit))
-                    || [" line ", " lines "].iter().any(|p| digit_after(text, dot + 3, p))
+                unread_rest(text, dot + 3) || [" line ", " lines "].iter().any(|p| digit_after(text, dot + 3, p))
             }
             (None, false) => unread_rest(text, end),
         };
@@ -265,13 +264,23 @@ fn member_at(text: &str, at: usize) -> Option<String> {
         .then(|| name.to_string())
 }
 
-/// Whether a line list ending at `end` is followed by a part that names more lines but does not read: a list
-/// separator (`,86-90:`), or `, 20`, ` and 20`, ` or 20`, ` or :20`, `/:20`, `/20` (review r1 of PR 9454, H2).
+/// Whether the text at `end` (after a line list or a path) names more lines it does not read: a run of ` `, `,`, `;`,
+/// `/`, `.`, `&`, `+` and `-`, then maybe `and`, `or` or `to` and such a run, then maybe `:`, then a digit (`,86-90`, `..157`,
+/// `, and 1362`, ` or :20`; review r2 of PR 9454, H1). A false hit only makes one more hand fix.
 fn unread_rest(text: &str, end: usize) -> bool {
-    next_range(text, end).is_some()
-        || [", ", " and ", " or ", " or :", "/:", "/"]
-            .iter()
-            .any(|p| digit_after(text, end, p))
+    let b = text.as_bytes();
+    let run = |at: usize| at + b[at..].iter().take_while(|c| b" ,;/.&+-".contains(c)).count();
+    let mut i = run(end);
+    if let Some(w) = ["and", "or", "to"].iter().find(|w| text[i..].starts_with(**w)) {
+        let after = run(i + w.len());
+        if i > end && after > i + w.len() {
+            i = after;
+        }
+    }
+    if b.get(i) == Some(&b':') {
+        i += 1;
+    }
+    b.get(i).is_some_and(u8::is_ascii_digit)
 }
 
 /// Whether `text` holds `p` at `at`, then a digit.
@@ -614,6 +623,16 @@ mod tests {
             "A.al:958/1184",
             "A.al line 5",
             "A.al lines 2591-2600",
+            // Review r2 of PR 9454, H1: any run of separators, then `and`, `or` or `to`, then `:`, then a digit.
+            "A.al:146..157,",
+            "A.al:852-1001, and 1362",
+            "A.al:12 & 20",
+            "A.al:12 to 20",
+            "A.al:12 + :20",
+            "A.al:12; 20",
+            "A.al:12 - 20",
+            "A.al, 20",
+            "A.al :20",
         ];
         // The file citation has the doubt (` or :20` is also a bare continuation of it; a group with a hand fix stays whole).
         for t in tails {
@@ -630,6 +649,11 @@ mod tests {
             "A.al:12/x",
             "A.al lines up",
             "A.al:12.",
+            "A.al:12 to the end",
+            "A.al:12 and, the rest",
+            "A.al:12 order 2",
+            "A.al:12 & x",
+            "A.al, the test",
         ] {
             assert_eq!(find(t, Form::Prose)[0].doubt, None, "{t}");
         }
