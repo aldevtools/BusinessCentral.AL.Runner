@@ -9,3 +9,5 @@ Logo Icon E Tests::IconE_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; main 
 Logo Icon E Tests::IconE_Mime	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; main fails with 0 x 0 or application/octet-stream)	29
 Logo Icon E Tests::DirectImportE_GuidDescription_Size	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; main fails with 0 x 0 or application/octet-stream)	29
 Logo Icon E Tests::IconE_ContentLength	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a clean pass on main becomes flagged: the bytes are main's answer, the mark is per row)	29
+Logo Icon E Tests::CountOfJpegTenantMedia	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a reader of the mark: main counts 0 image/jpeg rows)	27
+Logo Icon E Tests::CountOfJpegTenantMedia	ASSUMED app-logo-jpeg-sizes (corpus PR 1594; a reader of the mark: main counts 0 image/jpeg rows)	29

@@ -141,4 +141,16 @@ codeunit 50184 "Logo Icon E Tests"
         ImportLogo(AppEId, false, TenantMedia);
         CheckSize(TenantMedia, 0, 0);
     end;
+
+    // A count of the image/jpeg Tenant Media rows (the shape of corpus UsLogo_Jpeg_GuidedExperienceIcon_AppE, which discards it):
+    // the icon of the 8 x 8 logo is one of them on head, and the count is flagged.
+    [Test]
+    procedure CountOfJpegTenantMedia()
+    var
+        TenantMedia: Record "Tenant Media";
+    begin
+        TenantMedia.SetRange("Mime Type", 'image/jpeg');
+        if TenantMedia.Count() < 1 then
+            Error('count %1', TenantMedia.Count());
+    end;
 }
