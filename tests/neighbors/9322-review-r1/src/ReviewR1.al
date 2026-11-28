@@ -267,3 +267,26 @@ codeunit 91673 "PZR N OtherAscii"
         Rep.Measured('x', Converter.ToBase64(InS, true));
     end;
 }
+
+// Review round 3 (merge train): a Clear of the field, not of the record, empties the Blob in place (same buffer), then a
+// routine that is no [Test] method refills it.
+codeunit 91674 "PZR N FieldClear"
+{
+    Subtype = Test;
+
+    [Test]
+    procedure FieldClearThenHelperRefill()
+    var
+        Converter: Codeunit "Base64 Convert";
+        Rep: Codeunit "PZR Report";
+        OutS: OutStream;
+        InS: InStream;
+        Holder: Record "PZR Holder";
+    begin
+        Holder.Data.CreateOutStream(OutS);
+        Clear(Holder.Data);
+        Rep.Write(Holder);
+        Holder.Data.CreateInStream(InS);
+        Rep.Measured('x', Converter.ToBase64(InS, true));
+    end;
+}

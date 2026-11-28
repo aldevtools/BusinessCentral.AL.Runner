@@ -16,8 +16,10 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
-/// A buffer a stream was opened on, without keeping it alive (compared by address only).
-type BufMark = std::sync::Weak<BlobCell>;
+/// A buffer a stream was opened on, without keeping it alive (compared by address), and its
+/// [`al_builtins::stream::BlobBuf::content_edits`] right after the call: a `Clear` of the field empties the same buffer in place
+/// (al-builtins `native::values`, `blob_clears_in_place`) and moves that count on, as every write does.
+type BufMark = (std::sync::Weak<BlobCell>, u32);
 
 use crate::{Frame, Session};
 
@@ -66,12 +68,30 @@ impl TempBlobImplFields {
 pub(crate) struct TestLocalBlobFields(Vec<(Weak<RefCell<RecordState>>, usize, Opened)>);
 
 /// The buffers a `[Test]` method opened streams on, per call, in the field of a [`TestLocalBlobFields`] record: the field's
-/// buffer right after the call. A `Clear`, an `Init` or a record assignment gives the field another buffer, so a later
-/// stream on it is on a buffer these do not name.
+/// buffer right after the call, with its edit count. A `Clear` of the record, an `Init` or a record assignment gives the
+/// field another buffer; a `Clear` of the field, or a write, changes the count. Each list keeps the first two calls only:
+/// [`TestLocalBlobFields::holds`] asks for exactly one, so a third changes no answer.
 #[derive(Default)]
 struct Opened {
     out_streams: Vec<BufMark>,
     in_streams: Vec<BufMark>,
+}
+
+/// The most calls an [`Opened`] list keeps.
+const KEPT_CALLS: usize = 2;
+
+impl Opened {
+    /// Notes a `CreateOutStream` (`out`) or `CreateInStream` call that left the field holding `buf`.
+    fn note_call(&mut self, out: bool, buf: &BlobRef) {
+        let calls = if out {
+            &mut self.out_streams
+        } else {
+            &mut self.in_streams
+        };
+        if calls.len() < KEPT_CALLS {
+            calls.push((Arc::downgrade(buf), buf.borrow().content_edits));
+        }
+    }
 }
 
 impl TestLocalBlobFields {
@@ -96,19 +116,21 @@ impl TestLocalBlobFields {
         let Some(Value::Blob(buf)) = rec.borrow().fields.get(pos).cloned() else {
             return;
         };
-        let opened = &mut self.0[i].2;
-        match id {
-            ids::BLOB_CREATEOUTSTREAM_1 => opened.out_streams.push(Arc::downgrade(&buf)),
-            _ => opened.in_streams.push(Arc::downgrade(&buf)),
-        }
+        self.0[i].2.note_call(id == ids::BLOB_CREATEOUTSTREAM_1, &buf);
     }
 
     /// Whether `b` is now the field of a noted live record on which the method opened one OutStream and one InStream,
-    /// both on `b` itself.
+    /// both on `b` itself, and nothing edited `b` since but the one `WriteText` between the two calls (its edit count one
+    /// past the OutStream's, the same as the InStream's; `stream_line_breaks::measured_line_break_stream` reads that the
+    /// history since the buffer was made or cleared is that one CreateOutStream and that one WriteText).
     pub(crate) fn holds(&self, b: &BlobRef) -> bool {
-        let only_on_b = |calls: &[BufMark]| matches!(calls, [w] if w.as_ptr() == Arc::as_ptr(b));
+        let edits = b.borrow().content_edits;
+        let only_on_b =
+            |calls: &[BufMark], at: u32| matches!(calls, [(w, e)] if w.as_ptr() == Arc::as_ptr(b) && *e == at);
         (self.0.iter()).any(|(w, pos, opened)| {
-            only_on_b(&opened.out_streams) && only_on_b(&opened.in_streams) && holds_field(w, *pos, b)
+            only_on_b(&opened.out_streams, edits.wrapping_sub(1))
+                && only_on_b(&opened.in_streams, edits)
+                && holds_field(w, *pos, b)
         })
     }
 }
@@ -153,5 +175,24 @@ impl Session {
         {
             self.test_local_blob_fields.note(&rc, *pos, id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A test that clears and refills the field in a loop keeps two marks per list, not one per call (al-runner issue 9346).
+    #[test]
+    fn opened_keeps_two_calls_per_list() {
+        let mut opened = Opened::default();
+        for _ in 0..5 {
+            opened.note_call(true, &al_builtins::stream::new_blob());
+            opened.note_call(false, &al_builtins::stream::new_blob());
+        }
+        assert_eq!(
+            (opened.out_streams.len(), opened.in_streams.len()),
+            (KEPT_CALLS, KEPT_CALLS)
+        );
     }
 }
