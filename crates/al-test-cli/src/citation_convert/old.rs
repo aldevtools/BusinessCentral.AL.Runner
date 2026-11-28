@@ -158,10 +158,14 @@ fn member_at(text: &str, at: usize) -> Option<String> {
 
 /// Whether a line list ending at `end` is followed by a part that does not read (`,86-90:`).
 fn unread_rest(text: &str, end: usize) -> bool {
-    [",", ", :", ",:", " and :"].iter().any(|p| {
-        text[end..]
-            .strip_prefix(p)
-            .is_some_and(|r| r.bytes().next().is_some_and(|c| c.is_ascii_digit()))
+    next_range(text, end).is_some()
+}
+
+/// The byte after a list separator at `at` that a digit follows (`,20` with no space, `, :20`, `,:20`, ` and :20`).
+fn next_range(text: &str, at: usize) -> Option<usize> {
+    [",", ", :", ",:", " and :"].iter().find_map(|p| {
+        let j = at + p.len();
+        (text[at..].starts_with(p) && text.as_bytes().get(j).is_some_and(u8::is_ascii_digit)).then_some(j)
     })
 }
 
@@ -198,20 +202,7 @@ fn line_list(text: &str, at: usize) -> (Vec<(u32, u32)>, usize) {
     };
     lines.push(r);
     i += 1 + n;
-    loop {
-        // `,20` (no space), `, :20`, `,:20`, ` and :20`.
-        let next = if b.get(i) == Some(&b',') && b.get(i + 1).is_some_and(u8::is_ascii_digit) {
-            Some(i + 1)
-        } else if text[i..].starts_with(", :") {
-            Some(i + 3)
-        } else if text[i..].starts_with(",:") {
-            Some(i + 2)
-        } else if text[i..].starts_with(" and :") {
-            Some(i + 6)
-        } else {
-            None
-        };
-        let Some(j) = next else { break };
+    while let Some(j) = next_range(text, i) {
         let Some((r, n)) = range_at(text, j) else { break };
         lines.push(r);
         i = j + n;
@@ -275,20 +266,21 @@ fn bare_starts(text: &str, files: &[OldCite]) -> Vec<usize> {
 /// [`BARE_AFTER`] lines above it: which one it continues is unclear (a doubt), unless it continues a list, on the line of
 /// the citation before it or the next line (that citation its file or a bare line without a doubt).
 fn attach(text: &str, cites: &mut [OldCite], files: usize) {
-    let line = |at: usize| text[..at].matches('\n').count();
+    let line = |at: usize| super::line_of(text, at);
     let file_lines: Vec<usize> = cites[..files].iter().map(|c| line(c.at.start)).collect();
     // The bare line before: its byte, its line and whether it has a doubt.
     let mut last: Option<(usize, usize, bool)> = None;
     for k in files..cites.len() {
         let (at, l) = (cites[k].at.start, line(cites[k].at.start));
-        let before = (0..files)
-            .rev()
-            .find(|&f| cites[f].at.start < at && file_lines[f] + BARE_AFTER >= l);
+        let near_above: Vec<usize> = (0..files)
+            .filter(|&f| cites[f].at.start < at && file_lines[f] + BARE_AFTER >= l)
+            .collect();
+        let before = near_above.last().copied();
         let after = || (0..files).find(|&f| cites[f].at.start > at && file_lines[f] <= l + BARE_BEFORE);
         cites[k].parent = before.or_else(after);
-        let above: BTreeSet<&str> = (0..files)
-            .filter(|&f| cites[f].at.start < at && file_lines[f] + BARE_AFTER >= l)
-            .map(|f| cites[f].path.rsplit('/').next().unwrap_or_default())
+        let above: BTreeSet<&str> = near_above
+            .iter()
+            .map(|&f| cites[f].path.rsplit('/').next().unwrap_or_default())
             .collect();
         let in_list = match (before, last) {
             (Some(f), Some((prev, bl, doubt))) if prev > cites[f].at.start => !doubt && bl + 1 >= l,

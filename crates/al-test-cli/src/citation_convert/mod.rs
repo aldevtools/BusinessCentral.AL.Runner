@@ -180,8 +180,8 @@ struct Pins {
 /// The pins of each citation of a file. The text the first commit is looked up by: a file citation's own text, a
 /// bare continuation's whole line (`:12` alone is in too many lines).
 fn cite_pins(repo: &Repo, path: &Path, text: &str, cites: &[old::OldCite]) -> Result<Vec<Pins>, String> {
-    let lines: BTreeSet<usize> = cites.iter().map(|c| line_of(text, c.at.start)).collect();
-    let blame = repo.blame_pins(path, &lines)?;
+    let lines: Vec<usize> = cites.iter().map(|c| line_of(text, c.at.start)).collect();
+    let blame = repo.blame_pins(path, &lines.iter().copied().collect())?;
     let keys: Vec<String> = cites
         .iter()
         .map(|c| {
@@ -193,11 +193,11 @@ fn cite_pins(repo: &Repo, path: &Path, text: &str, cites: &[old::OldCite]) -> Re
         })
         .collect();
     let first = repo.pickaxe_pins(path, &keys.iter().cloned().collect())?;
-    Ok(cites
-        .iter()
-        .zip(keys)
-        .map(|(c, k)| {
-            let blame = blame[&line_of(text, c.at.start)].clone();
+    Ok(keys
+        .into_iter()
+        .zip(&lines)
+        .map(|(k, line)| {
+            let blame = blame[line].clone();
             Pins {
                 first: first.get(&k).cloned().unwrap_or_else(|| blame.clone()),
                 blame,
