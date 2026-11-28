@@ -197,12 +197,39 @@ codeunit 50930 "NB Dot Tests"
         Check('[<Label name="GlobalNameCaption">Dot Child Note cap</Label>]',
             Lines(Report::"NB Dot Other", '<Label '));
     end;
+}
+
+// Its own codeunit, so that it runs first in a fresh session (no state carried from the tests above).
+codeunit 50931 "NB Dot Decimal Tests"
+{
+    Subtype = Test;
+    TestPermissions = Disabled;
 
     [Test]
     procedure OwnItemDotted_DecimalFormatter()
+    var
+        Row: Record "NB Dot Row";
+        Buffer: Record "NB Dot Buffer";
+        OutStr: OutStream;
+        InStr: InStream;
+        Line: Text;
+        Result: Text;
     begin
-        Seed();
-        Check('[<Column name="QualAmount" decimalformatter="#,##0.#####">2.5</Column>][<Column name="BareAmount" decimalformatter="#,##0.#####">2.5</Column>]',
-            Lines(Report::"NB Dot Decimal", '<Column '));
+        Row.DeleteAll();
+        Row.Id := 1;
+        Row.Amount := 2.5;
+        Row.Insert();
+        Buffer.Data.CreateOutStream(OutStr);
+        Report.SaveAs(Report::"NB Dot Decimal", '', ReportFormat::Xml, OutStr);
+        Buffer.Insert();
+        Buffer.CalcFields(Data);
+        Buffer.Data.CreateInStream(InStr, TextEncoding::UTF8);
+        while not InStr.EOS() do begin
+            InStr.ReadText(Line);
+            if Line.Trim().StartsWith('<Column ') then
+                Result += '[' + Line.Trim() + ']';
+        end;
+        if Result <> '[<Column name="QualAmount" decimalformatter="#,##0.#####">2.5</Column>][<Column name="BareAmount" decimalformatter="#,##0.#####">2.5</Column>]' then
+            Error('got %1', Result);
     end;
 }
