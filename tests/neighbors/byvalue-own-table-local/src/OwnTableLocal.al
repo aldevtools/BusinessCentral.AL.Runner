@@ -93,6 +93,24 @@ table 59600 "NBO Acct"
         exit(Other.SeenG(Acct));
     end;
 
+    // The copy's field values (an unsaved Amount) and the Mark() of its row, read before the view.
+    procedure FromLocalValues(View: Integer): Text
+    var
+        Acct: Record "NBO Acct";
+    begin
+        Acct.Get("No.");
+        SetView(Acct, View);
+        exit(SeenValues(Acct));
+    end;
+
+    local procedure SeenValues(Acct: Record "NBO Acct"): Text
+    var
+        Values: Text;
+    begin
+        Values := StrSubstNo('Amount=%1 Mark=%2 ', Acct.Amount, Acct.Mark());
+        exit(Values + Describe(Acct));
+    end;
+
     // SetLoadFields before the Get: main's answer stays (what the copy's load request is, the probe cannot tell).
     procedure FromLocalLoadFields(): Text
     var
@@ -182,6 +200,45 @@ table 59600 "NBO Acct"
                 end;
             16:
                 Acct.SetFilter(Net, '<>%1', 0);
+            // A filter in group 3: no cell's caller sets one.
+            20:
+                begin
+                    Acct.FilterGroup(3);
+                    Acct.SetFilter(Amount, '<>%1', 0);
+                    Acct.FilterGroup(0);
+                end;
+            // Field values and the combined view.
+            17:
+                begin
+                    Acct.SetFilter(Amount, '<>%1', 0);
+                    Acct.Amount := 99;
+                end;
+            18:
+                begin
+                    Acct.SetFilter(Amount, '<>%1', 0);
+                    Acct.Mark(true);
+                    Acct.MarkedOnly(true);
+                end;
+            19:
+                begin
+                    Acct.Mark(true);
+                    Other.Get('A2');
+                    Acct := Other;
+                    Acct.Mark(true);
+                    Acct.Get('A1');
+                    Acct.MarkedOnly(true);
+                    Acct.SetFilter("Date Filter", '..%1', 20260131D);
+                    Acct.SetRange("Kind Filter", 7);
+                    Acct.CalcFields(Net);
+                    Acct.FilterGroup(2);
+                    Acct.SetFilter(Amount, '<>%1', 0);
+                    Acct.FilterGroup(4);
+                    Acct.SetFilter(Kind, '%1', 1);
+                    Acct.FilterGroup(0);
+                    Acct.SetCurrentKey(Amount, "No.");
+                    Acct.Ascending(false);
+                    Acct.FilterGroup(2);
+                end;
         end;
     end;
 
@@ -381,6 +438,42 @@ codeunit 59603 "NBO Own Table Local Tests"
     begin
         Lib.Setup(Acct);
         Lib.Check(Acct.FromLocal(16));
+    end;
+
+    [Test]
+    procedure Table_Local_FilterGroup3()
+    var
+        Acct: Record "NBO Acct";
+    begin
+        Lib.Setup(Acct);
+        Lib.Check(Acct.FromLocal(20));
+    end;
+
+    [Test]
+    procedure Table_Local_UnsavedAmount()
+    var
+        Acct: Record "NBO Acct";
+    begin
+        Lib.Setup(Acct);
+        Lib.Check2(Acct.FromLocalValues(17), 'Amount=99 Mark=No ' + Lib.Fresh());
+    end;
+
+    [Test]
+    procedure Table_Local_MarkOfCurrentRow()
+    var
+        Acct: Record "NBO Acct";
+    begin
+        Lib.Setup(Acct);
+        Lib.Check2(Acct.FromLocalValues(18), 'Amount=5 Mark=No ' + Lib.Fresh());
+    end;
+
+    [Test]
+    procedure Table_Local_Combined()
+    var
+        Acct: Record "NBO Acct";
+    begin
+        Lib.Setup(Acct);
+        Lib.Check(Acct.FromLocal(19));
     end;
 
     [Test]

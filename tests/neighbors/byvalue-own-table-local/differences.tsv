@@ -12,3 +12,7 @@ NBO Own Table Local Tests::Table_Local_AscendingFalse	ASSUMED by-value-own-table
 NBO Own Table Local Tests::Table_Local_MarksMarkedOnly	ASSUMED by-value-own-table-local-copy (corpus PR 1638)
 NBO Own Table Local Tests::Table_Local_TwoNormalFilters	ASSUMED by-value-own-table-local-copy (corpus PR 1638)
 NBO Own Table Local Controls::Table_Local_SecondaryKeyNoFilter	ASSUMED by-value-own-table-local-copy (corpus PR 1638)
+NBO Own Table Local Tests::Table_Local_AdHocKey	ASSUMED by-value-own-table-local-copy (corpus PR 1638)
+NBO Own Table Local Tests::Table_Local_UnsavedAmount	ASSUMED by-value-own-table-local-copy (corpus PR 1638)
+NBO Own Table Local Tests::Table_Local_MarkOfCurrentRow	ASSUMED by-value-own-table-local-copy (corpus PR 1638)
+NBO Own Table Local Tests::Table_Local_Combined	ASSUMED by-value-own-table-local-copy (corpus PR 1638)
