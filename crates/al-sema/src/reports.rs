@@ -1310,7 +1310,7 @@ fn dotted_qualifier_measured(f: &crate::members::FieldInfo, t: usize, column: &a
     };
     let p = |name: &str| field_prop(f, name);
     let captioned = p("Caption").is_some();
-    let formats = (p("AutoFormatType"), p("AutoFormatExpression"), p("DecimalPlaces"));
+    let formats = field_formats(f);
     let no_format = formats == (None, None, None);
     let typed = match &f.ty {
         Ty::Text(_) => return dotted_text_measured(f, t, column, IncludeCaption),
@@ -1334,12 +1334,17 @@ fn dotted_qualifier_measured(f: &crate::members::FieldInfo, t: usize, column: &a
 /// Whether field `f` of table `t` is a Text field with a Caption that [`dotted_qualifier_measured`] admits (:31, :351: no
 /// DecimalPlaces, AutoFormatType or AutoFormatExpression) and `column` states exactly the properties of `shape`.
 fn dotted_text_measured(f: &crate::members::FieldInfo, t: usize, column: &ast::Section, shape: ColumnShape) -> bool {
-    let p = |name: &str| field_prop(f, name);
     plain_own_field(f, t)
         && matches!(f.ty, crate::types::Ty::Text(_))
-        && p("Caption").is_some()
-        && (p("AutoFormatType"), p("AutoFormatExpression"), p("DecimalPlaces")) == (None, None, None)
+        && field_prop(f, "Caption").is_some()
+        && field_formats(f) == (None, None, None)
         && column_shape(column) == Some(shape)
+}
+
+/// The AutoFormatType, AutoFormatExpression and DecimalPlaces field `f` states ([`field_prop`]).
+fn field_formats(f: &crate::members::FieldInfo) -> (Option<String>, Option<String>, Option<String>) {
+    let p = |name: &str| field_prop(f, name);
+    (p("AutoFormatType"), p("AutoFormatExpression"), p("DecimalPlaces"))
 }
 
 /// Whether column `column` over field `f` of its own data item's table `t`, written `Item.Field` with the item's and the field's
@@ -1619,18 +1624,19 @@ fn source_parts(column: &ast::Section) -> Vec<String> {
 fn dotted_columns_on(cx: &Context) -> bool {
     let items = &cx.layout.items;
     let tables: Vec<Option<usize>> = items.iter().map(|r| table_object(cx.ws, cx.file, &r.table)).collect();
-    let dotted = |c: &ast::Section| {
-        let parts = source_parts(c);
-        parts.len() > 1 && parts[0].contains('.')
-    };
+    let dotted = |parts: &[String]| parts.len() > 1 && parts[0].contains('.');
     let mut own = false;
     for (i, raw) in items.iter().enumerate() {
         let columns = raw
             .section
             .sections()
             .filter(|c| c.name().eq_ignore_ascii_case("column"));
-        for c in columns.filter(|c| dotted(c)) {
-            match dotted_column_measured(cx.members, items, &tables, i, &c) {
+        for c in columns {
+            let parts = source_parts(&c);
+            if !dotted(&parts) {
+                continue;
+            }
+            match dotted_column_measured(cx.members, items, &tables, i, &c, &parts) {
                 Some(j) => own |= j == i,
                 None => return false,
             }
@@ -1640,12 +1646,12 @@ fn dotted_columns_on(cx: &Context) -> bool {
         .extensions
         .iter()
         .flat_map(|&e| crate::pages::column_sections(&cx.ws.object_ast(e)))
-        .any(|c| dotted(&c))
+        .any(|c| dotted(&source_parts(&c)))
 }
 
-/// The data item that column `column` of item `i` reads through a dotted qualifier, when the column is a shape
-/// DataItemNamesDottedQualifier.al (corpus PR 1652 at cf6884b9) measures. The qualifier and the field are written as declared,
-/// and:
+/// The data item that column `column` of item `i`, with source `parts` ([`source_parts`]), reads through a dotted qualifier,
+/// when the column is a shape DataItemNamesDottedQualifier.al (corpus PR 1652 at cf6884b9) measures. The qualifier and the
+/// field are written as declared, and:
 /// - `Item.Field` of its own item where [`dotted_qualifier_measured`] holds;
 /// - `Item.Field.ToUpper()` of its own item, a Text field with a Caption, a column without property (:84, value :236);
 /// - `Parent.Field` of the item it is nested in directly, a Text field with a Caption under exactly IncludeCaption = true
@@ -1660,9 +1666,9 @@ fn dotted_column_measured(
     tables: &[Option<usize>],
     i: usize,
     column: &ast::Section,
+    parts: &[String],
 ) -> Option<usize> {
-    let parts = source_parts(column);
-    let (qualifier, member, call) = match parts.as_slice() {
+    let (qualifier, member, call) = match parts {
         [q, m] => (q, m, None),
         [q, m, call] => (q, m, Some(call.as_str())),
         _ => return None,
