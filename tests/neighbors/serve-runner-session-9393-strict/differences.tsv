@@ -8,7 +8,8 @@ SRS R Restrictive::R_MemoLogin	ASSUMED hub-login-later-runners,test-codeunit-onr
 SRS R Restrictive::R_NotHubSession	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:475)	28
 SRS S Stop Hub::S_StopHubSession	REFUSED Session.StopSession of the hub session, from the session runner 130450 runs its codeunits in after the held login	28
 SRS W Changes Login Rows::W_SeesOwnInsert	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:423, :436: W runs in the shared session; its own insert is real data)	28
-SRS Y After Changed Rows::Y_LoginRows	REFUSED an earlier codeunit of this session changed the rows the session's one login wrote	28
+SRS Y After Changed Rows::Y_LoginRows	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: rows an earlier runner codeunit changed, as committed: not measured, cell asked of PR 1657)	28
+SRS Y After Changed Rows::Y_LoginSessionState	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:424: one login in the session, its session state from the thawed image)	28
 SRS Y After Changed Rows::Y_OtherTableOnly	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:423, :436)	28
 SRS M Handler::M_SharedSession	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:531, :532, :543)	29
 SRS N NonRestrictive::N_ActiveSessions	ASSUMED hub-login-later-runners (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:438, :439)	29
@@ -19,5 +20,6 @@ SRS R Restrictive::R_MemoLogin	ASSUMED hub-login-later-runners,test-codeunit-onr
 SRS R Restrictive::R_NotHubSession	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:475)	29
 SRS S Stop Hub::S_StopHubSession	REFUSED Session.StopSession of the hub session, from the session runner 130450 runs its codeunits in after the held login	29
 SRS W Changes Login Rows::W_SeesOwnInsert	ASSUMED hub-login-later-runners,test-codeunit-onrun-rows (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:423, :436: W runs in the shared session; its own insert is real data)	29
-SRS Y After Changed Rows::Y_LoginRows	REFUSED an earlier codeunit of this session changed the rows the session's one login wrote	29
+SRS Y After Changed Rows::Y_LoginRows	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: rows an earlier runner codeunit changed, as committed: not measured, cell asked of PR 1657)	29
+SRS Y After Changed Rows::Y_LoginSessionState	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:424: one login in the session, its session state from the thawed image)	29
 SRS Y After Changed Rows::Y_OtherTableOnly	ASSUMED hub-disabled-login-once,hub-login-later-runners (corpus PR 1657: probe-runner-sessions-9393, LgnRunnerSessions.al:423, :436)	29

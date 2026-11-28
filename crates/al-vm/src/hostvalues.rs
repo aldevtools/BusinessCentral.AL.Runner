@@ -166,8 +166,7 @@ impl Session {
             // the session runner 130450 runs its codeunits in after the held login, the hub session is not (assumption
             // `hub-login-later-runners`, corpus PR 1657, LgnRunnerSessions.al:439).
             ids::SESSION_ISSESSIONACTIVE_1 => match args.first() {
-                Some(Value::Integer(n)) if *n == self.session_id() => Ok(Value::Boolean(true)),
-                Some(Value::Integer(n)) if *n != self.session_id() => Ok(Value::Boolean(false)),
+                Some(Value::Integer(n)) => Ok(Value::Boolean(*n == self.session_id())),
                 other => unsupported(format!(
                     "Session.IsSessionActive({other}): only an id other than the running session's is pinned",
                     other = other.describe()

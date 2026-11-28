@@ -53,6 +53,14 @@ codeunit 53920 "SRS N NonRestrictive"
         Assert.Equal(SessionId(), Memo.SeenLoginId(), 'login id');
     end;
 
+    // :424: one login in this session; the session state it set is there.
+    [Test]
+    procedure N_LoginSessionState()
+    begin
+        Assert.IsTrue(WorkDate() = DMY2Date(15, 6, 2031), 'work date set by the login');
+        Assert.Equal(1031, GlobalLanguage(), 'language set by the login');
+    end;
+
     // :428 the id in OnRun is the id in the test.
     [Test]
     procedure N_OnRunId()
@@ -254,6 +262,16 @@ codeunit 53931 "SRS Y After Changed Rows"
         Assert: Codeunit "SRS Assert";
     begin
         Assert.Equal(3, Row.Count(), 'login rows');
+    end;
+
+    // :424: one login in the session; a codeunit after an OnRun that wrote still has the session state it set.
+    [Test]
+    procedure Y_LoginSessionState()
+    var
+        Assert: Codeunit "SRS Assert";
+    begin
+        Assert.IsTrue(WorkDate() = DMY2Date(15, 6, 2031), 'work date set by the login');
+        Assert.Equal(1031, GlobalLanguage(), 'language set by the login');
     end;
 
     [Test]

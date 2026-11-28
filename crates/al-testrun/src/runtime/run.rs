@@ -4,8 +4,8 @@
 //! `run_codeunit_core`.
 use super::al_runner::run_unit;
 use super::held_login::{
-    self, carried_company_open, first_login, held_reads, in_own_session, kept_singles, later_runner_marks,
-    login_once_on_hub, login_rows_as_held, own_session_id, shared_login, thaw_held,
+    self, LoginPlan, carried_company_open, held_reads, in_own_session, later_runner_marks, login_once_on_hub,
+    login_rows_as_held, own_session_id, thaw_held,
 };
 use super::written::{
     self, ReachFacts, ReachIndex, remainder_reach_facts, settled_flags, test_reach_facts, unfinished_reach_facts,
@@ -221,47 +221,46 @@ fn open_company(
     if steps.execute {
         return Ok(Default::default());
     }
-    // The login the session shares (`shared_login`): on the hub the run's one login a Disabled codeunit held
-    // (`login_once_on_hub`); in the session runner 130450 runs its codeunits in after it (`own_session_id`, set when the
-    // session was made) the login of that session, which its first codeunit runs.
+    // Which login the session holds, and whether what it writes is undone (`held_login::LoginPlan`).
     let held = session.login_held();
     let own_login = steps.own_session.is_some();
-    let shared = shared_login(session, own_login);
-    let thawed =
-        (shared.as_deref()).and_then(|h| kept_singles(h, own_login, steps.moved_in).or_else(|| thaw_held(session, h)));
-    let thaws = thawed.is_some();
-    let (mut wrote, hits) = match thawed {
-        Some(opened) => opened,
-        None => {
-            // BC runs no second login in a session (LgnDisabledLoginWrites.al:471, :546; corpus PR 1657,
-            // LgnRunnerSessions.al:424): what this one writes is undone.
-            let before = shared.is_some().then(|| session.capture_baseline());
-            // The session before its first login, for the image the later codeunits of the session take: the run's
-            // first (`first_login`), or the first runner 130450 runs after the held login.
-            let first_runner = own_login && shared.is_none();
-            let base = (first_runner || first_login(scratch.hub, isolation, session)).then(|| session.login_base());
-            let (wrote, mut hits) = run_login(start, session, skipped_installs, perturb, scratch, after_refusal)?;
-            if let Some(before) = before {
-                session.undo_login_writes(&before);
-                hits = hits.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce);
-            }
-            if let Some(base) =
-                base.filter(|_| first_runner || login_once_on_hub(scratch.hub, isolation, false, &wrote))
-            {
+    let login = |session: &mut Session| run_login(start, session, skipped_installs, perturb, scratch, after_refusal);
+    let (wrote, hits) = match held_login::login_plan(session, own_login, scratch.hub, isolation) {
+        LoginPlan::Shared { held: shared, runner } => {
+            let thawed = thaw_held(session, &shared);
+            let thaws = thawed.is_some();
+            let (mut wrote, hits) = match thawed {
+                Some(opened) => opened,
+                None => {
+                    let before = session.capture_baseline();
+                    let (wrote, hits) = login(session)?;
+                    session.undo_login_writes(&before);
+                    (
+                        wrote,
+                        hits.with(al_builtins::assumptions::Assumption::HubDisabledLoginOnce),
+                    )
+                }
+            };
+            let rows_as_held = !runner && login_rows_as_held(&shared, isolation, session);
+            wrote.held = held_reads(&shared, runner, thaws, rows_as_held);
+            (wrote, hits)
+        }
+        plan @ (LoginPlan::HoldRunner | LoginPlan::HoldHub) => {
+            let base = session.login_base();
+            let (wrote, hits) = login(session)?;
+            let runner = matches!(plan, LoginPlan::HoldRunner);
+            if runner || login_once_on_hub(scratch.hub, isolation, false, &wrote) {
                 let image = session.login_image(&base).map_err(|not| not.reason());
                 let opened = Box::new(held_login::HeldOpened::of(session, wrote.clone(), hits));
-                match first_runner {
+                match runner {
                     true => session.hold_runner_login(image, opened),
                     false => session.hold_login(image, opened),
                 }
             }
             (wrote, hits)
         }
+        LoginPlan::Run => login(session)?,
     };
-    let rows_as_held = shared
-        .as_deref()
-        .is_some_and(|h| login_rows_as_held(h, own_login, isolation, session));
-    wrote.held = shared.as_deref().and_then(|h| held_reads(h, thaws, rows_as_held));
     let hits = later_runner_marks(held.is_some(), scratch.hub_leg, isolation, hits);
     // `workDate.offset` of a stability run (ADR-058): the work date the session starts with, after the login code set it;
     // a `WorkDate(d)` of the test still wins.

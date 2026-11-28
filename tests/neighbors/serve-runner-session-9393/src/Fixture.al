@@ -68,6 +68,9 @@ codeunit 53900 "SRS Login Subs"
         Row."Session Id" := SessionId();
         Row.Insert();
         Memo.NoteLogin(SessionId());
+        // Session state the login sets: the later runner codeunits of the session see it (one login, :424).
+        WorkDate(DMY2Date(15, 6, 2031));
+        GlobalLanguage(1031);
     end;
 
     var
