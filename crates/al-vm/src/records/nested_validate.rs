@@ -515,8 +515,9 @@ impl Session {
             return false;
         }
         let first = self.frames[base];
-        let names = |d: usize| self.attribute_names(d);
-        let tries = (base..o).filter(|&d| names(d) == ["tryfunction"]).count();
+        let tries = (base..o)
+            .filter(|&d| self.attribute_names(d) == ["tryfunction"])
+            .count();
         Self::is_test_codeunit(&self.engine.program.objects[first])
             && self.tx.try_depth == tries
             && (base..o).all(|d| {
@@ -528,7 +529,7 @@ impl Session {
                 self.frames[d] == first
                     && !self.call_stack[d].event
                     && !self.routine_at(d).1.is_trigger
-                    && measured.iter().any(|m| names(d) == *m)
+                    && measured.iter().any(|m| self.attribute_names(d) == *m)
             })
     }
 
