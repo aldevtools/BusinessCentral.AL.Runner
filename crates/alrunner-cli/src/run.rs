@@ -1844,10 +1844,10 @@ fn test_inner(
         say!("{why}");
         let result = format!("Result: COMPILE ERRORS (exit {code})");
         say!("{}", style::bold(&style::yellow(&result)));
-        let doc = crate::seed::json(
+        let doc = order_mode.json(crate::seed::json(
             output::json_compile_errors(code, total_time.as_secs_f64(), &errors),
             run_seed,
-        );
+        ));
         if let Some(w) = warm {
             w.report = Some(Report {
                 doc: serde_json::from_str(&doc).unwrap_or_default(),
@@ -2002,7 +2002,7 @@ fn test_inner(
         }
     }
     // ADR-070 decision 4: the passing tests that read carried state, with or without `--timings`.
-    for line in p.chain.run_output_lines() {
+    for line in p.chain.run_output_lines(&results) {
         eprintln!("{line}");
     }
     if rt.panics > 0 {

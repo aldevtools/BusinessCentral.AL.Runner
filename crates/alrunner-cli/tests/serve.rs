@@ -4901,6 +4901,15 @@ fn the_run_tests_summary_has_the_order_mode_of_the_request() {
         let summary = lines.last().unwrap();
         assert_eq!(summary["orderMode"], mode, "{summary}");
     }
+    // A request that stops at compile errors too (al-runner issue 9332, item 4).
+    let broken = tdd_app(d.path());
+    for (strict, mode) in [(false, "isolated"), (true, "bc")] {
+        s.send(json!({"command": "runTests", "sourcePaths": [broken], "strictOrder": strict}));
+        let lines = s.until_summary();
+        assert_no_tdd_al0132(&lines);
+        let summary = lines.last().unwrap();
+        assert_eq!(summary["orderMode"], mode, "{summary}");
+    }
     s.send(json!({"command": "shutdown"}));
     assert_eq!(s.line(), json!({"status": "shutting down"}));
     assert!(s.child.wait().unwrap().success());

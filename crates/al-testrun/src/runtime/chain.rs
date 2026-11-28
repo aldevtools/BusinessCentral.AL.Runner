@@ -123,10 +123,15 @@ impl ChainReport {
         self.discovery_wrote.extend(other.discovery_wrote);
     }
 
-    /// The order line the run output prints with or without `--timings` (ADR-070 decision 4): how many passing tests
-    /// read SingleInstance state an earlier codeunit would have left differently on BC. None when there are none.
-    pub fn run_output_lines(&self) -> Vec<String> {
-        self.single_lane.passing_line().into_iter().collect()
+    /// The order line the run output prints with or without `--timings` (ADR-070 decision 4): how many of the
+    /// `reported` passing tests read SingleInstance state an earlier codeunit would have left differently on BC. None when
+    /// there are none. A test that ran but is left out of the report is not counted (al-runner issue 9332).
+    pub fn run_output_lines(&self, reported: &[&super::TestResult]) -> Vec<String> {
+        let n = reported
+            .iter()
+            .filter(|r| matches!(r.outcome, crate::Outcome::Pass) && r.order_hint.is_some())
+            .count();
+        super::single_lane::LaneReport::passing_line(n).into_iter().collect()
     }
 
     /// The `--timings` lines: the codeunits of the chain and their time, by reason.

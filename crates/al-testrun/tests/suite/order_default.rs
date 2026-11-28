@@ -198,7 +198,6 @@ fn a_reader_that_passes_with_fresh_state_gets_no_hint() {
         hint.numbers.is_empty() && hint.reads.len() == 1 && reader.assumptions.is_empty(),
         "{reader:?}"
     );
-    assert_eq!(rt.phases.chain.single_lane.passing_read_carried, 1);
 }
 
 /// The numbers hint of a test (ADR-070 decision 3): the sequences and the earlier taker of each.
@@ -374,6 +373,15 @@ fn a_default_run_takes_the_outcomes_of_listed_codeunits_from_a_strict_run() {
     assert_eq!(rt.outcome_in("", &case("ReadsTheFlag", 60472)), Outcome::Pass);
     assert!(rt.assumptions_in("", &case("ReadsTheFlag", 60472)).is_empty());
     assert_eq!(rt.outcome_in("", &case("SetsTheFlag", 60471)), Outcome::Pass);
+    // Al-runner issue 8943: the default-order outcome stays readable after the strict one replaced it.
+    assert!(matches!(
+        rt.default_order_recorded(None, &case("ReadsTheFlag", 60472)),
+        Some(Outcome::Fail(_))
+    ));
+    assert_eq!(
+        rt.default_order_recorded(None, &case("SetsTheFlag", 60471)),
+        Some(Outcome::Pass)
+    );
 }
 
 /// The same over one compile: `RunOptions::strict_after` runs the listed codeunits again inside the run, so the pass
@@ -568,6 +576,84 @@ fn a_codeunit_in_two_sessions_gets_the_numbers_hint_from_the_session_that_matche
         numbers_hint(&rt, "TakesYAndFails"),
         vec![("ORDERSEQY".to_string(), 60492)]
     );
+}
+
+/// A codeunit whose passing test takes from one sequence and whose failed test takes from the other.
+const SPLIT_TAKER: &str = r#"
+codeunit 60494 "Order Split Taker"
+{
+    Subtype = Test;
+    [Test] procedure TakesXAndPasses() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQ'); end;
+    [Test] procedure TakesYAndFailsToo() var N: BigInteger; begin N := NumberSequence.Next('ORDERSEQY'); Error('unrelated %1', N); end;
+}
+"#;
+
+/// Al-runner issue 9332, item 1: in the first session a passing test of the codeunit gets numbers; the failed test of
+/// the same codeunit still gets its numbers hint from the second session, where its sequence was taken before.
+#[test]
+fn a_passing_test_with_numbers_in_one_session_leaves_the_failed_test_its_hint_from_the_other() {
+    let opts = RunOptions {
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse("S1: 60491 60494\nS2: 60492 60494")
+                .expect("a valid suites file"),
+        )),
+        ..Default::default()
+    };
+    let rt = run(&format!("{TWO_SESSIONS}{SPLIT_TAKER}"), &opts);
+    assert!(result(&rt, "TakesXAndPasses").order_hint.is_none());
+    assert_eq!(
+        numbers_hint(&rt, "TakesYAndFailsToo"),
+        vec![("ORDERSEQY".to_string(), 60492)]
+    );
+    let after: Vec<(u32, &str, u32)> = rt
+        .numbers_taken_after()
+        .iter()
+        .flat_map(|(cu, t, ns)| ns.iter().map(move |n| (*cu, t.as_str(), n.after.0)))
+        .collect();
+    assert!(after.contains(&(60494, "TakesXAndPasses", 60491)), "{after:?}");
+    assert!(after.contains(&(60494, "TakesYAndFailsToo", 60492)), "{after:?}");
+}
+
+/// A failed test that takes from the second sequence and reads the flag of PAIR's setter.
+const READS_AND_TAKES: &str = r#"
+codeunit 60495 "Order Reads And Takes"
+{
+    Subtype = Test;
+    [Test] procedure ReadsAndTakesY()
+    var S: Codeunit "Order State"; N: BigInteger;
+    begin
+        N := NumberSequence.Next('ORDERSEQY');
+        if S.GetFlag() <> 'left' then Error('flag is %1', S.GetFlag());
+    end;
+}
+"#;
+
+/// Al-runner issue 9332, item 2: the first session gives the failed test a numbers hint, the second finds the
+/// SingleInstance read. The test gets one hint with both, and counts once.
+#[test]
+fn a_numbers_hint_and_a_single_instance_hint_from_two_sessions_merge_into_one() {
+    let opts = RunOptions {
+        test_suites: Some(std::sync::Arc::new(
+            al_testrun::test_suites::TestSuites::parse("S1: 60492 60495\nS2: 60471 60495")
+                .expect("a valid suites file"),
+        )),
+        ..Default::default()
+    };
+    let rt = run(&format!("{PAIR}{TWO_SESSIONS}{READS_AND_TAKES}"), &opts);
+    let r = result(&rt, "ReadsAndTakesY");
+    assert!(matches!(&r.outcome, Outcome::Fail(m) if m.contains("flag is")), "{r:?}");
+    let hint = r.order_hint.as_ref().expect("a hint");
+    assert!(!hint.reads.is_empty(), "{hint:?}");
+    assert_eq!(
+        numbers_hint(&rt, "ReadsAndTakesY"),
+        vec![("ORDERSEQY".to_string(), 60492)]
+    );
+    let failed_hinted = rt
+        .results()
+        .iter()
+        .filter(|r| matches!(r.outcome, Outcome::Fail(_)) && r.order_hint.is_some())
+        .count();
+    assert_eq!(rt.phases.chain.single_lane.hinted, failed_hinted);
 }
 
 /// A codeunit that fails only after the setter of PAIR ran in its session.

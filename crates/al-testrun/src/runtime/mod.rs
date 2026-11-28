@@ -264,6 +264,9 @@ pub struct CorpusRuntime {
     outcomes: std::collections::HashMap<(usize, u32, String), Outcome>,
     /// How long each test that ran took, keyed like `outcomes`.
     times: std::collections::HashMap<(usize, u32, String), std::time::Duration>,
+    /// The outcome each case `adopt_cases` gave a strict run's outcome had in this run, keyed like `outcomes`: the
+    /// default-order outcome of the files of `metrics/strict-order-files.txt` (ADR-070 decision 5, al-runner issue 8943).
+    default_order: std::collections::HashMap<(usize, u32, String), Outcome>,
     suites: Vec<String>,
     pub panics: usize,
     /// How long the compile, the install baseline and the tests took.

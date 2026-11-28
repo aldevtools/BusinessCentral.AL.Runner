@@ -219,6 +219,48 @@ fn passing_tests_that_read_carried_single_instance_state_get_a_summary_line_and_
     );
 }
 
+/// The summary line counts the reported tests only: a test left out of the selection runs (its codeunit is selected,
+/// no `--run-selected-only`) but is not in the report, so it is not counted (al-runner issue 9332, item 3).
+#[test]
+fn the_passing_reader_count_covers_the_reported_tests_only() {
+    let (o, x, _) = reports_run(&["--exclude-test-exact", "ReadsNothing"]);
+    let out = text(&o);
+    assert!(
+        out.contains("1 passing tests read SingleInstance state that an earlier codeunit would have left differently"),
+        "{out}"
+    );
+    assert!(!x.contains("name=\"ReadsNothing\""), "{x}");
+}
+
+/// A run that stops at compile errors states its order mode in `--output-json` too (al-runner issue 9332, item 4).
+#[test]
+fn a_compile_error_document_states_the_order_mode() {
+    let d = tempfile::tempdir().unwrap();
+    let app = one_file_app(
+        d.path(),
+        "ordererr",
+        "11111111-0000-0000-0000-000000007508",
+        "OrderErr",
+        "src/Tests.al",
+        "codeunit 50991 \"Order Err\" { Subtype = Test; [Test] procedure Broken() begin Missing(); end; }",
+    );
+    for (extra, mode) in [(None, "isolated"), (Some("--strict-order"), "bc")] {
+        let json = d.path().join("r.json");
+        let mut args = vec![
+            "test",
+            app.to_str().unwrap(),
+            "--no-download",
+            "--output-json",
+            json.to_str().unwrap(),
+        ];
+        args.extend(extra);
+        let o = alrunner(&args);
+        assert_eq!(code(&o), 3, "{}", text(&o));
+        let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&json).unwrap()).unwrap();
+        assert_eq!(j["orderMode"], mode, "{j}");
+    }
+}
+
 #[test]
 fn a_failed_test_that_took_numbers_an_earlier_codeunit_also_took_gets_a_numbers_hint() {
     let (o, x, j) = reports_run(&[]);

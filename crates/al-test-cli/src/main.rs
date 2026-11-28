@@ -96,7 +96,7 @@ fn run() -> Result<ExitCode, String> {
         }
         Parsed::Run(a) => *a,
     };
-    args.strict_order_all = std::env::var_os("AL_STRICT_ORDER_ALL").is_some();
+    args.strict_order_all = al_test_cli::strict_not_run::switch(std::env::var_os("AL_STRICT_ORDER_ALL").as_deref())?;
     if args.strict_order_all && args.list_new_cases.is_some() {
         return Err("--list-new-cases cannot run with AL_STRICT_ORDER_ALL: new cases go to the default lists".into());
     }
@@ -310,15 +310,18 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
     let mut grown = false;
     for v in &cfg.versions {
         let rel = al_test_cli::strict_not_run::path(v.major);
-        let now = read_list(&root.join(&rel))?;
+        let path = root.join(&rel);
+        let text = read_or_empty(&path)?;
+        let now = not_passing::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         let base_list = base.list_opt(&rel)?;
-        let added = al_test_cli::strict_not_run::added(base_list.as_ref(), &now);
+        let added = al_test_cli::strict_not_run::added(base_list.as_ref(), &now, &text);
         if !added.is_empty() {
             grown = true;
-            println!(
-                "\n### Lines added to `{rel}` ({}): this list may only shrink\n",
-                added.len()
-            );
+            let why = match base_list {
+                Some(_) => "this list may only shrink",
+                None => "a new list's case lines need a `# not run:` paragraph that names `issue <number>`",
+            };
+            println!("\n### Lines added to `{rel}` ({}): {why}\n", added.len());
             added.iter().for_each(|c| println!("- {} {}", c.codeunit, c.name));
         }
     }
@@ -328,10 +331,15 @@ fn list_changes(args: &Args, root: &Path, rev: &str) -> Result<ExitCode, String>
 
 /// The not-passing list at `path`, empty when the file does not exist.
 fn read_list(path: &Path) -> Result<std::collections::BTreeSet<oracle::CaseId>, String> {
-    if !path.exists() {
-        return Ok(Default::default());
+    not_passing::parse(&read_or_empty(path)?).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The text at `path`, empty when the file does not exist.
+fn read_or_empty(path: &Path) -> Result<String, String> {
+    match path.exists() {
+        true => read(path),
+        false => Ok(String::new()),
     }
-    not_passing::parse(&read(path)?).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn coverage_map(root: &Path, dir: Option<&Path>) -> Result<ExitCode, String> {
@@ -877,7 +885,7 @@ impl StrictOrder {
         suite_data: &[(Vec<oracle::OracleCase>, corpus::CorpusIndex)],
         suite_cases: &[Vec<oracle::OracleCase>],
     ) -> Result<StrictOrder, String> {
-        let files = al_test_cli::strict_order::load(root)?;
+        let files = al_test_cli::strict_order::load(root)?.files;
         let mut s = StrictOrder {
             only: Vec::new(),
             listed: Default::default(),
@@ -898,6 +906,44 @@ impl StrictOrder {
         s.only.dedup();
         Ok(s)
     }
+}
+
+/// ADR-070 decision 5, second rule (al-runner issue 8943): a file of `metrics/strict-order-files.txt` whose every case
+/// passes in the default order and in BC's order may not be on the list. Prints one line per such file; 1 when there is
+/// one. A run in BC's order (`AL_STRICT_ORDER_ALL`) adopts nothing, so it has no default outcome and decides nothing.
+fn strict_files_in_both(
+    root: &Path,
+    index: &corpus::CorpusIndex,
+    main: bool,
+    all_cases: &[oracle::OracleCase],
+    version: &config::VersionEntry,
+    suite_data: &[(Vec<oracle::OracleCase>, corpus::CorpusIndex)],
+    rt: &runtime::CorpusRuntime,
+) -> Result<u8, String> {
+    let files = al_test_cli::strict_order::load(root)?;
+    let mut found = Vec::new();
+    if main {
+        let default = |c: &oracle::CaseId| rt.default_order_recorded(None, c);
+        let strict = |c: &oracle::CaseId| rt.first_recorded(c);
+        found.extend(al_test_cli::strict_order::passing_in_both(
+            &files, index, all_cases, &default, &strict,
+        ));
+    }
+    for (suite, (all, ix)) in version.suites.iter().zip(suite_data) {
+        let default = |c: &oracle::CaseId| rt.default_order_recorded(Some(&suite.name), c);
+        let strict = |c: &oracle::CaseId| rt.recorded_in(&suite.name, c);
+        found.extend(al_test_cli::strict_order::passing_in_both(
+            &files, ix, all, &default, &strict,
+        ));
+    }
+    found.iter().for_each(|f| {
+        eprintln!(
+            "BC {}: {}",
+            version.bc_version,
+            al_test_cli::strict_order::passing_in_both_line(f)
+        )
+    });
+    Ok(u8::from(!found.is_empty()))
 }
 
 /// The apps a pass compiles (`run_pass_compile`).
@@ -1724,7 +1770,7 @@ fn run_version_inner(
         cases: &cases,
         all: &all_cases,
         recorded: Box::new(|c| rt.first_recorded(c)),
-        area_of: Box::new(|cu| index.area_of(cu).map(str::to_string)),
+        index,
         selected: Box::new(|c| match &explained {
             Some((_, e)) => *c == e.id,
             None => !args.select.is_active() || args.select.matches(c, index),
@@ -1747,7 +1793,7 @@ fn run_version_inner(
             cases: suite_cases,
             all: suite_all,
             recorded: Box::new(|c| rt.recorded_in(&suite.name, c)),
-            area_of: Box::new(|cu| suite_index.area_of(cu).map(str::to_string)),
+            index: suite_index,
             selected: Box::new(|c| match &explained {
                 Some((_, e)) => *c == e.id,
                 None => !args.select.is_active() || args.select.matches(c, suite_index),
@@ -1759,7 +1805,7 @@ fn run_version_inner(
             let in_scope = |id: &oracle::CaseId| {
                 args.top_refusals_area
                     .as_ref()
-                    .is_none_or(|a| (t.area_of)(id.codeunit).is_some_and(|x| x.eq_ignore_ascii_case(a)))
+                    .is_none_or(|a| t.index.area_of(id.codeunit).is_some_and(|x| x.eq_ignore_ascii_case(a)))
             };
             let outcome = |c: &oracle::CaseId| {
                 (t.recorded)(c).unwrap_or_else(|| {
@@ -1779,8 +1825,9 @@ fn run_version_inner(
     } else {
         check_lists(args, root, &targets, Some((&renderer, render_note)))?
     };
+    let both = strict_files_in_both(root, index, pass.main, &all_cases, version, &suite_data, &rt)?;
     Ok(VersionRun {
-        code: if args.no_ratchet { 0 } else { code },
+        code: if args.no_ratchet { 0 } else { code.max(both) },
         oracle: oracle_ok,
         passing,
         rep: Some(rep),
@@ -1816,7 +1863,8 @@ struct Target<'a> {
     all: &'a [oracle::OracleCase],
     /// The outcome the run recorded, `None` when it recorded none.
     recorded: Box<Recorded<'a>>,
-    area_of: Box<dyn Fn(u32) -> Option<String> + 'a>,
+    /// The corpus index of the app (areas and files of its codeunits).
+    index: &'a corpus::CorpusIndex,
     /// Whether the selection picks a case (every case when nothing is selected).
     selected: Box<dyn Fn(&oracle::CaseId) -> bool + 'a>,
 }
@@ -1842,7 +1890,7 @@ fn check_lists(
     let mut writes: Vec<(PathBuf, String, Vec<String>)> = Vec::new();
     for t in targets {
         let Some(path) = &t.list_path else { continue };
-        let text = if path.exists() { read(path)? } else { String::new() };
+        let text = read_or_empty(path)?;
         let mut list = not_passing::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut notes = Vec::new();
         if let Some(base) = &base {
@@ -1884,7 +1932,10 @@ fn check_lists(
         if args.baseline_diff {
             println!(
                 "\n{}",
-                not_passing::render_diff(&format!("BC {}", t.label), c, &*t.area_of)
+                not_passing::render_diff(&format!("BC {}", t.label), c, &|cu| t
+                    .index
+                    .area_of(cu)
+                    .map(str::to_string))
             );
         }
         if args.no_ratchet {
@@ -1950,6 +2001,8 @@ struct StrictList {
     path: PathBuf,
     text: String,
     check: al_test_cli::strict_not_run::StrictCheck,
+    /// The files of `metrics/strict-order-files.txt`, for the note on a default-list case that passes here.
+    files: Vec<String>,
 }
 
 impl StrictList {
@@ -1961,7 +2014,13 @@ impl StrictList {
         };
         let strict = not_passing::parse(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         let check = al_test_cli::strict_not_run::check(list, &strict, t.all, &*t.selected, &*t.recorded);
-        Ok(StrictList { path, text, check })
+        let files = al_test_cli::strict_order::load(root)?.files;
+        Ok(StrictList {
+            path,
+            text,
+            check,
+            files,
+        })
     }
 
     /// The lists a case may be on, for the regression line.
@@ -1981,7 +2040,10 @@ impl StrictList {
                 t.label,
                 passing.len()
             );
-            passing.iter().for_each(|x| eprintln!("  {} {}", x.codeunit, x.name));
+            for x in passing {
+                let file = al_test_cli::strict_order::default_passing_file(&self.files, t.index, x.codeunit);
+                eprintln!("  {} {}{file}", x.codeunit, x.name);
+            }
         }
     }
 }
@@ -2231,6 +2293,7 @@ mod tests {
             },
             bc_failed: false,
         }];
+        let index = corpus::CorpusIndex::default();
         let target = |path: &Path| Target {
             label: "27.5".into(),
             major: 27,
@@ -2239,7 +2302,7 @@ mod tests {
             cases: &all,
             all: &all,
             recorded: Box::new(|_| Some(report::Outcome::Pass)),
-            area_of: Box::new(|_| None),
+            index: &index,
             selected: Box::new(|_| true),
         };
         let args = Args {

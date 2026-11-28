@@ -1,0 +1,1 @@
+Report and corpus-tooling change only: order hints, report counts and orderMode, and the al-test-cli strict-order list checks; no test outcome of an AL app changes.

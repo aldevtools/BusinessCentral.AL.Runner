@@ -3,8 +3,10 @@
 # NumberSequence values per test codeunit). Each pass runs the test codeunits of these files once more,
 # alone, with --strict-order, and their cases take that outcome. They must pass there; they get no
 # not-passing line. One path per line, relative to corpus/tests. Owner decision, 2026-11-09.
-# List a file whose codeunits write the state too (the P7 setter), so the strict run holds the writer.
-al-language/codeunits/TestCuP7ASetter.al
+# A file whose cases pass in both orders may not be listed (ADR-070 decision 5); the run fails on it. The exception is
+# a writer: list a file whose codeunits write the state a listed reader reads (the P7 setter) as
+# `<writer> writes-for <reader>`, so the strict run holds the writer while the reader needs it.
+al-language/codeunits/TestCuP7ASetter.al writes-for al-language/codeunits/TestCuP7BReader.al
 al-language/codeunits/TestCuP7BReader.al
 al-language/codeunits/run-onrun/SeqCarry.al
 al-language-testlibraries/test-framework/onrun-storage/Y35OnRunStorage.al
