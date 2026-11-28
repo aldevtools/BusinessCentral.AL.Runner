@@ -533,11 +533,12 @@ pub fn copy_of(v: &Value) -> Option<Value> {
 /// still that one, it keeps main's braced id; any other held Message (one the test wrote, also through TestField) gets
 /// main's answer.
 pub fn internal_scope_end_texts(held: &Value, collected: &str) -> (String, Option<String>) {
-    let stored = state_of(held, |s| s.collected_internal.clone()).flatten();
-    let exception_message = stored.filter(|m| m.message == collected).map(|m| {
-        crate::assumptions::assume(crate::assumptions::Assumption::ErrorInfoInternalText);
-        m.exception_message
-    });
+    let exception_message = state_of(held, |s| {
+        let stored = s.collected_internal.as_ref().filter(|m| m.message == collected);
+        stored.map(|m| m.exception_message.clone())
+    })
+    .flatten()
+    .inspect(|_| assume_measured(true));
     (collected.replace("\r\n", "\\"), exception_message)
 }
 
